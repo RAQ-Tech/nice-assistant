@@ -8,10 +8,13 @@ ENV PORT=3000 \
     ARCHIVE_DIR=/archives \
     AUDIO_HOT_LIMIT=200
 
-WORKDIR /app
-COPY app /app/app
-COPY web /app/web
-COPY assets /app/assets
+ENV PROJECT_ROOT=/data/project \
+    SYNC_PROJECT_ON_START=1
+
+WORKDIR /opt/nice-assistant
+COPY . /opt/nice-assistant
+COPY entrypoint.sh /entrypoint.sh
+RUN chmod +x /entrypoint.sh
 
 EXPOSE 3000
-CMD ["python", "-u", "app/server.py"]
+ENTRYPOINT ["/entrypoint.sh"]
