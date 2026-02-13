@@ -5,6 +5,7 @@ Containerized browser-first assistant with chat UI, persona/workspace memory tie
 ## Unraid quick setup
 
 - **Container Name:** `nice-assistant`
+- **Repository:** `ghcr.io/raq-tech/nice-assistant` (or `ghcr.io/raq-tech/nice-assistant:latest`)
 - **Image port:** `3000`
 - **Port mapping:** `3000:3000`
 - **WebUI:** `http://[IP]:3000`
@@ -12,10 +13,12 @@ Containerized browser-first assistant with chat UI, persona/workspace memory tie
 
 ### Recommended Unraid path mappings
 
-- `/mnt/cache/appdata/nice-assistant` -> `/data` (required working data)
+- `/mnt/cache/appdata/nice-assistant` -> `/data` (required)
 - `/mnt/user/Media/nice-assistant/archives` -> `/archives` (required archive target)
 
-This app writes only in `/data` and `/archives`.
+On container startup, the image automatically syncs project files into `/data/project` so the working source files live on your appdata share instead of only inside the image.
+
+When this repository gets new commits on `main`, the GitHub Actions workflow publishes a refreshed `:latest` image to GHCR. In Unraid, using the repository above lets the **Update** button pull and redeploy that new image.
 
 ## Environment variables (defaults)
 
@@ -24,6 +27,8 @@ This app writes only in `/data` and `/archives`.
 - `DATA_DIR=/data`
 - `ARCHIVE_DIR=/archives`
 - `AUDIO_HOT_LIMIT=200`
+- `PROJECT_ROOT=/data/project`
+- `SYNC_PROJECT_ON_START=1` (set to `0` to keep local edits and skip overwrite from image)
 
 ## Features included in this scaffold
 
