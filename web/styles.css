@@ -269,19 +269,81 @@ button, input, select, textarea {
   transform: translateY(0);
 }
 
-.settings-pop {
+.settings-screen {
   position: absolute;
-  right: 1.4rem;
-  top: 5.4rem;
-  width: min(560px, 94vw);
-  max-height: calc(100vh - 7rem);
-  overflow: auto;
-  padding: .8rem;
-  z-index: 20;
+  inset: 0;
+  z-index: 30;
+  background: var(--bg-soft);
+  padding: 1rem;
+  overflow: hidden;
+  display: grid;
+  grid-template-rows: auto auto 1fr;
+  gap: .9rem;
+}
+
+.settings-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: .8rem;
+}
+
+.settings-layout {
+  min-height: 0;
+  display: grid;
+  grid-template-columns: minmax(220px, 280px) 1fr;
+  gap: .9rem;
+}
+
+.settings-nav {
+  padding: .7rem;
   display: flex;
   flex-direction: column;
-  gap: .65rem;
+  gap: .45rem;
+  overflow: auto;
 }
+
+.settings-nav-item {
+  width: 100%;
+  text-align: left;
+  border: 1px solid var(--border);
+  background: rgba(20, 36, 52, 0.4);
+  border-radius: 10px;
+  padding: .55rem .65rem;
+  cursor: pointer;
+}
+
+.settings-nav-item.active {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+
+.settings-detail {
+  min-height: 0;
+  overflow: auto;
+  padding: .8rem;
+  display: flex;
+  flex-direction: column;
+  gap: .6rem;
+}
+
+.settings-section-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: .6rem;
+}
+
+.settings-section-head h3 {
+  margin: 0;
+}
+
+.checkbox-row {
+  display: flex;
+  align-items: center;
+  gap: .5rem;
+}
+
 
 .status { position: fixed; top: .75rem; right: .75rem; }
 .viz-wrap { position: fixed; inset: 0; pointer-events: none; display: none; z-index: 2; opacity:.45; }
@@ -295,4 +357,7 @@ button, input, select, textarea {
   .drawer { inset: .4rem auto .4rem .4rem; }
   .jump-btn { right: 1rem; bottom: 9.5rem; }
   .compact-select { min-width: 110px; max-width: 180px; }
+  .settings-screen { padding: .6rem; }
+  .settings-layout { grid-template-columns: 1fr; }
+  .settings-nav { max-height: 180px; }
 }
