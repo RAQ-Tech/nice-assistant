@@ -279,10 +279,12 @@ function authView() {
     el('div', { class: 'chips' }, [
       el('button', {
         class: 'pill-btn', textContent: 'Create account', onclick: async () => {
+          const username = (document.getElementById('u')?.value || '').trim();
+          const password = document.getElementById('p')?.value || '';
           state.authError = '';
           render();
           try {
-            await api('/api/users', { method: 'POST', body: JSON.stringify({ username: u.value, password: p.value }) });
+            await api('/api/users', { method: 'POST', body: JSON.stringify({ username, password }) });
             alert('Account created');
           } catch (e) {
             state.authError = e.message || 'Unable to create account.';
@@ -292,10 +294,12 @@ function authView() {
       }),
       el('button', {
         class: 'send-btn', textContent: 'Login', onclick: async () => {
+          const username = (document.getElementById('u')?.value || '').trim();
+          const password = document.getElementById('p')?.value || '';
           state.authError = '';
           render();
           try {
-            await api('/api/login', { method: 'POST', body: JSON.stringify({ username: u.value, password: p.value }) });
+            await api('/api/login', { method: 'POST', body: JSON.stringify({ username, password }) });
             await refresh();
           } catch (e) {
             state.authError = e.message || 'Wrong username and/or password.';
