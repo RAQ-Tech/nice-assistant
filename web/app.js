@@ -25,6 +25,7 @@ const state = {
   sessionTimer: 0,
   authError: '',
   uiError: '',
+  settingsError: '',
 };
 
 document.documentElement.setAttribute('data-theme', state.theme);
@@ -166,6 +167,12 @@ function setUiError(message) {
   render();
 }
 
+function syntheticSystemMessage(personaId) {
+  const persona = state.personas.find((p) => p.id === personaId);
+  if (!persona?.system_prompt) return [];
+  return [{ id: '__sys_prompt__', role: 'system', text: `[Persona system prompt]\n${persona.system_prompt}` }];
+}
+
 async function openChat(chat) {
   state.currentChat = chat;
   const detail = await api(`/api/chats/${chat.id}`);
@@ -176,6 +183,22 @@ async function openChat(chat) {
     state.drawerOpen = false;
     render();
   }
+}
+
+async function hideChat(chatId) {
+  await api(`/api/chats/${chatId}`, { method: 'DELETE' });
+  if (state.currentChat?.id === chatId) {
+    state.currentChat = null;
+    state.messages = [];
+  }
+  await refresh();
+}
+
+async function renameChat(chat) {
+  const nextTitle = prompt('Rename chat', chat.title || 'New chat');
+  if (!nextTitle?.trim()) return;
+  await api(`/api/chats/${chat.id}`, { method: 'PUT', body: JSON.stringify({ title: nextTitle.trim() }) });
+  await refresh();
 }
 
 async function sendChat(text) {
@@ -308,10 +331,43 @@ function onMessageScroll(e) {
   if (jumpBtn) jumpBtn.classList.toggle('show', state.showJumpBottom);
 }
 
+function managerRow(title, actions = []) {
+  return el('div', { class: 'manager-row' }, [el('span', { textContent: title }), el('div', { class: 'chips' }, actions)]);
+}
+
 function settingsPanel() {
   if (!state.showSettings) return null;
+  const workspaceRows = state.workspaces.map((w) => managerRow(w.name, [
+    el('button', { class: 'icon-btn', textContent: 'Rename', onclick: async () => {
+      const name = prompt('Rename workspace', w.name);
+      if (!name?.trim()) return;
+      try { await api(`/api/workspaces/${w.id}`, { method: 'PUT', body: JSON.stringify({ name: name.trim() }) }); await refresh(); }
+      catch (e) { state.settingsError = e.message; render(); }
+    } }),
+    el('button', { class: 'icon-btn', textContent: 'Delete', onclick: async () => {
+      if (!confirm(`Delete workspace \"${w.name}\"?`)) return;
+      try { await api(`/api/workspaces/${w.id}`, { method: 'DELETE' }); await refresh(); }
+      catch (e) { state.settingsError = e.message; render(); }
+    } }),
+  ]));
+
+  const personaRows = state.personas.map((p) => managerRow(p.name, [
+    el('button', { class: 'icon-btn', textContent: 'Rename', onclick: async () => {
+      const name = prompt('Rename persona', p.name);
+      if (!name?.trim()) return;
+      try { await api(`/api/personas/${p.id}`, { method: 'PUT', body: JSON.stringify({ name: name.trim() }) }); await refresh(); }
+      catch (e) { state.settingsError = e.message; render(); }
+    } }),
+    el('button', { class: 'icon-btn', textContent: 'Delete', onclick: async () => {
+      if (!confirm(`Delete persona \"${p.name}\"?`)) return;
+      try { await api(`/api/personas/${p.id}`, { method: 'DELETE' }); await refresh(); }
+      catch (e) { state.settingsError = e.message; render(); }
+    } }),
+  ]));
+
   return el('div', { class: 'settings-pop glass' }, [
-    el('strong', { textContent: 'Settings' }),
+    el('strong', { textContent: 'Settings & Management' }),
+    state.settingsError ? el('div', { class: 'error-banner', textContent: state.settingsError }) : null,
     el('label', { textContent: 'Theme' }),
     el('select', {
       class: 'chip-select', onchange: (e) => {
@@ -331,10 +387,35 @@ function settingsPanel() {
           method: 'POST',
           body: JSON.stringify({ ...state.settings, tts_provider: ttsSel.value, stt_provider: sttSel.value, openai_api_key: apiKeyInput.value }),
         });
-        state.showSettings = false;
+        state.settingsError = '';
         await refresh();
       },
     }),
+    el('hr'),
+    el('strong', { textContent: 'Workspaces' }),
+    ...workspaceRows,
+    el('button', { class: 'pill-btn', textContent: '+ Add workspace', onclick: async () => {
+      const name = prompt('Workspace name', 'New workspace');
+      if (!name?.trim()) return;
+      try { await api('/api/workspaces', { method: 'POST', body: JSON.stringify({ name: name.trim() }) }); await refresh(); }
+      catch (e) { state.settingsError = e.message; render(); }
+    } }),
+    el('hr'),
+    el('strong', { textContent: 'Personas' }),
+    ...personaRows,
+    el('button', { class: 'pill-btn', textContent: '+ Add persona', onclick: async () => {
+      const name = prompt('Persona name', 'Assistant');
+      if (!name?.trim()) return;
+      const workspaceId = state.workspaces[0]?.id;
+      if (!workspaceId) { state.settingsError = 'Create a workspace first.'; render(); return; }
+      try {
+        await api('/api/personas', {
+          method: 'POST',
+          body: JSON.stringify({ workspaceId, name: name.trim(), systemPrompt: 'Be helpful and concise.', defaultModel: state.models[0] || '' }),
+        });
+        await refresh();
+      } catch (e) { state.settingsError = e.message; render(); }
+    } }),
   ]);
 }
 
@@ -371,13 +452,18 @@ function render() {
 
   const currentChatTitle = state.currentChat?.title || state.chats.find((c) => c.id === state.currentChat?.id)?.title || 'New conversation';
   const activeWorkspace = state.workspaces.find((w) => w.id === state.currentChat?.workspace_id)?.name || 'Workspace';
-  const personaName = state.personas.find((p) => p.id === (state.currentChat?.persona_id || document.getElementById('personaSel')?.value))?.name || 'Persona';
+  const selectedPersonaId = state.currentChat?.persona_id || document.getElementById('personaSel')?.value;
+  const personaName = state.personas.find((p) => p.id === selectedPersonaId)?.name || 'Persona';
 
   const chatList = state.chats
     .filter((c) => (c.title || '').toLowerCase().includes(state.chatSearch.toLowerCase()))
     .map((c) => el('div', { class: `chat-row ${c.id === state.currentChat?.id ? 'active' : ''}`, onclick: () => openChat(c) }, [
       el('div', { class: 'title', textContent: c.title || 'Untitled chat' }),
       el('div', { class: 'meta', textContent: fmtDate(c.updated_at || c.created_at) }),
+      el('div', { class: 'chat-actions' }, [
+        el('button', { class: 'icon-btn', textContent: '✎', title: 'Rename chat', onclick: async (e) => { e.stopPropagation(); await renameChat(c); } }),
+        el('button', { class: 'icon-btn', textContent: '🗑', title: 'Hide chat', onclick: async (e) => { e.stopPropagation(); await hideChat(c.id); } }),
+      ]),
     ]));
 
   const drawer = el('aside', { class: `drawer glass ${state.drawerOpen ? 'open' : ''}` }, [
@@ -395,6 +481,8 @@ function render() {
   ]);
 
   const personaId = state.currentChat?.persona_id;
+  const messagesForRender = [...(state.showSystemMessages ? syntheticSystemMessage(selectedPersonaId) : []), ...state.messages];
+
   const composer = el('div', { class: 'composer' }, [
     el('input', {
       id: 'chatInput',
@@ -432,14 +520,14 @@ function render() {
 
   const main = el('main', { class: 'main-pane glass' }, [
     topbar,
-    el('div', { class: 'chips' }, [
-      el('select', { id: 'personaSel', class: 'chip-select' }, state.personas.map((p) => el('option', { value: p.id, textContent: p.name, selected: p.id === state.currentChat?.persona_id }))),
-      el('select', { id: 'modelSel', class: 'chip-select' }, state.models.map((m) => el('option', { value: m, textContent: m, selected: m === state.currentChat?.model_override || m === state.settings?.global_default_model }))),
-      el('select', { id: 'memSel', class: 'chip-select' }, ['off', 'manual', 'auto'].map((m) => el('option', { value: m, textContent: `Memory: ${m}`, selected: m === (state.currentChat?.memory_mode || state.settings?.default_memory_mode || 'auto') }))),
+    el('div', { class: 'chips selector-row' }, [
+      el('select', { id: 'personaSel', class: 'chip-select compact-select' }, state.personas.map((p) => el('option', { value: p.id, textContent: p.name, selected: p.id === state.currentChat?.persona_id }))),
+      el('select', { id: 'modelSel', class: 'chip-select compact-select' }, state.models.map((m) => el('option', { value: m, textContent: m, selected: m === state.currentChat?.model_override || m === state.settings?.global_default_model }))),
+      el('select', { id: 'memSel', class: 'chip-select compact-select' }, ['off', 'manual', 'auto'].map((m) => el('option', { value: m, textContent: `Memory: ${m}`, selected: m === (state.currentChat?.memory_mode || state.settings?.default_memory_mode || 'auto') }))),
       el('button', { class: 'pill-btn', textContent: state.showSystemMessages ? 'Hide system/tool' : 'Show system/tool', onclick: () => { state.showSystemMessages = !state.showSystemMessages; render(); } }),
     ]),
     el('section', { id: 'messagesPane', class: 'message-pane glass', onscroll: onMessageScroll },
-      state.messages.map((m) => messageItem(m, personaId)).filter(Boolean)
+      messagesForRender.map((m) => messageItem(m, personaId)).filter(Boolean)
     ),
     state.uiError ? el('div', { class: 'error-banner', textContent: state.uiError }) : null,
     el('div', { class: 'record-indicator', textContent: state.recording ? `● Recording… ${Math.floor((Date.now() - state.recStart) / 1000)}s` : 'Ready' }),
@@ -451,6 +539,5 @@ function render() {
   const viz = el('div', { class: `viz-wrap ${state.showViz ? 'show' : ''}` }, [vizCanvas()]);
   app.append(el('div', { class: 'app-shell' }, [scrim, drawer, main, settingsPanel(), jumpBtn, viz]));
 }
-
 
 refresh().then(ensureWizard);

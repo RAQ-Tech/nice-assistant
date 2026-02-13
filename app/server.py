@@ -84,6 +84,7 @@ def init_db():
             model_override TEXT,
             memory_mode TEXT DEFAULT 'auto',
             title TEXT,
+            hidden_in_ui INTEGER DEFAULT 0,
             created_at INTEGER NOT NULL,
             updated_at INTEGER NOT NULL
         );
@@ -128,6 +129,11 @@ def init_db():
     if "expires_at" not in cols:
         conn.execute("ALTER TABLE sessions ADD COLUMN expires_at INTEGER")
         conn.execute("UPDATE sessions SET expires_at = created_at + ? WHERE expires_at IS NULL", (SESSION_TTL_SECONDS,))
+        conn.commit()
+    chat_cols = {r[1] for r in conn.execute("PRAGMA table_info(chats)").fetchall()}
+    if "hidden_in_ui" not in chat_cols:
+        conn.execute("ALTER TABLE chats ADD COLUMN hidden_in_ui INTEGER DEFAULT 0")
+        conn.execute("UPDATE chats SET hidden_in_ui = 0 WHERE hidden_in_ui IS NULL")
         conn.commit()
     conn.close()
 
@@ -328,7 +334,7 @@ class Handler(BaseHTTPRequestHandler):
         if self.path == "/api/chats":
             uid = self._require_auth();
             if not uid: return
-            conn = db_conn(); rows = [dict(r) for r in conn.execute("SELECT * FROM chats WHERE user_id=? ORDER BY updated_at DESC", (uid,)).fetchall()]; conn.close()
+            conn = db_conn(); rows = [dict(r) for r in conn.execute("SELECT * FROM chats WHERE user_id=? AND COALESCE(hidden_in_ui,0)=0 ORDER BY updated_at DESC", (uid,)).fetchall()]; conn.close()
             return self._json({"items": rows})
         if self.path.startswith("/api/chats/"):
             uid = self._require_auth();
@@ -414,7 +420,7 @@ class Handler(BaseHTTPRequestHandler):
             return self._json({"id": pid})
         if self.path == "/api/chats":
             b = self._read_json(); cid = secrets.token_hex(8); t=now_ts()
-            conn = db_conn(); conn.execute("INSERT INTO chats(id,user_id,workspace_id,persona_id,model_override,memory_mode,title,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?)", (cid,uid,b.get("workspaceId"),b.get("personaId"),b.get("model"),b.get("memoryMode","auto"),b.get("title","New chat"),t,t)); conn.commit(); conn.close()
+            conn = db_conn(); conn.execute("INSERT INTO chats(id,user_id,workspace_id,persona_id,model_override,memory_mode,title,hidden_in_ui,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?)", (cid,uid,b.get("workspaceId"),b.get("personaId"),b.get("model"),b.get("memoryMode","auto"),b.get("title","New chat"),0,t,t)); conn.commit(); conn.close()
             return self._json({"id": cid})
         if self.path == "/api/chat":
             b = self._read_json(); text = b.get("text", "").strip();
@@ -427,7 +433,7 @@ class Handler(BaseHTTPRequestHandler):
                 chat = None
             if not chat:
                 chat_id = secrets.token_hex(8)
-                conn.execute("INSERT INTO chats(id,user_id,persona_id,model_override,memory_mode,title,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?)", (chat_id,uid,b.get("personaId"),b.get("model"),b.get("memoryMode","auto"),text[:40],t,t))
+                conn.execute("INSERT INTO chats(id,user_id,persona_id,model_override,memory_mode,title,hidden_in_ui,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?)", (chat_id,uid,b.get("personaId"),b.get("model"),b.get("memoryMode","auto"),text[:40],0,t,t))
                 chat = conn.execute("SELECT * FROM chats WHERE id=?", (chat_id,)).fetchone()
             mem_mode = b.get("memoryMode") or chat["memory_mode"] or "auto"
             persona_id = b.get("personaId") or chat["persona_id"]
@@ -525,8 +531,45 @@ class Handler(BaseHTTPRequestHandler):
         uid = self._require_auth();
         if not uid: return
         if self.path.startswith("/api/chats/"):
-            chat_id=self.path.rsplit("/",1)[-1]; b=self._read_json()
-            conn=db_conn(); conn.execute("UPDATE chats SET model_override=?, memory_mode=?, persona_id=?, updated_at=? WHERE id=? AND user_id=?", (b.get("model_override"), b.get("memory_mode"), b.get("persona_id"), now_ts(), chat_id, uid)); conn.commit(); conn.close(); return self._json({"ok":True})
+            chat_id = self.path.rsplit("/", 1)[-1]; b = self._read_json()
+            conn = db_conn()
+            chat = conn.execute("SELECT * FROM chats WHERE id=? AND user_id=?", (chat_id, uid)).fetchone()
+            if not chat:
+                conn.close(); return self._json({"error": "not found"}, 404)
+            conn.execute("UPDATE chats SET title=?, model_override=?, memory_mode=?, persona_id=?, hidden_in_ui=?, updated_at=? WHERE id=? AND user_id=?", (
+                b.get("title", chat["title"]),
+                b.get("model_override", chat["model_override"]),
+                b.get("memory_mode", chat["memory_mode"]),
+                b.get("persona_id", chat["persona_id"]),
+                int(bool(b.get("hidden_in_ui", chat["hidden_in_ui"]))),
+                now_ts(),
+                chat_id,
+                uid,
+            ))
+            conn.commit(); conn.close(); return self._json({"ok": True})
+        if self.path.startswith("/api/workspaces/"):
+            wid = self.path.rsplit("/", 1)[-1]; b = self._read_json()
+            new_name = (b.get("name") or "").strip()
+            if not new_name: return self._json({"error": "name required"}, 400)
+            conn = db_conn()
+            row = conn.execute("SELECT id FROM workspaces WHERE id=? AND user_id=?", (wid, uid)).fetchone()
+            if not row:
+                conn.close(); return self._json({"error": "not found"}, 404)
+            conn.execute("UPDATE workspaces SET name=? WHERE id=? AND user_id=?", (new_name, wid, uid))
+            conn.commit(); conn.close(); return self._json({"ok": True})
+        if self.path.startswith("/api/personas/"):
+            pid = self.path.rsplit("/", 1)[-1]; b = self._read_json()
+            conn = db_conn()
+            row = conn.execute("SELECT p.* FROM personas p JOIN workspaces w ON p.workspace_id=w.id WHERE p.id=? AND w.user_id=?", (pid, uid)).fetchone()
+            if not row:
+                conn.close(); return self._json({"error": "not found"}, 404)
+            conn.execute("UPDATE personas SET name=?, system_prompt=?, default_model=? WHERE id=?", (
+                b.get("name", row["name"]),
+                b.get("system_prompt", row["system_prompt"]),
+                b.get("default_model", row["default_model"]),
+                pid,
+            ))
+            conn.commit(); conn.close(); return self._json({"ok": True})
         return self._json({"error":"not found"},404)
 
     def do_DELETE(self):
@@ -535,6 +578,32 @@ class Handler(BaseHTTPRequestHandler):
         if self.path.startswith("/api/memory/"):
             mid=self.path.rsplit("/",1)[-1]
             conn=db_conn(); conn.execute("DELETE FROM memories WHERE id=? AND user_id=?", (mid,uid)); conn.commit(); conn.close(); return self._json({"ok":True})
+        if self.path.startswith("/api/chats/"):
+            chat_id = self.path.rsplit("/", 1)[-1]
+            conn = db_conn(); conn.execute("UPDATE chats SET hidden_in_ui=1, updated_at=? WHERE id=? AND user_id=?", (now_ts(), chat_id, uid)); conn.commit(); conn.close(); return self._json({"ok": True})
+        if self.path.startswith("/api/personas/"):
+            pid = self.path.rsplit("/", 1)[-1]
+            conn = db_conn()
+            owns = conn.execute("SELECT p.id FROM personas p JOIN workspaces w ON p.workspace_id=w.id WHERE p.id=? AND w.user_id=?", (pid, uid)).fetchone()
+            if not owns:
+                conn.close(); return self._json({"error": "not found"}, 404)
+            conn.execute("UPDATE chats SET persona_id=NULL WHERE user_id=? AND persona_id=?", (uid, pid))
+            conn.execute("DELETE FROM memories WHERE user_id=? AND tier='persona' AND tier_ref_id=?", (uid, pid))
+            conn.execute("DELETE FROM personas WHERE id=?", (pid,))
+            conn.commit(); conn.close(); return self._json({"ok": True})
+        if self.path.startswith("/api/workspaces/"):
+            wid = self.path.rsplit("/", 1)[-1]
+            conn = db_conn()
+            owns = conn.execute("SELECT id FROM workspaces WHERE id=? AND user_id=?", (wid, uid)).fetchone()
+            if not owns:
+                conn.close(); return self._json({"error": "not found"}, 404)
+            persona_count = conn.execute("SELECT COUNT(*) AS c FROM personas WHERE workspace_id=?", (wid,)).fetchone()["c"]
+            chat_count = conn.execute("SELECT COUNT(*) AS c FROM chats WHERE user_id=? AND workspace_id=?", (uid, wid)).fetchone()["c"]
+            if persona_count or chat_count:
+                conn.close(); return self._json({"error": "workspace not empty; remove personas/chats first"}, 400)
+            conn.execute("DELETE FROM memories WHERE user_id=? AND tier='workspace' AND tier_ref_id=?", (uid, wid))
+            conn.execute("DELETE FROM workspaces WHERE id=? AND user_id=?", (wid, uid))
+            conn.commit(); conn.close(); return self._json({"ok": True})
         return self._json({"error":"not found"},404)
 
 
