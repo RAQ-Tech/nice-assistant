@@ -23,6 +23,7 @@ DATA_DIR = Path(os.getenv("DATA_DIR", "/data"))
 ARCHIVE_DIR = Path(os.getenv("ARCHIVE_DIR", "/archives"))
 AUDIO_HOT_LIMIT = int(os.getenv("AUDIO_HOT_LIMIT", "200"))
 SESSION_COOKIE = "nice_assistant_session"
+SESSION_TTL_SECONDS = int(os.getenv("SESSION_TTL_SECONDS", "1800"))
 
 AUDIO_DIR = DATA_DIR / "audio"
 LOG_DIR = DATA_DIR / "logs"
@@ -56,7 +57,8 @@ def init_db():
         CREATE TABLE IF NOT EXISTS sessions (
             token TEXT PRIMARY KEY,
             user_id TEXT NOT NULL,
-            created_at INTEGER NOT NULL
+            created_at INTEGER NOT NULL,
+            expires_at INTEGER NOT NULL
         );
         CREATE TABLE IF NOT EXISTS workspaces (
             id TEXT PRIMARY KEY,
@@ -122,6 +124,11 @@ def init_db():
         """
     )
     conn.commit()
+    cols = {r[1] for r in conn.execute("PRAGMA table_info(sessions)").fetchall()}
+    if "expires_at" not in cols:
+        conn.execute("ALTER TABLE sessions ADD COLUMN expires_at INTEGER")
+        conn.execute("UPDATE sessions SET expires_at = created_at + ? WHERE expires_at IS NULL", (SESSION_TTL_SECONDS,))
+        conn.commit()
     conn.close()
 
 
@@ -272,7 +279,11 @@ class Handler(BaseHTTPRequestHandler):
         if not tok:
             return None
         conn = db_conn()
-        row = conn.execute("SELECT user_id FROM sessions WHERE token=?", (tok.value,)).fetchone()
+        row = conn.execute("SELECT user_id, expires_at FROM sessions WHERE token=?", (tok.value,)).fetchone()
+        if row and row["expires_at"] and row["expires_at"] <= now_ts():
+            conn.execute("DELETE FROM sessions WHERE token=?", (tok.value,))
+            conn.commit()
+            row = None
         conn.close()
         return row["user_id"] if row else None
 
@@ -349,6 +360,12 @@ class Handler(BaseHTTPRequestHandler):
             if not uid: return
             conn = db_conn(); row = conn.execute("SELECT * FROM app_settings WHERE user_id=?", (uid,)).fetchone(); conn.close()
             return self._json({"settings": dict(row) if row else {"default_memory_mode": "auto", "stt_provider": "disabled", "tts_provider": "disabled", "tts_format": "wav"}})
+        if self.path == "/api/session":
+            uid = self._require_auth();
+            if not uid: return
+            tok = self._cookies().get(SESSION_COOKIE)
+            conn = db_conn(); row = conn.execute("SELECT expires_at FROM sessions WHERE token=? AND user_id=?", (tok.value, uid)).fetchone(); conn.close()
+            return self._json({"expiresAt": row["expires_at"] if row else None, "ttlSeconds": SESSION_TTL_SECONDS, "now": now_ts()})
         # static
         rel = self.path if self.path != "/" else "/index.html"
         target = (WEB_DIR / rel.lstrip("/")).resolve()
@@ -376,8 +393,15 @@ class Handler(BaseHTTPRequestHandler):
             conn = db_conn(); row = conn.execute("SELECT * FROM users WHERE username=?", (username,)).fetchone()
             if not row or not verify_password(password, row["password_hash"]): conn.close(); return self._json({"error": "invalid credentials"}, 401)
             tok = secrets.token_hex(24)
-            conn.execute("INSERT INTO sessions(token,user_id,created_at) VALUES (?,?,?)", (tok, row["id"], now_ts())); conn.commit(); conn.close()
-            return self._json({"ok": True, "userId": row["id"]}, cookie=f"{SESSION_COOKIE}={tok}; Path=/; HttpOnly; SameSite=Lax")
+            created = now_ts()
+            expires = created + SESSION_TTL_SECONDS
+            conn.execute("INSERT INTO sessions(token,user_id,created_at,expires_at) VALUES (?,?,?,?)", (tok, row["id"], created, expires)); conn.commit(); conn.close()
+            return self._json({"ok": True, "userId": row["id"], "expiresAt": expires, "ttlSeconds": SESSION_TTL_SECONDS}, cookie=f"{SESSION_COOKIE}={tok}; Max-Age={SESSION_TTL_SECONDS}; Path=/; HttpOnly; SameSite=Lax")
+        if self.path == "/api/logout":
+            tok = self._cookies().get(SESSION_COOKIE)
+            if tok:
+                conn = db_conn(); conn.execute("DELETE FROM sessions WHERE token=?", (tok.value,)); conn.commit(); conn.close()
+            return self._json({"ok": True}, cookie=f"{SESSION_COOKIE}=; Max-Age=0; Path=/; HttpOnly; SameSite=Lax")
         uid = self._require_auth()
         if not uid: return
         if self.path == "/api/workspaces":
