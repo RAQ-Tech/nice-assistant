@@ -26,6 +26,10 @@ const state = {
   authError: '',
   uiError: '',
   settingsError: '',
+  selectedPersonaId: null,
+  selectedModel: null,
+  selectedMemoryMode: null,
+  draftMessage: '',
 };
 
 document.documentElement.setAttribute('data-theme', state.theme);
@@ -176,6 +180,10 @@ function syntheticSystemMessage(personaId) {
 async function openChat(chat) {
   state.currentChat = chat;
   const detail = await api(`/api/chats/${chat.id}`);
+  state.currentChat = detail.chat || chat;
+  state.selectedPersonaId = detail.chat?.persona_id || chat.persona_id || null;
+  state.selectedModel = detail.chat?.model_override || chat.model_override || state.settings?.global_default_model || state.models[0] || null;
+  state.selectedMemoryMode = detail.chat?.memory_mode || chat.memory_mode || state.settings?.default_memory_mode || 'auto';
   state.messages = detail.messages;
   render();
   scrollMessagesToBottom(false);
@@ -204,16 +212,24 @@ async function renameChat(chat) {
 async function sendChat(text) {
   if (!text?.trim()) return;
   setUiError('');
+  const trimmed = text.trim();
+  state.draftMessage = '';
   state.status = 'Thinking';
+  const pendingMessage = { id: `__pending__${Date.now()}`, role: 'user', text: trimmed };
+  state.messages = [...state.messages, pendingMessage];
   render();
+  scrollMessagesToBottom(false);
   try {
-    const personaId = document.getElementById('personaSel')?.value || state.currentChat?.persona_id;
-    const model = document.getElementById('modelSel')?.value || state.currentChat?.model_override;
-    const memoryMode = document.getElementById('memSel')?.value || 'auto';
-    const r = await api('/api/chat', { method: 'POST', body: JSON.stringify({ text, chatId: state.currentChat?.id, personaId, model, memoryMode }) });
+    const personaId = state.selectedPersonaId || state.currentChat?.persona_id || null;
+    const model = state.selectedModel || state.currentChat?.model_override || null;
+    const memoryMode = state.selectedMemoryMode || state.currentChat?.memory_mode || 'auto';
+    const r = await api('/api/chat', { method: 'POST', body: JSON.stringify({ text: trimmed, chatId: state.currentChat?.id, personaId, model, memoryMode }) });
     state.currentChat = { ...(state.currentChat || {}), id: r.chatId, persona_id: personaId, model_override: model, memory_mode: memoryMode };
     const detail = await api(`/api/chats/${r.chatId}`);
     state.messages = detail.messages;
+    state.selectedPersonaId = detail.chat?.persona_id || state.selectedPersonaId;
+    state.selectedModel = detail.chat?.model_override || state.selectedModel;
+    state.selectedMemoryMode = detail.chat?.memory_mode || state.selectedMemoryMode;
     render();
     scrollMessagesToBottom();
 
@@ -228,9 +244,9 @@ async function sendChat(text) {
       state.status = 'Idle';
     }
 
-    document.getElementById('chatInput').value = '';
     refresh();
   } catch (e) {
+    state.messages = state.messages.filter((m) => m.id !== pendingMessage.id);
     state.status = 'Idle';
     setUiError(e.message || 'Failed to send message.');
   }
@@ -427,9 +443,11 @@ function messageItem(m, personaId) {
   const isUser = m.role === 'user';
   const hidden = !state.showSystemMessages && (m.role === 'system' || m.role === 'tool');
   if (hidden) return null;
+  const personaName = state.personas.find((p) => p.id === (personaId || state.selectedPersonaId))?.name || 'assistant';
+  const roleLabel = isUser ? 'You' : (m.role === 'assistant' ? personaName : m.role);
   return el('div', { class: `msg-wrap ${isUser ? 'user' : ''}` }, [
     el('article', { class: `msg ${isUser ? 'user' : 'assistant'}` }, [
-      el('small', { textContent: isUser ? 'You' : m.role }),
+      el('small', { textContent: roleLabel }),
       el('div', { html: md(m.text || '') }),
       el('div', { class: 'msg-actions' }, [
         el('button', { class: 'icon-btn', textContent: '⧉', title: 'Copy', onclick: () => navigator.clipboard.writeText(m.text || '') }),
@@ -456,7 +474,9 @@ function render() {
 
   const currentChatTitle = state.currentChat?.title || state.chats.find((c) => c.id === state.currentChat?.id)?.title || 'New conversation';
   const activeWorkspace = state.workspaces.find((w) => w.id === state.currentChat?.workspace_id)?.name || 'Workspace';
-  const selectedPersonaId = state.currentChat?.persona_id || document.getElementById('personaSel')?.value;
+  const selectedPersonaId = state.selectedPersonaId || state.currentChat?.persona_id || state.personas[0]?.id;
+  const selectedModel = state.selectedModel || state.currentChat?.model_override || state.settings?.global_default_model || state.models[0] || '';
+  const selectedMemoryMode = state.selectedMemoryMode || state.currentChat?.memory_mode || state.settings?.default_memory_mode || 'auto';
   const personaName = state.personas.find((p) => p.id === selectedPersonaId)?.name || 'Persona';
 
   const chatList = state.chats
@@ -491,7 +511,9 @@ function render() {
     el('input', {
       id: 'chatInput',
       class: 'composer-input',
+      value: state.draftMessage,
       placeholder: 'Ask anything… (Shift+Enter for new line)',
+      oninput: (e) => { state.draftMessage = e.target.value; },
       onkeydown: (e) => {
         if (e.key === 'Enter' && !e.shiftKey) {
           e.preventDefault();
@@ -499,7 +521,7 @@ function render() {
         }
       },
     }),
-    el('button', { class: 'send-btn', textContent: 'Send', onclick: () => sendChat(document.getElementById('chatInput').value) }),
+    el('button', { class: 'send-btn', textContent: 'Send', onclick: () => sendChat(state.draftMessage) }),
     el('button', {
       class: `talk-btn ${state.recording ? 'active' : ''}`,
       textContent: state.recording ? `Recording ${Math.floor((Date.now() - state.recStart) / 1000)}s` : 'Hold to Talk',
@@ -525,9 +547,15 @@ function render() {
   const main = el('main', { class: 'main-pane glass' }, [
     topbar,
     el('div', { class: 'chips selector-row' }, [
-      el('select', { id: 'personaSel', class: 'chip-select compact-select' }, state.personas.map((p) => el('option', { value: p.id, textContent: p.name, selected: p.id === state.currentChat?.persona_id }))),
-      el('select', { id: 'modelSel', class: 'chip-select compact-select' }, state.models.map((m) => el('option', { value: m, textContent: m, selected: m === state.currentChat?.model_override || m === state.settings?.global_default_model }))),
-      el('select', { id: 'memSel', class: 'chip-select compact-select' }, ['off', 'manual', 'auto'].map((m) => el('option', { value: m, textContent: `Memory: ${m}`, selected: m === (state.currentChat?.memory_mode || state.settings?.default_memory_mode || 'auto') }))),
+      el('select', {
+        id: 'personaSel', class: 'chip-select compact-select', value: selectedPersonaId, onchange: (e) => { state.selectedPersonaId = e.target.value; },
+      }, state.personas.map((p) => el('option', { value: p.id, textContent: p.name, selected: p.id === selectedPersonaId }))),
+      el('select', {
+        id: 'modelSel', class: 'chip-select compact-select', value: selectedModel, onchange: (e) => { state.selectedModel = e.target.value; },
+      }, state.models.map((m) => el('option', { value: m, textContent: m, selected: m === selectedModel }))),
+      el('select', {
+        id: 'memSel', class: 'chip-select compact-select', value: selectedMemoryMode, onchange: (e) => { state.selectedMemoryMode = e.target.value; },
+      }, ['off', 'manual', 'auto'].map((m) => el('option', { value: m, textContent: `Memory: ${m}`, selected: m === selectedMemoryMode }))),
       el('button', { class: 'pill-btn', textContent: state.showSystemMessages ? 'Hide system/tool' : 'Show system/tool', onclick: () => { state.showSystemMessages = !state.showSystemMessages; render(); } }),
     ]),
     el('section', { id: 'messagesPane', class: 'message-pane glass', onscroll: onMessageScroll },
