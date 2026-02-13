@@ -26,11 +26,84 @@ const state = {
   authError: '',
   uiError: '',
   settingsError: '',
+  settingsSaving: false,
+  settingsSection: 'General',
   selectedPersonaId: null,
   selectedModel: null,
   selectedMemoryMode: null,
   draftMessage: '',
 };
+
+const SETTINGS_DEFAULTS = {
+  global_default_model: '',
+  default_memory_mode: 'auto',
+  stt_provider: 'disabled',
+  tts_provider: 'disabled',
+  tts_format: 'wav',
+  openai_api_key: '',
+  onboarding_done: 0,
+  general_theme: 'dark',
+  general_show_system_messages: false,
+  tts_voice: 'alloy',
+  stt_language: 'auto',
+  image_provider: 'disabled',
+  image_size: '1024x1024',
+  image_quality: 'standard',
+  memory_auto_save_user_facts: true,
+  user_display_name: '',
+  user_timezone: 'local',
+  personas_default_system_prompt: 'Be helpful and concise.',
+  workspaces_default_workspace_id: '',
+  models_temperature: '0.7',
+};
+
+const SETTINGS_SECTION_KEYS = {
+  General: ['general_theme', 'general_show_system_messages', 'global_default_model'],
+  TTS: ['tts_provider', 'tts_format', 'tts_voice'],
+  STT: ['stt_provider', 'stt_language'],
+  'Image Generation': ['image_provider', 'image_size', 'image_quality'],
+  Memory: ['default_memory_mode', 'memory_auto_save_user_facts'],
+  User: ['user_display_name', 'user_timezone'],
+  Personas: ['personas_default_system_prompt'],
+  Workspaces: ['workspaces_default_workspace_id'],
+  Models: ['global_default_model', 'models_temperature'],
+};
+
+function normalizeSettings(raw = {}) {
+  let extra = {};
+  if (raw.preferences_json) {
+    try { extra = JSON.parse(raw.preferences_json); } catch { extra = {}; }
+  }
+  return { ...SETTINGS_DEFAULTS, ...raw, ...extra };
+}
+
+function settingsPayload(nextSettings) {
+  const core = {
+    global_default_model: nextSettings.global_default_model,
+    default_memory_mode: nextSettings.default_memory_mode,
+    stt_provider: nextSettings.stt_provider,
+    tts_provider: nextSettings.tts_provider,
+    tts_format: nextSettings.tts_format,
+    openai_api_key: nextSettings.openai_api_key,
+    onboarding_done: Number(Boolean(nextSettings.onboarding_done)),
+  };
+  const preferences = {
+    general_theme: nextSettings.general_theme,
+    general_show_system_messages: Boolean(nextSettings.general_show_system_messages),
+    tts_voice: nextSettings.tts_voice,
+    stt_language: nextSettings.stt_language,
+    image_provider: nextSettings.image_provider,
+    image_size: nextSettings.image_size,
+    image_quality: nextSettings.image_quality,
+    memory_auto_save_user_facts: Boolean(nextSettings.memory_auto_save_user_facts),
+    user_display_name: nextSettings.user_display_name,
+    user_timezone: nextSettings.user_timezone,
+    personas_default_system_prompt: nextSettings.personas_default_system_prompt,
+    workspaces_default_workspace_id: nextSettings.workspaces_default_workspace_id,
+    models_temperature: nextSettings.models_temperature,
+  };
+  return { ...core, preferences_json: JSON.stringify(preferences) };
+}
 
 document.documentElement.setAttribute('data-theme', state.theme);
 
@@ -132,7 +205,13 @@ async function refresh() {
     state.workspaces = (await api('/api/workspaces')).items;
     state.personas = (await api('/api/personas')).items;
     state.chats = (await api('/api/chats')).items;
-    state.settings = (await api('/api/settings')).settings;
+    state.settings = normalizeSettings((await api('/api/settings')).settings);
+    state.showSystemMessages = Boolean(state.settings.general_show_system_messages);
+    if (state.settings.general_theme && state.settings.general_theme !== state.theme) {
+      state.theme = state.settings.general_theme;
+      localStorage.setItem('na_theme', state.theme);
+      document.documentElement.setAttribute('data-theme', state.theme);
+    }
     const sess = await api('/api/session');
     state.sessionExpiresAt = sess.expiresAt || null;
     state.user = true;
@@ -357,6 +436,39 @@ function managerRow(title, actions = []) {
 
 function settingsPanel() {
   if (!state.showSettings) return null;
+
+  const sectionNames = Object.keys(SETTINGS_SECTION_KEYS);
+  if (!sectionNames.includes(state.settingsSection)) state.settingsSection = sectionNames[0];
+
+  const setVal = (key, value) => {
+    state.settings[key] = value;
+  };
+
+  const persistSettings = async () => {
+    state.settingsSaving = true;
+    state.settingsError = '';
+    render();
+    try {
+      await api('/api/settings', { method: 'POST', body: JSON.stringify(settingsPayload(state.settings)) });
+      await refresh();
+    } catch (e) {
+      state.settingsError = e.message || 'Unable to save settings.';
+      state.settingsSaving = false;
+      render();
+    }
+  };
+
+  const resetSection = async (sectionName) => {
+    SETTINGS_SECTION_KEYS[sectionName].forEach((k) => { state.settings[k] = SETTINGS_DEFAULTS[k]; });
+    if (sectionName === 'General') {
+      state.theme = state.settings.general_theme;
+      localStorage.setItem('na_theme', state.theme);
+      document.documentElement.setAttribute('data-theme', state.theme);
+      state.showSystemMessages = Boolean(state.settings.general_show_system_messages);
+    }
+    await persistSettings();
+  };
+
   const workspaceRows = state.workspaces.map((w) => managerRow(w.name, [
     el('button', { class: 'icon-btn', textContent: 'Rename', onclick: async () => {
       const name = prompt('Rename workspace', w.name);
@@ -365,7 +477,7 @@ function settingsPanel() {
       catch (e) { state.settingsError = e.message; render(); }
     } }),
     el('button', { class: 'icon-btn', textContent: 'Delete', onclick: async () => {
-      if (!confirm(`Delete workspace \"${w.name}\"?`)) return;
+      if (!confirm(`Delete workspace "${w.name}"?`)) return;
       try { await api(`/api/workspaces/${w.id}`, { method: 'DELETE' }); await refresh(); }
       catch (e) { state.settingsError = e.message; render(); }
     } }),
@@ -379,65 +491,138 @@ function settingsPanel() {
       catch (e) { state.settingsError = e.message; render(); }
     } }),
     el('button', { class: 'icon-btn', textContent: 'Delete', onclick: async () => {
-      if (!confirm(`Delete persona \"${p.name}\"?`)) return;
+      if (!confirm(`Delete persona "${p.name}"?`)) return;
       try { await api(`/api/personas/${p.id}`, { method: 'DELETE' }); await refresh(); }
       catch (e) { state.settingsError = e.message; render(); }
     } }),
   ]));
 
-  return el('div', { class: 'settings-pop glass' }, [
-    el('strong', { textContent: 'Settings & Management' }),
-    state.settingsError ? el('div', { class: 'error-banner', textContent: state.settingsError }) : null,
-    el('label', { textContent: 'Theme' }),
-    el('select', {
-      class: 'chip-select', onchange: (e) => {
+  const sectionContent = {
+    General: [
+      el('label', { textContent: 'Theme' }),
+      el('select', { class: 'chip-select', onchange: (e) => {
+        setVal('general_theme', e.target.value);
         state.theme = e.target.value;
         localStorage.setItem('na_theme', state.theme);
         document.documentElement.setAttribute('data-theme', state.theme);
-      },
-    }, [el('option', { value: 'dark', selected: state.theme === 'dark', textContent: 'Dark (default)' }), el('option', { value: 'light', selected: state.theme === 'light', textContent: 'Light' })]),
-    el('label', { textContent: 'TTS provider' }),
-    el('select', { id: 'ttsSel', class: 'chip-select' }, ['disabled', 'openai', 'local'].map((x) => el('option', { value: x, selected: x === (state.settings?.tts_provider || 'disabled'), textContent: x }))),
-    el('label', { textContent: 'STT provider' }),
-    el('select', { id: 'sttSel', class: 'chip-select' }, ['disabled', 'openai', 'local'].map((x) => el('option', { value: x, selected: x === (state.settings?.stt_provider || 'disabled'), textContent: x }))),
-    el('input', { id: 'apiKeyInput', class: 'search-input', placeholder: 'OpenAI API key (optional)', value: state.settings?.openai_api_key || '' }),
-    el('button', {
-      class: 'send-btn', textContent: 'Save settings', onclick: async () => {
-        await api('/api/settings', {
-          method: 'POST',
-          body: JSON.stringify({ ...state.settings, tts_provider: ttsSel.value, stt_provider: sttSel.value, openai_api_key: apiKeyInput.value }),
-        });
-        state.settingsError = '';
-        await refresh();
-      },
-    }),
-    el('hr'),
-    el('strong', { textContent: 'Workspaces' }),
-    ...workspaceRows,
-    el('button', { class: 'pill-btn', textContent: '+ Add workspace', onclick: async () => {
-      const name = prompt('Workspace name', 'New workspace');
-      if (!name?.trim()) return;
-      try { await api('/api/workspaces', { method: 'POST', body: JSON.stringify({ name: name.trim() }) }); await refresh(); }
-      catch (e) { state.settingsError = e.message; render(); }
-    } }),
-    el('hr'),
-    el('strong', { textContent: 'Personas' }),
-    ...personaRows,
-    el('button', { class: 'pill-btn', textContent: '+ Add persona', onclick: async () => {
-      const name = prompt('Persona name', 'Assistant');
-      if (!name?.trim()) return;
-      const workspaceId = state.workspaces[0]?.id;
-      if (!workspaceId) { state.settingsError = 'Create a workspace first.'; render(); return; }
-      try {
-        await api('/api/personas', {
-          method: 'POST',
-          body: JSON.stringify({ workspaceId, name: name.trim(), systemPrompt: 'Be helpful and concise.', defaultModel: state.models[0] || '' }),
-        });
-        await refresh();
-      } catch (e) { state.settingsError = e.message; render(); }
-    } }),
+      } }, [
+        el('option', { value: 'dark', selected: state.settings.general_theme === 'dark', textContent: 'Dark' }),
+        el('option', { value: 'light', selected: state.settings.general_theme === 'light', textContent: 'Light' }),
+      ]),
+      el('label', { textContent: 'Default model' }),
+      el('select', { class: 'chip-select', onchange: (e) => setVal('global_default_model', e.target.value) },
+        [el('option', { value: '', textContent: 'Auto' }), ...state.models.map((m) => el('option', { value: m, textContent: m, selected: m === state.settings.global_default_model }))]),
+      el('label', { class: 'checkbox-row' }, [
+        el('input', { type: 'checkbox', checked: Boolean(state.settings.general_show_system_messages), onchange: (e) => {
+          setVal('general_show_system_messages', e.target.checked);
+          state.showSystemMessages = e.target.checked;
+        } }),
+        'Show system/tool messages by default',
+      ]),
+    ],
+    TTS: [
+      el('label', { textContent: 'Provider' }),
+      el('select', { class: 'chip-select', onchange: (e) => setVal('tts_provider', e.target.value) }, ['disabled', 'openai', 'local'].map((x) => el('option', { value: x, textContent: x, selected: x === state.settings.tts_provider }))),
+      el('label', { textContent: 'Audio format' }),
+      el('select', { class: 'chip-select', onchange: (e) => setVal('tts_format', e.target.value) }, ['wav', 'mp3', 'opus'].map((x) => el('option', { value: x, textContent: x, selected: x === state.settings.tts_format }))),
+      el('label', { textContent: 'Voice' }),
+      el('input', { class: 'search-input', value: state.settings.tts_voice, oninput: (e) => setVal('tts_voice', e.target.value) }),
+    ],
+    STT: [
+      el('label', { textContent: 'Provider' }),
+      el('select', { class: 'chip-select', onchange: (e) => setVal('stt_provider', e.target.value) }, ['disabled', 'openai', 'local'].map((x) => el('option', { value: x, textContent: x, selected: x === state.settings.stt_provider }))),
+      el('label', { textContent: 'Language' }),
+      el('select', { class: 'chip-select', onchange: (e) => setVal('stt_language', e.target.value) }, ['auto', 'en', 'es', 'fr', 'de'].map((x) => el('option', { value: x, textContent: x, selected: x === state.settings.stt_language }))),
+    ],
+    'Image Generation': [
+      el('label', { textContent: 'Provider' }),
+      el('select', { class: 'chip-select', onchange: (e) => setVal('image_provider', e.target.value) }, ['disabled', 'openai', 'local'].map((x) => el('option', { value: x, textContent: x, selected: x === state.settings.image_provider }))),
+      el('label', { textContent: 'Size' }),
+      el('select', { class: 'chip-select', onchange: (e) => setVal('image_size', e.target.value) }, ['512x512', '1024x1024', '1536x1024'].map((x) => el('option', { value: x, textContent: x, selected: x === state.settings.image_size }))),
+      el('label', { textContent: 'Quality' }),
+      el('select', { class: 'chip-select', onchange: (e) => setVal('image_quality', e.target.value) }, ['standard', 'hd'].map((x) => el('option', { value: x, textContent: x, selected: x === state.settings.image_quality }))),
+    ],
+    Memory: [
+      el('label', { textContent: 'Default memory mode' }),
+      el('select', { class: 'chip-select', onchange: (e) => setVal('default_memory_mode', e.target.value) }, ['off', 'manual', 'auto'].map((x) => el('option', { value: x, textContent: x, selected: x === state.settings.default_memory_mode }))),
+      el('label', { class: 'checkbox-row' }, [
+        el('input', { type: 'checkbox', checked: Boolean(state.settings.memory_auto_save_user_facts), onchange: (e) => setVal('memory_auto_save_user_facts', e.target.checked) }),
+        'Auto-save likely user facts',
+      ]),
+    ],
+    User: [
+      el('label', { textContent: 'Display name' }),
+      el('input', { class: 'search-input', value: state.settings.user_display_name, oninput: (e) => setVal('user_display_name', e.target.value) }),
+      el('label', { textContent: 'Timezone' }),
+      el('select', { class: 'chip-select', onchange: (e) => setVal('user_timezone', e.target.value) }, ['local', 'UTC', 'America/New_York', 'America/Los_Angeles'].map((x) => el('option', { value: x, textContent: x, selected: x === state.settings.user_timezone }))),
+      el('label', { textContent: 'OpenAI API key' }),
+      el('input', { class: 'search-input', placeholder: 'sk-...', value: state.settings.openai_api_key, oninput: (e) => setVal('openai_api_key', e.target.value) }),
+    ],
+    Personas: [
+      el('label', { textContent: 'Default system prompt for new personas' }),
+      el('textarea', { class: 'search-input', rows: 3, value: state.settings.personas_default_system_prompt, oninput: (e) => setVal('personas_default_system_prompt', e.target.value) }),
+      ...personaRows,
+      el('button', { class: 'pill-btn', textContent: '+ Add persona', onclick: async () => {
+        const name = prompt('Persona name', 'Assistant');
+        if (!name?.trim()) return;
+        const workspaceId = state.workspaces[0]?.id;
+        if (!workspaceId) { state.settingsError = 'Create a workspace first.'; render(); return; }
+        try {
+          await api('/api/personas', {
+            method: 'POST',
+            body: JSON.stringify({ workspaceId, name: name.trim(), systemPrompt: state.settings.personas_default_system_prompt, defaultModel: state.settings.global_default_model || state.models[0] || '' }),
+          });
+          await refresh();
+        } catch (e) { state.settingsError = e.message; render(); }
+      } }),
+    ],
+    Workspaces: [
+      el('label', { textContent: 'Default workspace' }),
+      el('select', { class: 'chip-select', onchange: (e) => setVal('workspaces_default_workspace_id', e.target.value) },
+        [el('option', { value: '', textContent: 'Auto (first workspace)' }), ...state.workspaces.map((w) => el('option', { value: w.id, textContent: w.name, selected: w.id === state.settings.workspaces_default_workspace_id }))]),
+      ...workspaceRows,
+      el('button', { class: 'pill-btn', textContent: '+ Add workspace', onclick: async () => {
+        const name = prompt('Workspace name', 'New workspace');
+        if (!name?.trim()) return;
+        try { await api('/api/workspaces', { method: 'POST', body: JSON.stringify({ name: name.trim() }) }); await refresh(); }
+        catch (e) { state.settingsError = e.message; render(); }
+      } }),
+    ],
+    Models: [
+      el('label', { textContent: 'Default model' }),
+      el('select', { class: 'chip-select', onchange: (e) => setVal('global_default_model', e.target.value) },
+        [el('option', { value: '', textContent: 'Auto' }), ...state.models.map((m) => el('option', { value: m, textContent: m, selected: m === state.settings.global_default_model }))]),
+      el('label', { textContent: 'Temperature' }),
+      el('input', { type: 'number', min: 0, max: 2, step: 0.1, class: 'search-input', value: state.settings.models_temperature, oninput: (e) => setVal('models_temperature', e.target.value) }),
+    ],
+  };
+
+  return el('div', { class: 'settings-screen' }, [
+    el('div', { class: 'settings-header' }, [
+      el('h2', { textContent: 'Settings' }),
+      el('div', { class: 'chips' }, [
+        el('button', { class: 'icon-btn', textContent: '✕ Close', onclick: () => { state.showSettings = false; render(); } }),
+        el('button', { class: 'send-btn', textContent: state.settingsSaving ? 'Saving…' : 'Save all', disabled: state.settingsSaving, onclick: persistSettings }),
+      ]),
+    ]),
+    state.settingsError ? el('div', { class: 'error-banner', textContent: state.settingsError }) : null,
+    el('div', { class: 'settings-layout' }, [
+      el('aside', { class: 'settings-nav glass' }, sectionNames.map((name) => el('button', {
+        class: `settings-nav-item ${name === state.settingsSection ? 'active' : ''}`,
+        textContent: name,
+        onclick: () => { state.settingsSection = name; render(); },
+      }))),
+      el('section', { class: 'settings-detail glass' }, [
+        el('div', { class: 'settings-section-head' }, [
+          el('h3', { textContent: state.settingsSection }),
+          el('button', { class: 'pill-btn', textContent: 'Reset to Default', onclick: () => resetSection(state.settingsSection) }),
+        ]),
+        ...sectionContent[state.settingsSection],
+      ]),
+    ]),
   ]);
 }
+
 
 function messageItem(m, personaId) {
   const isUser = m.role === 'user';
@@ -541,7 +726,7 @@ function render() {
     el('div', { class: `status-pill ${statusClass()}`, textContent: state.status }),
     el('button', { class: 'icon-btn', title: 'Logout', textContent: '⇥', onclick: async () => { await api('/api/logout', { method: 'POST' }); await refresh(); } }),
     el('button', { class: 'icon-btn', textContent: state.showViz ? '◎' : '◉', title: 'Visualizer', onclick: () => { state.showViz = !state.showViz; render(); } }),
-    el('button', { class: 'icon-btn', textContent: '⚙', title: 'Settings', onclick: () => { state.showSettings = !state.showSettings; render(); } }),
+    el('button', { class: 'icon-btn', textContent: '⚙', title: 'Settings', onclick: () => { state.showSettings = true; render(); } }),
   ]);
 
   const main = el('main', { class: 'main-pane glass' }, [
@@ -569,7 +754,8 @@ function render() {
   const scrim = el('div', { class: `scrim ${state.drawerOpen && window.innerWidth < 900 ? 'show' : ''}`, onclick: () => { state.drawerOpen = false; render(); } });
   const jumpBtn = el('button', { id: 'jumpBtn', class: `jump-btn icon-btn ${state.showJumpBottom ? 'show' : ''}`, textContent: '↓ Latest', onclick: () => scrollMessagesToBottom() });
   const viz = el('div', { class: `viz-wrap ${state.showViz ? 'show' : ''}` }, [vizCanvas()]);
-  app.append(el('div', { class: 'app-shell' }, [scrim, drawer, main, settingsPanel(), jumpBtn, viz]));
+  const shellChildren = state.showSettings ? [settingsPanel()] : [scrim, drawer, main, jumpBtn, viz];
+  app.append(el('div', { class: 'app-shell' }, shellChildren));
 }
 
 refresh().then(ensureWizard);

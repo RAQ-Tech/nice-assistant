@@ -111,7 +111,8 @@ def init_db():
             tts_provider TEXT DEFAULT 'disabled',
             tts_format TEXT DEFAULT 'wav',
             openai_api_key TEXT,
-            onboarding_done INTEGER DEFAULT 0
+            onboarding_done INTEGER DEFAULT 0,
+            preferences_json TEXT DEFAULT '{}'
         );
         CREATE TABLE IF NOT EXISTS audio_files (
             id TEXT PRIMARY KEY,
@@ -134,6 +135,11 @@ def init_db():
     if "hidden_in_ui" not in chat_cols:
         conn.execute("ALTER TABLE chats ADD COLUMN hidden_in_ui INTEGER DEFAULT 0")
         conn.execute("UPDATE chats SET hidden_in_ui = 0 WHERE hidden_in_ui IS NULL")
+        conn.commit()
+    settings_cols = {r[1] for r in conn.execute("PRAGMA table_info(app_settings)").fetchall()}
+    if "preferences_json" not in settings_cols:
+        conn.execute("ALTER TABLE app_settings ADD COLUMN preferences_json TEXT DEFAULT '{}'")
+        conn.execute("UPDATE app_settings SET preferences_json='{}' WHERE preferences_json IS NULL")
         conn.commit()
     conn.close()
 
@@ -365,7 +371,7 @@ class Handler(BaseHTTPRequestHandler):
             uid = self._require_auth();
             if not uid: return
             conn = db_conn(); row = conn.execute("SELECT * FROM app_settings WHERE user_id=?", (uid,)).fetchone(); conn.close()
-            return self._json({"settings": dict(row) if row else {"default_memory_mode": "auto", "stt_provider": "disabled", "tts_provider": "disabled", "tts_format": "wav"}})
+            return self._json({"settings": dict(row) if row else {"default_memory_mode": "auto", "stt_provider": "disabled", "tts_provider": "disabled", "tts_format": "wav", "preferences_json": "{}"}})
         if self.path == "/api/session":
             uid = self._require_auth();
             if not uid: return
@@ -475,8 +481,8 @@ class Handler(BaseHTTPRequestHandler):
             b = self._read_json()
             conn = db_conn()
             conn.execute("INSERT INTO app_settings(user_id) VALUES(?) ON CONFLICT(user_id) DO NOTHING", (uid,))
-            conn.execute("UPDATE app_settings SET global_default_model=?, default_memory_mode=?, stt_provider=?, tts_provider=?, tts_format=?, openai_api_key=?, onboarding_done=? WHERE user_id=?", (
-                b.get("global_default_model"), b.get("default_memory_mode","auto"), b.get("stt_provider","disabled"), b.get("tts_provider","disabled"), b.get("tts_format","wav"), b.get("openai_api_key"), int(bool(b.get("onboarding_done"))), uid
+            conn.execute("UPDATE app_settings SET global_default_model=?, default_memory_mode=?, stt_provider=?, tts_provider=?, tts_format=?, openai_api_key=?, onboarding_done=?, preferences_json=? WHERE user_id=?", (
+                b.get("global_default_model"), b.get("default_memory_mode","auto"), b.get("stt_provider","disabled"), b.get("tts_provider","disabled"), b.get("tts_format","wav"), b.get("openai_api_key"), int(bool(b.get("onboarding_done"))), b.get("preferences_json", "{}"), uid
             ))
             conn.commit(); conn.close(); return self._json({"ok": True})
         if self.path.startswith("/api/memory/"):
