@@ -121,6 +121,35 @@ button, input, select, textarea {
 .chat-row .title { font-size: .94rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .chat-row .meta { color: var(--text-dim); font-size: .78rem; }
 
+.chat-actions {
+  display: flex;
+  gap: .25rem;
+  margin-top: .45rem;
+}
+
+.selector-row {
+  align-items: center;
+}
+
+.compact-select {
+  width: auto;
+  min-width: 128px;
+  max-width: 220px;
+  font-size: .86rem;
+  padding: .38rem .55rem;
+}
+
+.manager-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: .5rem;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: .45rem .55rem;
+  background: rgba(10, 24, 36, 0.35);
+}
+
 .main-pane {
   flex: 1;
   margin: 1rem;
@@ -213,19 +242,40 @@ button, input, select, textarea {
 
 .record-indicator { font-size: .78rem; color: var(--text-dim); }
 
+
+.error-banner {
+  border: 1px solid rgba(255, 121, 152, 0.45);
+  background: rgba(104, 26, 49, 0.45);
+  color: #ffd0dc;
+  border-radius: 10px;
+  padding: .55rem .7rem;
+  font-size: .86rem;
+}
 .jump-btn {
   position: absolute;
   right: 2.1rem;
   bottom: 8.2rem;
   z-index: 5;
   border-radius: 999px;
+  opacity: 0;
+  pointer-events: none;
+  transform: translateY(4px);
+  transition: opacity .18s ease, transform .18s ease;
+}
+
+.jump-btn.show {
+  opacity: 1;
+  pointer-events: auto;
+  transform: translateY(0);
 }
 
 .settings-pop {
   position: absolute;
   right: 1.4rem;
   top: 5.4rem;
-  width: min(320px, 92vw);
+  width: min(560px, 94vw);
+  max-height: calc(100vh - 7rem);
+  overflow: auto;
   padding: .8rem;
   z-index: 20;
   display: flex;
@@ -244,4 +294,5 @@ button, input, select, textarea {
   .talk-btn { grid-column: span 2; }
   .drawer { inset: .4rem auto .4rem .4rem; }
   .jump-btn { right: 1rem; bottom: 9.5rem; }
+  .compact-select { min-width: 110px; max-width: 180px; }
 }
