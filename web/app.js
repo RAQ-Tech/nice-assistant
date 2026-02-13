@@ -23,6 +23,8 @@ const state = {
   showSystemMessages: false,
   sessionExpiresAt: null,
   sessionTimer: 0,
+  authError: '',
+  uiError: '',
 };
 
 document.documentElement.setAttribute('data-theme', state.theme);
@@ -159,6 +161,11 @@ function scrollMessagesToBottom(smooth = true) {
   pane.scrollTo({ top: pane.scrollHeight, behavior: smooth ? 'smooth' : 'auto' });
 }
 
+function setUiError(message) {
+  state.uiError = message || '';
+  render();
+}
+
 async function openChat(chat) {
   state.currentChat = chat;
   const detail = await api(`/api/chats/${chat.id}`);
@@ -173,28 +180,37 @@ async function openChat(chat) {
 
 async function sendChat(text) {
   if (!text?.trim()) return;
+  setUiError('');
   state.status = 'Thinking';
   render();
-  const personaId = document.getElementById('personaSel')?.value || state.currentChat?.persona_id;
-  const model = document.getElementById('modelSel')?.value || state.currentChat?.model_override;
-  const memoryMode = document.getElementById('memSel')?.value || 'auto';
-  const r = await api('/api/chat', { method: 'POST', body: JSON.stringify({ text, chatId: state.currentChat?.id, personaId, model, memoryMode }) });
-  state.currentChat = { ...(state.currentChat || {}), id: r.chatId, persona_id: personaId, model_override: model, memory_mode: memoryMode };
-  const detail = await api(`/api/chats/${r.chatId}`);
-  state.messages = detail.messages;
-  state.status = 'Speaking';
-  render();
-  scrollMessagesToBottom();
+  try {
+    const personaId = document.getElementById('personaSel')?.value || state.currentChat?.persona_id;
+    const model = document.getElementById('modelSel')?.value || state.currentChat?.model_override;
+    const memoryMode = document.getElementById('memSel')?.value || 'auto';
+    const r = await api('/api/chat', { method: 'POST', body: JSON.stringify({ text, chatId: state.currentChat?.id, personaId, model, memoryMode }) });
+    state.currentChat = { ...(state.currentChat || {}), id: r.chatId, persona_id: personaId, model_override: model, memory_mode: memoryMode };
+    const detail = await api(`/api/chats/${r.chatId}`);
+    state.messages = detail.messages;
+    render();
+    scrollMessagesToBottom();
 
-  if (state.settings?.tts_provider && state.settings.tts_provider !== 'disabled') {
-    ensureAudioGraph();
-    const t = await api('/api/tts', { method: 'POST', body: JSON.stringify({ text: r.text, chatId: r.chatId, personaId, format: state.settings.tts_format || 'wav' }) });
-    audio.src = t.audioUrl;
-    await audio.play();
-  } else state.status = 'Idle';
+    if (state.settings?.tts_provider && state.settings.tts_provider !== 'disabled') {
+      state.status = 'Speaking';
+      render();
+      ensureAudioGraph();
+      const t = await api('/api/tts', { method: 'POST', body: JSON.stringify({ text: r.text, chatId: r.chatId, personaId, format: state.settings.tts_format || 'wav' }) });
+      audio.src = t.audioUrl;
+      await audio.play();
+    } else {
+      state.status = 'Idle';
+    }
 
-  document.getElementById('chatInput').value = '';
-  refresh();
+    document.getElementById('chatInput').value = '';
+    refresh();
+  } catch (e) {
+    state.status = 'Idle';
+    setUiError(e.message || 'Failed to send message.');
+  }
 }
 audio.addEventListener('ended', () => { state.status = 'Idle'; render(); });
 
@@ -234,21 +250,43 @@ async function stopRec() {
 function authView() {
   return el('div', { class: 'main-pane glass' }, [
     el('h2', { textContent: 'Nice Assistant Login' }),
+    state.authError ? el('div', { class: 'error-banner', textContent: state.authError }) : null,
     el('input', { id: 'u', class: 'search-input', placeholder: 'username' }),
     el('input', { id: 'p', class: 'search-input', placeholder: 'password', type: 'password' }),
     el('div', { class: 'chips' }, [
       el('button', {
         class: 'pill-btn', textContent: 'Create account', onclick: async () => {
-          await api('/api/users', { method: 'POST', body: JSON.stringify({ username: u.value, password: p.value }) });
-          alert('Account created');
+          state.authError = '';
+          render();
+          try {
+            await api('/api/users', { method: 'POST', body: JSON.stringify({ username: u.value, password: p.value }) });
+            alert('Account created');
+          } catch (e) {
+            state.authError = e.message || 'Unable to create account.';
+            render();
+          }
         },
       }),
-      el('button', { class: 'send-btn', textContent: 'Login', onclick: async () => { await api('/api/login', { method: 'POST', body: JSON.stringify({ username: u.value, password: p.value }) }); await refresh(); } }),
+      el('button', {
+        class: 'send-btn', textContent: 'Login', onclick: async () => {
+          state.authError = '';
+          render();
+          try {
+            await api('/api/login', { method: 'POST', body: JSON.stringify({ username: u.value, password: p.value }) });
+            await refresh();
+          } catch (e) {
+            state.authError = e.message || 'Wrong username and/or password.';
+            render();
+          }
+        },
+      }),
     ]),
   ]);
 }
 
 async function ensureWizard() {
+  if (!state.user) return;
+  if (state.workspaces.length) return;
   if (state.settings?.onboarding_done) return;
   const wsName = prompt('Welcome! Name your first Workspace', 'Main Workspace'); if (!wsName) return;
   const ws = await api('/api/workspaces', { method: 'POST', body: JSON.stringify({ name: wsName }) });
@@ -266,7 +304,8 @@ function statusClass() {
 function onMessageScroll(e) {
   const node = e.currentTarget;
   state.showJumpBottom = node.scrollTop + node.clientHeight < node.scrollHeight - 130;
-  if (state.showJumpBottom !== !!document.getElementById('jumpBtn')) render();
+  const jumpBtn = document.getElementById('jumpBtn');
+  if (jumpBtn) jumpBtn.classList.toggle('show', state.showJumpBottom);
 }
 
 function settingsPanel() {
@@ -402,12 +441,13 @@ function render() {
     el('section', { id: 'messagesPane', class: 'message-pane glass', onscroll: onMessageScroll },
       state.messages.map((m) => messageItem(m, personaId)).filter(Boolean)
     ),
+    state.uiError ? el('div', { class: 'error-banner', textContent: state.uiError }) : null,
     el('div', { class: 'record-indicator', textContent: state.recording ? `● Recording… ${Math.floor((Date.now() - state.recStart) / 1000)}s` : 'Ready' }),
     composer,
   ]);
 
   const scrim = el('div', { class: `scrim ${state.drawerOpen && window.innerWidth < 900 ? 'show' : ''}`, onclick: () => { state.drawerOpen = false; render(); } });
-  const jumpBtn = state.showJumpBottom ? el('button', { id: 'jumpBtn', class: 'jump-btn icon-btn', textContent: '↓ Latest', onclick: () => scrollMessagesToBottom() }) : null;
+  const jumpBtn = el('button', { id: 'jumpBtn', class: `jump-btn icon-btn ${state.showJumpBottom ? 'show' : ''}`, textContent: '↓ Latest', onclick: () => scrollMessagesToBottom() });
   const viz = el('div', { class: `viz-wrap ${state.showViz ? 'show' : ''}` }, [vizCanvas()]);
   app.append(el('div', { class: 'app-shell' }, [scrim, drawer, main, settingsPanel(), jumpBtn, viz]));
 }
