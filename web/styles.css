@@ -77,6 +77,7 @@ button, input, select, textarea {
 }
 
 .drawer.open { transform: translateX(0); }
+.drawer-head { display:flex; align-items:center; justify-content:space-between; gap:.5rem; }
 
 .scrim {
   position: absolute;
@@ -162,6 +163,7 @@ button, input, select, textarea {
 .status-listening { color: #7bffe0; border-color: rgba(123,255,224,.5); background: rgba(23,77,74,.45); }
 .status-thinking { color: #ffe9a5; border-color: rgba(255,233,165,.5); background: rgba(81,66,28,.45); }
 .status-speaking { color: #c5b5ff; border-color: rgba(197,181,255,.5); background: rgba(56,44,90,.45); }
+.status-idle { color: var(--text-dim); background: rgba(31, 51, 70, 0.35); }
 
 .message-pane {
   padding: .8rem;

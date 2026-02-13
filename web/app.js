@@ -10,7 +10,7 @@ const state = {
   workspaces: [],
   settings: null,
   models: [],
-  status: 'Thinking',
+  status: 'Idle',
   showViz: false,
   drawerOpen: window.innerWidth > 900,
   chatSearch: '',
@@ -21,6 +21,8 @@ const state = {
   theme: localStorage.getItem('na_theme') || 'dark',
   showJumpBottom: false,
   showSystemMessages: false,
+  sessionExpiresAt: null,
+  sessionTimer: 0,
 };
 
 document.documentElement.setAttribute('data-theme', state.theme);
@@ -124,11 +126,31 @@ async function refresh() {
     state.personas = (await api('/api/personas')).items;
     state.chats = (await api('/api/chats')).items;
     state.settings = (await api('/api/settings')).settings;
+    const sess = await api('/api/session');
+    state.sessionExpiresAt = sess.expiresAt || null;
     state.user = true;
   } catch {
     state.user = false;
+    state.sessionExpiresAt = null;
+    if (state.sessionTimer) {
+      clearTimeout(state.sessionTimer);
+      state.sessionTimer = 0;
+    }
   }
+  armSessionTimer();
   render();
+}
+
+function armSessionTimer() {
+  if (state.sessionTimer) clearTimeout(state.sessionTimer);
+  if (!state.user || !state.sessionExpiresAt) return;
+  const ms = Math.max(0, (state.sessionExpiresAt * 1000) - Date.now());
+  state.sessionTimer = setTimeout(async () => {
+    state.user = false;
+    state.sessionExpiresAt = null;
+    render();
+    try { await api('/api/logout', { method: 'POST' }); } catch {}
+  }, ms + 50);
 }
 
 function scrollMessagesToBottom(smooth = true) {
@@ -169,12 +191,12 @@ async function sendChat(text) {
     const t = await api('/api/tts', { method: 'POST', body: JSON.stringify({ text: r.text, chatId: r.chatId, personaId, format: state.settings.tts_format || 'wav' }) });
     audio.src = t.audioUrl;
     await audio.play();
-  } else state.status = 'Thinking';
+  } else state.status = 'Idle';
 
   document.getElementById('chatInput').value = '';
   refresh();
 }
-audio.addEventListener('ended', () => { state.status = 'Thinking'; render(); });
+audio.addEventListener('ended', () => { state.status = 'Idle'; render(); });
 
 async function startRec() {
   ensureAudioGraph();
@@ -205,6 +227,8 @@ async function stopRec() {
   const r = await fetch('/api/stt', { method: 'POST', body: fd });
   const j = await r.json();
   if (j.text) document.getElementById('chatInput').value = j.text;
+  state.status = 'Idle';
+  render();
 }
 
 function authView() {
@@ -236,7 +260,7 @@ async function ensureWizard() {
 }
 
 function statusClass() {
-  return state.status === 'Listening' ? 'status-listening' : state.status === 'Speaking' ? 'status-speaking' : 'status-thinking';
+  return state.status === 'Listening' ? 'status-listening' : state.status === 'Speaking' ? 'status-speaking' : state.status === 'Thinking' ? 'status-thinking' : 'status-idle';
 }
 
 function onMessageScroll(e) {
@@ -318,6 +342,10 @@ function render() {
     ]));
 
   const drawer = el('aside', { class: `drawer glass ${state.drawerOpen ? 'open' : ''}` }, [
+    el('div', { class: 'drawer-head' }, [
+      el('strong', { textContent: 'Chats' }),
+      el('button', { class: 'icon-btn', textContent: '✕', title: 'Hide panel', onclick: () => { state.drawerOpen = false; render(); } }),
+    ]),
     el('button', { class: 'send-btn', textContent: '+ New Chat', onclick: async () => {
       const c = await api('/api/chats', { method: 'POST', body: JSON.stringify({ title: 'New chat', memoryMode: state.settings?.default_memory_mode || 'auto' }) });
       await openChat(c);
@@ -358,6 +386,7 @@ function render() {
       el('div', { class: 'chips' }, [el('button', { class: 'chip', textContent: personaName }), el('button', { class: 'chip', textContent: activeWorkspace }), el('button', { class: 'chip', textContent: state.currentChat?.model_override || state.settings?.global_default_model || 'model' })]),
     ]),
     el('div', { class: `status-pill ${statusClass()}`, textContent: state.status }),
+    el('button', { class: 'icon-btn', title: 'Logout', textContent: '⇥', onclick: async () => { await api('/api/logout', { method: 'POST' }); await refresh(); } }),
     el('button', { class: 'icon-btn', textContent: state.showViz ? '◎' : '◉', title: 'Visualizer', onclick: () => { state.showViz = !state.showViz; render(); } }),
     el('button', { class: 'icon-btn', textContent: '⚙', title: 'Settings', onclick: () => { state.showSettings = !state.showSettings; render(); } }),
   ]);
