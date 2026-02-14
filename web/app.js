@@ -32,6 +32,7 @@ const state = {
   selectedModel: null,
   selectedMemoryMode: null,
   draftMessage: '',
+  thinkingExpanded: {},
 };
 
 const SETTINGS_DEFAULTS = {
@@ -256,6 +257,14 @@ function syntheticSystemMessage(personaId) {
   return [{ id: '__sys_prompt__', role: 'system', text: `[Persona system prompt]\n${persona.system_prompt}` }];
 }
 
+function splitThinking(text = '') {
+  const thinkMatch = text.match(/^\s*<think>([\s\S]*?)<\/think>\s*/i);
+  if (!thinkMatch) return { thinking: '', visibleText: text };
+  const thinking = (thinkMatch[1] || '').trim();
+  const visibleText = text.slice(thinkMatch[0].length).trimStart();
+  return { thinking, visibleText: visibleText || text };
+}
+
 async function openChat(chat) {
   state.currentChat = chat;
   const detail = await api(`/api/chats/${chat.id}`);
@@ -316,7 +325,8 @@ async function sendChat(text) {
       state.status = 'Speaking';
       render();
       ensureAudioGraph();
-      const t = await api('/api/tts', { method: 'POST', body: JSON.stringify({ text: r.text, chatId: r.chatId, personaId, format: state.settings.tts_format || 'wav' }) });
+      const spokenText = splitThinking(r.text || '').visibleText;
+      const t = await api('/api/tts', { method: 'POST', body: JSON.stringify({ text: spokenText, chatId: r.chatId, personaId, format: state.settings.tts_format || 'wav' }) });
       audio.src = t.audioUrl;
       await audio.play();
     } else {
@@ -628,14 +638,31 @@ function messageItem(m, personaId) {
   const isUser = m.role === 'user';
   const hidden = !state.showSystemMessages && (m.role === 'system' || m.role === 'tool');
   if (hidden) return null;
+  const { thinking, visibleText } = splitThinking(m.text || '');
+  const hasThinking = Boolean(thinking) && m.role === 'assistant';
+  const messageId = m.id || `${m.role}-${m.created_at || ''}-${(m.text || '').slice(0, 16)}`;
+  const showThinking = Boolean(state.thinkingExpanded[messageId]);
   const personaName = state.personas.find((p) => p.id === (personaId || state.selectedPersonaId))?.name || 'assistant';
   const roleLabel = isUser ? 'You' : (m.role === 'assistant' ? personaName : m.role);
   return el('div', { class: `msg-wrap ${isUser ? 'user' : ''}` }, [
     el('article', { class: `msg ${isUser ? 'user' : 'assistant'}` }, [
       el('small', { textContent: roleLabel }),
-      el('div', { html: md(m.text || '') }),
+      hasThinking && showThinking ? el('details', { class: 'think-block', open: true }, [
+        el('summary', { textContent: 'Model thinking' }),
+        el('div', { class: 'think-content', html: md(thinking) }),
+      ]) : null,
+      el('div', { html: md(visibleText || m.text || '') }),
       el('div', { class: 'msg-actions' }, [
-        el('button', { class: 'icon-btn', textContent: '⧉', title: 'Copy', onclick: () => navigator.clipboard.writeText(m.text || '') }),
+        hasThinking ? el('button', {
+          class: 'icon-btn',
+          textContent: showThinking ? '🙈' : '💭',
+          title: showThinking ? 'Hide thinking' : 'Show thinking',
+          onclick: () => {
+            state.thinkingExpanded[messageId] = !showThinking;
+            render();
+          },
+        }) : null,
+        el('button', { class: 'icon-btn', textContent: '⧉', title: 'Copy', onclick: () => navigator.clipboard.writeText(visibleText || m.text || '') }),
         el('button', {
           class: 'icon-btn',
           textContent: '🧠',

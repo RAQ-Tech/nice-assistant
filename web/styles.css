@@ -219,6 +219,23 @@ button, input, select, textarea {
 .msg code { background: rgba(0,0,0,.25); padding: .05rem .35rem; border-radius: 6px; }
 .msg ul { margin: .4rem 0 .4rem 1.1rem; }
 .msg a { color: var(--accent); }
+.think-block {
+  margin: .25rem 0 .55rem;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: rgba(0, 0, 0, .18);
+  padding: .35rem .5rem;
+}
+.think-block summary {
+  cursor: pointer;
+  color: var(--text-dim);
+  font-size: .8rem;
+}
+.think-content {
+  margin-top: .45rem;
+  opacity: .9;
+  font-size: .92rem;
+}
 .msg-actions {
   position: absolute;
   top: .4rem;
