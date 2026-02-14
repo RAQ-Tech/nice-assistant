@@ -21,6 +21,7 @@ const state = {
   theme: localStorage.getItem('na_theme') || 'dark',
   showJumpBottom: false,
   showSystemMessages: false,
+  showThinkingByDefault: false,
   sessionExpiresAt: null,
   sessionTimer: 0,
   authError: '',
@@ -49,6 +50,7 @@ const SETTINGS_DEFAULTS = {
   onboarding_done: 0,
   general_theme: 'dark',
   general_show_system_messages: false,
+  general_show_thinking: false,
   tts_voice: 'alloy',
   stt_language: 'auto',
   image_provider: 'disabled',
@@ -68,7 +70,7 @@ const SETTINGS_DEFAULTS = {
 };
 
 const SETTINGS_SECTION_KEYS = {
-  General: ['general_theme', 'general_show_system_messages', 'global_default_model'],
+  General: ['general_theme', 'general_show_system_messages', 'general_show_thinking', 'global_default_model'],
   TTS: ['tts_provider', 'tts_format', 'tts_voice'],
   STT: ['stt_provider', 'stt_language'],
   'Image Generation': ['image_provider', 'image_size', 'image_quality'],
@@ -104,6 +106,7 @@ function settingsPayload(nextSettings) {
   const preferences = {
     general_theme: nextSettings.general_theme,
     general_show_system_messages: Boolean(nextSettings.general_show_system_messages),
+    general_show_thinking: Boolean(nextSettings.general_show_thinking),
     tts_voice: nextSettings.tts_voice,
     stt_language: nextSettings.stt_language,
     image_provider: nextSettings.image_provider,
@@ -226,6 +229,7 @@ async function refresh() {
     state.chats = (await api('/api/chats')).items;
     state.settings = normalizeSettings((await api('/api/settings')).settings);
     state.showSystemMessages = Boolean(state.settings.general_show_system_messages);
+    state.showThinkingByDefault = Boolean(state.settings.general_show_thinking);
     if (state.settings.general_theme && state.settings.general_theme !== state.theme) {
       state.theme = state.settings.general_theme;
       localStorage.setItem('na_theme', state.theme);
@@ -503,6 +507,113 @@ function managerRow(title, actions = []) {
   return el('div', { class: 'manager-row' }, [el('span', { textContent: title }), el('div', { class: 'chips' }, actions)]);
 }
 
+function parsePersonaTraits(rawTraits) {
+  if (!rawTraits) return { warmth: 50, creativity: 50, directness: 50 };
+  if (typeof rawTraits === 'object') {
+    return {
+      warmth: Number(rawTraits.warmth ?? 50),
+      creativity: Number(rawTraits.creativity ?? 50),
+      directness: Number(rawTraits.directness ?? 50),
+    };
+  }
+  try {
+    const parsed = JSON.parse(rawTraits);
+    return {
+      warmth: Number(parsed.warmth ?? 50),
+      creativity: Number(parsed.creativity ?? 50),
+      directness: Number(parsed.directness ?? 50),
+    };
+  } catch {
+    return { warmth: 50, creativity: 50, directness: 50 };
+  }
+}
+
+function personaEditorCard(persona) {
+  const traits = parsePersonaTraits(persona.traits_json);
+  const nameInput = el('input', { class: 'search-input', value: persona.name || '' });
+  const avatarInput = el('input', { class: 'search-input', value: persona.avatar_url || '', placeholder: 'Avatar URL (optional)' });
+  const fileInput = el('input', { type: 'file', accept: 'image/*', class: 'search-input' });
+  fileInput.addEventListener('change', () => {
+    const file = fileInput.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => { avatarInput.value = String(reader.result || ''); };
+    reader.readAsDataURL(file);
+  });
+  const personalityInput = el('textarea', { class: 'search-input', rows: 2, value: persona.personality_details || '', placeholder: 'Personality details for this persona' });
+  const systemPromptInput = el('textarea', { class: 'search-input', rows: 3, value: persona.system_prompt || '', placeholder: 'System prompt' });
+  const modelSelect = el('select', { class: 'chip-select' }, [
+    el('option', { value: '', textContent: 'Use app default' }),
+    ...state.models.map((m) => el('option', { value: m, textContent: m, selected: m === persona.default_model })),
+  ]);
+  const sliderRow = (label, key) => {
+    const value = el('span', { class: 'meta', textContent: String(Math.round(traits[key])) });
+    const slider = el('input', {
+      type: 'range',
+      min: 0,
+      max: 100,
+      step: 1,
+      value: String(Math.round(traits[key])),
+      oninput: (e) => { value.textContent = e.target.value; },
+    });
+    return [label, slider, value];
+  };
+  const warmthControls = sliderRow('Warmth', 'warmth');
+  const creativityControls = sliderRow('Creativity', 'creativity');
+  const directnessControls = sliderRow('Directness', 'directness');
+
+  return el('div', { class: 'persona-card' }, [
+    el('div', { class: 'persona-card-header' }, [
+      el('img', { class: 'persona-avatar-preview', src: persona.avatar_url || 'assets/nice-assistant-icon.png', alt: `${persona.name || 'Persona'} avatar` }),
+      el('strong', { textContent: persona.name || 'Persona' }),
+    ]),
+    el('label', { textContent: 'Name' }),
+    nameInput,
+    el('label', { textContent: 'Avatar URL' }),
+    avatarInput,
+    el('label', { textContent: 'Upload avatar image' }),
+    fileInput,
+    el('label', { textContent: 'Personality details' }),
+    personalityInput,
+    el('label', { textContent: 'System prompt' }),
+    systemPromptInput,
+    el('label', { textContent: 'Preferred model' }),
+    modelSelect,
+    el('label', { textContent: warmthControls[0] }), warmthControls[1], warmthControls[2],
+    el('label', { textContent: creativityControls[0] }), creativityControls[1], creativityControls[2],
+    el('label', { textContent: directnessControls[0] }), directnessControls[1], directnessControls[2],
+    el('div', { class: 'chips' }, [
+      el('button', { class: 'send-btn', textContent: 'Save persona', onclick: async () => {
+        try {
+          await api(`/api/personas/${persona.id}`, {
+            method: 'PUT',
+            body: JSON.stringify({
+              name: nameInput.value.trim() || persona.name,
+              system_prompt: systemPromptInput.value,
+              default_model: modelSelect.value,
+              avatar_url: avatarInput.value,
+              personality_details: personalityInput.value,
+              traits: {
+                warmth: Number(warmthControls[1].value),
+                creativity: Number(creativityControls[1].value),
+                directness: Number(directnessControls[1].value),
+              },
+            }),
+          });
+          await refresh();
+          state.settingsSection = 'Personas';
+          state.showSettings = true;
+        } catch (e) { state.settingsError = e.message; render(); }
+      } }),
+      el('button', { class: 'icon-btn', textContent: 'Delete', onclick: async () => {
+        if (!confirm(`Delete persona "${persona.name}"?`)) return;
+        try { await api(`/api/personas/${persona.id}`, { method: 'DELETE' }); await refresh(); state.settingsSection = 'Personas'; state.showSettings = true; }
+        catch (e) { state.settingsError = e.message; render(); }
+      } }),
+    ]),
+  ]);
+}
+
 function settingsPanel() {
   if (!state.showSettings) return null;
 
@@ -537,6 +648,7 @@ function settingsPanel() {
       localStorage.setItem('na_theme', state.theme);
       document.documentElement.setAttribute('data-theme', state.theme);
       state.showSystemMessages = Boolean(state.settings.general_show_system_messages);
+      state.showThinkingByDefault = Boolean(state.settings.general_show_thinking);
     }
     await persistSettings();
   };
@@ -555,19 +667,7 @@ function settingsPanel() {
     } }),
   ]));
 
-  const personaRows = state.personas.map((p) => managerRow(p.name, [
-    el('button', { class: 'icon-btn', textContent: 'Rename', onclick: async () => {
-      const name = prompt('Rename persona', p.name);
-      if (!name?.trim()) return;
-      try { await api(`/api/personas/${p.id}`, { method: 'PUT', body: JSON.stringify({ name: name.trim() }) }); await refresh(); }
-      catch (e) { state.settingsError = e.message; render(); }
-    } }),
-    el('button', { class: 'icon-btn', textContent: 'Delete', onclick: async () => {
-      if (!confirm(`Delete persona "${p.name}"?`)) return;
-      try { await api(`/api/personas/${p.id}`, { method: 'DELETE' }); await refresh(); }
-      catch (e) { state.settingsError = e.message; render(); }
-    } }),
-  ]));
+  const personaRows = state.personas.map((p) => personaEditorCard(p));
 
   if (!state.activeModelSettingsId) {
     state.activeModelSettingsId = state.settings.global_default_model || state.models[0] || '';
@@ -598,6 +698,13 @@ function settingsPanel() {
           state.showSystemMessages = e.target.checked;
         } }),
         'Show system/tool messages by default',
+      ]),
+      el('label', { class: 'checkbox-row' }, [
+        el('input', { type: 'checkbox', checked: Boolean(state.settings.general_show_thinking), onchange: (e) => {
+          setVal('general_show_thinking', e.target.checked);
+          state.showThinkingByDefault = e.target.checked;
+        } }),
+        'Show model thinking by default in all chats',
       ]),
     ],
     TTS: [
@@ -641,6 +748,7 @@ function settingsPanel() {
     Personas: [
       el('label', { textContent: 'Default system prompt for new personas' }),
       el('textarea', { class: 'search-input', rows: 3, value: state.settings.personas_default_system_prompt, oninput: (e) => setVal('personas_default_system_prompt', e.target.value) }),
+      el('div', { class: 'meta', textContent: 'Edit each persona including avatar, detailed personality profile, and trait sliders.' }),
       ...personaRows,
       el('button', { class: 'pill-btn', textContent: '+ Add persona', onclick: async () => {
         const name = prompt('Persona name', 'Assistant');
@@ -650,9 +758,18 @@ function settingsPanel() {
         try {
           await api('/api/personas', {
             method: 'POST',
-            body: JSON.stringify({ workspaceId, name: name.trim(), systemPrompt: state.settings.personas_default_system_prompt, defaultModel: state.settings.global_default_model || state.models[0] || '' }),
+            body: JSON.stringify({
+              workspaceId,
+              name: name.trim(),
+              systemPrompt: state.settings.personas_default_system_prompt,
+              personalityDetails: '',
+              traits: { warmth: 50, creativity: 50, directness: 50 },
+              defaultModel: state.settings.global_default_model || state.models[0] || '',
+            }),
           });
           await refresh();
+          state.settingsSection = 'Personas';
+          state.showSettings = true;
         } catch (e) { state.settingsError = e.message; render(); }
       } }),
     ],
@@ -724,7 +841,7 @@ function messageItem(m, personaId) {
   const { thinking, visibleText } = splitThinking(m.text || '');
   const hasThinking = Boolean(thinking) && m.role === 'assistant';
   const messageId = m.id || `${m.role}-${m.created_at || ''}-${(m.text || '').slice(0, 16)}`;
-  const showThinking = Boolean(state.thinkingExpanded[messageId]);
+  const showThinking = state.showThinkingByDefault || Boolean(state.thinkingExpanded[messageId]);
   const personaName = state.personas.find((p) => p.id === (personaId || state.selectedPersonaId))?.name || 'assistant';
   const roleLabel = isUser ? 'You' : (m.role === 'assistant' ? personaName : m.role);
   return el('div', { class: `msg-wrap ${isUser ? 'user' : ''}` }, [
@@ -741,7 +858,12 @@ function messageItem(m, personaId) {
           textContent: showThinking ? '🙈' : '💭',
           title: showThinking ? 'Hide thinking' : 'Show thinking',
           onclick: () => {
-            state.thinkingExpanded[messageId] = !showThinking;
+            if (state.showThinkingByDefault) {
+              state.showThinkingByDefault = false;
+              state.settings.general_show_thinking = false;
+            } else {
+              state.thinkingExpanded[messageId] = !showThinking;
+            }
             render();
           },
         }) : null,
@@ -852,6 +974,7 @@ function render() {
         id: 'memSel', class: 'chip-select compact-select', value: selectedMemoryMode, onchange: (e) => { state.selectedMemoryMode = e.target.value; },
       }, ['off', 'manual', 'auto'].map((m) => el('option', { value: m, textContent: `Memory: ${m}`, selected: m === selectedMemoryMode }))),
       el('button', { class: 'pill-btn', textContent: state.showSystemMessages ? 'Hide system/tool' : 'Show system/tool', onclick: () => { state.showSystemMessages = !state.showSystemMessages; render(); } }),
+      el('button', { class: 'pill-btn', textContent: state.showThinkingByDefault ? 'Hide thinking' : 'Show thinking', onclick: () => { state.showThinkingByDefault = !state.showThinkingByDefault; state.settings.general_show_thinking = state.showThinkingByDefault; render(); } }),
     ]),
     el('section', { id: 'messagesPane', class: 'message-pane glass', onscroll: onMessageScroll },
       messagesForRender.map((m) => messageItem(m, personaId)).filter(Boolean)
