@@ -1,7 +1,7 @@
 import base64
-import cgi
 import hashlib
 import json
+import logging
 import mimetypes
 import os
 import secrets
@@ -12,7 +12,10 @@ import time
 import urllib.parse
 import urllib.request
 import signal
-from datetime import datetime
+import threading
+from datetime import datetime, timezone
+from email.parser import BytesParser
+from email.policy import default
 from http import HTTPStatus
 from http.cookies import SimpleCookie
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -31,6 +34,12 @@ LOG_DIR = DATA_DIR / "logs"
 DB_PATH = DATA_DIR / "nice_assistant.db"
 SETTINGS_JSON = DATA_DIR / "settings.json"
 WEB_DIR = Path(__file__).resolve().parent.parent / "web"
+
+logging.basicConfig(
+    level=os.getenv("LOG_LEVEL", "INFO").upper(),
+    format="%(asctime)s %(levelname)s [%(threadName)s] %(message)s",
+)
+logger = logging.getLogger("nice-assistant")
 
 
 def ensure_dirs():
@@ -196,7 +205,7 @@ def rotate_audio_cache():
 
 
 def backup_db_if_needed():
-    stamp = datetime.utcnow().strftime("%Y%m%d")
+    stamp = datetime.now(timezone.utc).strftime("%Y%m%d")
     target = ARCHIVE_DIR / "db_backups" / f"nice_assistant_{stamp}.db"
     if not target.exists() and DB_PATH.exists():
         shutil.copy2(DB_PATH, target)
@@ -219,6 +228,7 @@ def ollama_models():
 
 
 def call_ollama(model, messages, options=None):
+    started = time.monotonic()
     body = {"model": model, "messages": messages, "stream": False}
     if options:
         body["options"] = options
@@ -229,9 +239,13 @@ def call_ollama(model, messages, options=None):
         headers={"Content-Type": "application/json"},
         method="POST",
     )
-    with urllib.request.urlopen(req, timeout=120) as r:
-        data = json.loads(r.read().decode())
-        return data.get("message", {}).get("content", "")
+    try:
+        with urllib.request.urlopen(req, timeout=120) as r:
+            data = json.loads(r.read().decode())
+            return data.get("message", {}).get("content", "")
+    finally:
+        elapsed = time.monotonic() - started
+        logger.info("ollama request complete model=%s duration_ms=%d message_count=%d", model, int(elapsed * 1000), len(messages))
 
 
 
@@ -255,6 +269,30 @@ def parse_model_options(payload_settings):
         except (TypeError, ValueError):
             continue
     return options
+
+
+def parse_multipart_form_data(content_type, body):
+    if not content_type or "multipart/form-data" not in content_type:
+        return {}
+    mime_bytes = (
+        f"Content-Type: {content_type}\r\n"
+        "MIME-Version: 1.0\r\n"
+        "\r\n"
+    ).encode() + body
+    message = BytesParser(policy=default).parsebytes(mime_bytes)
+    fields = {}
+    if not message.is_multipart():
+        return fields
+    for part in message.iter_parts():
+        name = part.get_param("name", header="content-disposition")
+        if not name:
+            continue
+        fields[name] = {
+            "filename": part.get_filename(),
+            "content_type": part.get_content_type(),
+            "value": part.get_payload(decode=True) or b"",
+        }
+    return fields
 
 def openai_speech(text, voice, fmt, api_key):
     payload = json.dumps({"model": "gpt-4o-mini-tts", "input": text, "voice": voice or "alloy", "format": fmt}).encode()
@@ -298,6 +336,9 @@ def openai_stt(filepath, api_key):
 
 class Handler(BaseHTTPRequestHandler):
     server_version = "NiceAssistant/0.1"
+
+    def log_message(self, format, *args):
+        logger.info("%s - %s", self.address_string(), format % args)
 
     def _set_headers(self, code=200, ctype="application/json"):
         self.send_response(code)
@@ -491,6 +532,15 @@ class Handler(BaseHTTPRequestHandler):
             model = model or (settings["global_default_model"] if settings else None) or (ollama_models()[0] if ollama_models() else "llama3")
 
             model_options = parse_model_options(b.get("modelSettings") or {})
+            logger.info(
+                "chat request user_id=%s chat_id=%s model=%s memory_mode=%s persona_id=%s options=%s",
+                uid,
+                chat_id,
+                model,
+                mem_mode,
+                persona_id,
+                json.dumps(model_options, sort_keys=True),
+            )
 
             sys_msgs = []
             if mem_mode != "off":
@@ -512,6 +562,7 @@ class Handler(BaseHTTPRequestHandler):
             try:
                 reply = call_ollama(model, messages, model_options)
             except Exception as e:
+                logger.exception("model call failed user_id=%s chat_id=%s model=%s", uid, chat_id, model)
                 reply = f"Model call failed: {e}"
             conn.execute("INSERT INTO messages(id,chat_id,role,text,created_at) VALUES(?,?,?,?,?)", (secrets.token_hex(8),chat_id,"assistant",reply,now_ts()))
             conn.execute("UPDATE chats SET updated_at=?, memory_mode=?, persona_id=?, model_override=? WHERE id=?", (now_ts(), mem_mode, persona_id, b.get("model") or chat["model_override"], chat_id))
@@ -556,12 +607,17 @@ class Handler(BaseHTTPRequestHandler):
         if self.path == "/api/stt":
             conn = db_conn(); settings = conn.execute("SELECT * FROM app_settings WHERE user_id=?", (uid,)).fetchone(); conn.close()
             if not settings or settings["stt_provider"] == "disabled": return self._json({"error":"STT disabled"}, 400)
-            fs = cgi.FieldStorage(fp=self.rfile, headers=self.headers, environ={"REQUEST_METHOD":"POST", "CONTENT_TYPE":self.headers.get("Content-Type")})
-            fitem = fs["file"] if "file" in fs else None
-            if not fitem: return self._json({"error": "file required"}, 400)
+            content_length = int(self.headers.get("Content-Length", "0") or 0)
+            content_type = self.headers.get("Content-Type", "")
+            raw_body = self.rfile.read(content_length) if content_length else b""
+            fields = parse_multipart_form_data(content_type, raw_body)
+            fitem = fields.get("file")
+            if not fitem or not fitem.get("value"):
+                return self._json({"error": "file required"}, 400)
             raw = DATA_DIR / f"upload_{secrets.token_hex(6)}.webm"
             wav = DATA_DIR / f"upload_{secrets.token_hex(6)}.wav"
-            with open(raw, "wb") as f: f.write(fitem.file.read())
+            with open(raw, "wb") as f:
+                f.write(fitem["value"])
             subprocess.run(["ffmpeg", "-y", "-i", str(raw), str(wav)], check=False, capture_output=True)
             if settings["stt_provider"] == "openai":
                 key = settings["openai_api_key"]
@@ -667,19 +723,26 @@ class Handler(BaseHTTPRequestHandler):
 def main():
     ensure_dirs(); init_db(); rotate_logs(); backup_db_if_needed()
     server = GracefulThreadingHTTPServer(("0.0.0.0", PORT), Handler)
+    shutdown_requested = threading.Event()
 
-    def shutdown_handler(_signum, _frame):
-        print("Shutdown signal received, stopping HTTP server...")
-        server.shutdown()
+    def shutdown_handler(signum, _frame):
+        if shutdown_requested.is_set():
+            logger.info("shutdown already in progress signal=%s", signum)
+            return
+        shutdown_requested.set()
+        logger.info("shutdown signal received signal=%s active_threads=%d", signum, threading.active_count())
+        threading.Thread(target=server.shutdown, name="server-shutdown", daemon=True).start()
 
     signal.signal(signal.SIGTERM, shutdown_handler)
     signal.signal(signal.SIGINT, shutdown_handler)
 
-    print(f"Nice Assistant listening on {PORT}")
+    logger.info("Nice Assistant listening on %s", PORT)
+    started = time.monotonic()
     try:
-        server.serve_forever()
+        server.serve_forever(poll_interval=0.2)
     finally:
         server.server_close()
+        logger.info("http server closed uptime_seconds=%.2f", time.monotonic() - started)
 
 
 if __name__ == "__main__":
