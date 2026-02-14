@@ -202,8 +202,11 @@ def ollama_models():
         return []
 
 
-def call_ollama(model, messages):
-    payload = json.dumps({"model": model, "messages": messages, "stream": False}).encode()
+def call_ollama(model, messages, options=None):
+    body = {"model": model, "messages": messages, "stream": False}
+    if options:
+        body["options"] = options
+    payload = json.dumps(body).encode()
     req = urllib.request.Request(
         f"{OLLAMA_BASE_URL}/api/chat",
         data=payload,
@@ -214,6 +217,28 @@ def call_ollama(model, messages):
         data = json.loads(r.read().decode())
         return data.get("message", {}).get("content", "")
 
+
+
+def parse_model_options(payload_settings):
+    if not isinstance(payload_settings, dict):
+        return {}
+    schema = {
+        "temperature": float,
+        "top_p": float,
+        "num_predict": int,
+        "presence_penalty": float,
+        "frequency_penalty": float,
+    }
+    options = {}
+    for key, caster in schema.items():
+        val = payload_settings.get(key)
+        if val is None or val == "":
+            continue
+        try:
+            options[key] = caster(val)
+        except (TypeError, ValueError):
+            continue
+    return options
 
 def openai_speech(text, voice, fmt, api_key):
     payload = json.dumps({"model": "gpt-4o-mini-tts", "input": text, "voice": voice or "alloy", "format": fmt}).encode()
@@ -449,6 +474,8 @@ class Handler(BaseHTTPRequestHandler):
                 p = conn.execute("SELECT default_model FROM personas WHERE id=?", (persona_id,)).fetchone(); model = p["default_model"] if p else None
             model = model or (settings["global_default_model"] if settings else None) or (ollama_models()[0] if ollama_models() else "llama3")
 
+            model_options = parse_model_options(b.get("modelSettings") or {})
+
             sys_msgs = []
             if mem_mode != "off":
                 gm = [r[0] for r in conn.execute("SELECT content FROM memories WHERE user_id=? AND tier='global'", (uid,)).fetchall()]
@@ -467,7 +494,7 @@ class Handler(BaseHTTPRequestHandler):
             messages.append({"role":"user","content":text})
             conn.execute("INSERT INTO messages(id,chat_id,role,text,created_at) VALUES(?,?,?,?,?)", (secrets.token_hex(8),chat_id,"user",text,t))
             try:
-                reply = call_ollama(model, messages)
+                reply = call_ollama(model, messages, model_options)
             except Exception as e:
                 reply = f"Model call failed: {e}"
             conn.execute("INSERT INTO messages(id,chat_id,role,text,created_at) VALUES(?,?,?,?,?)", (secrets.token_hex(8),chat_id,"assistant",reply,now_ts()))

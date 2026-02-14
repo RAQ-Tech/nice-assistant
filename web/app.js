@@ -27,12 +27,16 @@ const state = {
   uiError: '',
   settingsError: '',
   settingsSaving: false,
+  settingsSavedAt: 0,
   settingsSection: 'General',
   selectedPersonaId: null,
   selectedModel: null,
   selectedMemoryMode: null,
   draftMessage: '',
   thinkingExpanded: {},
+  messagePaneScrollTop: 0,
+  stickMessagesToBottom: true,
+  activeModelSettingsId: '',
 };
 
 const SETTINGS_DEFAULTS = {
@@ -56,6 +60,11 @@ const SETTINGS_DEFAULTS = {
   personas_default_system_prompt: 'Be helpful and concise.',
   workspaces_default_workspace_id: '',
   models_temperature: '0.7',
+  models_top_p: '1',
+  models_num_predict: '512',
+  models_presence_penalty: '0',
+  models_frequency_penalty: '0',
+  model_overrides: {},
 };
 
 const SETTINGS_SECTION_KEYS = {
@@ -67,7 +76,7 @@ const SETTINGS_SECTION_KEYS = {
   User: ['user_display_name', 'user_timezone'],
   Personas: ['personas_default_system_prompt'],
   Workspaces: ['workspaces_default_workspace_id'],
-  Models: ['global_default_model', 'models_temperature'],
+  Models: ['global_default_model', 'models_temperature', 'models_top_p', 'models_num_predict', 'models_presence_penalty', 'models_frequency_penalty', 'model_overrides'],
 };
 
 function normalizeSettings(raw = {}) {
@@ -75,7 +84,11 @@ function normalizeSettings(raw = {}) {
   if (raw.preferences_json) {
     try { extra = JSON.parse(raw.preferences_json); } catch { extra = {}; }
   }
-  return { ...SETTINGS_DEFAULTS, ...raw, ...extra };
+  const normalized = { ...SETTINGS_DEFAULTS, ...raw, ...extra };
+  if (!normalized.model_overrides || typeof normalized.model_overrides !== 'object') {
+    normalized.model_overrides = {};
+  }
+  return normalized;
 }
 
 function settingsPayload(nextSettings) {
@@ -102,6 +115,11 @@ function settingsPayload(nextSettings) {
     personas_default_system_prompt: nextSettings.personas_default_system_prompt,
     workspaces_default_workspace_id: nextSettings.workspaces_default_workspace_id,
     models_temperature: nextSettings.models_temperature,
+    models_top_p: nextSettings.models_top_p,
+    models_num_predict: nextSettings.models_num_predict,
+    models_presence_penalty: nextSettings.models_presence_penalty,
+    models_frequency_penalty: nextSettings.models_frequency_penalty,
+    model_overrides: nextSettings.model_overrides || {},
   };
   return { ...core, preferences_json: JSON.stringify(preferences) };
 }
@@ -246,6 +264,38 @@ function scrollMessagesToBottom(smooth = true) {
   pane.scrollTo({ top: pane.scrollHeight, behavior: smooth ? 'smooth' : 'auto' });
 }
 
+function modelSettingsFor(modelName) {
+  const overrides = state.settings?.model_overrides || {};
+  const selected = (modelName && overrides[modelName]) || {};
+  return {
+    temperature: selected.temperature ?? state.settings?.models_temperature ?? SETTINGS_DEFAULTS.models_temperature,
+    top_p: selected.top_p ?? state.settings?.models_top_p ?? SETTINGS_DEFAULTS.models_top_p,
+    num_predict: selected.num_predict ?? state.settings?.models_num_predict ?? SETTINGS_DEFAULTS.models_num_predict,
+    presence_penalty: selected.presence_penalty ?? state.settings?.models_presence_penalty ?? SETTINGS_DEFAULTS.models_presence_penalty,
+    frequency_penalty: selected.frequency_penalty ?? state.settings?.models_frequency_penalty ?? SETTINGS_DEFAULTS.models_frequency_penalty,
+  };
+}
+
+function setModelSetting(modelName, key, value) {
+  const modelId = modelName || state.activeModelSettingsId;
+  if (!modelId) return;
+  const overrides = { ...(state.settings.model_overrides || {}) };
+  const prev = { ...(overrides[modelId] || {}) };
+  prev[key] = value;
+  overrides[modelId] = prev;
+  state.settings.model_overrides = overrides;
+}
+
+function restoreMessagePaneScroll() {
+  const pane = document.getElementById('messagesPane');
+  if (!pane) return;
+  if (state.stickMessagesToBottom) {
+    pane.scrollTop = pane.scrollHeight;
+  } else {
+    pane.scrollTop = Math.min(state.messagePaneScrollTop, Math.max(0, pane.scrollHeight - pane.clientHeight));
+  }
+}
+
 function setUiError(message) {
   state.uiError = message || '';
   render();
@@ -273,6 +323,8 @@ async function openChat(chat) {
   state.selectedModel = detail.chat?.model_override || chat.model_override || state.settings?.global_default_model || state.models[0] || null;
   state.selectedMemoryMode = detail.chat?.memory_mode || chat.memory_mode || state.settings?.default_memory_mode || 'auto';
   state.messages = detail.messages;
+  state.stickMessagesToBottom = true;
+  state.showJumpBottom = false;
   render();
   scrollMessagesToBottom(false);
   if (window.innerWidth < 900) {
@@ -305,19 +357,24 @@ async function sendChat(text) {
   state.status = 'Thinking';
   const pendingMessage = { id: `__pending__${Date.now()}`, role: 'user', text: trimmed };
   state.messages = [...state.messages, pendingMessage];
+  state.stickMessagesToBottom = true;
+  state.showJumpBottom = false;
   render();
   scrollMessagesToBottom(false);
   try {
     const personaId = state.selectedPersonaId || state.currentChat?.persona_id || null;
     const model = state.selectedModel || state.currentChat?.model_override || null;
     const memoryMode = state.selectedMemoryMode || state.currentChat?.memory_mode || 'auto';
-    const r = await api('/api/chat', { method: 'POST', body: JSON.stringify({ text: trimmed, chatId: state.currentChat?.id, personaId, model, memoryMode }) });
+    const modelSettings = modelSettingsFor(model);
+    const r = await api('/api/chat', { method: 'POST', body: JSON.stringify({ text: trimmed, chatId: state.currentChat?.id, personaId, model, memoryMode, modelSettings }) });
     state.currentChat = { ...(state.currentChat || {}), id: r.chatId, persona_id: personaId, model_override: model, memory_mode: memoryMode };
     const detail = await api(`/api/chats/${r.chatId}`);
     state.messages = detail.messages;
     state.selectedPersonaId = detail.chat?.persona_id || state.selectedPersonaId;
     state.selectedModel = detail.chat?.model_override || state.selectedModel;
     state.selectedMemoryMode = detail.chat?.memory_mode || state.selectedMemoryMode;
+    state.stickMessagesToBottom = true;
+    state.showJumpBottom = false;
     render();
     scrollMessagesToBottom();
 
@@ -435,7 +492,9 @@ function statusClass() {
 
 function onMessageScroll(e) {
   const node = e.currentTarget;
+  state.messagePaneScrollTop = node.scrollTop;
   state.showJumpBottom = node.scrollTop + node.clientHeight < node.scrollHeight - 130;
+  state.stickMessagesToBottom = !state.showJumpBottom;
   const jumpBtn = document.getElementById('jumpBtn');
   if (jumpBtn) jumpBtn.classList.toggle('show', state.showJumpBottom);
 }
@@ -452,6 +511,7 @@ function settingsPanel() {
 
   const setVal = (key, value) => {
     state.settings[key] = value;
+    state.settingsSavedAt = 0;
   };
 
   const persistSettings = async () => {
@@ -460,6 +520,8 @@ function settingsPanel() {
     render();
     try {
       await api('/api/settings', { method: 'POST', body: JSON.stringify(settingsPayload(state.settings)) });
+      state.settingsSaving = false;
+      state.settingsSavedAt = Date.now();
       await refresh();
     } catch (e) {
       state.settingsError = e.message || 'Unable to save settings.';
@@ -506,6 +568,14 @@ function settingsPanel() {
       catch (e) { state.settingsError = e.message; render(); }
     } }),
   ]));
+
+  if (!state.activeModelSettingsId) {
+    state.activeModelSettingsId = state.settings.global_default_model || state.models[0] || '';
+  }
+  if (state.activeModelSettingsId && !state.models.includes(state.activeModelSettingsId)) {
+    state.activeModelSettingsId = state.settings.global_default_model || state.models[0] || '';
+  }
+  const activeModelSettings = modelSettingsFor(state.activeModelSettingsId);
 
   const sectionContent = {
     General: [
@@ -600,10 +670,22 @@ function settingsPanel() {
     ],
     Models: [
       el('label', { textContent: 'Default model' }),
-      el('select', { class: 'chip-select', onchange: (e) => setVal('global_default_model', e.target.value) },
+      el('select', { class: 'chip-select', onchange: (e) => { setVal('global_default_model', e.target.value); if (!state.activeModelSettingsId) state.activeModelSettingsId = e.target.value; } },
         [el('option', { value: '', textContent: 'Auto' }), ...state.models.map((m) => el('option', { value: m, textContent: m, selected: m === state.settings.global_default_model }))]),
+      el('label', { textContent: 'Model-specific tuning' }),
+      el('select', { class: 'chip-select', value: state.activeModelSettingsId, onchange: (e) => { state.activeModelSettingsId = e.target.value; render(); } },
+        [el('option', { value: '', textContent: state.models.length ? 'Select model…' : 'No models found' }), ...state.models.map((m) => el('option', { value: m, textContent: m, selected: m === state.activeModelSettingsId }))]),
       el('label', { textContent: 'Temperature' }),
-      el('input', { type: 'number', min: 0, max: 2, step: 0.1, class: 'search-input', value: state.settings.models_temperature, oninput: (e) => setVal('models_temperature', e.target.value) }),
+      el('input', { type: 'number', min: 0, max: 2, step: 0.1, class: 'search-input', disabled: !state.activeModelSettingsId, value: activeModelSettings.temperature, oninput: (e) => setModelSetting(state.activeModelSettingsId, 'temperature', e.target.value) }),
+      el('label', { textContent: 'Top P' }),
+      el('input', { type: 'number', min: 0, max: 1, step: 0.05, class: 'search-input', disabled: !state.activeModelSettingsId, value: activeModelSettings.top_p, oninput: (e) => setModelSetting(state.activeModelSettingsId, 'top_p', e.target.value) }),
+      el('label', { textContent: 'Max output tokens' }),
+      el('input', { type: 'number', min: 1, max: 8192, step: 1, class: 'search-input', disabled: !state.activeModelSettingsId, value: activeModelSettings.num_predict, oninput: (e) => setModelSetting(state.activeModelSettingsId, 'num_predict', e.target.value) }),
+      el('label', { textContent: 'Presence penalty' }),
+      el('input', { type: 'number', min: -2, max: 2, step: 0.1, class: 'search-input', disabled: !state.activeModelSettingsId, value: activeModelSettings.presence_penalty, oninput: (e) => setModelSetting(state.activeModelSettingsId, 'presence_penalty', e.target.value) }),
+      el('label', { textContent: 'Frequency penalty' }),
+      el('input', { type: 'number', min: -2, max: 2, step: 0.1, class: 'search-input', disabled: !state.activeModelSettingsId, value: activeModelSettings.frequency_penalty, oninput: (e) => setModelSetting(state.activeModelSettingsId, 'frequency_penalty', e.target.value) }),
+      el('div', { class: 'meta', textContent: 'Tune each model independently. Values apply when that model is selected for a chat.' }),
     ],
   };
 
@@ -616,6 +698,7 @@ function settingsPanel() {
       ]),
     ]),
     state.settingsError ? el('div', { class: 'error-banner', textContent: state.settingsError }) : null,
+    state.settingsSavedAt ? el('div', { class: 'success-banner', textContent: `Settings saved at ${new Date(state.settingsSavedAt).toLocaleTimeString()}` }) : null,
     el('div', { class: 'settings-layout' }, [
       el('aside', { class: 'settings-nav glass' }, sectionNames.map((name) => el('button', {
         class: `settings-nav-item ${name === state.settingsSection ? 'active' : ''}`,
@@ -779,10 +862,15 @@ function render() {
   ]);
 
   const scrim = el('div', { class: `scrim ${state.drawerOpen && window.innerWidth < 900 ? 'show' : ''}`, onclick: () => { state.drawerOpen = false; render(); } });
-  const jumpBtn = el('button', { id: 'jumpBtn', class: `jump-btn icon-btn ${state.showJumpBottom ? 'show' : ''}`, textContent: '↓ Latest', onclick: () => scrollMessagesToBottom() });
+  const jumpBtn = el('button', { id: 'jumpBtn', class: `jump-btn icon-btn ${state.showJumpBottom ? 'show' : ''}`, textContent: '↓ Latest', onclick: () => { state.stickMessagesToBottom = true; state.showJumpBottom = false; scrollMessagesToBottom(); } });
   const viz = el('div', { class: `viz-wrap ${state.showViz ? 'show' : ''}` }, [vizCanvas()]);
   const shellChildren = state.showSettings ? [settingsPanel()] : [scrim, drawer, main, jumpBtn, viz];
   app.append(el('div', { class: 'app-shell' }, shellChildren));
+  requestAnimationFrame(() => {
+    restoreMessagePaneScroll();
+    const pane = document.getElementById('messagesPane');
+    if (pane) onMessageScroll({ currentTarget: pane });
+  });
 }
 
 refresh().then(ensureWizard);
