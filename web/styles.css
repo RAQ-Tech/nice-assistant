@@ -370,6 +370,30 @@ button, input, select, textarea {
   gap: .5rem;
 }
 
+.persona-card {
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: .7rem;
+  background: rgba(10, 24, 36, 0.35);
+  display: flex;
+  flex-direction: column;
+  gap: .4rem;
+}
+
+.persona-card-header {
+  display: flex;
+  align-items: center;
+  gap: .5rem;
+}
+
+.persona-avatar-preview {
+  width: 34px;
+  height: 34px;
+  border-radius: 999px;
+  object-fit: cover;
+  border: 1px solid var(--border);
+}
+
 
 .status { position: fixed; top: .75rem; right: .75rem; }
 .viz-wrap { position: fixed; inset: 0; pointer-events: none; display: none; z-index: 2; opacity:.45; }

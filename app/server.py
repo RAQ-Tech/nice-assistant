@@ -11,6 +11,7 @@ import subprocess
 import time
 import urllib.parse
 import urllib.request
+import signal
 from datetime import datetime
 from http import HTTPStatus
 from http.cookies import SimpleCookie
@@ -72,6 +73,8 @@ def init_db():
             name TEXT NOT NULL,
             avatar_url TEXT,
             system_prompt TEXT,
+            personality_details TEXT,
+            traits_json TEXT DEFAULT '{}',
             default_model TEXT,
             preferred_voice TEXT,
             created_at INTEGER NOT NULL
@@ -141,7 +144,20 @@ def init_db():
         conn.execute("ALTER TABLE app_settings ADD COLUMN preferences_json TEXT DEFAULT '{}'")
         conn.execute("UPDATE app_settings SET preferences_json='{}' WHERE preferences_json IS NULL")
         conn.commit()
+    persona_cols = {r[1] for r in conn.execute("PRAGMA table_info(personas)").fetchall()}
+    if "personality_details" not in persona_cols:
+        conn.execute("ALTER TABLE personas ADD COLUMN personality_details TEXT")
+        conn.commit()
+    if "traits_json" not in persona_cols:
+        conn.execute("ALTER TABLE personas ADD COLUMN traits_json TEXT DEFAULT '{}'")
+        conn.execute("UPDATE personas SET traits_json='{}' WHERE traits_json IS NULL")
+        conn.commit()
     conn.close()
+
+
+class GracefulThreadingHTTPServer(ThreadingHTTPServer):
+    daemon_threads = True
+    allow_reuse_address = True
 
 
 def hash_password(password: str) -> str:
@@ -447,7 +463,7 @@ class Handler(BaseHTTPRequestHandler):
             return self._json({"id": wid})
         if self.path == "/api/personas":
             b = self._read_json(); pid = secrets.token_hex(8)
-            conn = db_conn(); conn.execute("INSERT INTO personas(id,workspace_id,name,avatar_url,system_prompt,default_model,preferred_voice,created_at) VALUES(?,?,?,?,?,?,?,?)", (pid,b.get("workspaceId"),b.get("name","Persona"),b.get("avatarUrl"),b.get("systemPrompt"),b.get("defaultModel"),b.get("preferredVoice"),now_ts())); conn.commit(); conn.close()
+            conn = db_conn(); conn.execute("INSERT INTO personas(id,workspace_id,name,avatar_url,system_prompt,personality_details,traits_json,default_model,preferred_voice,created_at) VALUES(?,?,?,?,?,?,?,?,?,?)", (pid,b.get("workspaceId"),b.get("name","Persona"),b.get("avatarUrl"),b.get("systemPrompt"),b.get("personalityDetails"),json.dumps(b.get("traits") or {}),b.get("defaultModel"),b.get("preferredVoice"),now_ts())); conn.commit(); conn.close()
             return self._json({"id": pid})
         if self.path == "/api/chats":
             b = self._read_json(); cid = secrets.token_hex(8); t=now_ts()
@@ -602,6 +618,14 @@ class Handler(BaseHTTPRequestHandler):
                 b.get("default_model", row["default_model"]),
                 pid,
             ))
+            if "avatar_url" in b or "personality_details" in b or "traits" in b or "preferred_voice" in b:
+                conn.execute("UPDATE personas SET avatar_url=?, personality_details=?, traits_json=?, preferred_voice=? WHERE id=?", (
+                    b.get("avatar_url", row["avatar_url"]),
+                    b.get("personality_details", row["personality_details"]),
+                    json.dumps(b.get("traits", json.loads(row["traits_json"] or "{}"))),
+                    b.get("preferred_voice", row["preferred_voice"]),
+                    pid,
+                ))
             conn.commit(); conn.close(); return self._json({"ok": True})
         return self._json({"error":"not found"},404)
 
@@ -642,9 +666,20 @@ class Handler(BaseHTTPRequestHandler):
 
 def main():
     ensure_dirs(); init_db(); rotate_logs(); backup_db_if_needed()
-    server = ThreadingHTTPServer(("0.0.0.0", PORT), Handler)
+    server = GracefulThreadingHTTPServer(("0.0.0.0", PORT), Handler)
+
+    def shutdown_handler(_signum, _frame):
+        print("Shutdown signal received, stopping HTTP server...")
+        server.shutdown()
+
+    signal.signal(signal.SIGTERM, shutdown_handler)
+    signal.signal(signal.SIGINT, shutdown_handler)
+
     print(f"Nice Assistant listening on {PORT}")
-    server.serve_forever()
+    try:
+        server.serve_forever()
+    finally:
+        server.server_close()
 
 
 if __name__ == "__main__":
