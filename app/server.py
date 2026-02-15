@@ -271,6 +271,39 @@ def parse_model_options(payload_settings):
     return options
 
 
+def parse_traits(raw_traits):
+    if not raw_traits:
+        return {"warmth": 50, "creativity": 50, "directness": 50}
+    try:
+        parsed = json.loads(raw_traits) if isinstance(raw_traits, str) else dict(raw_traits)
+    except (TypeError, ValueError):
+        parsed = {}
+    return {
+        "warmth": int(parsed.get("warmth", 50)),
+        "creativity": int(parsed.get("creativity", 50)),
+        "directness": int(parsed.get("directness", 50)),
+    }
+
+
+def persona_instruction_block(persona_row):
+    if not persona_row:
+        return ""
+    traits = parse_traits(persona_row["traits_json"])
+    warmth = "high" if traits["warmth"] >= 67 else ("low" if traits["warmth"] <= 33 else "moderate")
+    creativity = "high" if traits["creativity"] >= 67 else ("low" if traits["creativity"] <= 33 else "moderate")
+    directness = "high" if traits["directness"] >= 67 else ("low" if traits["directness"] <= 33 else "moderate")
+
+    lines = [
+        f"You are the persona named '{persona_row['name']}'. If asked your name or identity in this chat, answer as this persona.",
+        f"Tone controls: warmth={warmth} ({traits['warmth']}/100), creativity={creativity} ({traits['creativity']}/100), directness={directness} ({traits['directness']}/100).",
+    ]
+    if persona_row["personality_details"]:
+        lines.append(f"Persona details: {persona_row['personality_details']}")
+    if persona_row["system_prompt"]:
+        lines.append(persona_row["system_prompt"])
+    return "\n".join(lines)
+
+
 def parse_multipart_form_data(content_type, body):
     if not content_type or "multipart/form-data" not in content_type:
         return {}
@@ -438,7 +471,9 @@ class Handler(BaseHTTPRequestHandler):
             uid = self._require_auth();
             if not uid: return
             conn = db_conn()
-            if self.path == "/api/memory/global":
+            if self.path == "/api/memory/all":
+                rows = [dict(r) for r in conn.execute("SELECT * FROM memories WHERE user_id=? ORDER BY created_at DESC", (uid,)).fetchall()]
+            elif self.path == "/api/memory/global":
                 rows = [dict(r) for r in conn.execute("SELECT * FROM memories WHERE user_id=? AND tier='global'", (uid,)).fetchall()]
             elif self.path.startswith("/api/memory/workspace/"):
                 wid = self.path.rsplit("/", 1)[-1]
@@ -446,6 +481,12 @@ class Handler(BaseHTTPRequestHandler):
             elif self.path.startswith("/api/memory/persona/"):
                 pid = self.path.rsplit("/", 1)[-1]
                 rows = [dict(r) for r in conn.execute("SELECT * FROM memories WHERE user_id=? AND tier='persona' AND tier_ref_id=?", (uid, pid)).fetchall()]
+            elif self.path.startswith("/api/memory/chat/"):
+                cid = self.path.rsplit("/", 1)[-1]
+                owns = conn.execute("SELECT id FROM chats WHERE id=? AND user_id=?", (cid, uid)).fetchone()
+                if not owns:
+                    conn.close(); return self._json({"error": "not found"}, 404)
+                rows = [dict(r) for r in conn.execute("SELECT * FROM memories WHERE user_id=? AND tier='chat' AND tier_ref_id=?", (uid, cid)).fetchall()]
             else:
                 conn.close(); return self._json({"error": "unknown tier"}, 400)
             conn.close(); return self._json({"items": rows})
@@ -525,6 +566,8 @@ class Handler(BaseHTTPRequestHandler):
                 chat = conn.execute("SELECT * FROM chats WHERE id=?", (chat_id,)).fetchone()
             mem_mode = b.get("memoryMode") or chat["memory_mode"] or "auto"
             persona_id = b.get("personaId") or chat["persona_id"]
+            persona = conn.execute("SELECT * FROM personas WHERE id=?", (persona_id,)).fetchone() if persona_id else None
+            workspace_id = chat["workspace_id"] or b.get("workspaceId") or (persona["workspace_id"] if persona else None)
             model = b.get("model") or chat["model_override"]
             settings = conn.execute("SELECT * FROM app_settings WHERE user_id=?", (uid,)).fetchone()
             if not model and persona_id:
@@ -546,14 +589,17 @@ class Handler(BaseHTTPRequestHandler):
             if mem_mode != "off":
                 gm = [r[0] for r in conn.execute("SELECT content FROM memories WHERE user_id=? AND tier='global'", (uid,)).fetchall()]
                 sys_msgs += gm
-                if chat["workspace_id"]:
-                    wm = [r[0] for r in conn.execute("SELECT content FROM memories WHERE user_id=? AND tier='workspace' AND tier_ref_id=?", (uid, chat["workspace_id"]))]
+                if workspace_id:
+                    wm = [r[0] for r in conn.execute("SELECT content FROM memories WHERE user_id=? AND tier='workspace' AND tier_ref_id=?", (uid, workspace_id))]
                     sys_msgs += wm
                 if persona_id:
                     pm = [r[0] for r in conn.execute("SELECT content FROM memories WHERE user_id=? AND tier='persona' AND tier_ref_id=?", (uid, persona_id))]
                     sys_msgs += pm
-            p = conn.execute("SELECT system_prompt FROM personas WHERE id=?", (persona_id,)).fetchone() if persona_id else None
-            if p and p[0]: sys_msgs.append(p[0])
+                cm = [r[0] for r in conn.execute("SELECT content FROM memories WHERE user_id=? AND tier='chat' AND tier_ref_id=? ORDER BY created_at DESC LIMIT 30", (uid, chat_id)).fetchall()]
+                sys_msgs += list(reversed(cm))
+            persona_prompt = persona_instruction_block(persona)
+            if persona_prompt:
+                sys_msgs.append(persona_prompt)
             messages = [{"role":"system","content":"\n".join(sys_msgs)}] if sys_msgs else []
             hist = conn.execute("SELECT role,text FROM messages WHERE chat_id=? ORDER BY created_at DESC LIMIT 20", (chat_id,)).fetchall()
             for r in reversed(hist): messages.append({"role":r[0],"content":r[1]})
@@ -565,10 +611,11 @@ class Handler(BaseHTTPRequestHandler):
                 logger.exception("model call failed user_id=%s chat_id=%s model=%s", uid, chat_id, model)
                 reply = f"Model call failed: {e}"
             conn.execute("INSERT INTO messages(id,chat_id,role,text,created_at) VALUES(?,?,?,?,?)", (secrets.token_hex(8),chat_id,"assistant",reply,now_ts()))
-            conn.execute("UPDATE chats SET updated_at=?, memory_mode=?, persona_id=?, model_override=? WHERE id=?", (now_ts(), mem_mode, persona_id, b.get("model") or chat["model_override"], chat_id))
+            conn.execute("UPDATE chats SET updated_at=?, memory_mode=?, persona_id=?, workspace_id=?, model_override=? WHERE id=?", (now_ts(), mem_mode, persona_id, workspace_id, b.get("model") or chat["model_override"], chat_id))
             if mem_mode == "auto":
                 if len(text) < 280 and any(k in text.lower() for k in ["my ", "i like", "remember", "name is"]):
                     conn.execute("INSERT INTO memories(id,user_id,tier,tier_ref_id,content,created_at) VALUES(?,?,?,?,?,?)", (secrets.token_hex(8), uid, "persona" if persona_id else "global", persona_id, text, now_ts()))
+                conn.execute("INSERT INTO memories(id,user_id,tier,tier_ref_id,content,created_at) VALUES(?,?,?,?,?,?)", (secrets.token_hex(8), uid, "chat", chat_id, text, now_ts()))
             conn.commit(); conn.close(); backup_db_if_needed()
             return self._json({"text": reply, "chatId": chat_id})
         if self.path == "/api/settings":
@@ -583,7 +630,21 @@ class Handler(BaseHTTPRequestHandler):
             b = self._read_json(); mid=secrets.token_hex(8); tier="global"; ref=None
             if self.path.startswith("/api/memory/workspace/"): tier="workspace"; ref=self.path.rsplit("/",1)[-1]
             elif self.path.startswith("/api/memory/persona/"): tier="persona"; ref=self.path.rsplit("/",1)[-1]
-            conn = db_conn(); conn.execute("INSERT INTO memories(id,user_id,tier,tier_ref_id,content,created_at) VALUES(?,?,?,?,?,?)", (mid,uid,tier,ref,b.get("content",""),now_ts())); conn.commit(); conn.close(); return self._json({"id": mid})
+            elif self.path.startswith("/api/memory/chat/"): tier="chat"; ref=self.path.rsplit("/",1)[-1]
+            conn = db_conn()
+            if tier == "workspace":
+                owns = conn.execute("SELECT id FROM workspaces WHERE id=? AND user_id=?", (ref, uid)).fetchone()
+                if not owns:
+                    conn.close(); return self._json({"error": "workspace not found"}, 404)
+            elif tier == "persona":
+                owns = conn.execute("SELECT p.id FROM personas p JOIN workspaces w ON p.workspace_id=w.id WHERE p.id=? AND w.user_id=?", (ref, uid)).fetchone()
+                if not owns:
+                    conn.close(); return self._json({"error": "persona not found"}, 404)
+            elif tier == "chat":
+                owns = conn.execute("SELECT id FROM chats WHERE id=? AND user_id=?", (ref, uid)).fetchone()
+                if not owns:
+                    conn.close(); return self._json({"error": "chat not found"}, 404)
+            conn.execute("INSERT INTO memories(id,user_id,tier,tier_ref_id,content,created_at) VALUES(?,?,?,?,?,?)", (mid,uid,tier,ref,b.get("content",""),now_ts())); conn.commit(); conn.close(); return self._json({"id": mid})
         if self.path == "/api/tts":
             b = self._read_json(); text=b.get("text","")
             conn = db_conn(); settings = conn.execute("SELECT * FROM app_settings WHERE user_id=?", (uid,)).fetchone(); conn.close()
@@ -682,6 +743,36 @@ class Handler(BaseHTTPRequestHandler):
                     b.get("preferred_voice", row["preferred_voice"]),
                     pid,
                 ))
+            conn.commit(); conn.close(); return self._json({"ok": True})
+        if self.path.startswith("/api/memory/"):
+            mid = self.path.rsplit("/", 1)[-1]; b = self._read_json()
+            new_tier = b.get("tier")
+            new_ref = b.get("tier_ref_id")
+            conn = db_conn()
+            row = conn.execute("SELECT * FROM memories WHERE id=? AND user_id=?", (mid, uid)).fetchone()
+            if not row:
+                conn.close(); return self._json({"error": "not found"}, 404)
+            if new_tier in ["workspace", "persona", "chat"] and not new_ref:
+                conn.close(); return self._json({"error": "tier_ref_id required"}, 400)
+            if new_tier == "workspace":
+                owns = conn.execute("SELECT id FROM workspaces WHERE id=? AND user_id=?", (new_ref, uid)).fetchone()
+                if not owns:
+                    conn.close(); return self._json({"error": "workspace not found"}, 404)
+            elif new_tier == "persona":
+                owns = conn.execute("SELECT p.id FROM personas p JOIN workspaces w ON p.workspace_id=w.id WHERE p.id=? AND w.user_id=?", (new_ref, uid)).fetchone()
+                if not owns:
+                    conn.close(); return self._json({"error": "persona not found"}, 404)
+            elif new_tier == "chat":
+                owns = conn.execute("SELECT id FROM chats WHERE id=? AND user_id=?", (new_ref, uid)).fetchone()
+                if not owns:
+                    conn.close(); return self._json({"error": "chat not found"}, 404)
+            conn.execute("UPDATE memories SET content=?, tier=?, tier_ref_id=? WHERE id=? AND user_id=?", (
+                b.get("content", row["content"]),
+                new_tier or row["tier"],
+                new_ref if new_tier else row["tier_ref_id"],
+                mid,
+                uid,
+            ))
             conn.commit(); conn.close(); return self._json({"ok": True})
         return self._json({"error":"not found"},404)
 

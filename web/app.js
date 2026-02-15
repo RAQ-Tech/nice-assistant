@@ -38,6 +38,7 @@ const state = {
   messagePaneScrollTop: 0,
   stickMessagesToBottom: true,
   activeModelSettingsId: '',
+  memoryItems: [],
 };
 
 const SETTINGS_DEFAULTS = {
@@ -228,6 +229,7 @@ async function refresh() {
     state.personas = (await api('/api/personas')).items;
     state.chats = (await api('/api/chats')).items;
     state.settings = normalizeSettings((await api('/api/settings')).settings);
+    state.memoryItems = (await api('/api/memory/all')).items || [];
     state.showSystemMessages = Boolean(state.settings.general_show_system_messages);
     state.showThinkingByDefault = Boolean(state.settings.general_show_thinking);
     if (state.settings.general_theme && state.settings.general_theme !== state.theme) {
@@ -507,6 +509,79 @@ function managerRow(title, actions = []) {
   return el('div', { class: 'manager-row' }, [el('span', { textContent: title }), el('div', { class: 'chips' }, actions)]);
 }
 
+
+function memoryTargetLabel(mem) {
+  if (mem.tier === 'global') return 'All personas';
+  if (mem.tier === 'workspace') {
+    const w = state.workspaces.find((x) => x.id === mem.tier_ref_id);
+    return w ? `Workspace: ${w.name}` : 'Workspace';
+  }
+  if (mem.tier === 'persona') {
+    const p = state.personas.find((x) => x.id === mem.tier_ref_id);
+    return p ? `Persona: ${p.name}` : 'Persona';
+  }
+  if (mem.tier === 'chat') {
+    const c = state.chats.find((x) => x.id === mem.tier_ref_id);
+    return c ? `Chat: ${c.title || c.id}` : 'Chat';
+  }
+  return mem.tier;
+}
+
+function memoryEditorRow(mem) {
+  const content = el('textarea', { class: 'search-input', rows: 2, value: mem.content || '' });
+  const tierSel = el('select', { class: 'chip-select' }, [
+    el('option', { value: 'global', textContent: 'Global', selected: mem.tier === 'global' }),
+    el('option', { value: 'workspace', textContent: 'Workspace', selected: mem.tier === 'workspace' }),
+    el('option', { value: 'persona', textContent: 'Persona', selected: mem.tier === 'persona' }),
+    el('option', { value: 'chat', textContent: 'Chat', selected: mem.tier === 'chat' }),
+  ]);
+
+  const refSel = el('select', { class: 'chip-select' });
+  const rebuildRefOptions = () => {
+    refSel.innerHTML = '';
+    const tier = tierSel.value;
+    if (tier === 'global') {
+      refSel.append(el('option', { value: '', textContent: 'n/a', selected: true }));
+      return;
+    }
+    const source = tier === 'workspace' ? state.workspaces : (tier === 'persona' ? state.personas : state.chats);
+    if (!source.length) {
+      refSel.append(el('option', { value: '', textContent: 'No targets' }));
+      return;
+    }
+    source.forEach((item) => {
+      const val = item.id;
+      const text = item.name || item.title || item.id;
+      refSel.append(el('option', { value: val, textContent: text, selected: val === mem.tier_ref_id }));
+    });
+  };
+  rebuildRefOptions();
+  tierSel.addEventListener('change', rebuildRefOptions);
+
+  return el('div', { class: 'persona-card' }, [
+    el('div', { class: 'meta', textContent: `${fmtDate(mem.created_at)} • ${memoryTargetLabel(mem)}` }),
+    content,
+    el('div', { class: 'chips' }, [tierSel, refSel]),
+    el('div', { class: 'chips' }, [
+      el('button', { class: 'send-btn', textContent: 'Save memory', onclick: async () => {
+        try {
+          await api(`/api/memory/${mem.id}`, { method: 'PUT', body: JSON.stringify({ content: content.value, tier: tierSel.value, tier_ref_id: refSel.value || null }) });
+          await refresh();
+          state.showSettings = true;
+          state.settingsSection = 'Memory';
+        } catch (e) { state.settingsError = e.message; render(); }
+      } }),
+      el('button', { class: 'icon-btn', textContent: 'Delete', onclick: async () => {
+        try {
+          await api(`/api/memory/${mem.id}`, { method: 'DELETE' });
+          await refresh();
+          state.showSettings = true;
+          state.settingsSection = 'Memory';
+        } catch (e) { state.settingsError = e.message; render(); }
+      } }),
+    ]),
+  ]);
+}
 function parsePersonaTraits(rawTraits) {
   if (!rawTraits) return { warmth: 50, creativity: 50, directness: 50 };
   if (typeof rawTraits === 'object') {
@@ -736,6 +811,18 @@ function settingsPanel() {
         el('input', { type: 'checkbox', checked: Boolean(state.settings.memory_auto_save_user_facts), onchange: (e) => setVal('memory_auto_save_user_facts', e.target.checked) }),
         'Auto-save likely user facts',
       ]),
+      el('div', { class: 'meta', textContent: 'Memories are stored by tier and can be moved between Global / Workspace / Persona / Chat.' }),
+      el('button', { class: 'pill-btn', textContent: '+ Add global memory', onclick: async () => {
+        const content = prompt('Memory text');
+        if (!content?.trim()) return;
+        try {
+          await api('/api/memory/global', { method: 'POST', body: JSON.stringify({ content: content.trim() }) });
+          await refresh();
+          state.showSettings = true;
+          state.settingsSection = 'Memory';
+        } catch (e) { state.settingsError = e.message; render(); }
+      } }),
+      ...(state.memoryItems || []).map((m) => memoryEditorRow(m)),
     ],
     User: [
       el('label', { textContent: 'Display name' }),
@@ -871,10 +958,12 @@ function messageItem(m, personaId) {
         el('button', {
           class: 'icon-btn',
           textContent: '🧠',
-          title: 'Save to memory',
+          title: 'Save to chat memory',
           onclick: async () => {
-            const targetPersona = document.getElementById('personaSel')?.value || personaId;
-            await api(`/api/memory/persona/${targetPersona}`, { method: 'POST', body: JSON.stringify({ content: m.text || '' }) });
+            const targetChat = state.currentChat?.id;
+            if (!targetChat) return;
+            await api(`/api/memory/chat/${targetChat}`, { method: 'POST', body: JSON.stringify({ content: m.text || '' }) });
+            await refresh();
           },
         }),
       ]),
