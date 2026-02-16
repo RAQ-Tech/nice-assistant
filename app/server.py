@@ -513,12 +513,29 @@ class Handler(BaseHTTPRequestHandler):
             return None
         conn = db_conn()
         row = conn.execute("SELECT user_id, expires_at FROM sessions WHERE token=?", (tok.value,)).fetchone()
-        if row and row["expires_at"] and row["expires_at"] <= now_ts():
+        if not row:
+            conn.close()
+            return None
+        uid = row["user_id"]
+        settings = conn.execute("SELECT preferences_json FROM app_settings WHERE user_id=?", (uid,)).fetchone()
+        auto_logout_enabled = True
+        if settings:
+            try:
+                prefs = json.loads(settings["preferences_json"] or "{}")
+            except (TypeError, ValueError):
+                prefs = {}
+            auto_logout_enabled = bool(prefs.get("general_auto_logout", True))
+        current_ts = now_ts()
+        if auto_logout_enabled and row["expires_at"] and row["expires_at"] <= current_ts:
             conn.execute("DELETE FROM sessions WHERE token=?", (tok.value,))
             conn.commit()
-            row = None
+            conn.close()
+            return None
+        if auto_logout_enabled:
+            conn.execute("UPDATE sessions SET expires_at=? WHERE token=?", (current_ts + SESSION_TTL_SECONDS, tok.value))
+            conn.commit()
         conn.close()
-        return row["user_id"] if row else None
+        return uid
 
     def _require_auth(self):
         uid = self._auth_user()
@@ -899,10 +916,16 @@ class Handler(BaseHTTPRequestHandler):
             row = conn.execute("SELECT p.* FROM personas p JOIN workspaces w ON p.workspace_id=w.id WHERE p.id=? AND w.user_id=?", (pid, uid)).fetchone()
             if not row:
                 conn.close(); return self._json({"error": "not found"}, 404)
-            conn.execute("UPDATE personas SET name=?, system_prompt=?, default_model=? WHERE id=?", (
+            workspace_id = b.get("workspace_id", row["workspace_id"])
+            if workspace_id != row["workspace_id"]:
+                owns_workspace = conn.execute("SELECT id FROM workspaces WHERE id=? AND user_id=?", (workspace_id, uid)).fetchone()
+                if not owns_workspace:
+                    conn.close(); return self._json({"error": "workspace not found"}, 404)
+            conn.execute("UPDATE personas SET name=?, system_prompt=?, default_model=?, workspace_id=? WHERE id=?", (
                 b.get("name", row["name"]),
                 b.get("system_prompt", row["system_prompt"]),
                 b.get("default_model", row["default_model"]),
+                workspace_id,
                 pid,
             ))
             if "avatar_url" in b or "personality_details" in b or "traits" in b or "preferred_voice" in b:
