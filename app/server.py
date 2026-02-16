@@ -30,6 +30,7 @@ SESSION_COOKIE = "nice_assistant_session"
 SESSION_TTL_SECONDS = int(os.getenv("SESSION_TTL_SECONDS", "1800"))
 
 AUDIO_DIR = DATA_DIR / "audio"
+IMAGE_DIR = DATA_DIR / "images"
 LOG_DIR = DATA_DIR / "logs"
 DB_PATH = DATA_DIR / "nice_assistant.db"
 SETTINGS_JSON = DATA_DIR / "settings.json"
@@ -43,7 +44,7 @@ logger = logging.getLogger("nice-assistant")
 
 
 def ensure_dirs():
-    for p in [DATA_DIR, AUDIO_DIR, LOG_DIR, ARCHIVE_DIR, ARCHIVE_DIR / "audio", ARCHIVE_DIR / "logs", ARCHIVE_DIR / "db_backups"]:
+    for p in [DATA_DIR, AUDIO_DIR, IMAGE_DIR, LOG_DIR, ARCHIVE_DIR, ARCHIVE_DIR / "audio", ARCHIVE_DIR / "logs", ARCHIVE_DIR / "db_backups"]:
         p.mkdir(parents=True, exist_ok=True)
 
 
@@ -390,6 +391,42 @@ def openai_stt(filepath, api_key):
         return json.loads(r.read().decode())
 
 
+def openai_image(prompt, size, quality, api_key):
+    payload = json.dumps({
+        "model": "gpt-image-1",
+        "prompt": prompt,
+        "size": size or "1024x1024",
+        "quality": quality or "standard",
+    }).encode()
+    req = urllib.request.Request(
+        "https://api.openai.com/v1/images/generations",
+        data=payload,
+        headers={"Content-Type": "application/json", "Authorization": f"Bearer {api_key}"},
+        method="POST",
+    )
+    with urllib.request.urlopen(req, timeout=180) as r:
+        data = json.loads(r.read().decode())
+    item = (data.get("data") or [{}])[0]
+    if item.get("b64_json"):
+        return base64.b64decode(item["b64_json"])
+    image_url = item.get("url")
+    if image_url:
+        with urllib.request.urlopen(image_url, timeout=120) as image_resp:
+            return image_resp.read()
+    raise ValueError("Image response did not include data")
+
+
+def looks_like_image_request(text):
+    if not text:
+        return False
+    lowered = " ".join(text.lower().split())
+    verbs = ("generate", "create", "make", "draw", "render")
+    nouns = ("image", "picture", "photo", "illustration", "art")
+    has_verb = any(v in lowered for v in verbs)
+    has_noun = any(n in lowered for n in nouns)
+    return has_verb and has_noun
+
+
 class Handler(BaseHTTPRequestHandler):
     server_version = "NiceAssistant/0.1"
 
@@ -464,6 +501,19 @@ class Handler(BaseHTTPRequestHandler):
             self._set_headers(200, mimetypes.guess_type(str(p))[0] or "application/octet-stream")
             self.end_headers()
             self.wfile.write(p.read_bytes())
+            return
+        if self.path.startswith("/api/images/"):
+            uid = self._require_auth()
+            if not uid:
+                return
+            iid = self.path.rsplit("/", 1)[-1]
+            safe_name = os.path.basename(iid)
+            image_path = IMAGE_DIR / safe_name
+            if not image_path.exists() or not image_path.is_file():
+                return self._json({"error": "not found"}, 404)
+            self._set_headers(200, mimetypes.guess_type(str(image_path))[0] or "application/octet-stream")
+            self.end_headers()
+            self.wfile.write(image_path.read_bytes())
             return
         if self.path == "/api/workspaces":
             uid = self._require_auth();
@@ -608,6 +658,40 @@ class Handler(BaseHTTPRequestHandler):
                 json.dumps(model_options, sort_keys=True),
             )
 
+            conn.execute("INSERT INTO messages(id,chat_id,role,text,created_at) VALUES(?,?,?,?,?)", (secrets.token_hex(8),chat_id,"user",text,t))
+
+            try:
+                prefs = json.loads(settings["preferences_json"] or "{}") if settings else {}
+            except (TypeError, ValueError):
+                prefs = {}
+            image_provider = prefs.get("image_provider", "disabled")
+            if image_provider == "openai" and looks_like_image_request(text):
+                key = settings["openai_api_key"] if settings else None
+                if not key:
+                    reply = "Image generation is enabled for OpenAI, but your OpenAI API key is missing in Settings."
+                else:
+                    image_size = prefs.get("image_size") or "1024x1024"
+                    image_quality = prefs.get("image_quality") or "standard"
+                    image_id = secrets.token_hex(12)
+                    image_ext = "png"
+                    image_name = f"{uid}_{image_id}.{image_ext}"
+                    image_path = IMAGE_DIR / image_name
+                    try:
+                        image_bytes = openai_image(text, image_size, image_quality, key)
+                        image_path.write_bytes(image_bytes)
+                        image_url = f"/api/images/{urllib.parse.quote(image_name)}"
+                        reply = f"Here is your generated image.\n\n![Generated image]({image_url})"
+                    except Exception as e:
+                        logger.exception("image generation failed user_id=%s chat_id=%s", uid, chat_id)
+                        reply = f"Image generation failed: {e}"
+
+                conn.execute("INSERT INTO messages(id,chat_id,role,text,created_at) VALUES(?,?,?,?,?)", (secrets.token_hex(8),chat_id,"assistant",reply,now_ts()))
+                conn.execute("UPDATE chats SET updated_at=?, memory_mode=?, persona_id=?, workspace_id=?, model_override=? WHERE id=?", (now_ts(), mem_mode, persona_id, workspace_id, b.get("model") or chat["model_override"], chat_id))
+                if mem_mode == "auto":
+                    conn.execute("INSERT INTO memories(id,user_id,tier,tier_ref_id,content,created_at) VALUES(?,?,?,?,?,?)", (secrets.token_hex(8), uid, "chat", chat_id, text, now_ts()))
+                conn.commit(); conn.close(); backup_db_if_needed()
+                return self._json({"text": reply, "chatId": chat_id})
+
             sys_msgs = []
             if mem_mode != "off":
                 gm = [r[0] for r in conn.execute("SELECT content FROM memories WHERE user_id=? AND tier='global'", (uid,)).fetchall()]
@@ -627,7 +711,6 @@ class Handler(BaseHTTPRequestHandler):
             hist = conn.execute("SELECT role,text FROM messages WHERE chat_id=? ORDER BY created_at DESC LIMIT 20", (chat_id,)).fetchall()
             for r in reversed(hist): messages.append({"role":r[0],"content":r[1]})
             messages.append({"role":"user","content":text})
-            conn.execute("INSERT INTO messages(id,chat_id,role,text,created_at) VALUES(?,?,?,?,?)", (secrets.token_hex(8),chat_id,"user",text,t))
             try:
                 reply = call_ollama(model, messages, model_options)
             except Exception as e:
