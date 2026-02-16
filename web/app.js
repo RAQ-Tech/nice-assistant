@@ -168,6 +168,7 @@ function md(text = '') {
     return `__CODE_${blocks.length - 1}__`;
   });
   tmp = escapeHtml(tmp)
+    .replace(/!\[(.*?)\]\(([^\s)]+)\)/g, '<img src="$2" alt="$1" class="msg-inline-image" loading="lazy" />')
     .replace(/\[(.*?)\]\((https?:\/\/[^\s)]+)\)/g, '<a href="$2" target="_blank" rel="noreferrer">$1</a>')
     .replace(/`([^`]+)`/g, '<code>$1</code>')
     .replace(/^\s*[-*]\s+(.+)$/gm, '<li>$1</li>');
