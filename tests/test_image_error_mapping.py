@@ -2,7 +2,7 @@ import io
 import unittest
 import urllib.error
 
-from app.server import user_safe_image_error
+from app.server import normalize_image_quality, user_safe_image_error
 
 
 class UserSafeImageErrorTests(unittest.TestCase):
@@ -32,6 +32,16 @@ class UserSafeImageErrorTests(unittest.TestCase):
         exc = urllib.error.URLError("timed out")
         message = user_safe_image_error(exc)
         self.assertIn("could not be reached", message)
+
+
+class NormalizeImageQualityTests(unittest.TestCase):
+    def test_legacy_values_are_mapped(self):
+        self.assertEqual(normalize_image_quality("standard"), "medium")
+        self.assertEqual(normalize_image_quality("hd"), "high")
+
+    def test_invalid_values_fall_back_to_auto(self):
+        self.assertEqual(normalize_image_quality("ultra"), "auto")
+        self.assertEqual(normalize_image_quality(None), "auto")
 
 
 if __name__ == "__main__":
