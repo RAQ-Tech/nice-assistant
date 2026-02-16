@@ -386,6 +386,27 @@ button, input, select, textarea {
   gap: .5rem;
 }
 
+.persona-card-header strong {
+  flex: 1;
+}
+
+.persona-toggle {
+  min-width: 34px;
+  padding: .3rem .5rem;
+}
+
+.persona-card-body {
+  display: flex;
+  flex-direction: column;
+  gap: .4rem;
+}
+
+.persona-gender-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+  gap: .3rem .5rem;
+}
+
 .persona-avatar-preview {
   width: 34px;
   height: 34px;

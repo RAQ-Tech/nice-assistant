@@ -41,7 +41,10 @@ const state = {
   memoryItems: [],
   showNewChatPersonaModal: false,
   newChatPersonaId: null,
+  personaSettingsExpanded: {},
 };
+
+const DEFAULT_PERSONA_AVATAR = "data:image/svg+xml;utf8,%3Csvg%20xmlns%3D%27http%3A//www.w3.org/2000/svg%27%20viewBox%3D%270%200%2096%2096%27%3E%3Cdefs%3E%3ClinearGradient%20id%3D%27g%27%20x1%3D%270%27%20y1%3D%270%27%20x2%3D%271%27%20y2%3D%271%27%3E%3Cstop%20stop-color%3D%27%2342e8ff%27/%3E%3Cstop%20offset%3D%271%27%20stop-color%3D%27%23a470ff%27/%3E%3C/linearGradient%3E%3C/defs%3E%3Crect%20width%3D%2796%27%20height%3D%2796%27%20rx%3D%2720%27%20fill%3D%27%230b1823%27/%3E%3Ccircle%20cx%3D%2748%27%20cy%3D%2736%27%20r%3D%2716%27%20fill%3D%27url%28%23g%29%27/%3E%3Crect%20x%3D%2720%27%20y%3D%2756%27%20width%3D%2756%27%20height%3D%2724%27%20rx%3D%2712%27%20fill%3D%27url%28%23g%29%27/%3E%3C/svg%3E";
 
 const SETTINGS_DEFAULTS = {
   global_default_model: '',
@@ -610,28 +613,52 @@ function memoryEditorRow(mem) {
   ]);
 }
 function parsePersonaTraits(rawTraits) {
-  if (!rawTraits) return { warmth: 50, creativity: 50, directness: 50 };
+  const defaults = {
+    warmth: 50,
+    creativity: 50,
+    directness: 50,
+    conversational: 50,
+    casual: 50,
+    gender: 'unspecified',
+    gender_other: '',
+    age: '',
+  };
+  if (!rawTraits) return defaults;
   if (typeof rawTraits === 'object') {
     return {
-      warmth: Number(rawTraits.warmth ?? 50),
-      creativity: Number(rawTraits.creativity ?? 50),
-      directness: Number(rawTraits.directness ?? 50),
+      warmth: Number(rawTraits.warmth ?? defaults.warmth),
+      creativity: Number(rawTraits.creativity ?? defaults.creativity),
+      directness: Number(rawTraits.directness ?? defaults.directness),
+      conversational: Number(rawTraits.conversational ?? defaults.conversational),
+      casual: Number(rawTraits.casual ?? defaults.casual),
+      gender: String(rawTraits.gender || defaults.gender),
+      gender_other: String(rawTraits.gender_other || defaults.gender_other),
+      age: String(rawTraits.age || defaults.age),
     };
   }
   try {
     const parsed = JSON.parse(rawTraits);
     return {
-      warmth: Number(parsed.warmth ?? 50),
-      creativity: Number(parsed.creativity ?? 50),
-      directness: Number(parsed.directness ?? 50),
+      warmth: Number(parsed.warmth ?? defaults.warmth),
+      creativity: Number(parsed.creativity ?? defaults.creativity),
+      directness: Number(parsed.directness ?? defaults.directness),
+      conversational: Number(parsed.conversational ?? defaults.conversational),
+      casual: Number(parsed.casual ?? defaults.casual),
+      gender: String(parsed.gender || defaults.gender),
+      gender_other: String(parsed.gender_other || defaults.gender_other),
+      age: String(parsed.age || defaults.age),
     };
   } catch {
-    return { warmth: 50, creativity: 50, directness: 50 };
+    return defaults;
   }
 }
 
 function personaEditorCard(persona) {
   const traits = parsePersonaTraits(persona.traits_json);
+  const personaKey = persona.id || persona.name || String(Math.random());
+  if (!(personaKey in state.personaSettingsExpanded)) {
+    state.personaSettingsExpanded[personaKey] = false;
+  }
   const nameInput = el('input', { class: 'search-input', value: persona.name || '' });
   const avatarInput = el('input', { class: 'search-input', value: persona.avatar_url || '', placeholder: 'Avatar URL (optional)' });
   const fileInput = el('input', { type: 'file', accept: 'image/*', class: 'search-input' });
@@ -648,6 +675,23 @@ function personaEditorCard(persona) {
     el('option', { value: '', textContent: 'Use app default' }),
     ...state.models.map((m) => el('option', { value: m, textContent: m, selected: m === persona.default_model })),
   ]);
+  const ttsVoiceInput = el('input', {
+    class: 'search-input',
+    value: persona.preferred_voice || '',
+    placeholder: 'Persona voice (optional, falls back to Default voice)',
+  });
+  const genderOptions = ['unspecified', 'male', 'female', 'other'];
+  const genderInputs = {};
+  const genderOtherInput = el('input', {
+    class: 'search-input',
+    value: traits.gender_other || '',
+    placeholder: 'Enter custom gender',
+  });
+  const ageInput = el('input', {
+    class: 'search-input',
+    value: traits.age || '',
+    placeholder: 'Age (e.g. 35, young, senior citizen, 55-60)',
+  });
   const sliderRow = (label, key) => {
     const value = el('span', { class: 'meta', textContent: String(Math.round(traits[key])) });
     const slider = el('input', {
@@ -663,12 +707,28 @@ function personaEditorCard(persona) {
   const warmthControls = sliderRow('Warmth', 'warmth');
   const creativityControls = sliderRow('Creativity', 'creativity');
   const directnessControls = sliderRow('Directness', 'directness');
+  const conversationalControls = sliderRow('Conversational ↔ Informational', 'conversational');
+  const casualControls = sliderRow('Casual ↔ Professional', 'casual');
 
-  return el('div', { class: 'persona-card' }, [
-    el('div', { class: 'persona-card-header' }, [
-      el('img', { class: 'persona-avatar-preview', src: persona.avatar_url || 'assets/nice-assistant-icon.png', alt: `${persona.name || 'Persona'} avatar` }),
-      el('strong', { textContent: persona.name || 'Persona' }),
-    ]),
+  const setGender = (selected) => {
+    genderOptions.forEach((opt) => {
+      if (genderInputs[opt]) genderInputs[opt].checked = opt === selected;
+    });
+    genderOtherInput.style.display = selected === 'other' ? '' : 'none';
+  };
+
+  const genderRows = genderOptions.map((opt) => {
+    const input = el('input', {
+      type: 'checkbox',
+      checked: traits.gender === opt,
+      onchange: () => setGender(opt),
+    });
+    genderInputs[opt] = input;
+    return el('label', { class: 'checkbox-row' }, [input, opt[0].toUpperCase() + opt.slice(1)]);
+  });
+  setGender(traits.gender || 'unspecified');
+
+  const body = el('div', { class: 'persona-card-body' }, [
     el('label', { textContent: 'Name' }),
     nameInput,
     el('label', { textContent: 'Avatar URL' }),
@@ -679,14 +739,24 @@ function personaEditorCard(persona) {
     personalityInput,
     el('label', { textContent: 'System prompt' }),
     systemPromptInput,
-    el('label', { textContent: 'Preferred model' }),
+    el('label', { textContent: 'Preferred chat model' }),
     modelSelect,
+    el('label', { textContent: 'Preferred TTS voice' }),
+    ttsVoiceInput,
+    el('label', { textContent: 'Gender' }),
+    el('div', { class: 'persona-gender-grid' }, genderRows),
+    genderOtherInput,
+    el('label', { textContent: 'Age' }),
+    ageInput,
     el('label', { textContent: warmthControls[0] }), warmthControls[1], warmthControls[2],
     el('label', { textContent: creativityControls[0] }), creativityControls[1], creativityControls[2],
     el('label', { textContent: directnessControls[0] }), directnessControls[1], directnessControls[2],
+    el('label', { textContent: conversationalControls[0] }), conversationalControls[1], conversationalControls[2],
+    el('label', { textContent: casualControls[0] }), casualControls[1], casualControls[2],
     el('div', { class: 'chips' }, [
       el('button', { class: 'send-btn', textContent: 'Save persona', onclick: async () => {
         try {
+          const selectedGender = genderOptions.find((opt) => genderInputs[opt]?.checked) || 'unspecified';
           await api(`/api/personas/${persona.id}`, {
             method: 'PUT',
             body: JSON.stringify({
@@ -695,10 +765,16 @@ function personaEditorCard(persona) {
               default_model: modelSelect.value,
               avatar_url: avatarInput.value,
               personality_details: personalityInput.value,
+              preferred_voice: ttsVoiceInput.value.trim(),
               traits: {
                 warmth: Number(warmthControls[1].value),
                 creativity: Number(creativityControls[1].value),
                 directness: Number(directnessControls[1].value),
+                conversational: Number(conversationalControls[1].value),
+                casual: Number(casualControls[1].value),
+                gender: selectedGender,
+                gender_other: selectedGender === 'other' ? genderOtherInput.value.trim() : '',
+                age: ageInput.value.trim(),
               },
             }),
           });
@@ -713,6 +789,25 @@ function personaEditorCard(persona) {
         catch (e) { state.settingsError = e.message; render(); }
       } }),
     ]),
+  ]);
+
+  body.style.display = state.personaSettingsExpanded[personaKey] ? '' : 'none';
+  const toggleBtn = el('button', {
+    class: 'icon-btn persona-toggle',
+    textContent: state.personaSettingsExpanded[personaKey] ? '▾' : '▸',
+    onclick: () => {
+      state.personaSettingsExpanded[personaKey] = !state.personaSettingsExpanded[personaKey];
+      render();
+    },
+  });
+
+  return el('div', { class: 'persona-card' }, [
+    el('div', { class: 'persona-card-header' }, [
+      el('img', { class: 'persona-avatar-preview', src: persona.avatar_url || DEFAULT_PERSONA_AVATAR, alt: `${persona.name || 'Persona'} avatar` }),
+      el('strong', { textContent: persona.name || 'Persona' }),
+      toggleBtn,
+    ]),
+    body,
   ]);
 }
 
@@ -814,7 +909,7 @@ function settingsPanel() {
       el('select', { class: 'chip-select', onchange: (e) => setVal('tts_provider', e.target.value) }, ['disabled', 'openai', 'local'].map((x) => el('option', { value: x, textContent: x, selected: x === state.settings.tts_provider }))),
       el('label', { textContent: 'Audio format' }),
       el('select', { class: 'chip-select', onchange: (e) => setVal('tts_format', e.target.value) }, ['wav', 'mp3', 'opus'].map((x) => el('option', { value: x, textContent: x, selected: x === state.settings.tts_format }))),
-      el('label', { textContent: 'Voice' }),
+      el('label', { textContent: 'Default voice' }),
       el('input', { class: 'search-input', value: state.settings.tts_voice, oninput: (e) => setVal('tts_voice', e.target.value) }),
     ],
     STT: [

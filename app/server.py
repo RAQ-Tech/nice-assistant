@@ -273,7 +273,16 @@ def parse_model_options(payload_settings):
 
 def parse_traits(raw_traits):
     if not raw_traits:
-        return {"warmth": 50, "creativity": 50, "directness": 50}
+        return {
+            "warmth": 50,
+            "creativity": 50,
+            "directness": 50,
+            "conversational": 50,
+            "casual": 50,
+            "gender": "unspecified",
+            "gender_other": "",
+            "age": "",
+        }
     try:
         parsed = json.loads(raw_traits) if isinstance(raw_traits, str) else dict(raw_traits)
     except (TypeError, ValueError):
@@ -282,6 +291,11 @@ def parse_traits(raw_traits):
         "warmth": int(parsed.get("warmth", 50)),
         "creativity": int(parsed.get("creativity", 50)),
         "directness": int(parsed.get("directness", 50)),
+        "conversational": int(parsed.get("conversational", 50)),
+        "casual": int(parsed.get("casual", 50)),
+        "gender": str(parsed.get("gender", "unspecified") or "unspecified"),
+        "gender_other": str(parsed.get("gender_other", "") or ""),
+        "age": str(parsed.get("age", "") or ""),
     }
 
 
@@ -292,11 +306,20 @@ def persona_instruction_block(persona_row):
     warmth = "high" if traits["warmth"] >= 67 else ("low" if traits["warmth"] <= 33 else "moderate")
     creativity = "high" if traits["creativity"] >= 67 else ("low" if traits["creativity"] <= 33 else "moderate")
     directness = "high" if traits["directness"] >= 67 else ("low" if traits["directness"] <= 33 else "moderate")
+    conversational = "conversational" if traits["conversational"] >= 60 else ("informational" if traits["conversational"] <= 40 else "balanced")
+    casual = "casual" if traits["casual"] >= 60 else ("professional" if traits["casual"] <= 40 else "balanced")
 
     lines = [
         f"You are the persona named '{persona_row['name']}'. If asked your name or identity in this chat, answer as this persona.",
         f"Tone controls: warmth={warmth} ({traits['warmth']}/100), creativity={creativity} ({traits['creativity']}/100), directness={directness} ({traits['directness']}/100).",
+        f"Style controls: conversational_vs_informational={conversational} ({traits['conversational']}/100), casual_vs_professional={casual} ({traits['casual']}/100).",
     ]
+    if traits["gender"] == "other" and traits["gender_other"]:
+        lines.append(f"Persona gender: {traits['gender_other']}")
+    elif traits["gender"] != "unspecified":
+        lines.append(f"Persona gender: {traits['gender']}")
+    if traits["age"]:
+        lines.append(f"Persona age: {traits['age']}")
     if persona_row["personality_details"]:
         lines.append(f"Persona details: {persona_row['personality_details']}")
     if persona_row["system_prompt"]:
@@ -647,16 +670,29 @@ class Handler(BaseHTTPRequestHandler):
             conn.execute("INSERT INTO memories(id,user_id,tier,tier_ref_id,content,created_at) VALUES(?,?,?,?,?,?)", (mid,uid,tier,ref,b.get("content",""),now_ts())); conn.commit(); conn.close(); return self._json({"id": mid})
         if self.path == "/api/tts":
             b = self._read_json(); text=b.get("text","")
-            conn = db_conn(); settings = conn.execute("SELECT * FROM app_settings WHERE user_id=?", (uid,)).fetchone(); conn.close()
+            conn = db_conn(); settings = conn.execute("SELECT * FROM app_settings WHERE user_id=?", (uid,)).fetchone()
             if not settings or settings["tts_provider"] == "disabled": return self._json({"error":"TTS disabled"}, 400)
             fmt = b.get("format") or settings["tts_format"] or "wav"
+            preferred_voice = (b.get("voice") or "").strip()
+            if not preferred_voice:
+                persona_id = b.get("personaId")
+                if persona_id:
+                    persona = conn.execute("SELECT preferred_voice FROM personas WHERE id=?", (persona_id,)).fetchone()
+                    preferred_voice = ((persona and persona["preferred_voice"]) or "").strip()
+            if not preferred_voice:
+                try:
+                    prefs = json.loads(settings["preferences_json"] or "{}")
+                except (TypeError, ValueError):
+                    prefs = {}
+                preferred_voice = (prefs.get("tts_voice") or "alloy").strip()
+            conn.close()
             out_id = secrets.token_hex(8)
             out_path = AUDIO_DIR / f"{out_id}.{fmt}"
             if settings["tts_provider"] == "openai":
                 key = settings["openai_api_key"]
                 if not key: return self._json({"error":"OPENAI API key missing"}, 400)
                 try:
-                    audio = openai_speech(text, b.get("voice"), fmt, key)
+                    audio = openai_speech(text, preferred_voice, fmt, key)
                     out_path.write_bytes(audio)
                 except Exception as e:
                     return self._json({"error": f"TTS failed: {e}"}, 500)
