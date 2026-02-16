@@ -394,6 +394,34 @@ button, input, select, textarea {
   border: 1px solid var(--border);
 }
 
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  background: rgba(3, 7, 12, 0.58);
+  display: grid;
+  place-items: center;
+  padding: 1rem;
+}
+
+.modal-card {
+  width: min(460px, 100%);
+  padding: 1rem;
+  display: flex;
+  flex-direction: column;
+  gap: .7rem;
+}
+
+.modal-card h3 {
+  margin: 0;
+}
+
+.modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: .5rem;
+}
+
 
 .status { position: fixed; top: .75rem; right: .75rem; }
 .viz-wrap { position: fixed; inset: 0; pointer-events: none; display: none; z-index: 2; opacity:.45; }

@@ -39,6 +39,8 @@ const state = {
   stickMessagesToBottom: true,
   activeModelSettingsId: '',
   memoryItems: [],
+  showNewChatPersonaModal: false,
+  newChatPersonaId: null,
 };
 
 const SETTINGS_DEFAULTS = {
@@ -355,8 +357,33 @@ async function renameChat(chat) {
   await refresh();
 }
 
+async function createChatWithPersona(personaId) {
+  if (!personaId) {
+    setUiError('Pick a persona before starting a new chat.');
+    return;
+  }
+  const c = await api('/api/chats', {
+    method: 'POST',
+    body: JSON.stringify({
+      title: 'New chat',
+      personaId,
+      memoryMode: state.settings?.default_memory_mode || 'auto',
+    }),
+  });
+  state.newChatPersonaId = null;
+  state.showNewChatPersonaModal = false;
+  await openChat(c);
+  refresh();
+}
+
 async function sendChat(text) {
   if (!text?.trim()) return;
+  if (!state.currentChat?.id) {
+    state.showNewChatPersonaModal = true;
+    state.newChatPersonaId = state.newChatPersonaId || state.personas[0]?.id || null;
+    setUiError('Start a chat by selecting a persona first.');
+    return;
+  }
   setUiError('');
   const trimmed = text.trim();
   state.draftMessage = '';
@@ -1002,9 +1029,10 @@ function render() {
       el('button', { class: 'icon-btn', textContent: '✕', title: 'Hide panel', onclick: () => { state.drawerOpen = false; render(); } }),
     ]),
     el('button', { class: 'send-btn', textContent: '+ New Chat', onclick: async () => {
-      const c = await api('/api/chats', { method: 'POST', body: JSON.stringify({ title: 'New chat', memoryMode: state.settings?.default_memory_mode || 'auto' }) });
-      await openChat(c);
-      refresh();
+      state.showNewChatPersonaModal = true;
+      state.newChatPersonaId = state.currentChat?.persona_id || state.newChatPersonaId || state.personas[0]?.id || null;
+      setUiError('');
+      render();
     } }),
     el('input', { class: 'search-input', placeholder: 'Search chats...', value: state.chatSearch, oninput: (e) => { state.chatSearch = e.target.value; render(); } }),
     el('div', { class: 'drawer-list' }, chatList.length ? chatList : [el('div', { class: 'meta', textContent: 'No chats yet.' })]),
@@ -1054,9 +1082,6 @@ function render() {
     topbar,
     el('div', { class: 'chips selector-row' }, [
       el('select', {
-        id: 'personaSel', class: 'chip-select compact-select', value: selectedPersonaId, onchange: (e) => { state.selectedPersonaId = e.target.value; },
-      }, state.personas.map((p) => el('option', { value: p.id, textContent: p.name, selected: p.id === selectedPersonaId }))),
-      el('select', {
         id: 'modelSel', class: 'chip-select compact-select', value: selectedModel, onchange: (e) => { state.selectedModel = e.target.value; },
       }, state.models.map((m) => el('option', { value: m, textContent: m, selected: m === selectedModel }))),
       el('select', {
@@ -1076,7 +1101,27 @@ function render() {
   const scrim = el('div', { class: `scrim ${state.drawerOpen && window.innerWidth < 900 ? 'show' : ''}`, onclick: () => { state.drawerOpen = false; render(); } });
   const jumpBtn = el('button', { id: 'jumpBtn', class: `jump-btn icon-btn ${state.showJumpBottom ? 'show' : ''}`, textContent: '↓ Latest', onclick: () => { state.stickMessagesToBottom = true; state.showJumpBottom = false; scrollMessagesToBottom(); } });
   const viz = el('div', { class: `viz-wrap ${state.showViz ? 'show' : ''}` }, [vizCanvas()]);
-  const shellChildren = state.showSettings ? [settingsPanel()] : [scrim, drawer, main, jumpBtn, viz];
+  const newChatPersonaModal = state.showNewChatPersonaModal ? el('div', { class: 'modal-backdrop', onclick: (e) => { if (e.target === e.currentTarget) { state.showNewChatPersonaModal = false; render(); } } }, [
+    el('div', { class: 'modal-card glass' }, [
+      el('h3', { textContent: 'Choose a persona to start this chat' }),
+      el('p', { class: 'meta', textContent: 'Each chat is locked to one persona once it starts.' }),
+      el('select', {
+        class: 'chip-select',
+        value: state.newChatPersonaId || state.personas[0]?.id || '',
+        onchange: (e) => { state.newChatPersonaId = e.target.value; },
+      }, state.personas.map((p) => el('option', { value: p.id, textContent: p.name, selected: p.id === (state.newChatPersonaId || state.personas[0]?.id) }))),
+      el('div', { class: 'modal-actions' }, [
+        el('button', { class: 'pill-btn', textContent: 'Cancel', onclick: () => { state.showNewChatPersonaModal = false; render(); } }),
+        el('button', {
+          class: 'send-btn',
+          textContent: 'Start chat',
+          disabled: !state.personas.length,
+          onclick: () => createChatWithPersona(state.newChatPersonaId || state.personas[0]?.id),
+        }),
+      ]),
+    ]),
+  ]) : null;
+  const shellChildren = state.showSettings ? [settingsPanel()] : [scrim, drawer, main, jumpBtn, viz, newChatPersonaModal];
   app.append(el('div', { class: 'app-shell' }, shellChildren));
   requestAnimationFrame(() => {
     restoreMessagePaneScroll();
