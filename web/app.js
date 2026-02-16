@@ -23,6 +23,8 @@ const state = {
   showSystemMessages: false,
   showThinkingByDefault: false,
   sessionExpiresAt: null,
+  sessionTtlSeconds: 1800,
+  lastActivityAt: Date.now(),
   sessionTimer: 0,
   authError: '',
   uiError: '',
@@ -42,6 +44,19 @@ const state = {
   showNewChatPersonaModal: false,
   newChatPersonaId: null,
   personaSettingsExpanded: {},
+  personaAvatarPreview: '',
+  voiceResponsesEnabled: true,
+  messageAudioById: {},
+  currentAudioMessageId: '',
+  memorySectionExpanded: {
+    active: false,
+    pending: false,
+    activeGlobal: false,
+    activeWorkspace: false,
+    activePersona: false,
+    pendingWorkspace: false,
+    pendingPersona: false,
+  },
 };
 
 const DEFAULT_PERSONA_AVATAR = "data:image/svg+xml;utf8,%3Csvg%20xmlns%3D%27http%3A//www.w3.org/2000/svg%27%20viewBox%3D%270%200%2096%2096%27%3E%3Cdefs%3E%3ClinearGradient%20id%3D%27g%27%20x1%3D%270%27%20y1%3D%270%27%20x2%3D%271%27%20y2%3D%271%27%3E%3Cstop%20stop-color%3D%27%2342e8ff%27/%3E%3Cstop%20offset%3D%271%27%20stop-color%3D%27%23a470ff%27/%3E%3C/linearGradient%3E%3C/defs%3E%3Crect%20width%3D%2796%27%20height%3D%2796%27%20rx%3D%2720%27%20fill%3D%27%230b1823%27/%3E%3Ccircle%20cx%3D%2748%27%20cy%3D%2736%27%20r%3D%2716%27%20fill%3D%27url%28%23g%29%27/%3E%3Crect%20x%3D%2720%27%20y%3D%2756%27%20width%3D%2756%27%20height%3D%2724%27%20rx%3D%2712%27%20fill%3D%27url%28%23g%29%27/%3E%3C/svg%3E";
@@ -57,6 +72,7 @@ const SETTINGS_DEFAULTS = {
   general_theme: 'dark',
   general_show_system_messages: false,
   general_show_thinking: false,
+  general_auto_logout: true,
   tts_voice: 'alloy',
   stt_language: 'auto',
   image_provider: 'disabled',
@@ -88,7 +104,7 @@ function normalizeImageQuality(value) {
 }
 
 const SETTINGS_SECTION_KEYS = {
-  General: ['general_theme', 'general_show_system_messages', 'general_show_thinking', 'global_default_model'],
+  General: ['general_theme', 'general_show_system_messages', 'general_show_thinking', 'general_auto_logout', 'global_default_model'],
   TTS: ['tts_provider', 'tts_format', 'tts_voice'],
   STT: ['stt_provider', 'stt_language'],
   'Image Generation': ['image_provider', 'image_size', 'image_quality'],
@@ -126,6 +142,7 @@ function settingsPayload(nextSettings) {
     general_theme: nextSettings.general_theme,
     general_show_system_messages: Boolean(nextSettings.general_show_system_messages),
     general_show_thinking: Boolean(nextSettings.general_show_thinking),
+    general_auto_logout: Boolean(nextSettings.general_auto_logout),
     tts_voice: nextSettings.tts_voice,
     stt_language: nextSettings.stt_language,
     image_provider: nextSettings.image_provider,
@@ -144,6 +161,17 @@ function settingsPayload(nextSettings) {
     model_overrides: nextSettings.model_overrides || {},
   };
   return { ...core, preferences_json: JSON.stringify(preferences) };
+}
+
+function modelNickname(modelName) {
+  if (!modelName) return '';
+  const override = state.settings?.model_overrides?.[modelName] || {};
+  return (override.nickname || '').trim() || modelName;
+}
+
+function noteActivity() {
+  state.lastActivityAt = Date.now();
+  armSessionTimer();
 }
 
 document.documentElement.setAttribute('data-theme', state.theme);
@@ -258,6 +286,8 @@ async function refresh() {
     }
     const sess = await api('/api/session');
     state.sessionExpiresAt = sess.expiresAt || null;
+    state.sessionTtlSeconds = Number(sess.ttlSeconds || 1800);
+    state.lastActivityAt = Date.now();
     state.user = true;
   } catch {
     state.user = false;
@@ -273,8 +303,10 @@ async function refresh() {
 
 function armSessionTimer() {
   if (state.sessionTimer) clearTimeout(state.sessionTimer);
-  if (!state.user || !state.sessionExpiresAt) return;
-  const ms = Math.max(0, (state.sessionExpiresAt * 1000) - Date.now());
+  if (!state.user) return;
+  if (state.settings && state.settings.general_auto_logout === false) return;
+  const ttlMs = Math.max(1000, Number(state.sessionTtlSeconds || 1800) * 1000);
+  const ms = Math.max(0, (state.lastActivityAt + ttlMs) - Date.now());
   state.sessionTimer = setTimeout(async () => {
     state.user = false;
     state.sessionExpiresAt = null;
@@ -282,6 +314,11 @@ function armSessionTimer() {
     try { await api('/api/logout', { method: 'POST' }); } catch {}
   }, ms + 50);
 }
+
+
+window.addEventListener('pointerdown', noteActivity, { passive: true });
+window.addEventListener('keydown', noteActivity, { passive: true });
+window.addEventListener('scroll', noteActivity, { passive: true });
 
 function scrollMessagesToBottom(smooth = true) {
   const pane = document.getElementById('messagesPane');
@@ -393,6 +430,48 @@ async function createChatWithPersona(personaId) {
   refresh();
 }
 
+
+function extractImageUrl(text = '') {
+  const match = text.match(/!\[[^\]]*\]\(([^)]+)\)/);
+  return match ? match[1] : '';
+}
+
+function speechTextFromReply(text = '') {
+  const visible = splitThinking(text).visibleText || '';
+  if (!visible.trim()) return '';
+  if (/^\s*(Model call failed|Image generation failed|I can generate images, but image generation is currently disabled)/i.test(visible)) return '';
+  const withoutImages = visible.replace(/!\[[^\]]*\]\(([^)]+)\)/g, '');
+  const withoutUrls = withoutImages.replace(/https?:\/\/\S+/g, '');
+  return withoutUrls.trim();
+}
+
+function downloadImage(url, suggestedName = 'generated-image.png') {
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = suggestedName;
+  link.rel = 'noopener';
+  link.click();
+}
+
+async function copyTextToClipboard(value) {
+  const text = value || '';
+  try {
+    if (navigator.clipboard?.writeText) {
+      await navigator.clipboard.writeText(text);
+      return;
+    }
+  } catch {}
+  const ta = document.createElement('textarea');
+  ta.value = text;
+  ta.setAttribute('readonly', '');
+  ta.style.position = 'fixed';
+  ta.style.opacity = '0';
+  document.body.append(ta);
+  ta.select();
+  document.execCommand('copy');
+  ta.remove();
+}
+
 async function sendChat(text) {
   if (!text?.trim()) return;
   if (!state.currentChat?.id) {
@@ -428,14 +507,23 @@ async function sendChat(text) {
     render();
     scrollMessagesToBottom();
 
-    if (state.settings?.tts_provider && state.settings.tts_provider !== 'disabled') {
-      state.status = 'Speaking';
-      render();
-      ensureAudioGraph();
-      const spokenText = splitThinking(r.text || '').visibleText;
-      const t = await api('/api/tts', { method: 'POST', body: JSON.stringify({ text: spokenText, chatId: r.chatId, personaId, format: state.settings.tts_format || 'wav' }) });
-      audio.src = t.audioUrl;
-      await audio.play();
+    const latestAssistant = [...state.messages].reverse().find((m) => m.role === 'assistant');
+    if (state.voiceResponsesEnabled && state.settings?.tts_provider && state.settings.tts_provider !== 'disabled') {
+      const spokenText = speechTextFromReply(r.text || '');
+      if (spokenText) {
+        state.status = 'Speaking';
+        render();
+        ensureAudioGraph();
+        const t = await api('/api/tts', { method: 'POST', body: JSON.stringify({ text: spokenText, chatId: r.chatId, personaId, format: state.settings.tts_format || 'wav' }) });
+        audio.src = t.audioUrl;
+        if (latestAssistant?.id) {
+          state.messageAudioById[latestAssistant.id] = t.audioUrl;
+          state.currentAudioMessageId = latestAssistant.id;
+        }
+        await audio.play();
+      } else {
+        state.status = 'Idle';
+      }
     } else {
       state.status = 'Idle';
     }
@@ -447,7 +535,7 @@ async function sendChat(text) {
     setUiError(e.message || 'Failed to send message.');
   }
 }
-audio.addEventListener('ended', () => { state.status = 'Idle'; render(); });
+audio.addEventListener('ended', () => { state.status = 'Idle'; state.currentAudioMessageId = ''; render(); });
 
 async function startRec() {
   ensureAudioGraph();
@@ -626,6 +714,33 @@ function memoryEditorRow(mem) {
     ]),
   ]);
 }
+
+function toggleMemorySection(key) {
+  state.memorySectionExpanded[key] = !state.memorySectionExpanded[key];
+  render();
+}
+
+function collapsibleHeader(title, key) {
+  const open = Boolean(state.memorySectionExpanded[key]);
+  return el('button', { class: 'pill-btn', textContent: `${open ? '▾' : '▸'} ${title}`, onclick: () => toggleMemorySection(key) });
+}
+
+function groupedMemories() {
+  const items = state.memoryItems || [];
+  const active = items.filter((m) => m.tier !== 'chat');
+  const pending = items.filter((m) => m.tier === 'chat');
+  return {
+    active,
+    pending,
+    activeGlobal: active.filter((m) => m.tier === 'global'),
+    activeWorkspace: active.filter((m) => m.tier === 'workspace'),
+    activePersona: active.filter((m) => m.tier === 'persona'),
+    pendingWorkspace: pending.filter((m) => m.tier_ref_id && state.workspaces.some((w) => w.id === m.tier_ref_id)),
+    pendingPersona: pending.filter((m) => m.tier_ref_id && state.personas.some((p) => p.id === m.tier_ref_id)),
+    pendingChat: pending,
+  };
+}
+
 function parsePersonaTraits(rawTraits) {
   const defaults = {
     warmth: 50,
@@ -755,7 +870,7 @@ function personaEditorCard(persona) {
     systemPromptInput,
     el('label', { textContent: 'Preferred chat model' }),
     modelSelect,
-    el('label', { textContent: 'Preferred TTS voice' }),
+    el('label', { textContent: 'Preferred TTS voice model' }),
     ttsVoiceInput,
     el('label', { textContent: 'Gender' }),
     el('div', { class: 'persona-gender-grid' }, genderRows),
@@ -817,7 +932,7 @@ function personaEditorCard(persona) {
 
   return el('div', { class: 'persona-card' }, [
     el('div', { class: 'persona-card-header' }, [
-      el('img', { class: 'persona-avatar-preview', src: persona.avatar_url || DEFAULT_PERSONA_AVATAR, alt: `${persona.name || 'Persona'} avatar` }),
+      el('img', { class: 'persona-avatar-preview', src: persona.avatar_url || DEFAULT_PERSONA_AVATAR, alt: `${persona.name || 'Persona'} avatar`, onclick: () => { state.personaAvatarPreview = persona.avatar_url || DEFAULT_PERSONA_AVATAR; render(); } }),
       el('strong', { textContent: persona.name || 'Persona' }),
       toggleBtn,
     ]),
@@ -864,19 +979,44 @@ function settingsPanel() {
     await persistSettings();
   };
 
-  const workspaceRows = state.workspaces.map((w) => managerRow(w.name, [
-    el('button', { class: 'icon-btn', textContent: 'Rename', onclick: async () => {
-      const name = prompt('Rename workspace', w.name);
-      if (!name?.trim()) return;
-      try { await api(`/api/workspaces/${w.id}`, { method: 'PUT', body: JSON.stringify({ name: name.trim() }) }); await refresh(); }
+  const workspaceRows = state.workspaces.map((w) => {
+    const currentPersonas = state.personas.filter((p) => p.workspace_id === w.id);
+    const addSelect = el('select', { class: 'chip-select' }, [
+      el('option', { value: '', textContent: 'Add persona to workspace…' }),
+      ...state.personas.filter((p) => p.workspace_id !== w.id).map((p) => el('option', { value: p.id, textContent: p.name })),
+    ]);
+    const addBtn = el('button', { class: 'pill-btn', textContent: 'Add', onclick: async () => {
+      const pid = addSelect.value;
+      if (!pid) return;
+      try { await api(`/api/personas/${pid}`, { method: 'PUT', body: JSON.stringify({ workspace_id: w.id }) }); await refresh(); }
       catch (e) { state.settingsError = e.message; render(); }
-    } }),
-    el('button', { class: 'icon-btn', textContent: 'Delete', onclick: async () => {
-      if (!confirm(`Delete workspace "${w.name}"?`)) return;
-      try { await api(`/api/workspaces/${w.id}`, { method: 'DELETE' }); await refresh(); }
-      catch (e) { state.settingsError = e.message; render(); }
-    } }),
-  ]));
+    } });
+    return el('div', { class: 'persona-card' }, [
+      managerRow(w.name, [
+        el('button', { class: 'icon-btn', textContent: 'Rename', onclick: async () => {
+          const name = prompt('Rename workspace', w.name);
+          if (!name?.trim()) return;
+          try { await api(`/api/workspaces/${w.id}`, { method: 'PUT', body: JSON.stringify({ name: name.trim() }) }); await refresh(); }
+          catch (e) { state.settingsError = e.message; render(); }
+        } }),
+        el('button', { class: 'icon-btn', textContent: 'Delete', onclick: async () => {
+          if (!confirm(`Delete workspace "${w.name}"?`)) return;
+          try { await api(`/api/workspaces/${w.id}`, { method: 'DELETE' }); await refresh(); }
+          catch (e) { state.settingsError = e.message; render(); }
+        } }),
+      ]),
+      el('div', { class: 'meta', textContent: 'Personas in this workspace' }),
+      ...(currentPersonas.length ? currentPersonas.map((p) => managerRow(p.name, [
+        el('button', { class: 'icon-btn', textContent: 'Remove', onclick: async () => {
+          const fallbackWorkspace = state.workspaces.find((x) => x.id !== w.id);
+          if (!fallbackWorkspace) { state.settingsError = 'Create another workspace before removing this persona from the workspace.'; render(); return; }
+          try { await api(`/api/personas/${p.id}`, { method: 'PUT', body: JSON.stringify({ workspace_id: fallbackWorkspace.id }) }); await refresh(); }
+          catch (e) { state.settingsError = e.message; render(); }
+        } }),
+      ])) : [el('div', { class: 'meta', textContent: 'No personas assigned yet.' })]),
+      el('div', { class: 'chips' }, [addSelect, addBtn]),
+    ]);
+  });
 
   const personaRows = state.personas.map((p) => personaEditorCard(p));
 
@@ -902,7 +1042,7 @@ function settingsPanel() {
       ]),
       el('label', { textContent: 'Default model' }),
       el('select', { class: 'chip-select', onchange: (e) => setVal('global_default_model', e.target.value) },
-        [el('option', { value: '', textContent: 'Auto' }), ...state.models.map((m) => el('option', { value: m, textContent: m, selected: m === state.settings.global_default_model }))]),
+        [el('option', { value: '', textContent: 'Auto' }), ...state.models.map((m) => el('option', { value: m, textContent: modelNickname(m), selected: m === state.settings.global_default_model }))]),
       el('label', { class: 'checkbox-row' }, [
         el('input', { type: 'checkbox', checked: Boolean(state.settings.general_show_system_messages), onchange: (e) => {
           setVal('general_show_system_messages', e.target.checked);
@@ -917,13 +1057,20 @@ function settingsPanel() {
         } }),
         'Show model thinking by default in all chats',
       ]),
+      el('label', { class: 'checkbox-row' }, [
+        el('input', { type: 'checkbox', checked: state.settings.general_auto_logout !== false, onchange: (e) => {
+          setVal('general_auto_logout', e.target.checked);
+          noteActivity();
+        } }),
+        'Auto logout after inactivity',
+      ]),
     ],
     TTS: [
       el('label', { textContent: 'Provider' }),
       el('select', { class: 'chip-select', onchange: (e) => setVal('tts_provider', e.target.value) }, ['disabled', 'openai', 'local'].map((x) => el('option', { value: x, textContent: x, selected: x === state.settings.tts_provider }))),
       el('label', { textContent: 'Audio format' }),
       el('select', { class: 'chip-select', onchange: (e) => setVal('tts_format', e.target.value) }, ['wav', 'mp3', 'opus'].map((x) => el('option', { value: x, textContent: x, selected: x === state.settings.tts_format }))),
-      el('label', { textContent: 'Default voice' }),
+      el('label', { textContent: 'Default voice model' }),
       el('input', { class: 'search-input', value: state.settings.tts_voice, oninput: (e) => setVal('tts_voice', e.target.value) }),
     ],
     STT: [
@@ -940,26 +1087,50 @@ function settingsPanel() {
       el('label', { textContent: 'Quality' }),
       el('select', { class: 'chip-select', onchange: (e) => setVal('image_quality', e.target.value) }, IMAGE_QUALITY_VALUES.map((x) => el('option', { value: x, textContent: x, selected: x === state.settings.image_quality }))),
     ],
-    Memory: [
-      el('label', { textContent: 'Default memory mode' }),
-      el('select', { class: 'chip-select', onchange: (e) => setVal('default_memory_mode', e.target.value) }, ['off', 'manual', 'auto'].map((x) => el('option', { value: x, textContent: x, selected: x === state.settings.default_memory_mode }))),
-      el('label', { class: 'checkbox-row' }, [
-        el('input', { type: 'checkbox', checked: Boolean(state.settings.memory_auto_save_user_facts), onchange: (e) => setVal('memory_auto_save_user_facts', e.target.checked) }),
-        'Auto-save likely user facts',
-      ]),
-      el('div', { class: 'meta', textContent: 'Memories are stored by tier and can be moved between Global / Workspace / Persona / Chat.' }),
-      el('button', { class: 'pill-btn', textContent: '+ Add global memory', onclick: async () => {
-        const content = prompt('Memory text');
-        if (!content?.trim()) return;
-        try {
-          await api('/api/memory/global', { method: 'POST', body: JSON.stringify({ content: content.trim() }) });
-          await refresh();
-          state.showSettings = true;
-          state.settingsSection = 'Memory';
-        } catch (e) { state.settingsError = e.message; render(); }
-      } }),
-      ...(state.memoryItems || []).map((m) => memoryEditorRow(m)),
-    ],
+    Memory: (() => {
+      const mem = groupedMemories();
+      const content = [
+        el('label', { textContent: 'Default memory mode' }),
+        el('select', { class: 'chip-select', onchange: (e) => setVal('default_memory_mode', e.target.value) }, ['off', 'manual', 'auto'].map((x) => el('option', { value: x, textContent: x, selected: x === state.settings.default_memory_mode }))),
+        el('label', { class: 'checkbox-row' }, [
+          el('input', { type: 'checkbox', checked: Boolean(state.settings.memory_auto_save_user_facts), onchange: (e) => setVal('memory_auto_save_user_facts', e.target.checked) }),
+          'Auto-save likely user facts',
+        ]),
+        el('div', { class: 'meta', textContent: 'Memories are grouped by status and tier.' }),
+        el('button', { class: 'pill-btn', textContent: '+ Add global memory', onclick: async () => {
+          const contentText = prompt('Memory text');
+          if (!contentText?.trim()) return;
+          try {
+            await api('/api/memory/global', { method: 'POST', body: JSON.stringify({ content: contentText.trim() }) });
+            await refresh();
+            state.showSettings = true;
+            state.settingsSection = 'Memory';
+          } catch (e) { state.settingsError = e.message; render(); }
+        } }),
+        collapsibleHeader('Active Memories', 'active'),
+      ];
+      if (state.memorySectionExpanded.active) {
+        content.push(collapsibleHeader('Global', 'activeGlobal'));
+        if (state.memorySectionExpanded.activeGlobal) content.push(...mem.activeGlobal.map((m) => memoryEditorRow(m)));
+        content.push(collapsibleHeader('Workspaces', 'activeWorkspace'));
+        if (state.memorySectionExpanded.activeWorkspace) content.push(...mem.activeWorkspace.map((m) => memoryEditorRow(m)));
+        content.push(collapsibleHeader('Personas', 'activePersona'));
+        if (state.memorySectionExpanded.activePersona) content.push(...mem.activePersona.map((m) => memoryEditorRow(m)));
+      }
+      content.push(collapsibleHeader('Pending', 'pending'));
+      if (state.memorySectionExpanded.pending) {
+        content.push(collapsibleHeader('Workspaces', 'pendingWorkspace'));
+        if (state.memorySectionExpanded.pendingWorkspace) content.push(...mem.pendingWorkspace.map((m) => memoryEditorRow(m)));
+        content.push(collapsibleHeader('Personas', 'pendingPersona'));
+        if (state.memorySectionExpanded.pendingPersona) content.push(...mem.pendingPersona.map((m) => memoryEditorRow(m)));
+        const otherPending = mem.pendingChat.filter((m) => !mem.pendingWorkspace.includes(m) && !mem.pendingPersona.includes(m));
+        if (otherPending.length) {
+          content.push(el('div', { class: 'meta', textContent: 'Other pending items' }));
+          content.push(...otherPending.map((m) => memoryEditorRow(m)));
+        }
+      }
+      return content;
+    })(),
     User: [
       el('label', { textContent: 'Display name' }),
       el('input', { class: 'search-input', value: state.settings.user_display_name, oninput: (e) => setVal('user_display_name', e.target.value) }),
@@ -969,8 +1140,10 @@ function settingsPanel() {
       el('input', { class: 'search-input', placeholder: 'sk-...', value: state.settings.openai_api_key, oninput: (e) => setVal('openai_api_key', e.target.value) }),
     ],
     Personas: [
-      el('label', { textContent: 'Default system prompt for new personas' }),
-      el('textarea', { class: 'search-input', rows: 3, value: state.settings.personas_default_system_prompt, oninput: (e) => setVal('personas_default_system_prompt', e.target.value) }),
+      el('div', { class: 'persona-card personas-default-prompt' }, [
+        el('label', { textContent: 'Default system prompt for new personas' }),
+        el('textarea', { class: 'search-input', rows: 3, value: state.settings.personas_default_system_prompt, oninput: (e) => setVal('personas_default_system_prompt', e.target.value) }),
+      ]),
       el('div', { class: 'meta', textContent: 'Edit each persona including avatar, detailed personality profile, and trait sliders.' }),
       ...personaRows,
       el('button', { class: 'pill-btn', textContent: '+ Add persona', onclick: async () => {
@@ -1011,10 +1184,12 @@ function settingsPanel() {
     Models: [
       el('label', { textContent: 'Default model' }),
       el('select', { class: 'chip-select', onchange: (e) => { setVal('global_default_model', e.target.value); if (!state.activeModelSettingsId) state.activeModelSettingsId = e.target.value; } },
-        [el('option', { value: '', textContent: 'Auto' }), ...state.models.map((m) => el('option', { value: m, textContent: m, selected: m === state.settings.global_default_model }))]),
+        [el('option', { value: '', textContent: 'Auto' }), ...state.models.map((m) => el('option', { value: m, textContent: modelNickname(m), selected: m === state.settings.global_default_model }))]),
       el('label', { textContent: 'Model-specific tuning' }),
       el('select', { class: 'chip-select', value: state.activeModelSettingsId, onchange: (e) => { state.activeModelSettingsId = e.target.value; render(); } },
-        [el('option', { value: '', textContent: state.models.length ? 'Select model…' : 'No models found' }), ...state.models.map((m) => el('option', { value: m, textContent: m, selected: m === state.activeModelSettingsId }))]),
+        [el('option', { value: '', textContent: state.models.length ? 'Select model…' : 'No models found' }), ...state.models.map((m) => el('option', { value: m, textContent: modelNickname(m), selected: m === state.activeModelSettingsId }))]),
+      el('label', { textContent: 'Model nickname' }),
+      el('input', { class: 'search-input', disabled: !state.activeModelSettingsId, value: (state.settings.model_overrides?.[state.activeModelSettingsId]?.nickname || state.activeModelSettingsId || ''), oninput: (e) => setModelSetting(state.activeModelSettingsId, 'nickname', e.target.value) }),
       el('label', { textContent: 'Temperature' }),
       el('input', { type: 'number', min: 0, max: 2, step: 0.1, class: 'search-input', disabled: !state.activeModelSettingsId, value: activeModelSettings.temperature, oninput: (e) => setModelSetting(state.activeModelSettingsId, 'temperature', e.target.value) }),
       el('label', { textContent: 'Top P' }),
@@ -1067,6 +1242,8 @@ function messageItem(m, personaId) {
   const showThinking = state.showThinkingByDefault || Boolean(state.thinkingExpanded[messageId]);
   const personaName = state.personas.find((p) => p.id === (personaId || state.selectedPersonaId))?.name || 'assistant';
   const roleLabel = isUser ? 'You' : (m.role === 'assistant' ? personaName : m.role);
+  const imageUrl = extractImageUrl(m.text || '');
+  const audioUrl = state.messageAudioById[m.id];
   return el('div', { class: `msg-wrap ${isUser ? 'user' : ''}` }, [
     el('article', { class: `msg ${isUser ? 'user' : 'assistant'}` }, [
       el('small', { textContent: roleLabel }),
@@ -1090,7 +1267,23 @@ function messageItem(m, personaId) {
             render();
           },
         }) : null,
-        el('button', { class: 'icon-btn', textContent: '⧉', title: 'Copy', onclick: () => navigator.clipboard.writeText(visibleText || m.text || '') }),
+        el('button', { class: 'icon-btn', textContent: '⧉', title: 'Copy', onclick: async () => { try { await copyTextToClipboard(visibleText || m.text || ''); } catch { } } }),
+        imageUrl ? el('button', { class: 'icon-btn', textContent: '⬇', title: 'Save image', onclick: () => downloadImage(imageUrl, `nice-assistant-image-${Date.now()}.png`) }) : null,
+        audioUrl ? el('button', { class: 'icon-btn', textContent: '⟲', title: 'Replay response audio', onclick: async () => {
+          try {
+            ensureAudioGraph();
+            audio.pause();
+            audio.src = audioUrl;
+            state.currentAudioMessageId = m.id;
+            state.status = 'Speaking';
+            render();
+            await audio.play();
+          } catch {
+            state.status = 'Idle';
+            render();
+          }
+        } }) : null,
+        state.currentAudioMessageId === m.id ? el('button', { class: 'icon-btn', textContent: '■', title: 'Stop audio', onclick: () => { audio.pause(); audio.currentTime = 0; state.currentAudioMessageId = ''; state.status = 'Idle'; render(); } }) : null,
         el('button', {
           class: 'icon-btn',
           textContent: '🧠',
@@ -1179,7 +1372,7 @@ function render() {
     el('button', { class: 'icon-btn', textContent: '☰', onclick: () => { state.drawerOpen = !state.drawerOpen; render(); } }),
     el('div', { class: 'header-meta' }, [
       el('div', { class: 'header-title', textContent: currentChatTitle }),
-      el('div', { class: 'chips' }, [el('button', { class: 'chip', textContent: personaName }), el('button', { class: 'chip', textContent: activeWorkspace }), el('button', { class: 'chip', textContent: state.currentChat?.model_override || state.settings?.global_default_model || 'model' })]),
+      el('div', { class: 'chips' }, [el('button', { class: 'chip', textContent: personaName }), el('button', { class: 'chip', textContent: activeWorkspace }), el('button', { class: 'chip', textContent: modelNickname(state.currentChat?.model_override || state.settings?.global_default_model || 'model') })]),
     ]),
     el('div', { class: `status-pill ${statusClass()}`, textContent: state.status }),
     el('button', { class: 'icon-btn', title: 'Logout', textContent: '⇥', onclick: async () => { await api('/api/logout', { method: 'POST' }); await refresh(); } }),
@@ -1192,12 +1385,14 @@ function render() {
     el('div', { class: 'chips selector-row' }, [
       el('select', {
         id: 'modelSel', class: 'chip-select compact-select', value: selectedModel, onchange: (e) => { state.selectedModel = e.target.value; },
-      }, state.models.map((m) => el('option', { value: m, textContent: m, selected: m === selectedModel }))),
+      }, state.models.map((m) => el('option', { value: m, textContent: modelNickname(m), selected: m === selectedModel }))),
       el('select', {
         id: 'memSel', class: 'chip-select compact-select', value: selectedMemoryMode, onchange: (e) => { state.selectedMemoryMode = e.target.value; },
       }, ['off', 'manual', 'auto'].map((m) => el('option', { value: m, textContent: `Memory: ${m}`, selected: m === selectedMemoryMode }))),
       el('button', { class: 'pill-btn', textContent: state.showSystemMessages ? 'Hide system/tool' : 'Show system/tool', onclick: () => { state.showSystemMessages = !state.showSystemMessages; render(); } }),
       el('button', { class: 'pill-btn', textContent: state.showThinkingByDefault ? 'Hide thinking' : 'Show thinking', onclick: () => { state.showThinkingByDefault = !state.showThinkingByDefault; state.settings.general_show_thinking = state.showThinkingByDefault; render(); } }),
+      el('button', { class: 'pill-btn', textContent: state.voiceResponsesEnabled ? 'Voice replies: On' : 'Voice replies: Off', onclick: () => { state.voiceResponsesEnabled = !state.voiceResponsesEnabled; render(); } }),
+      state.currentAudioMessageId ? el('button', { class: 'pill-btn', textContent: 'Stop audio', onclick: () => { audio.pause(); audio.currentTime = 0; state.currentAudioMessageId = ''; state.status = 'Idle'; render(); } }) : null,
     ]),
     el('section', { id: 'messagesPane', class: 'message-pane glass', onscroll: onMessageScroll },
       messagesForRender.map((m) => messageItem(m, personaId)).filter(Boolean)
@@ -1230,7 +1425,16 @@ function render() {
       ]),
     ]),
   ]) : null;
-  const shellChildren = state.showSettings ? [settingsPanel()] : [scrim, drawer, main, jumpBtn, viz, newChatPersonaModal];
+  const avatarPreviewModal = state.personaAvatarPreview ? el('div', {
+    class: 'modal-backdrop avatar-preview-backdrop',
+    onclick: (e) => { if (e.target === e.currentTarget) { state.personaAvatarPreview = ''; render(); } },
+  }, [
+    el('div', { class: 'avatar-preview-frame' }, [
+      el('button', { class: 'icon-btn avatar-preview-close', textContent: '✕', onclick: () => { state.personaAvatarPreview = ''; render(); } }),
+      el('img', { class: 'avatar-preview-full', src: state.personaAvatarPreview, alt: 'Persona avatar preview' }),
+    ]),
+  ]) : null;
+  const shellChildren = state.showSettings ? [settingsPanel(), avatarPreviewModal] : [scrim, drawer, main, jumpBtn, viz, newChatPersonaModal, avatarPreviewModal];
   app.append(el('div', { class: 'app-shell' }, shellChildren));
   requestAnimationFrame(() => {
     restoreMessagePaneScroll();

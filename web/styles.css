@@ -354,6 +354,10 @@ button, input, select, textarea {
   gap: .6rem;
 }
 
+.settings-detail > * {
+  flex-shrink: 0;
+}
+
 .settings-section-head {
   display: flex;
   justify-content: space-between;
@@ -409,8 +413,8 @@ button, input, select, textarea {
 }
 
 .persona-avatar-preview {
-  width: 34px;
-  height: 34px;
+  width: 62px;
+  height: 62px;
   border-radius: 999px;
   object-fit: cover;
   border: 1px solid var(--border);
@@ -442,6 +446,35 @@ button, input, select, textarea {
   display: flex;
   justify-content: flex-end;
   gap: .5rem;
+}
+
+.personas-default-prompt {
+  margin-bottom: .2rem;
+}
+
+.avatar-preview-backdrop {
+  z-index: 70;
+}
+
+.avatar-preview-frame {
+  position: relative;
+  max-width: min(90vw, 900px);
+  max-height: 90vh;
+}
+
+.avatar-preview-full {
+  display: block;
+  max-width: 100%;
+  max-height: 90vh;
+  border-radius: 14px;
+  border: 1px solid var(--border);
+}
+
+.avatar-preview-close {
+  position: absolute;
+  top: .35rem;
+  right: .35rem;
+  z-index: 1;
 }
 
 
