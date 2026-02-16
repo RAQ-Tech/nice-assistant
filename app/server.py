@@ -11,6 +11,7 @@ import subprocess
 import time
 import urllib.parse
 import urllib.request
+import urllib.error
 import signal
 import threading
 from datetime import datetime, timezone
@@ -427,6 +428,14 @@ def looks_like_image_request(text):
     return has_verb and has_noun
 
 
+def user_safe_image_error(exc):
+    if isinstance(exc, urllib.error.URLError):
+        return "Image generation is currently unavailable because the image provider could not be reached. Please try again in a moment."
+    if isinstance(exc, TimeoutError):
+        return "Image generation timed out. Please try again with a shorter prompt or retry shortly."
+    return "Image generation failed unexpectedly. Please try again."
+
+
 class Handler(BaseHTTPRequestHandler):
     server_version = "NiceAssistant/0.1"
 
@@ -665,25 +674,30 @@ class Handler(BaseHTTPRequestHandler):
             except (TypeError, ValueError):
                 prefs = {}
             image_provider = prefs.get("image_provider", "disabled")
-            if image_provider == "openai" and looks_like_image_request(text):
-                key = settings["openai_api_key"] if settings else None
-                if not key:
-                    reply = "Image generation is enabled for OpenAI, but your OpenAI API key is missing in Settings."
+            if looks_like_image_request(text):
+                if image_provider == "disabled":
+                    reply = "I can generate images, but image generation is currently disabled. Enable an image provider in Settings and try again."
+                elif image_provider != "openai":
+                    reply = f"Image provider '{image_provider}' is selected, but this server currently supports OpenAI image generation only. Switch to OpenAI in Settings and try again."
                 else:
-                    image_size = prefs.get("image_size") or "1024x1024"
-                    image_quality = prefs.get("image_quality") or "standard"
-                    image_id = secrets.token_hex(12)
-                    image_ext = "png"
-                    image_name = f"{uid}_{image_id}.{image_ext}"
-                    image_path = IMAGE_DIR / image_name
-                    try:
-                        image_bytes = openai_image(text, image_size, image_quality, key)
-                        image_path.write_bytes(image_bytes)
-                        image_url = f"/api/images/{urllib.parse.quote(image_name)}"
-                        reply = f"Here is your generated image.\n\n![Generated image]({image_url})"
-                    except Exception as e:
-                        logger.exception("image generation failed user_id=%s chat_id=%s", uid, chat_id)
-                        reply = f"Image generation failed: {e}"
+                    key = settings["openai_api_key"] if settings else None
+                    if not key:
+                        reply = "Image generation is enabled for OpenAI, but your OpenAI API key is missing in Settings."
+                    else:
+                        image_size = prefs.get("image_size") or "1024x1024"
+                        image_quality = prefs.get("image_quality") or "standard"
+                        image_id = secrets.token_hex(12)
+                        image_ext = "png"
+                        image_name = f"{uid}_{image_id}.{image_ext}"
+                        image_path = IMAGE_DIR / image_name
+                        try:
+                            image_bytes = openai_image(text, image_size, image_quality, key)
+                            image_path.write_bytes(image_bytes)
+                            image_url = f"/api/images/{urllib.parse.quote(image_name)}"
+                            reply = f"Here is your generated image.\n\n![Generated image]({image_url})"
+                        except Exception as e:
+                            logger.exception("image generation failed user_id=%s chat_id=%s", uid, chat_id)
+                            reply = user_safe_image_error(e)
 
                 conn.execute("INSERT INTO messages(id,chat_id,role,text,created_at) VALUES(?,?,?,?,?)", (secrets.token_hex(8),chat_id,"assistant",reply,now_ts()))
                 conn.execute("UPDATE chats SET updated_at=?, memory_mode=?, persona_id=?, workspace_id=?, model_override=? WHERE id=?", (now_ts(), mem_mode, persona_id, workspace_id, b.get("model") or chat["model_override"], chat_id))
