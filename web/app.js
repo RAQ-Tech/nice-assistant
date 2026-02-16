@@ -61,7 +61,7 @@ const SETTINGS_DEFAULTS = {
   stt_language: 'auto',
   image_provider: 'disabled',
   image_size: '1024x1024',
-  image_quality: 'standard',
+  image_quality: 'auto',
   memory_auto_save_user_facts: true,
   user_display_name: '',
   user_timezone: 'local',
@@ -74,6 +74,18 @@ const SETTINGS_DEFAULTS = {
   models_frequency_penalty: '0',
   model_overrides: {},
 };
+
+const IMAGE_QUALITY_ALIASES = {
+  standard: 'medium',
+  hd: 'high',
+};
+
+const IMAGE_QUALITY_VALUES = ['low', 'medium', 'high', 'auto'];
+
+function normalizeImageQuality(value) {
+  const normalized = IMAGE_QUALITY_ALIASES[value] || value;
+  return IMAGE_QUALITY_VALUES.includes(normalized) ? normalized : SETTINGS_DEFAULTS.image_quality;
+}
 
 const SETTINGS_SECTION_KEYS = {
   General: ['general_theme', 'general_show_system_messages', 'general_show_thinking', 'global_default_model'],
@@ -96,6 +108,7 @@ function normalizeSettings(raw = {}) {
   if (!normalized.model_overrides || typeof normalized.model_overrides !== 'object') {
     normalized.model_overrides = {};
   }
+  normalized.image_quality = normalizeImageQuality(normalized.image_quality);
   return normalized;
 }
 
@@ -117,7 +130,7 @@ function settingsPayload(nextSettings) {
     stt_language: nextSettings.stt_language,
     image_provider: nextSettings.image_provider,
     image_size: nextSettings.image_size,
-    image_quality: nextSettings.image_quality,
+    image_quality: normalizeImageQuality(nextSettings.image_quality),
     memory_auto_save_user_facts: Boolean(nextSettings.memory_auto_save_user_facts),
     user_display_name: nextSettings.user_display_name,
     user_timezone: nextSettings.user_timezone,
@@ -925,7 +938,7 @@ function settingsPanel() {
       el('label', { textContent: 'Size' }),
       el('select', { class: 'chip-select', onchange: (e) => setVal('image_size', e.target.value) }, ['512x512', '1024x1024', '1536x1024'].map((x) => el('option', { value: x, textContent: x, selected: x === state.settings.image_size }))),
       el('label', { textContent: 'Quality' }),
-      el('select', { class: 'chip-select', onchange: (e) => setVal('image_quality', e.target.value) }, ['standard', 'hd'].map((x) => el('option', { value: x, textContent: x, selected: x === state.settings.image_quality }))),
+      el('select', { class: 'chip-select', onchange: (e) => setVal('image_quality', e.target.value) }, IMAGE_QUALITY_VALUES.map((x) => el('option', { value: x, textContent: x, selected: x === state.settings.image_quality }))),
     ],
     Memory: [
       el('label', { textContent: 'Default memory mode' }),

@@ -43,6 +43,12 @@ logging.basicConfig(
 )
 logger = logging.getLogger("nice-assistant")
 
+IMAGE_QUALITY_ALIASES = {
+    "standard": "medium",
+    "hd": "high",
+}
+IMAGE_QUALITY_VALUES = {"low", "medium", "high", "auto"}
+
 
 def ensure_dirs():
     for p in [DATA_DIR, AUDIO_DIR, IMAGE_DIR, LOG_DIR, ARCHIVE_DIR, ARCHIVE_DIR / "audio", ARCHIVE_DIR / "logs", ARCHIVE_DIR / "db_backups"]:
@@ -393,11 +399,12 @@ def openai_stt(filepath, api_key):
 
 
 def openai_image(prompt, size, quality, api_key):
+    normalized_quality = normalize_image_quality(quality)
     payload = json.dumps({
         "model": "gpt-image-1",
         "prompt": prompt,
         "size": size or "1024x1024",
-        "quality": quality or "standard",
+        "quality": normalized_quality,
     }).encode()
     req = urllib.request.Request(
         "https://api.openai.com/v1/images/generations",
@@ -415,6 +422,13 @@ def openai_image(prompt, size, quality, api_key):
         with urllib.request.urlopen(image_url, timeout=120) as image_resp:
             return image_resp.read()
     raise ValueError("Image response did not include data")
+
+
+def normalize_image_quality(quality):
+    normalized = IMAGE_QUALITY_ALIASES.get(quality, quality)
+    if normalized in IMAGE_QUALITY_VALUES:
+        return normalized
+    return "auto"
 
 
 def looks_like_image_request(text):
