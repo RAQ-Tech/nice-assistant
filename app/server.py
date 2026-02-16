@@ -429,6 +429,29 @@ def looks_like_image_request(text):
 
 
 def user_safe_image_error(exc):
+    if isinstance(exc, urllib.error.HTTPError):
+        status = exc.code
+        detail = ""
+        try:
+            body = exc.read().decode("utf-8", errors="replace")
+            if body:
+                parsed = json.loads(body)
+                detail = (
+                    (parsed.get("error") or {}).get("message")
+                    or parsed.get("message")
+                    or ""
+                )
+        except Exception:
+            detail = ""
+        if status in (401, 403):
+            return "Image generation failed: OpenAI rejected the request (check API key and image model access)."
+        if status == 429:
+            return "Image generation is rate limited by OpenAI right now. Please retry in a moment."
+        if status in (400, 404):
+            return f"Image generation request was rejected by OpenAI: {detail or f'HTTP {status}'}"
+        if 500 <= status <= 599:
+            return "Image generation is temporarily unavailable from OpenAI. Please try again shortly."
+        return f"Image generation failed with OpenAI error HTTP {status}."
     if isinstance(exc, urllib.error.URLError):
         return "Image generation is currently unavailable because the image provider could not be reached. Please try again in a moment."
     if isinstance(exc, TimeoutError):
