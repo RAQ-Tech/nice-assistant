@@ -63,6 +63,8 @@ OPENAI_IMAGE_TERM_REPLACEMENTS = {
     "sexual": "romantic",
     "porn": "editorial",
     "fetish": "fashion concept",
+    "gore": "dramatic",
+    "graphic violence": "intense action",
 }
 
 
@@ -537,14 +539,14 @@ def parse_image_size(size):
 def adjust_prompt_for_openai_image(prompt):
     text = (prompt or "").strip()
     if not text:
-        return "Generate a safe-for-work, policy-compliant image with no nudity, sexual content, or graphic violence."
+        return "Generate a polished, policy-compliant image suitable for general audiences."
     adjusted = text
     for term, replacement in OPENAI_IMAGE_TERM_REPLACEMENTS.items():
         adjusted = re.sub(rf"\b{re.escape(term)}\b", replacement, adjusted, flags=re.IGNORECASE)
     return (
         "Generate a polished, coherent image with clear subject emphasis, intentional composition, and rich lighting detail. "
         f"Scene request: {adjusted}. "
-        "Keep it safe-for-work and policy-compliant with no nudity, explicit sexual content, or graphic violence."
+        "Keep it policy-compliant and suitable for general audiences."
     )
 
 
