@@ -736,6 +736,18 @@ async function sendChat(text) {
     state.selectedPersonaId = detail.chat?.persona_id || state.selectedPersonaId;
     state.selectedModel = detail.chat?.model_override || state.selectedModel;
     state.selectedMemoryMode = detail.chat?.memory_mode || state.selectedMemoryMode;
+    if (r.imageOffer?.prompt) {
+      const accepted = await confirmModal({ title: 'Receive image?', message: 'Your assistant wants to send an image for this reply.', confirmText: 'Receive image' });
+      if (accepted) {
+        try {
+          await api('/api/images/generate', { method: 'POST', body: JSON.stringify({ prompt: r.imageOffer.prompt, chatId: r.chatId }) });
+          const withImage = await api(`/api/chats/${r.chatId}`);
+          state.messages = withImage.messages;
+        } catch (imageErr) {
+          setUiError(imageErr?.message || 'Image generation failed.');
+        }
+      }
+    }
     state.stickMessagesToBottom = true;
     state.showJumpBottom = false;
     render();

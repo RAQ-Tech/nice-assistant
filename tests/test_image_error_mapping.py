@@ -2,7 +2,7 @@ import io
 import unittest
 import urllib.error
 
-from app.server import normalize_image_quality, normalize_image_size, user_safe_image_error
+from app.server import extract_model_image_prompt, normalize_image_quality, normalize_image_size, user_safe_image_error
 
 
 class UserSafeImageErrorTests(unittest.TestCase):
@@ -65,6 +65,20 @@ class NormalizeImageSizeTests(unittest.TestCase):
     def test_invalid_values_fall_back_to_supported_default(self):
         self.assertEqual(normalize_image_size("512x512"), "1024x1024")
         self.assertEqual(normalize_image_size("1024x1024"), "1024x1024")
+
+
+class ExtractModelImagePromptTests(unittest.TestCase):
+    def test_extracts_xml_tag_and_strips_from_visible_reply(self):
+        clean, prompt = extract_model_image_prompt(
+            "Sounds good, check this out. <generate_image>High-fashion evening outfit at a work networking event</generate_image>"
+        )
+        self.assertEqual(clean, "Sounds good, check this out.")
+        self.assertIn("High-fashion evening outfit", prompt)
+
+    def test_returns_original_when_no_tag_present(self):
+        clean, prompt = extract_model_image_prompt("Hello there")
+        self.assertEqual(clean, "Hello there")
+        self.assertEqual(prompt, "")
 
 
 if __name__ == "__main__":
