@@ -494,23 +494,64 @@ def normalize_local_image_base_url(base_url):
     return candidate.rstrip("/")
 
 
-def automatic1111_image(prompt, size, quality, allow_nsfw, base_url=None):
-    width, height = parse_image_size(size)
+def _coerce_number(value, default, cast_type=float):
+    try:
+        return cast_type(value)
+    except (TypeError, ValueError):
+        return default
+
+
+def parse_additional_parameters(raw):
+    text = (raw or "").strip()
+    if not text:
+        return {}
+    try:
+        parsed = json.loads(text)
+    except (TypeError, ValueError):
+        raise ValueError("Additional Parameters must be valid JSON object text")
+    if not isinstance(parsed, dict):
+        raise ValueError("Additional Parameters must be a JSON object")
+    return parsed
+
+
+def _auth_headers_from_string(auth_string):
+    raw = (auth_string or "").strip()
+    if not raw:
+        return {}
+    token = base64.b64encode(raw.encode("utf-8")).decode("ascii")
+    return {"Authorization": f"Basic {token}"}
+
+
+def automatic1111_image(prompt, size, quality, allow_nsfw, base_url=None, local_settings=None):
+    local_settings = local_settings or {}
+    width, height = parse_image_size(size, allow_custom=True)
     tuned_prompt = adjust_prompt_for_local_sd(prompt, allow_nsfw)
+    steps = int(_coerce_number(local_settings.get("steps"), local_steps_from_quality(quality), int))
+    cfg_scale = _coerce_number(local_settings.get("cfg_scale"), 7.0, float)
+    seed = int(_coerce_number(local_settings.get("seed"), -1, int))
+    sampler_name = (local_settings.get("sampler_name") or "DPM++ 2M Karras").strip()
+    scheduler = (local_settings.get("scheduler") or "").strip()
+    model_checkpoint = (local_settings.get("model") or "").strip()
     payload = {
         "prompt": tuned_prompt,
         "negative_prompt": local_negative_prompt(allow_nsfw),
         "width": width,
         "height": height,
-        "steps": local_steps_from_quality(quality),
-        "cfg_scale": 7,
-        "sampler_name": "DPM++ 2M Karras",
+        "steps": max(1, steps),
+        "cfg_scale": max(1.0, cfg_scale),
+        "sampler_name": sampler_name,
+        "seed": seed,
     }
+    if scheduler:
+        payload["scheduler"] = scheduler
+    if model_checkpoint:
+        payload["override_settings"] = {"sd_model_checkpoint": model_checkpoint}
+    payload.update(parse_additional_parameters(local_settings.get("additional_parameters")))
     request_base_url = normalize_local_image_base_url(base_url)
     req = urllib.request.Request(
         f"{request_base_url}/sdapi/v1/txt2img",
         data=json.dumps(payload).encode(),
-        headers={"Content-Type": "application/json"},
+        headers={"Content-Type": "application/json", **_auth_headers_from_string(local_settings.get("api_auth"))},
         method="POST",
     )
     with urllib.request.urlopen(req, timeout=240) as r:
@@ -534,8 +575,13 @@ def normalize_image_size(size):
     return "1024x1024"
 
 
-def parse_image_size(size):
-    normalized = normalize_image_size(size)
+def parse_image_size(size, allow_custom=False):
+    raw = (size or "").strip().lower()
+    if allow_custom and raw:
+        custom_match = re.fullmatch(r"(\d{2,5})x(\d{2,5})", raw)
+        if custom_match:
+            return int(custom_match.group(1)), int(custom_match.group(2))
+    normalized = normalize_image_size(raw)
     if normalized == "auto":
         return 1024, 1024
     try:
@@ -669,7 +715,7 @@ def visual_identity_context(conn, uid, chat_id, persona_row):
     )
 
 
-def _extract_openai_error_detail(exc):
+def _extract_http_error_detail(exc):
     if not isinstance(exc, urllib.error.HTTPError):
         return ""
     try:
@@ -677,9 +723,12 @@ def _extract_openai_error_detail(exc):
         if not body:
             return ""
         parsed = json.loads(body)
-        return ((parsed.get("error") or {}).get("message") or parsed.get("message") or "").strip()
+        return ((parsed.get("error") or {}).get("message") or parsed.get("message") or body).strip()
     except Exception:
-        return ""
+        try:
+            return body.strip()
+        except Exception:
+            return ""
 
 
 def log_image_error(uid, chat_id, detail):
@@ -703,16 +752,27 @@ def looks_like_image_request(text):
     return has_verb and has_noun
 
 
-def user_safe_image_error(exc):
-    detail = _extract_openai_error_detail(exc)
+def user_safe_image_error(exc, provider="openai"):
+    provider = (provider or "openai").strip().lower()
+    detail = _extract_http_error_detail(exc)
     req_match = re.search(r"(req_[a-zA-Z0-9]+)", detail or "")
     req_id = req_match.group(1) if req_match else ""
     if "safety" in (detail or "").lower() or "safety_violations" in (detail or "").lower():
         return "I couldn't generate that image because the request was flagged by safety filters. Please try a safer rewording.", detail, req_id
-    if "Supported values are" in (detail or "") and "Invalid value" in (detail or ""):
+    if provider == "openai" and "Supported values are" in (detail or "") and "Invalid value" in (detail or ""):
         return "That image size is not supported by OpenAI. Please choose 1024x1024, 1024x1536, 1536x1024, or auto.", detail, req_id
     if isinstance(exc, urllib.error.HTTPError):
         status = exc.code
+        if provider == "local":
+            if status in (401, 403):
+                return "Image generation failed: Automatic1111 rejected authentication. Check the API auth string and --api-auth setup.", detail, req_id
+            if status == 404:
+                return "Automatic1111 API endpoint not found. Ensure webui is running with the --api flag.", detail, req_id
+            if status == 422:
+                return "Automatic1111 rejected one or more generation parameters. Check image size/steps/sampler/scheduler values.", detail, req_id
+            if 500 <= status <= 599:
+                return "Automatic1111 failed while generating the image. Please retry after the server is ready.", detail, req_id
+            return f"Image generation failed with Automatic1111 HTTP {status}.", detail, req_id
         if status in (401, 403):
             return "Image generation failed: OpenAI rejected the request (check API key and image model access).", detail, req_id
         if status == 429:
@@ -723,6 +783,8 @@ def user_safe_image_error(exc):
             return "Image generation is temporarily unavailable from OpenAI. Please try again shortly.", detail, req_id
         return f"Image generation failed with OpenAI error HTTP {status}.", detail, req_id
     if isinstance(exc, urllib.error.URLError):
+        if provider == "local":
+            return "Image generation is currently unavailable because Automatic1111 could not be reached. Check URL and that webui is running with --api.", detail, req_id
         return "Image generation is currently unavailable because the image provider could not be reached. Please try again in a moment.", detail, req_id
     if isinstance(exc, TimeoutError):
         return "Image generation timed out. Please try again with a shorter prompt or retry shortly.", detail, req_id
@@ -742,9 +804,11 @@ def extract_model_image_prompt(reply_text):
 
 def generate_image_reply(prompt, uid, chat_id, settings_row, prefs, context_hint=""):
     image_provider = (prefs or {}).get("image_provider", "disabled")
+    if image_provider == "local/automatic1111":
+        image_provider = "local"
     if image_provider == "disabled":
         return "I can generate images, but image generation is currently disabled. Enable an image provider in Settings and try again.", ""
-    image_size = normalize_image_size((prefs or {}).get("image_size") or "1024x1024")
+    image_size = (prefs or {}).get("image_size") or "1024x1024"
     image_quality = (prefs or {}).get("image_quality") or "standard"
     image_local_allow_nsfw = bool((prefs or {}).get("image_local_allow_nsfw", False))
     image_local_base_url = (prefs or {}).get("image_local_base_url")
@@ -758,9 +822,20 @@ def generate_image_reply(prompt, uid, chat_id, settings_row, prefs, context_hint
             key = settings_row["openai_api_key"] if settings_row else None
             if not key:
                 return "Image generation is enabled for OpenAI, but your OpenAI API key is missing in Settings.", ""
+            image_size = normalize_image_size(image_size)
             image_bytes = openai_image(effective_prompt, image_size, image_quality, key)
         elif image_provider == "local":
-            image_bytes = automatic1111_image(effective_prompt, image_size, image_quality, image_local_allow_nsfw, image_local_base_url)
+            local_settings = {
+                "steps": (prefs or {}).get("image_local_steps"),
+                "cfg_scale": (prefs or {}).get("image_local_cfg_scale"),
+                "seed": (prefs or {}).get("image_local_seed"),
+                "sampler_name": (prefs or {}).get("image_local_sampler_name"),
+                "scheduler": (prefs or {}).get("image_local_scheduler"),
+                "model": (prefs or {}).get("image_local_model"),
+                "api_auth": (prefs or {}).get("image_local_api_auth"),
+                "additional_parameters": (prefs or {}).get("image_local_additional_parameters"),
+            }
+            image_bytes = automatic1111_image(effective_prompt, image_size, image_quality, image_local_allow_nsfw, image_local_base_url, local_settings=local_settings)
         else:
             return f"Image provider '{image_provider}' is not recognized by the server. Choose 'openai' or 'local'.", ""
         image_path.write_bytes(image_bytes)
@@ -768,7 +843,7 @@ def generate_image_reply(prompt, uid, chat_id, settings_row, prefs, context_hint
         return f"Here is your generated image.\n\n![Generated image]({image_url})", image_url
     except Exception as exc:
         logger.exception("image generation failed user_id=%s chat_id=%s", uid, chat_id)
-        message, detail, req_id = user_safe_image_error(exc)
+        message, detail, req_id = user_safe_image_error(exc, provider=image_provider)
         if detail:
             log_image_error(uid, chat_id, f"request_id={req_id or 'n/a'} {detail}")
         return message, ""
@@ -1146,7 +1221,11 @@ class Handler(BaseHTTPRequestHandler):
             if persona_prompt:
                 sys_msgs.append(persona_prompt)
             image_provider = (prefs or {}).get("image_provider", "disabled")
-            sys_msgs.append(model_image_instruction_for_provider(image_provider))
+            if image_provider == "local/automatic1111":
+                image_provider = "local"
+            image_prompt_generation = bool((prefs or {}).get("image_prompt_generation", True))
+            if image_prompt_generation:
+                sys_msgs.append(model_image_instruction_for_provider(image_provider))
             sys_msgs.append("The app will ask the user for consent before generating the image.")
             messages = [{"role":"system","content":"\n".join(sys_msgs)}] if sys_msgs else []
             hist = conn.execute("SELECT role,text FROM messages WHERE chat_id=? ORDER BY created_at DESC LIMIT 20", (chat_id,)).fetchall()
@@ -1156,7 +1235,7 @@ class Handler(BaseHTTPRequestHandler):
             try:
                 reply = call_ollama(model, messages, model_options)
                 reply, model_image_prompt = extract_model_image_prompt(reply)
-                if model_image_prompt and not image_prompt_is_detailed(model_image_prompt):
+                if image_prompt_generation and model_image_prompt and not image_prompt_is_detailed(model_image_prompt):
                     if image_provider == "openai":
                         model_image_prompt = adjust_prompt_for_openai_image(model_image_prompt)
                     elif image_provider == "local":
@@ -1171,7 +1250,7 @@ class Handler(BaseHTTPRequestHandler):
                     conn.execute("INSERT INTO memories(id,user_id,tier,tier_ref_id,content,created_at) VALUES(?,?,?,?,?,?)", (secrets.token_hex(8), uid, "persona" if persona_id else "global", persona_id, text, now_ts()))
                 conn.execute("INSERT INTO memories(id,user_id,tier,tier_ref_id,content,created_at) VALUES(?,?,?,?,?,?)", (secrets.token_hex(8), uid, "chat", chat_id, text, now_ts()))
             conn.commit(); conn.close(); backup_db_if_needed()
-            image_offer = {"prompt": model_image_prompt, "message": "Receive image?"} if model_image_prompt else None
+            image_offer = {"prompt": model_image_prompt, "message": "Receive image?"} if image_prompt_generation and model_image_prompt else None
             return self._json({"text": reply, "chatId": chat_id, "imageOffer": image_offer})
         if self.path == "/api/settings":
             b = self._read_json()
