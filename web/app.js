@@ -799,13 +799,54 @@ function compactPromptSnippet(text = '', maxLen = 220) {
 
 function inferVisualStyleHint(sourceText = '') {
   const lowered = sourceText.toLowerCase();
-  if (/(logo|brand|wordmark|icon)/.test(lowered)) return 'clean vector logo style';
-  if (/(anime|manga|cel shade|studio ghibli)/.test(lowered)) return 'anime illustration style';
-  if (/(photo|photoreal|realistic|camera|dslr|portrait)/.test(lowered)) return 'cinematic photorealistic style';
-  if (/(pixel|8-bit|retro game)/.test(lowered)) return 'retro pixel art style';
-  if (/(watercolor|oil painting|painting|sketch)/.test(lowered)) return 'hand-painted illustration style';
-  if (/(futuristic|cyberpunk|sci-fi|neon)/.test(lowered)) return 'cinematic sci-fi concept art style';
-  return 'high-detail digital illustration style';
+  const tags = [];
+  if (/(logo|brand|wordmark|icon)/.test(lowered)) tags.push('clean vector logo style');
+  if (/(anime|manga|cel shade|studio ghibli)/.test(lowered)) tags.push('anime illustration style');
+  if (/(photo|photoreal|realistic|camera|dslr|portrait)/.test(lowered)) tags.push('cinematic photorealistic style');
+  if (/(pixel|8-bit|retro game)/.test(lowered)) tags.push('retro pixel art style');
+  if (/(watercolor|oil painting|painting|sketch)/.test(lowered)) tags.push('hand-painted illustration style');
+  if (/(futuristic|cyberpunk|sci-fi|neon)/.test(lowered)) tags.push('cinematic sci-fi concept art style');
+  if (!tags.length) tags.push('high-detail digital illustration style');
+  return tags.slice(0, 2).join(', ');
+}
+
+function extractNamedPhrases(text = '') {
+  const quoted = [...text.matchAll(/"([^"]{2,80})"/g)].map((m) => m[1]);
+  const titled = [...text.matchAll(/\b([A-Z][a-z]+(?:\s+[A-Z][a-z]+){0,3})\b/g)].map((m) => m[1]);
+  return [...new Set([...quoted, ...titled])].slice(0, 6);
+}
+
+function providerPromptTemplate(provider, fields) {
+  if (provider === 'openai') {
+    return [
+      `OpenAI optimized prompt: ${fields.subject} in ${fields.environment}.`,
+      `Composition/camera: ${fields.composition}`,
+      `Lighting/mood: ${fields.lighting}`,
+      `Style direction: ${fields.style}`,
+      `Must keep: ${fields.constraints}`,
+      'Safety: Safe-for-work, no nudity, no explicit sexual content, no graphic violence.',
+    ].join('\n');
+  }
+  if (provider === 'local') {
+    return [
+      'Automatic1111 optimized prompt:',
+      `subject, ${fields.subject}`,
+      `environment, ${fields.environment}`,
+      `composition, ${fields.composition}`,
+      `lighting, ${fields.lighting}`,
+      `style, ${fields.style}, highly detailed, masterpiece, best quality`,
+      `must-keep details, ${fields.constraints}`,
+      'negative prompt: blurry, lowres, bad anatomy, deformed hands, watermark, text, logo',
+    ].join('\n');
+  }
+  return [
+    `Subject: ${fields.subject}`,
+    `Environment: ${fields.environment}`,
+    `Composition/camera: ${fields.composition}`,
+    `Lighting: ${fields.lighting}`,
+    `Style: ${fields.style}`,
+    `Non-negotiable details: ${fields.constraints}`,
+  ].join('\n');
 }
 
 function contextualImagePromptFromMessage(message) {
@@ -824,13 +865,19 @@ function contextualImagePromptFromMessage(message) {
   const latestUser = [...recent].reverse().find((m) => m.role === 'user');
   const userIntent = compactPromptSnippet(normalizePromptSourceText(latestUser?.text || ''), 180);
   const styleHint = inferVisualStyleHint(`${assistantText} ${recentContext}`);
+  const named = extractNamedPhrases(`${assistantText} ${recentContext}`).join(', ');
+  const provider = state.settings?.image_provider || 'disabled';
 
-  return [
-    `${styleHint}, single cohesive composition, no text overlay, safe for work.`,
-    `Primary scene: ${assistantText}`,
-    userIntent ? `Conversation intent to preserve: ${userIntent}` : '',
-    recentContext ? `Context clues: ${recentContext}` : '',
-  ].filter(Boolean).join('\n');
+  const fields = {
+    subject: assistantText,
+    environment: userIntent || 'a context-appropriate setting from the conversation',
+    composition: 'single cohesive composition, intentional framing, no text overlay',
+    lighting: 'cinematic, readable subject separation, balanced contrast',
+    style: styleHint,
+    constraints: named || recentContext || 'preserve user intent and important conversation details',
+  };
+
+  return providerPromptTemplate(provider, fields);
 }
 
 async function generateImageFromAssistantMessage(message) {

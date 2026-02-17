@@ -26,6 +26,7 @@ from pathlib import Path
 
 PORT = int(os.getenv("PORT", "3000"))
 OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://192.168.18.200:11434")
+AUTOMATIC1111_BASE_URL = os.getenv("AUTOMATIC1111_BASE_URL", "http://127.0.0.1:7860")
 DATA_DIR = Path(os.getenv("DATA_DIR", "/data"))
 ARCHIVE_DIR = Path(os.getenv("ARCHIVE_DIR", "/archives"))
 AUDIO_HOT_LIMIT = int(os.getenv("AUDIO_HOT_LIMIT", "200"))
@@ -483,6 +484,32 @@ def openai_image(prompt, size, quality, api_key):
     raise ValueError("Image response did not include data")
 
 
+def automatic1111_image(prompt, size, quality, allow_nsfw):
+    width, height = parse_image_size(size)
+    tuned_prompt = adjust_prompt_for_local_sd(prompt, allow_nsfw)
+    payload = {
+        "prompt": tuned_prompt,
+        "negative_prompt": local_negative_prompt(allow_nsfw),
+        "width": width,
+        "height": height,
+        "steps": local_steps_from_quality(quality),
+        "cfg_scale": 7,
+        "sampler_name": "DPM++ 2M Karras",
+    }
+    req = urllib.request.Request(
+        f"{AUTOMATIC1111_BASE_URL.rstrip('/')}/sdapi/v1/txt2img",
+        data=json.dumps(payload).encode(),
+        headers={"Content-Type": "application/json"},
+        method="POST",
+    )
+    with urllib.request.urlopen(req, timeout=240) as r:
+        data = json.loads(r.read().decode())
+    images = data.get("images") or []
+    if not images:
+        raise ValueError("Automatic1111 image response did not include data")
+    return base64.b64decode(images[0])
+
+
 def normalize_image_quality(quality):
     normalized = IMAGE_QUALITY_ALIASES.get(quality, quality)
     if normalized in IMAGE_QUALITY_VALUES:
@@ -496,6 +523,17 @@ def normalize_image_size(size):
     return "1024x1024"
 
 
+def parse_image_size(size):
+    normalized = normalize_image_size(size)
+    if normalized == "auto":
+        return 1024, 1024
+    try:
+        width, height = normalized.split("x", 1)
+        return int(width), int(height)
+    except Exception:
+        return 1024, 1024
+
+
 def adjust_prompt_for_openai_image(prompt):
     text = (prompt or "").strip()
     if not text:
@@ -504,9 +542,69 @@ def adjust_prompt_for_openai_image(prompt):
     for term, replacement in OPENAI_IMAGE_TERM_REPLACEMENTS.items():
         adjusted = re.sub(rf"\b{re.escape(term)}\b", replacement, adjusted, flags=re.IGNORECASE)
     return (
-        f"{adjusted}"
-        " Render this as a safe-for-work image with no nudity, no explicit sexual content, and no graphic violence."
+        "Generate a polished, coherent image with clear subject emphasis, intentional composition, and rich lighting detail. "
+        f"Scene request: {adjusted}. "
+        "Keep it safe-for-work and policy-compliant with no nudity, explicit sexual content, or graphic violence."
     )
+
+
+def local_steps_from_quality(quality):
+    normalized = normalize_image_quality(quality)
+    if normalized == "high":
+        return 38
+    if normalized == "low":
+        return 20
+    return 28
+
+
+def local_negative_prompt(allow_nsfw):
+    base = "blurry, lowres, jpeg artifacts, extra limbs, deformed hands, bad anatomy, watermark, text, logo"
+    if allow_nsfw:
+        return base
+    return f"{base}, nude, nudity, explicit sexual content, fetish, porn, graphic violence, gore"
+
+
+def adjust_prompt_for_local_sd(prompt, allow_nsfw):
+    text = " ".join((prompt or "").split()).strip()
+    if not text:
+        text = "cinematic portrait of a friendly assistant in a modern workspace, detailed lighting, highly detailed"
+    if not allow_nsfw:
+        for term, replacement in OPENAI_IMAGE_TERM_REPLACEMENTS.items():
+            text = re.sub(rf"\b{re.escape(term)}\b", replacement, text, flags=re.IGNORECASE)
+    return f"masterpiece, best quality, highly detailed, {text}"
+
+
+def image_prompt_is_detailed(prompt):
+    words = re.findall(r"[A-Za-z0-9']+", prompt or "")
+    if len(words) < 12:
+        return False
+    checks = [
+        re.search(r"\b(shot|close-up|wide|angle|composition|framing|portrait|landscape)\b", prompt, re.IGNORECASE),
+        re.search(r"\b(light|lighting|sunset|neon|moody|dramatic|soft light)\b", prompt, re.IGNORECASE),
+        re.search(r"\b(style|illustration|photo|cinematic|render|painting|anime|realistic)\b", prompt, re.IGNORECASE),
+    ]
+    return sum(bool(c) for c in checks) >= 1
+
+
+def model_image_instruction_for_provider(provider):
+    provider = (provider or "disabled").lower().strip()
+    base = (
+        "When a user clearly asks for an image, include exactly one XML tag like "
+        "<generate_image>...</generate_image> in your reply. "
+        "Inside the tag, provide a production-quality prompt with subject, environment, composition/camera, "
+        "lighting, style, and quality details. Keep it safe and policy-compliant."
+    )
+    if provider == "openai":
+        return (
+            f"{base} Tailor prompt style for OpenAI image generation: natural-language scene direction, clear visual intent, "
+            "minimal comma-stuffing, and no tool-specific weight syntax."
+        )
+    if provider == "local":
+        return (
+            f"{base} Tailor prompt style for Stable Diffusion/Automatic1111: concise keyword-rich descriptors, "
+            "art direction tokens, and include details that pair well with a separate negative prompt."
+        )
+    return base
 
 
 def _extract_openai_error_detail(exc):
@@ -584,20 +682,23 @@ def generate_image_reply(prompt, uid, chat_id, settings_row, prefs):
     image_provider = (prefs or {}).get("image_provider", "disabled")
     if image_provider == "disabled":
         return "I can generate images, but image generation is currently disabled. Enable an image provider in Settings and try again.", ""
-    if image_provider != "openai":
-        return f"Image provider '{image_provider}' is selected, but this server currently supports OpenAI image generation only. Switch to OpenAI in Settings and try again.", ""
-    key = settings_row["openai_api_key"] if settings_row else None
-    if not key:
-        return "Image generation is enabled for OpenAI, but your OpenAI API key is missing in Settings.", ""
-
     image_size = normalize_image_size((prefs or {}).get("image_size") or "1024x1024")
     image_quality = (prefs or {}).get("image_quality") or "standard"
+    image_local_allow_nsfw = bool((prefs or {}).get("image_local_allow_nsfw", False))
     image_id = secrets.token_hex(12)
     image_ext = "png"
     image_name = f"{uid}_{image_id}.{image_ext}"
     image_path = IMAGE_DIR / image_name
     try:
-        image_bytes = openai_image(prompt, image_size, image_quality, key)
+        if image_provider == "openai":
+            key = settings_row["openai_api_key"] if settings_row else None
+            if not key:
+                return "Image generation is enabled for OpenAI, but your OpenAI API key is missing in Settings.", ""
+            image_bytes = openai_image(prompt, image_size, image_quality, key)
+        elif image_provider == "local":
+            image_bytes = automatic1111_image(prompt, image_size, image_quality, image_local_allow_nsfw)
+        else:
+            return f"Image provider '{image_provider}' is not recognized by the server. Choose 'openai' or 'local'.", ""
         image_path.write_bytes(image_bytes)
         image_url = f"/api/images/{urllib.parse.quote(image_name)}"
         return f"Here is your generated image.\n\n![Generated image]({image_url})", image_url
@@ -973,7 +1074,9 @@ class Handler(BaseHTTPRequestHandler):
             persona_prompt = persona_instruction_block(persona)
             if persona_prompt:
                 sys_msgs.append(persona_prompt)
-            sys_msgs.append("When you want to propose an image, include exactly one XML tag like <generate_image>your prompt</generate_image> in your reply. Keep the tag prompt concise and safe. The app will ask the user for consent before generating it.")
+            image_provider = (prefs or {}).get("image_provider", "disabled")
+            sys_msgs.append(model_image_instruction_for_provider(image_provider))
+            sys_msgs.append("The app will ask the user for consent before generating the image.")
             messages = [{"role":"system","content":"\n".join(sys_msgs)}] if sys_msgs else []
             hist = conn.execute("SELECT role,text FROM messages WHERE chat_id=? ORDER BY created_at DESC LIMIT 20", (chat_id,)).fetchall()
             for r in reversed(hist): messages.append({"role":r[0],"content":r[1]})
@@ -982,6 +1085,11 @@ class Handler(BaseHTTPRequestHandler):
             try:
                 reply = call_ollama(model, messages, model_options)
                 reply, model_image_prompt = extract_model_image_prompt(reply)
+                if model_image_prompt and not image_prompt_is_detailed(model_image_prompt):
+                    if image_provider == "openai":
+                        model_image_prompt = adjust_prompt_for_openai_image(model_image_prompt)
+                    elif image_provider == "local":
+                        model_image_prompt = adjust_prompt_for_local_sd(model_image_prompt, bool((prefs or {}).get("image_local_allow_nsfw", False)))
             except Exception as e:
                 logger.exception("model call failed user_id=%s chat_id=%s model=%s", uid, chat_id, model)
                 reply = f"Model call failed: {e}"

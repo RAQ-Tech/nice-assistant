@@ -29,6 +29,7 @@ When this repository gets new commits on `main`, the GitHub Actions workflow pub
 - `AUDIO_HOT_LIMIT=200`
 - `PROJECT_ROOT=/data/project`
 - `SYNC_PROJECT_ON_START=1` (set to `0` to keep local edits and skip overwrite from image)
+- `AUTOMATIC1111_BASE_URL=http://127.0.0.1:7860` (used when `image_provider=local`)
 
 ## Features included in this scaffold
 
