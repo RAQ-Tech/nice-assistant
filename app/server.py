@@ -53,6 +53,7 @@ IMAGE_QUALITY_ALIASES = {
 }
 IMAGE_QUALITY_VALUES = {"low", "medium", "high", "auto"}
 SUPPORTED_IMAGE_SIZES = {"1024x1024", "1024x1536", "1536x1024", "auto"}
+MODEL_IMAGE_TAG_PATTERN = re.compile(r"<generate_image>(.*?)</generate_image>", re.IGNORECASE | re.DOTALL)
 
 
 def ensure_dirs():
@@ -545,6 +546,46 @@ def user_safe_image_error(exc):
     return "Image generation failed unexpectedly. Please try again.", detail, req_id
 
 
+def extract_model_image_prompt(reply_text):
+    if not reply_text:
+        return "", ""
+    match = MODEL_IMAGE_TAG_PATTERN.search(reply_text)
+    if not match:
+        return reply_text, ""
+    prompt = " ".join(match.group(1).split()).strip()
+    clean_reply = MODEL_IMAGE_TAG_PATTERN.sub("", reply_text).strip()
+    return clean_reply, prompt
+
+
+def generate_image_reply(prompt, uid, chat_id, settings_row, prefs):
+    image_provider = (prefs or {}).get("image_provider", "disabled")
+    if image_provider == "disabled":
+        return "I can generate images, but image generation is currently disabled. Enable an image provider in Settings and try again.", ""
+    if image_provider != "openai":
+        return f"Image provider '{image_provider}' is selected, but this server currently supports OpenAI image generation only. Switch to OpenAI in Settings and try again.", ""
+    key = settings_row["openai_api_key"] if settings_row else None
+    if not key:
+        return "Image generation is enabled for OpenAI, but your OpenAI API key is missing in Settings.", ""
+
+    image_size = normalize_image_size((prefs or {}).get("image_size") or "1024x1024")
+    image_quality = (prefs or {}).get("image_quality") or "standard"
+    image_id = secrets.token_hex(12)
+    image_ext = "png"
+    image_name = f"{uid}_{image_id}.{image_ext}"
+    image_path = IMAGE_DIR / image_name
+    try:
+        image_bytes = openai_image(prompt, image_size, image_quality, key)
+        image_path.write_bytes(image_bytes)
+        image_url = f"/api/images/{urllib.parse.quote(image_name)}"
+        return f"Here is your generated image.\n\n![Generated image]({image_url})", image_url
+    except Exception as exc:
+        logger.exception("image generation failed user_id=%s chat_id=%s", uid, chat_id)
+        message, detail, req_id = user_safe_image_error(exc)
+        if detail:
+            log_image_error(uid, chat_id, f"request_id={req_id or 'n/a'} {detail}")
+        return message, ""
+
+
 def parse_preferences_json(raw_value):
     if not raw_value:
         return {}
@@ -753,6 +794,26 @@ class Handler(BaseHTTPRequestHandler):
             self.wfile.write(target.read_bytes())
             log_interaction("log.download", "user downloaded diagnostic log", user_id=uid)
             return
+        if self.path == "/api/images/generate":
+            b = self._read_json() or {}
+            prompt = str(b.get("prompt") or "").strip()
+            chat_id = b.get("chatId")
+            if not prompt:
+                return self._json({"error": "prompt required"}, 400)
+            conn = db_conn()
+            settings = conn.execute("SELECT * FROM app_settings WHERE user_id=?", (uid,)).fetchone()
+            prefs = parse_preferences_json(settings["preferences_json"] if settings else "{}")
+            reply, image_url = generate_image_reply(prompt, uid, chat_id, settings, prefs)
+            if image_url and chat_id:
+                owns = conn.execute("SELECT id FROM chats WHERE id=? AND user_id=?", (chat_id, uid)).fetchone()
+                if owns:
+                    conn.execute("INSERT INTO messages(id,chat_id,role,text,created_at) VALUES(?,?,?,?,?)", (secrets.token_hex(8), chat_id, "assistant", reply, now_ts()))
+                    conn.execute("UPDATE chats SET updated_at=? WHERE id=?", (now_ts(), chat_id))
+                    conn.commit()
+            conn.close()
+            if image_url:
+                return self._json({"ok": True, "text": reply, "imageUrl": image_url})
+            return self._json({"ok": False, "text": reply}, 400)
         if self.path == "/api/settings":
             uid = self._require_auth();
             if not uid: return
@@ -865,34 +926,8 @@ class Handler(BaseHTTPRequestHandler):
                 prefs = json.loads(settings["preferences_json"] or "{}") if settings else {}
             except (TypeError, ValueError):
                 prefs = {}
-            image_provider = prefs.get("image_provider", "disabled")
             if looks_like_image_request(text):
-                if image_provider == "disabled":
-                    reply = "I can generate images, but image generation is currently disabled. Enable an image provider in Settings and try again."
-                elif image_provider != "openai":
-                    reply = f"Image provider '{image_provider}' is selected, but this server currently supports OpenAI image generation only. Switch to OpenAI in Settings and try again."
-                else:
-                    key = settings["openai_api_key"] if settings else None
-                    if not key:
-                        reply = "Image generation is enabled for OpenAI, but your OpenAI API key is missing in Settings."
-                    else:
-                        image_size = normalize_image_size(prefs.get("image_size") or "1024x1024")
-                        image_quality = prefs.get("image_quality") or "standard"
-                        image_id = secrets.token_hex(12)
-                        image_ext = "png"
-                        image_name = f"{uid}_{image_id}.{image_ext}"
-                        image_path = IMAGE_DIR / image_name
-                        try:
-                            image_bytes = openai_image(text, image_size, image_quality, key)
-                            image_path.write_bytes(image_bytes)
-                            image_url = f"/api/images/{urllib.parse.quote(image_name)}"
-                            reply = f"Here is your generated image.\n\n![Generated image]({image_url})"
-                        except Exception as e:
-                            logger.exception("image generation failed user_id=%s chat_id=%s", uid, chat_id)
-                            reply, detail, req_id = user_safe_image_error(e)
-                            if detail:
-                                log_image_error(uid, chat_id, f"request_id={req_id or 'n/a'} {detail}")
-
+                reply, _ = generate_image_reply(text, uid, chat_id, settings, prefs)
                 conn.execute("INSERT INTO messages(id,chat_id,role,text,created_at) VALUES(?,?,?,?,?)", (secrets.token_hex(8),chat_id,"assistant",reply,now_ts()))
                 conn.execute("UPDATE chats SET updated_at=?, memory_mode=?, persona_id=?, workspace_id=?, model_override=? WHERE id=?", (now_ts(), mem_mode, persona_id, workspace_id, b.get("model") or chat["model_override"], chat_id))
                 if mem_mode == "auto":
@@ -915,12 +950,15 @@ class Handler(BaseHTTPRequestHandler):
             persona_prompt = persona_instruction_block(persona)
             if persona_prompt:
                 sys_msgs.append(persona_prompt)
+            sys_msgs.append("When you want to propose an image, include exactly one XML tag like <generate_image>your prompt</generate_image> in your reply. Keep the tag prompt concise and safe. The app will ask the user for consent before generating it.")
             messages = [{"role":"system","content":"\n".join(sys_msgs)}] if sys_msgs else []
             hist = conn.execute("SELECT role,text FROM messages WHERE chat_id=? ORDER BY created_at DESC LIMIT 20", (chat_id,)).fetchall()
             for r in reversed(hist): messages.append({"role":r[0],"content":r[1]})
             messages.append({"role":"user","content":text})
+            model_image_prompt = ""
             try:
                 reply = call_ollama(model, messages, model_options)
+                reply, model_image_prompt = extract_model_image_prompt(reply)
             except Exception as e:
                 logger.exception("model call failed user_id=%s chat_id=%s model=%s", uid, chat_id, model)
                 reply = f"Model call failed: {e}"
@@ -931,7 +969,8 @@ class Handler(BaseHTTPRequestHandler):
                     conn.execute("INSERT INTO memories(id,user_id,tier,tier_ref_id,content,created_at) VALUES(?,?,?,?,?,?)", (secrets.token_hex(8), uid, "persona" if persona_id else "global", persona_id, text, now_ts()))
                 conn.execute("INSERT INTO memories(id,user_id,tier,tier_ref_id,content,created_at) VALUES(?,?,?,?,?,?)", (secrets.token_hex(8), uid, "chat", chat_id, text, now_ts()))
             conn.commit(); conn.close(); backup_db_if_needed()
-            return self._json({"text": reply, "chatId": chat_id})
+            image_offer = {"prompt": model_image_prompt, "message": "Receive image?"} if model_image_prompt else None
+            return self._json({"text": reply, "chatId": chat_id, "imageOffer": image_offer})
         if self.path == "/api/settings":
             b = self._read_json()
             conn = db_conn()
