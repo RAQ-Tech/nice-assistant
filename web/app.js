@@ -92,6 +92,7 @@ const SETTINGS_DEFAULTS = {
   image_provider: 'disabled',
   image_size: '1024x1024',
   image_quality: 'auto',
+  image_local_allow_nsfw: false,
   memory_auto_save_user_facts: true,
   user_display_name: '',
   user_timezone: 'local',
@@ -114,6 +115,7 @@ const IMAGE_QUALITY_ALIASES = {
 
 const IMAGE_QUALITY_VALUES = ['low', 'medium', 'high', 'auto'];
 const SUPPORTED_IMAGE_SIZES = ['1024x1024', '1024x1536', '1536x1024', 'auto'];
+const LOCAL_IMAGE_NSFW_GUARD_PATTERN = /\b(nsfw|nude|naked|explicit|porn|sexual|sex|fetish|erotic|hardcore|xxx)\b/i;
 const STT_LANGUAGES = [
   { value: 'auto', label: 'Auto-detect' },
   { value: 'en', label: 'English' },
@@ -216,6 +218,7 @@ function settingsPayload(nextSettings) {
     image_provider: nextSettings.image_provider,
     image_size: normalizeImageSize(nextSettings.image_size),
     image_quality: normalizeImageQuality(nextSettings.image_quality),
+    image_local_allow_nsfw: Boolean(nextSettings.image_local_allow_nsfw),
     memory_auto_save_user_facts: Boolean(nextSettings.memory_auto_save_user_facts),
     user_display_name: nextSettings.user_display_name,
     user_timezone: nextSettings.user_timezone,
@@ -842,6 +845,8 @@ async function generateImageFromAssistantMessage(message) {
   });
   if (!prompt?.trim()) return;
   try {
+    const shouldContinue = await verifyLocalImagePrompt(prompt.trim());
+    if (!shouldContinue) return;
     setUiError('');
     state.status = 'Thinking';
     render();
@@ -858,6 +863,17 @@ async function generateImageFromAssistantMessage(message) {
     setUiError(e?.message || 'Image generation failed.');
     render();
   }
+}
+
+async function verifyLocalImagePrompt(prompt) {
+  const usingLocal = state.settings?.image_provider === 'local';
+  const nsfwAllowed = Boolean(state.settings?.image_local_allow_nsfw);
+  if (!usingLocal || nsfwAllowed || !LOCAL_IMAGE_NSFW_GUARD_PATTERN.test(prompt || '')) return true;
+  return confirmModal({
+    title: 'Potential NSFW prompt detected',
+    message: 'NSFW mode is disabled for local image generation. This prompt includes terms that may be NSFW. Continue anyway?',
+    confirmText: 'Continue',
+  });
 }
 
 function downloadImage(url, suggestedName = 'generated-image.png') {
@@ -929,7 +945,12 @@ async function sendChat(text) {
       const accepted = await confirmModal({ title: 'Receive image?', message: 'Your assistant wants to send an image for this reply.', confirmText: 'Receive image' });
       if (accepted) {
         try {
-          await api('/api/images/generate', { method: 'POST', body: JSON.stringify({ prompt: r.imageOffer.prompt, chatId: r.chatId }) });
+          const shouldContinue = await verifyLocalImagePrompt(r.imageOffer.prompt || '');
+          if (!shouldContinue) {
+            setUiError('Skipped image generation because NSFW mode is disabled.');
+          } else {
+            await api('/api/images/generate', { method: 'POST', body: JSON.stringify({ prompt: r.imageOffer.prompt, chatId: r.chatId }) });
+          }
           const withImage = await api(`/api/chats/${r.chatId}`);
           state.messages = withImage.messages;
         } catch (imageErr) {
@@ -1495,6 +1516,7 @@ function settingsPanel() {
   const setVal = (key, value) => {
     state.settings[key] = value;
     state.settingsSavedAt = 0;
+    render();
   };
 
   const persistSettings = async () => {
@@ -1640,6 +1662,12 @@ function settingsPanel() {
     'Image Generation': [
       el('label', { textContent: 'Provider' }),
       el('select', { class: 'chip-select', onchange: (e) => setVal('image_provider', e.target.value) }, ['disabled', 'openai', 'local'].map((x) => el('option', { value: x, textContent: x, selected: x === state.settings.image_provider }))),
+      ...(state.settings.image_provider === 'local' ? [
+        el('label', { class: 'checkbox-row' }, [
+          el('input', { type: 'checkbox', checked: Boolean(state.settings.image_local_allow_nsfw), onchange: (e) => setVal('image_local_allow_nsfw', e.target.checked) }),
+          'Allow NSFW prompts (off by default)',
+        ]),
+      ] : []),
       el('label', { textContent: 'Size' }),
       el('select', { class: 'chip-select', onchange: (e) => setVal('image_size', e.target.value) }, SUPPORTED_IMAGE_SIZES.map((x) => el('option', { value: x, textContent: x, selected: x === state.settings.image_size }))),
       el('label', { textContent: 'Quality' }),
