@@ -36,6 +36,7 @@ const state = {
   settingsSaving: false,
   settingsSavedAt: 0,
   settingsToastTimer: 0,
+  showChatControlsMenu: false,
   settingsSection: 'General',
   selectedPersonaId: null,
   selectedModel: null,
@@ -92,6 +93,11 @@ const SETTINGS_DEFAULTS = {
   image_provider: 'disabled',
   image_size: '1024x1024',
   image_quality: 'auto',
+  video_provider: 'disabled',
+  video_model: 'sora-2',
+  video_size: '1024x1024',
+  video_quality: 'medium',
+  video_duration: '5',
   image_local_allow_nsfw: false,
   memory_auto_save_user_facts: true,
   user_display_name: '',
@@ -172,6 +178,7 @@ const SETTINGS_SECTION_KEYS = {
   TTS: ['tts_provider', 'tts_format', 'tts_voice', 'tts_model', 'tts_speed'],
   STT: ['stt_provider', 'stt_language', 'stt_store_recordings'],
   'Image Generation': ['image_provider', 'image_size', 'image_quality'],
+  'Video Generation': ['video_provider', 'video_model', 'video_size', 'video_quality', 'video_duration'],
   Memory: ['default_memory_mode', 'memory_auto_save_user_facts'],
   User: ['user_display_name', 'user_timezone'],
   Personas: ['personas_default_system_prompt'],
@@ -190,6 +197,8 @@ function normalizeSettings(raw = {}) {
   }
   normalized.image_quality = normalizeImageQuality(normalized.image_quality);
   normalized.image_size = normalizeImageSize(normalized.image_size);
+  normalized.video_quality = normalizeImageQuality(normalized.video_quality);
+  normalized.video_size = normalizeImageSize(normalized.video_size);
   return normalized;
 }
 
@@ -218,6 +227,11 @@ function settingsPayload(nextSettings) {
     image_provider: nextSettings.image_provider,
     image_size: normalizeImageSize(nextSettings.image_size),
     image_quality: normalizeImageQuality(nextSettings.image_quality),
+    video_provider: nextSettings.video_provider,
+    video_model: nextSettings.video_model,
+    video_size: normalizeImageSize(nextSettings.video_size),
+    video_quality: normalizeImageQuality(nextSettings.video_quality),
+    video_duration: nextSettings.video_duration,
     image_local_allow_nsfw: Boolean(nextSettings.image_local_allow_nsfw),
     memory_auto_save_user_facts: Boolean(nextSettings.memory_auto_save_user_facts),
     user_display_name: nextSettings.user_display_name,
@@ -464,6 +478,11 @@ function vizCanvas() {
 
 const fmtDate = (ts) => !ts ? '' : new Date(ts * 1000).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
 
+function settingsSavedLabel(ts) {
+  if (!ts) return '';
+  return `Saved ${new Date(ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}`;
+}
+
 async function refresh() {
   try { state.models = (await api('/api/models')).models || []; } catch { state.models = []; }
   try {
@@ -596,8 +615,6 @@ function schedulePreferenceSave() {
     try {
       await api('/api/settings', { method: 'POST', body: JSON.stringify(settingsPayload(state.settings)) });
       state.settingsSavedAt = Date.now();
-      if (state.settingsToastTimer) clearTimeout(state.settingsToastTimer);
-      state.settingsToastTimer = setTimeout(() => { state.settingsSavedAt = 0; state.settingsToastTimer = 0; render(); }, 2200);
     } catch (e) {
       state.settingsError = e.message || 'Unable to save preferences.';
     }
@@ -1049,8 +1066,20 @@ async function startRec() {
   if (state.recording || state.isSending || state.isSynthesizing) return;
   ensureAudioGraph();
   await ctx.resume();
-  if (!navigator.mediaDevices?.getUserMedia) {
-    logAndShowUiError('Microphone is not supported in this browser.', { feature: 'getUserMedia' });
+  const getUserMedia = navigator.mediaDevices?.getUserMedia
+    ? (constraints) => navigator.mediaDevices.getUserMedia(constraints)
+    : (navigator.getUserMedia || navigator.webkitGetUserMedia || navigator.mozGetUserMedia)
+      ? (constraints) => new Promise((resolve, reject) => {
+        const legacy = navigator.getUserMedia || navigator.webkitGetUserMedia || navigator.mozGetUserMedia;
+        legacy.call(navigator, constraints, resolve, reject);
+      })
+      : null;
+  if (!getUserMedia) {
+    const reason = window.isSecureContext ? 'getUserMedia_unavailable' : 'insecure_context';
+    const message = window.isSecureContext
+      ? 'Microphone access is unavailable in this browser. Update your browser and try again.'
+      : 'Microphone access requires HTTPS or localhost. Please open this app over a secure origin.';
+    logAndShowUiError(message, { feature: 'getUserMedia', reason });
     return;
   }
   if (!window.MediaRecorder) {
@@ -1058,7 +1087,7 @@ async function startRec() {
     return;
   }
   try {
-    state.recStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    state.recStream = await getUserMedia({ audio: true });
   } catch (e) {
     const message = e?.name === 'NotAllowedError'
       ? 'Microphone permission is blocked. Please allow microphone access for this site.'
@@ -1574,8 +1603,6 @@ function settingsPanel() {
       await api('/api/settings', { method: 'POST', body: JSON.stringify(settingsPayload(state.settings)) });
       state.settingsSaving = false;
       state.settingsSavedAt = Date.now();
-      if (state.settingsToastTimer) clearTimeout(state.settingsToastTimer);
-      state.settingsToastTimer = setTimeout(() => { state.settingsSavedAt = 0; state.settingsToastTimer = 0; render(); }, 3200);
       await refresh();
     } catch (e) {
       state.settingsError = e.message || 'Unable to save settings.';
@@ -1683,6 +1710,11 @@ function settingsPanel() {
         clientLog('settings.download_log', 'download log clicked');
         window.open('/api/logs/download', '_blank', 'noopener');
       } }),
+      el('button', { class: 'pill-btn', textContent: 'Logout', onclick: async () => {
+        await api('/api/logout', { method: 'POST' });
+        state.showSettings = false;
+        await refresh();
+      } }),
     ],
     TTS: [
       el('label', { textContent: 'Provider' }),
@@ -1719,6 +1751,19 @@ function settingsPanel() {
       el('select', { class: 'chip-select', onchange: (e) => setVal('image_size', e.target.value) }, SUPPORTED_IMAGE_SIZES.map((x) => el('option', { value: x, textContent: x, selected: x === state.settings.image_size }))),
       el('label', { textContent: 'Quality' }),
       el('select', { class: 'chip-select', onchange: (e) => setVal('image_quality', e.target.value) }, IMAGE_QUALITY_VALUES.map((x) => el('option', { value: x, textContent: x, selected: x === state.settings.image_quality }))),
+    ],
+    'Video Generation': [
+      el('label', { textContent: 'Provider' }),
+      el('select', { class: 'chip-select', onchange: (e) => setVal('video_provider', e.target.value) }, ['disabled', 'openai'].map((x) => el('option', { value: x, textContent: x, selected: x === state.settings.video_provider }))),
+      el('label', { textContent: 'Model' }),
+      el('input', { class: 'search-input', value: state.settings.video_model, oninput: (e) => setVal('video_model', e.target.value) }),
+      el('label', { textContent: 'Resolution' }),
+      el('select', { class: 'chip-select', onchange: (e) => setVal('video_size', e.target.value) }, SUPPORTED_IMAGE_SIZES.map((x) => el('option', { value: x, textContent: x, selected: x === state.settings.video_size }))),
+      el('label', { textContent: 'Quality' }),
+      el('select', { class: 'chip-select', onchange: (e) => setVal('video_quality', e.target.value) }, IMAGE_QUALITY_VALUES.map((x) => el('option', { value: x, textContent: x, selected: x === state.settings.video_quality }))),
+      el('label', { textContent: 'Duration (seconds)' }),
+      el('select', { class: 'chip-select', onchange: (e) => setVal('video_duration', e.target.value) }, ['5', '10', '15', '20'].map((x) => el('option', { value: x, textContent: x, selected: x === String(state.settings.video_duration || '5') }))),
+      el('div', { class: 'meta', textContent: 'Video generation controls mirror image generation settings. Provider support depends on server capabilities.' }),
     ],
     Memory: (() => {
       const mem = groupedMemories();
@@ -1840,13 +1885,13 @@ function settingsPanel() {
   return el('div', { class: 'settings-screen' }, [
     el('div', { class: 'settings-header' }, [
       el('h2', { textContent: 'Settings' }),
+      state.settingsSavedAt ? el('div', { class: 'success-banner', textContent: settingsSavedLabel(state.settingsSavedAt) }) : null,
       el('div', { class: 'chips' }, [
         el('button', { class: 'icon-btn', textContent: '✕ Close', ariaLabel: 'Close settings', onclick: () => { state.showSettings = false; render(); } }),
         el('button', { class: 'send-btn', textContent: state.settingsSaving ? 'Saving…' : 'Save all', disabled: state.settingsSaving, onclick: persistSettings }),
       ]),
     ]),
     state.settingsError ? el('div', { class: 'error-banner', textContent: state.settingsError }) : null,
-    state.settingsSavedAt ? el('div', { class: 'success-banner toast', textContent: 'Settings saved' }) : null,
     el('div', { class: 'settings-layout' }, [
       el('aside', { class: 'settings-nav glass' }, sectionNames.map((name) => el('button', {
         class: `settings-nav-item ${name === state.settingsSection ? 'active' : ''}`,
@@ -2018,6 +2063,21 @@ function render() {
     }),
   ]);
 
+  const chatControlsMenu = state.showChatControlsMenu ? el('div', { class: 'chat-controls-menu glass' }, [
+    el('label', { textContent: 'Model' }),
+    el('select', {
+      id: 'modelSel', class: 'chip-select', value: selectedModel, disabled: state.isSending, onchange: (e) => { state.selectedModel = e.target.value; },
+    }, state.models.map((m) => el('option', { value: m, textContent: modelNickname(m), selected: m === selectedModel }))),
+    el('label', { textContent: 'Memory mode' }),
+    el('select', {
+      id: 'memSel', class: 'chip-select', value: selectedMemoryMode, disabled: state.isSending, onchange: (e) => { state.selectedMemoryMode = e.target.value; },
+    }, ['off', 'manual', 'auto'].map((m) => el('option', { value: m, textContent: `Memory: ${m}`, selected: m === selectedMemoryMode }))),
+    el('button', { class: 'pill-btn', textContent: state.showSystemMessages ? 'Hide system/tool' : 'Show system/tool', onclick: () => setShowSystemMessages(!state.showSystemMessages) }),
+    el('button', { class: 'pill-btn', textContent: state.showThinkingByDefault ? 'Hide thinking' : 'Show thinking', onclick: () => setShowThinkingByDefault(!state.showThinkingByDefault) }),
+    el('button', { class: 'pill-btn', textContent: state.voiceResponsesEnabled ? 'Voice replies: On' : 'Voice replies: Off', onclick: () => setVoiceResponsesEnabled(!state.voiceResponsesEnabled) }),
+    state.currentAudioMessageId ? el('button', { class: 'pill-btn', textContent: 'Stop audio', onclick: () => { audio.pause(); audio.currentTime = 0; state.currentAudioMessageId = ''; state.status = 'Idle'; render(); } }) : null,
+  ]) : null;
+
   const topbar = el('div', { class: 'topbar' }, [
     el('button', { class: 'icon-btn', textContent: '☰', ariaLabel: 'Toggle chat list', onclick: () => { state.drawerOpen = !state.drawerOpen; render(); } }),
     el('div', { class: 'header-meta' }, [
@@ -2026,25 +2086,14 @@ function render() {
       el('div', { class: 'chips' }, [el('button', { class: 'chip', textContent: personaName }), el('button', { class: 'chip', textContent: activeWorkspace }), el('button', { class: 'chip', textContent: modelNickname(state.currentChat?.model_override || state.settings?.global_default_model || 'model') })]),
     ]),
     el('div', { class: `status-pill ${statusClass()}`, textContent: state.status }),
-    el('button', { class: 'icon-btn', title: 'Logout', ariaLabel: 'Logout', textContent: '⇥', onclick: async () => { await api('/api/logout', { method: 'POST' }); await refresh(); } }),
-    el('button', { class: 'icon-btn', textContent: state.showViz ? '◎' : '◉', title: 'Visualizer', ariaLabel: 'Toggle visualizer', onclick: () => setVizVisible(!state.showViz) }),
+    el('button', { class: 'icon-btn', textContent: '⋯', title: 'Chat controls', ariaLabel: 'Toggle chat controls menu', onclick: () => { state.showChatControlsMenu = !state.showChatControlsMenu; render(); } }),
+    el('button', { class: `viz-btn ${state.showViz ? 'active' : ''}`, textContent: state.showViz ? '✦ Visualizer On' : '✧ Visualizer', title: 'Visualizer', ariaLabel: 'Toggle visualizer', onclick: () => setVizVisible(!state.showViz) }),
     el('button', { class: 'icon-btn', textContent: '⚙', title: 'Settings', ariaLabel: 'Open settings', onclick: () => { state.showSettings = true; render(); } }),
   ]);
 
   const main = el('main', { class: 'main-pane glass' }, [
     topbar,
-    el('div', { class: 'chips selector-row' }, [
-      el('select', {
-        id: 'modelSel', class: 'chip-select compact-select', value: selectedModel, disabled: state.isSending, onchange: (e) => { state.selectedModel = e.target.value; },
-      }, state.models.map((m) => el('option', { value: m, textContent: modelNickname(m), selected: m === selectedModel }))),
-      el('select', {
-        id: 'memSel', class: 'chip-select compact-select', value: selectedMemoryMode, disabled: state.isSending, onchange: (e) => { state.selectedMemoryMode = e.target.value; },
-      }, ['off', 'manual', 'auto'].map((m) => el('option', { value: m, textContent: `Memory: ${m}`, selected: m === selectedMemoryMode }))),
-      el('button', { class: 'pill-btn', textContent: state.showSystemMessages ? 'Hide system/tool' : 'Show system/tool', onclick: () => setShowSystemMessages(!state.showSystemMessages) }),
-      el('button', { class: 'pill-btn', textContent: state.showThinkingByDefault ? 'Hide thinking' : 'Show thinking', onclick: () => setShowThinkingByDefault(!state.showThinkingByDefault) }),
-      el('button', { class: 'pill-btn', textContent: state.voiceResponsesEnabled ? 'Voice replies: On' : 'Voice replies: Off', onclick: () => setVoiceResponsesEnabled(!state.voiceResponsesEnabled) }),
-      state.currentAudioMessageId ? el('button', { class: 'pill-btn', textContent: 'Stop audio', onclick: () => { audio.pause(); audio.currentTime = 0; state.currentAudioMessageId = ''; state.status = 'Idle'; render(); } }) : null,
-    ]),
+    chatControlsMenu,
     el('section', { id: 'messagesPane', class: 'message-pane glass', onscroll: onMessageScroll },
       messagesForRender.map((m) => messageItem(m, personaId)).filter(Boolean)
     ),
