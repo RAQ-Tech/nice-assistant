@@ -87,7 +87,9 @@ class AdjustPromptTests(unittest.TestCase):
         adjusted = adjust_prompt_for_openai_image("nsfw nude editorial portrait")
         self.assertIn("Generate a polished", adjusted)
         self.assertIn("fully clothed", adjusted.lower())
-        self.assertIn("safe-for-work", adjusted.lower())
+        self.assertIn("general audiences", adjusted.lower())
+        self.assertNotIn("explicit sexual content", adjusted.lower())
+        self.assertNotIn("graphic violence", adjusted.lower())
 
     def test_local_prompt_adds_quality_tokens_and_sanitizes_when_needed(self):
         adjusted = adjust_prompt_for_local_sd("nude sci-fi portrait", allow_nsfw=False)
