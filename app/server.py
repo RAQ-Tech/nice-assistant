@@ -378,8 +378,22 @@ def parse_multipart_form_data(content_type, body):
         }
     return fields
 
+def normalize_tts_speed(speed):
+    try:
+        parsed = float(speed)
+    except (TypeError, ValueError):
+        return 1.0
+    return min(4.0, max(0.25, parsed))
+
+
 def openai_speech(text, voice, fmt, api_key, model="gpt-4o-mini-tts", speed="1"):
-    payload = json.dumps({"model": model or "gpt-4o-mini-tts", "input": text, "voice": voice or "alloy", "format": fmt, "speed": speed or "1"}).encode()
+    payload = json.dumps({
+        "model": model or "gpt-4o-mini-tts",
+        "input": text,
+        "voice": voice or "alloy",
+        "format": fmt,
+        "speed": normalize_tts_speed(speed),
+    }).encode()
     req = urllib.request.Request(
         "https://api.openai.com/v1/audio/speech",
         data=payload,
@@ -904,6 +918,9 @@ class Handler(BaseHTTPRequestHandler):
                 try:
                     audio = openai_speech(text, preferred_voice, fmt, key, preferred_model, preferred_speed)
                     out_path.write_bytes(audio)
+                except urllib.error.HTTPError as e:
+                    detail = e.read().decode("utf-8", errors="replace")
+                    return self._json({"error": f"TTS failed: {e}. {detail}"}, 500)
                 except Exception as e:
                     return self._json({"error": f"TTS failed: {e}"}, 500)
             else:
