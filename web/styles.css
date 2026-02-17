@@ -99,6 +99,13 @@ button, input, select, textarea {
   padding: .65rem .75rem;
 }
 
+.composer-input {
+  min-height: 44px;
+  max-height: 180px;
+  resize: none;
+  line-height: 1.35;
+}
+
 [data-theme='light'] .search-input,
 [data-theme='light'] .composer-input,
 [data-theme='light'] .chip-select { background: rgba(241, 247, 255, 0.8); }
@@ -521,4 +528,9 @@ button, input, select, textarea {
   .settings-screen { padding: .6rem; }
   .settings-layout { grid-template-columns: 1fr; }
   .settings-nav { max-height: 180px; }
+}
+
+button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
 }

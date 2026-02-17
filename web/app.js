@@ -15,6 +15,8 @@ const state = {
   drawerOpen: window.innerWidth > 900,
   chatSearch: '',
   showSettings: false,
+  modal: null,
+  modalFocusReturn: null,
   recording: false,
   recStart: 0,
   recTimer: 0,
@@ -50,6 +52,10 @@ const state = {
   personaAvatarPreview: '',
   chatImagePreview: '',
   voiceResponsesEnabled: true,
+  isSending: false,
+  isTranscribing: false,
+  isSynthesizing: false,
+  preferencesSaveTimer: 0,
   messageAudioById: {},
   currentAudioMessageId: '',
   workspaceSectionExpanded: {},
@@ -97,6 +103,8 @@ const SETTINGS_DEFAULTS = {
   models_presence_penalty: '0',
   models_frequency_penalty: '0',
   model_overrides: {},
+  general_voice_responses: true,
+  general_show_viz: false,
 };
 
 const IMAGE_QUALITY_ALIASES = {
@@ -198,6 +206,8 @@ function settingsPayload(nextSettings) {
     general_show_system_messages: Boolean(nextSettings.general_show_system_messages),
     general_show_thinking: Boolean(nextSettings.general_show_thinking),
     general_auto_logout: Boolean(nextSettings.general_auto_logout),
+    general_voice_responses: Boolean(nextSettings.general_voice_responses),
+    general_show_viz: Boolean(nextSettings.general_show_viz),
     tts_voice: nextSettings.tts_voice,
     tts_model: nextSettings.tts_model,
     tts_speed: nextSettings.tts_speed,
@@ -354,6 +364,8 @@ async function refresh() {
     state.memoryItems = (await api('/api/memory/all')).items || [];
     state.showSystemMessages = Boolean(state.settings.general_show_system_messages);
     state.showThinkingByDefault = Boolean(state.settings.general_show_thinking);
+    state.voiceResponsesEnabled = Boolean(state.settings.general_voice_responses);
+    state.showViz = Boolean(state.settings.general_show_viz);
     if (state.settings.general_theme && state.settings.general_theme !== state.theme) {
       state.theme = state.settings.general_theme;
       localStorage.setItem('na_theme', state.theme);
@@ -438,6 +450,147 @@ function setUiError(message) {
   render();
 }
 
+function setVizVisible(next, shouldRender = true) {
+  state.showViz = Boolean(next);
+  if (state.settings) state.settings.general_show_viz = state.showViz;
+  schedulePreferenceSave();
+  if (shouldRender) render();
+}
+
+function setVoiceResponsesEnabled(next, shouldRender = true) {
+  state.voiceResponsesEnabled = Boolean(next);
+  if (state.settings) state.settings.general_voice_responses = state.voiceResponsesEnabled;
+  schedulePreferenceSave();
+  if (shouldRender) render();
+}
+
+function setShowSystemMessages(next, shouldRender = true) {
+  state.showSystemMessages = Boolean(next);
+  if (state.settings) state.settings.general_show_system_messages = state.showSystemMessages;
+  schedulePreferenceSave();
+  if (shouldRender) render();
+}
+
+function setShowThinkingByDefault(next, shouldRender = true) {
+  state.showThinkingByDefault = Boolean(next);
+  if (state.settings) state.settings.general_show_thinking = state.showThinkingByDefault;
+  schedulePreferenceSave();
+  if (shouldRender) render();
+}
+
+function schedulePreferenceSave() {
+  if (!state.settings || state.settingsSaving) return;
+  if (state.preferencesSaveTimer) clearTimeout(state.preferencesSaveTimer);
+  state.preferencesSaveTimer = setTimeout(async () => {
+    state.preferencesSaveTimer = 0;
+    try {
+      await api('/api/settings', { method: 'POST', body: JSON.stringify(settingsPayload(state.settings)) });
+      state.settingsSavedAt = Date.now();
+      if (state.settingsToastTimer) clearTimeout(state.settingsToastTimer);
+      state.settingsToastTimer = setTimeout(() => { state.settingsSavedAt = 0; state.settingsToastTimer = 0; render(); }, 2200);
+    } catch (e) {
+      state.settingsError = e.message || 'Unable to save preferences.';
+    }
+    render();
+  }, 350);
+}
+
+function openModal(config) {
+  state.modalFocusReturn = document.activeElement;
+  state.modal = { ...config };
+  render();
+}
+
+function closeModal() {
+  state.modal = null;
+  const returnTo = state.modalFocusReturn;
+  state.modalFocusReturn = null;
+  render();
+  if (returnTo && typeof returnTo.focus === 'function') returnTo.focus();
+}
+
+function runModalAction(action) {
+  if (!action || action.disabled) return;
+  action.onClick?.();
+}
+
+function promptModal({ title, message = '', initialValue = '', placeholder = '', confirmText = 'Save' }) {
+  return new Promise((resolve) => {
+    openModal({
+      title,
+      message,
+      kind: 'prompt',
+      inputValue: initialValue,
+      inputPlaceholder: placeholder,
+      cancelText: 'Cancel',
+      actions: [
+        { label: 'Cancel', className: 'pill-btn', onClick: () => { closeModal(); resolve(''); } },
+        { label: confirmText, className: 'send-btn', onClick: () => { const v = state.modal?.inputValue || ''; closeModal(); resolve(v); } },
+      ],
+    });
+  });
+}
+
+function confirmModal({ title, message, confirmText = 'Delete' }) {
+  return new Promise((resolve) => {
+    openModal({
+      title,
+      message,
+      cancelText: 'Cancel',
+      actions: [
+        { label: 'Cancel', className: 'pill-btn', onClick: () => { closeModal(); resolve(false); } },
+        { label: confirmText, className: 'send-btn', onClick: () => { closeModal(); resolve(true); } },
+      ],
+    });
+  });
+}
+
+async function runOnboardingWizard() {
+  const workspaceName = await promptModal({ title: 'Welcome to Nice Assistant', message: 'Name your first workspace.', initialValue: 'Main Workspace', confirmText: 'Continue' });
+  if (!workspaceName.trim()) return;
+  const personaName = await promptModal({ title: 'Create first persona', message: 'Give your assistant a persona name.', initialValue: 'Assistant', confirmText: 'Continue' });
+  if (!personaName.trim()) return;
+  const systemPrompt = await promptModal({ title: 'Default personality', message: 'Optional system prompt.', initialValue: 'Be helpful and concise.', confirmText: 'Finish' });
+  const ws = await api('/api/workspaces', { method: 'POST', body: JSON.stringify({ name: workspaceName.trim() }) });
+  await api('/api/personas', { method: 'POST', body: JSON.stringify({ workspaceId: ws.id, name: personaName.trim(), systemPrompt: systemPrompt.trim(), defaultModel: state.models[0] || '' }) });
+  state.settings = state.settings || normalizeSettings();
+  state.settings.onboarding_done = 1;
+  await api('/api/settings', { method: 'POST', body: JSON.stringify(settingsPayload(state.settings)) });
+  await refresh();
+}
+
+function activeOverlayVisible() {
+  return Boolean(state.modal || state.showNewChatPersonaModal || state.personaAvatarPreview || state.chatImagePreview || state.showSettings);
+}
+
+function handleGlobalEscape(e) {
+  if (e.key !== 'Escape') return;
+  if (state.modal) { closeModal(); return; }
+  if (state.showNewChatPersonaModal) { state.showNewChatPersonaModal = false; render(); return; }
+  if (state.chatImagePreview) { state.chatImagePreview = ''; render(); return; }
+  if (state.personaAvatarPreview) { state.personaAvatarPreview = ''; render(); return; }
+  if (state.showSettings) { state.showSettings = false; render(); }
+}
+
+document.addEventListener('keydown', handleGlobalEscape);
+
+document.addEventListener('keydown', (e) => {
+  if (e.key !== 'Tab' || !state.modal) return;
+  const modal = app.querySelector('.modal-card');
+  if (!modal) return;
+  const focusable = [...modal.querySelectorAll('button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])')].filter((n) => !n.disabled);
+  if (!focusable.length) return;
+  const first = focusable[0];
+  const last = focusable[focusable.length - 1];
+  if (e.shiftKey && document.activeElement === first) {
+    e.preventDefault();
+    last.focus();
+  } else if (!e.shiftKey && document.activeElement === last) {
+    e.preventDefault();
+    first.focus();
+  }
+});
+
 function syntheticSystemMessage(personaId) {
   const persona = state.personas.find((p) => p.id === personaId);
   if (!persona?.system_prompt) return [];
@@ -478,7 +631,7 @@ async function hideChat(chatId) {
 }
 
 async function renameChat(chat) {
-  const nextTitle = prompt('Rename chat', chat.title || 'New chat');
+  const nextTitle = await promptModal({ title: 'Rename chat', initialValue: chat.title || 'New chat', confirmText: 'Rename' });
   if (!nextTitle?.trim()) return;
   await api(`/api/chats/${chat.id}`, { method: 'PUT', body: JSON.stringify({ title: nextTitle.trim() }) });
   await refresh();
@@ -545,7 +698,14 @@ async function copyTextToClipboard(value) {
   ta.remove();
 }
 
+function autoResizeComposer(target) {
+  if (!target) return;
+  target.style.height = 'auto';
+  target.style.height = `${Math.min(target.scrollHeight, 180)}px`;
+}
+
 async function sendChat(text) {
+  if (state.isSending) return;
   if (!text?.trim()) return;
   if (!state.currentChat?.id) {
     state.showNewChatPersonaModal = true;
@@ -557,6 +717,7 @@ async function sendChat(text) {
   const trimmed = text.trim();
   state.draftMessage = '';
   state.status = 'Thinking';
+  state.isSending = true;
   const pendingMessage = { id: `__pending__${Date.now()}`, role: 'user', text: trimmed };
   state.messages = [...state.messages, pendingMessage];
   state.stickMessagesToBottom = true;
@@ -585,6 +746,7 @@ async function sendChat(text) {
       const spokenText = speechTextFromReply(r.text || '');
       if (spokenText) {
         state.status = 'Speaking';
+        state.isSynthesizing = true;
         render();
         ensureAudioGraph();
         const t = await api('/api/tts', { method: 'POST', body: JSON.stringify({ text: spokenText, chatId: r.chatId, personaId, format: state.settings.tts_format || 'wav' }) });
@@ -606,12 +768,16 @@ async function sendChat(text) {
     state.messages = state.messages.filter((m) => m.id !== pendingMessage.id);
     state.status = 'Idle';
     setUiError(e.message || 'Failed to send message.');
+  } finally {
+    state.isSending = false;
+    state.isSynthesizing = false;
+    render();
   }
 }
-audio.addEventListener('ended', () => { state.status = 'Idle'; state.currentAudioMessageId = ''; render(); });
+audio.addEventListener('ended', () => { state.status = 'Idle'; state.currentAudioMessageId = ''; state.isSynthesizing = false; render(); });
 
 async function startRec() {
-  if (state.recording) return;
+  if (state.recording || state.isSending || state.isSynthesizing) return;
   ensureAudioGraph();
   await ctx.resume();
   if (!navigator.mediaDevices?.getUserMedia) {
@@ -673,6 +839,7 @@ async function stopRec() {
   clearInterval(state.recTimer);
   state.recording = false;
   state.status = 'Thinking';
+  state.isTranscribing = true;
   render();
 
   try {
@@ -704,6 +871,7 @@ async function stopRec() {
     logAndShowUiError(e.message || 'Failed to transcribe audio.', { phase: 'stt', error: e?.message || String(e) });
     clientLog('stt.error', 'stt request failed', { error: e?.message || String(e) });
   } finally {
+    state.isTranscribing = false;
     state.recStream?.getTracks().forEach((track) => track.stop());
     state.recStream = null;
     recorder = null;
@@ -717,18 +885,21 @@ function authView() {
   return el('div', { class: 'main-pane glass' }, [
     el('h2', { textContent: 'Nice Assistant Login' }),
     state.authError ? el('div', { class: 'error-banner', textContent: state.authError }) : null,
+    state.settingsSavedAt ? el('div', { class: 'success-banner', textContent: 'Account created. Please sign in.' }) : null,
     el('input', { id: 'u', class: 'search-input', placeholder: 'username' }),
     el('input', { id: 'p', class: 'search-input', placeholder: 'password', type: 'password' }),
     el('div', { class: 'chips' }, [
       el('button', {
-        class: 'pill-btn', textContent: 'Create account', onclick: async () => {
+        class: 'pill-btn', textContent: 'Create account', ariaLabel: 'Create account', onclick: async () => {
           const username = (document.getElementById('u')?.value || '').trim();
           const password = document.getElementById('p')?.value || '';
           state.authError = '';
           render();
           try {
             await api('/api/users', { method: 'POST', body: JSON.stringify({ username, password }) });
-            alert('Account created');
+            state.settingsSavedAt = Date.now();
+            if (state.settingsToastTimer) clearTimeout(state.settingsToastTimer);
+            state.settingsToastTimer = setTimeout(() => { state.settingsSavedAt = 0; state.settingsToastTimer = 0; render(); }, 2400);
           } catch (e) {
             state.authError = e.message || 'Unable to create account.';
             render();
@@ -736,7 +907,7 @@ function authView() {
         },
       }),
       el('button', {
-        class: 'send-btn', textContent: 'Login', onclick: async () => {
+        class: 'send-btn', textContent: 'Login', ariaLabel: 'Login', onclick: async () => {
           const username = (document.getElementById('u')?.value || '').trim();
           const password = document.getElementById('p')?.value || '';
           state.authError = '';
@@ -758,13 +929,7 @@ async function ensureWizard() {
   if (!state.user) return;
   if (state.workspaces.length) return;
   if (state.settings?.onboarding_done) return;
-  const wsName = prompt('Welcome! Name your first Workspace', 'Main Workspace'); if (!wsName) return;
-  const ws = await api('/api/workspaces', { method: 'POST', body: JSON.stringify({ name: wsName }) });
-  const pName = prompt('Create your first Persona', 'Assistant');
-  const sys = prompt('Optional personality/system prompt', 'Be helpful and concise.');
-  await api('/api/personas', { method: 'POST', body: JSON.stringify({ workspaceId: ws.id, name: pName, systemPrompt: sys, defaultModel: state.models[0] || '' }) });
-  await api('/api/settings', { method: 'POST', body: JSON.stringify({ global_default_model: state.models[0] || '', default_memory_mode: 'auto', stt_provider: 'disabled', tts_provider: 'disabled', tts_format: 'wav', onboarding_done: 1 }) });
-  await refresh();
+  await runOnboardingWizard();
 }
 
 function statusClass() {
@@ -1092,7 +1257,8 @@ function personaEditorCard(persona) {
         } catch (e) { state.settingsError = e.message; render(); }
       } }),
       el('button', { class: 'icon-btn', textContent: 'Delete', onclick: async () => {
-        if (!confirm(`Delete persona "${persona.name}"?`)) return;
+        const ok = await confirmModal({ title: 'Delete persona', message: `Delete persona "${persona.name}"?`, confirmText: 'Delete persona' });
+        if (!ok) return;
         try { await api(`/api/personas/${persona.id}`, { method: 'DELETE' }); await refresh(); state.settingsSection = 'Personas'; state.showSettings = true; }
         catch (e) { state.settingsError = e.message; render(); }
       } }),
@@ -1169,13 +1335,14 @@ function settingsPanel() {
         el('button', { class: 'pill-btn', textContent: `${open ? '▾' : '▸'} ${w.name}`, onclick: () => { state.workspaceSectionExpanded[w.id] = !open; render(); } }),
         el('div', { class: 'chips' }, [
           el('button', { class: 'icon-btn', textContent: 'Rename', onclick: async () => {
-            const name = prompt('Rename workspace', w.name);
+            const name = await promptModal({ title: 'Rename workspace', initialValue: w.name, confirmText: 'Rename' });
             if (!name?.trim()) return;
             try { await api(`/api/workspaces/${w.id}`, { method: 'PUT', body: JSON.stringify({ name: name.trim() }) }); await refresh(); }
             catch (e) { state.settingsError = e.message; render(); }
           } }),
           el('button', { class: 'icon-btn', textContent: 'Delete', onclick: async () => {
-            if (!confirm(`Delete workspace "${w.name}"?`)) return;
+            const ok = await confirmModal({ title: 'Delete workspace', message: `Delete workspace "${w.name}"?`, confirmText: 'Delete workspace' });
+            if (!ok) return;
             try { await api(`/api/workspaces/${w.id}`, { method: 'DELETE' }); await refresh(); }
             catch (e) { state.settingsError = e.message; render(); }
           } }),
@@ -1223,14 +1390,14 @@ function settingsPanel() {
       el('label', { class: 'checkbox-row' }, [
         el('input', { type: 'checkbox', checked: Boolean(state.settings.general_show_system_messages), onchange: (e) => {
           setVal('general_show_system_messages', e.target.checked);
-          state.showSystemMessages = e.target.checked;
+          setShowSystemMessages(e.target.checked, false);
         } }),
         'Show system/tool messages by default',
       ]),
       el('label', { class: 'checkbox-row' }, [
         el('input', { type: 'checkbox', checked: Boolean(state.settings.general_show_thinking), onchange: (e) => {
           setVal('general_show_thinking', e.target.checked);
-          state.showThinkingByDefault = e.target.checked;
+          setShowThinkingByDefault(e.target.checked, false);
         } }),
         'Show model thinking by default in all chats',
       ]),
@@ -1288,7 +1455,7 @@ function settingsPanel() {
         ]),
         el('div', { class: 'meta', textContent: 'Memories are grouped by status and tier.' }),
         el('button', { class: 'pill-btn', textContent: '+ Add global memory', onclick: async () => {
-          const contentText = prompt('Memory text');
+          const contentText = await promptModal({ title: 'Add global memory', initialValue: '', placeholder: 'Memory text', confirmText: 'Add memory' });
           if (!contentText?.trim()) return;
           try {
             await api('/api/memory/global', { method: 'POST', body: JSON.stringify({ content: contentText.trim() }) });
@@ -1337,7 +1504,7 @@ function settingsPanel() {
       el('div', { class: 'meta', textContent: 'Edit each persona including avatar, detailed personality profile, and trait sliders.' }),
       ...personaRows,
       el('button', { class: 'pill-btn', textContent: '+ Add persona', onclick: async () => {
-        const name = prompt('Persona name', 'Assistant');
+        const name = await promptModal({ title: 'Persona name', initialValue: 'Assistant', confirmText: 'Add persona' });
         if (!name?.trim()) return;
         const workspaceId = state.workspaces[0]?.id;
         if (!workspaceId) { state.settingsError = 'Create a workspace first.'; render(); return; }
@@ -1365,7 +1532,7 @@ function settingsPanel() {
         [el('option', { value: '', textContent: 'Auto (first workspace)' }), ...state.workspaces.map((w) => el('option', { value: w.id, textContent: w.name, selected: w.id === state.settings.workspaces_default_workspace_id }))]),
       ...workspaceRows,
       el('button', { class: 'pill-btn', textContent: '+ Add workspace', onclick: async () => {
-        const name = prompt('Workspace name', 'New workspace');
+        const name = await promptModal({ title: 'Workspace name', initialValue: 'New workspace', confirmText: 'Add workspace' });
         if (!name?.trim()) return;
         try { await api('/api/workspaces', { method: 'POST', body: JSON.stringify({ name: name.trim() }) }); await refresh(); }
         catch (e) { state.settingsError = e.message; render(); }
@@ -1398,7 +1565,7 @@ function settingsPanel() {
     el('div', { class: 'settings-header' }, [
       el('h2', { textContent: 'Settings' }),
       el('div', { class: 'chips' }, [
-        el('button', { class: 'icon-btn', textContent: '✕ Close', onclick: () => { state.showSettings = false; render(); } }),
+        el('button', { class: 'icon-btn', textContent: '✕ Close', ariaLabel: 'Close settings', onclick: () => { state.showSettings = false; render(); } }),
         el('button', { class: 'send-btn', textContent: state.settingsSaving ? 'Saving…' : 'Save all', disabled: state.settingsSaving, onclick: persistSettings }),
       ]),
     ]),
@@ -1453,8 +1620,7 @@ function messageItem(m, personaId) {
           title: showThinking ? 'Hide thinking' : 'Show thinking',
           onclick: () => {
             if (state.showThinkingByDefault) {
-              state.showThinkingByDefault = false;
-              state.settings.general_show_thinking = false;
+              setShowThinkingByDefault(false, false);
             } else {
               state.thinkingExpanded[messageId] = !showThinking;
             }
@@ -1516,15 +1682,15 @@ function render() {
       el('div', { class: 'title', textContent: c.title || 'Untitled chat' }),
       el('div', { class: 'meta', textContent: fmtDate(c.updated_at || c.created_at) }),
       el('div', { class: 'chat-actions' }, [
-        el('button', { class: 'icon-btn', textContent: '✎', title: 'Rename chat', onclick: async (e) => { e.stopPropagation(); await renameChat(c); } }),
-        el('button', { class: 'icon-btn', textContent: '🗑', title: 'Hide chat', onclick: async (e) => { e.stopPropagation(); await hideChat(c.id); } }),
+        el('button', { class: 'icon-btn', textContent: '✎', title: 'Rename chat', ariaLabel: 'Rename chat', onclick: async (e) => { e.stopPropagation(); await renameChat(c); } }),
+        el('button', { class: 'icon-btn', textContent: '🗑', title: 'Hide chat', ariaLabel: 'Hide chat', onclick: async (e) => { e.stopPropagation(); await hideChat(c.id); } }),
       ]),
     ]));
 
-  const drawer = el('aside', { class: `drawer glass ${state.drawerOpen ? 'open' : ''}` }, [
+  const drawer = el('aside', { class: `drawer glass ${state.drawerOpen ? 'open' : ''}`, ariaLabel: 'Chat list' }, [
     el('div', { class: 'drawer-head' }, [
       el('strong', { textContent: 'Chats' }),
-      el('button', { class: 'icon-btn', textContent: '✕', title: 'Hide panel', onclick: () => { state.drawerOpen = false; render(); } }),
+      el('button', { class: 'icon-btn', textContent: '✕', title: 'Hide panel', ariaLabel: 'Hide chat list', onclick: () => { state.drawerOpen = false; render(); } }),
     ]),
     el('button', { class: 'send-btn', textContent: '+ New Chat', onclick: async () => {
       state.showNewChatPersonaModal = true;
@@ -1539,24 +1705,29 @@ function render() {
   const personaId = state.currentChat?.persona_id;
   const messagesForRender = [...(state.showSystemMessages ? syntheticSystemMessage(selectedPersonaId) : []), ...state.messages];
 
+  const composerBusy = state.isSending || state.isTranscribing || state.isSynthesizing;
   const composer = el('div', { class: 'composer' }, [
-    el('input', {
+    el('textarea', {
       id: 'chatInput',
+      rows: 1,
       class: 'composer-input',
       value: state.draftMessage,
       placeholder: 'Ask anything… (Shift+Enter for new line)',
-      oninput: (e) => { state.draftMessage = e.target.value; },
+      disabled: composerBusy,
+      oninput: (e) => { state.draftMessage = e.target.value; autoResizeComposer(e.target); },
       onkeydown: (e) => {
         if (e.key === 'Enter' && !e.shiftKey) {
           e.preventDefault();
           sendChat(e.currentTarget.value);
         }
       },
+      onfocus: (e) => autoResizeComposer(e.target),
     }),
-    el('button', { class: 'send-btn', textContent: 'Send', onclick: () => sendChat(state.draftMessage) }),
+    el('button', { class: 'send-btn', textContent: state.isSending ? 'Sending…' : 'Send', disabled: composerBusy, onclick: () => sendChat(state.draftMessage) }),
     el('button', {
       class: `talk-btn ${state.recording ? 'active' : ''}`,
-      textContent: state.recording ? `Recording ${Math.floor((Date.now() - state.recStart) / 1000)}s` : 'Hold to Talk',
+      textContent: state.recording ? `Recording ${Math.floor((Date.now() - state.recStart) / 1000)}s` : (state.isTranscribing ? 'Transcribing…' : 'Hold to Talk'),
+      disabled: composerBusy && !state.recording,
       onpointerdown: startRec,
       onpointerup: stopRec,
       onpointercancel: stopRec,
@@ -1566,30 +1737,30 @@ function render() {
   ]);
 
   const topbar = el('div', { class: 'topbar' }, [
-    el('button', { class: 'icon-btn', textContent: '☰', onclick: () => { state.drawerOpen = !state.drawerOpen; render(); } }),
+    el('button', { class: 'icon-btn', textContent: '☰', ariaLabel: 'Toggle chat list', onclick: () => { state.drawerOpen = !state.drawerOpen; render(); } }),
     el('div', { class: 'header-meta' }, [
       el('img', { class: 'topbar-avatar', src: personaAvatar, alt: `${personaName} avatar`, onclick: () => { state.personaAvatarPreview = personaAvatar; render(); } }),
       el('div', { class: 'header-title', textContent: currentChatTitle }),
       el('div', { class: 'chips' }, [el('button', { class: 'chip', textContent: personaName }), el('button', { class: 'chip', textContent: activeWorkspace }), el('button', { class: 'chip', textContent: modelNickname(state.currentChat?.model_override || state.settings?.global_default_model || 'model') })]),
     ]),
     el('div', { class: `status-pill ${statusClass()}`, textContent: state.status }),
-    el('button', { class: 'icon-btn', title: 'Logout', textContent: '⇥', onclick: async () => { await api('/api/logout', { method: 'POST' }); await refresh(); } }),
-    el('button', { class: 'icon-btn', textContent: state.showViz ? '◎' : '◉', title: 'Visualizer', onclick: () => { state.showViz = !state.showViz; render(); } }),
-    el('button', { class: 'icon-btn', textContent: '⚙', title: 'Settings', onclick: () => { state.showSettings = true; render(); } }),
+    el('button', { class: 'icon-btn', title: 'Logout', ariaLabel: 'Logout', textContent: '⇥', onclick: async () => { await api('/api/logout', { method: 'POST' }); await refresh(); } }),
+    el('button', { class: 'icon-btn', textContent: state.showViz ? '◎' : '◉', title: 'Visualizer', ariaLabel: 'Toggle visualizer', onclick: () => setVizVisible(!state.showViz) }),
+    el('button', { class: 'icon-btn', textContent: '⚙', title: 'Settings', ariaLabel: 'Open settings', onclick: () => { state.showSettings = true; render(); } }),
   ]);
 
   const main = el('main', { class: 'main-pane glass' }, [
     topbar,
     el('div', { class: 'chips selector-row' }, [
       el('select', {
-        id: 'modelSel', class: 'chip-select compact-select', value: selectedModel, onchange: (e) => { state.selectedModel = e.target.value; },
+        id: 'modelSel', class: 'chip-select compact-select', value: selectedModel, disabled: state.isSending, onchange: (e) => { state.selectedModel = e.target.value; },
       }, state.models.map((m) => el('option', { value: m, textContent: modelNickname(m), selected: m === selectedModel }))),
       el('select', {
-        id: 'memSel', class: 'chip-select compact-select', value: selectedMemoryMode, onchange: (e) => { state.selectedMemoryMode = e.target.value; },
+        id: 'memSel', class: 'chip-select compact-select', value: selectedMemoryMode, disabled: state.isSending, onchange: (e) => { state.selectedMemoryMode = e.target.value; },
       }, ['off', 'manual', 'auto'].map((m) => el('option', { value: m, textContent: `Memory: ${m}`, selected: m === selectedMemoryMode }))),
-      el('button', { class: 'pill-btn', textContent: state.showSystemMessages ? 'Hide system/tool' : 'Show system/tool', onclick: () => { state.showSystemMessages = !state.showSystemMessages; render(); } }),
-      el('button', { class: 'pill-btn', textContent: state.showThinkingByDefault ? 'Hide thinking' : 'Show thinking', onclick: () => { state.showThinkingByDefault = !state.showThinkingByDefault; state.settings.general_show_thinking = state.showThinkingByDefault; render(); } }),
-      el('button', { class: 'pill-btn', textContent: state.voiceResponsesEnabled ? 'Voice replies: On' : 'Voice replies: Off', onclick: () => { state.voiceResponsesEnabled = !state.voiceResponsesEnabled; render(); } }),
+      el('button', { class: 'pill-btn', textContent: state.showSystemMessages ? 'Hide system/tool' : 'Show system/tool', onclick: () => setShowSystemMessages(!state.showSystemMessages) }),
+      el('button', { class: 'pill-btn', textContent: state.showThinkingByDefault ? 'Hide thinking' : 'Show thinking', onclick: () => setShowThinkingByDefault(!state.showThinkingByDefault) }),
+      el('button', { class: 'pill-btn', textContent: state.voiceResponsesEnabled ? 'Voice replies: On' : 'Voice replies: Off', onclick: () => setVoiceResponsesEnabled(!state.voiceResponsesEnabled) }),
       state.currentAudioMessageId ? el('button', { class: 'pill-btn', textContent: 'Stop audio', onclick: () => { audio.pause(); audio.currentTime = 0; state.currentAudioMessageId = ''; state.status = 'Idle'; render(); } }) : null,
     ]),
     el('section', { id: 'messagesPane', class: 'message-pane glass', onscroll: onMessageScroll },
@@ -1628,7 +1799,7 @@ function render() {
     onclick: (e) => { if (e.target === e.currentTarget) { state.chatImagePreview = ''; render(); } },
   }, [
     el('div', { class: 'avatar-preview-frame' }, [
-      el('button', { class: 'icon-btn avatar-preview-close', textContent: '✕', onclick: () => { state.chatImagePreview = ''; render(); } }),
+      el('button', { class: 'icon-btn avatar-preview-close', textContent: '✕', ariaLabel: 'Close image preview', onclick: () => { state.chatImagePreview = ''; render(); } }),
       el('img', { class: 'avatar-preview-full', src: state.chatImagePreview, alt: 'Generated image preview' }),
     ]),
   ]) : null;
@@ -1637,16 +1808,47 @@ function render() {
     onclick: (e) => { if (e.target === e.currentTarget) { state.personaAvatarPreview = ''; render(); } },
   }, [
     el('div', { class: 'avatar-preview-frame' }, [
-      el('button', { class: 'icon-btn avatar-preview-close', textContent: '✕', onclick: () => { state.personaAvatarPreview = ''; render(); } }),
+      el('button', { class: 'icon-btn avatar-preview-close', textContent: '✕', ariaLabel: 'Close avatar preview', onclick: () => { state.personaAvatarPreview = ''; render(); } }),
       el('img', { class: 'avatar-preview-full', src: state.personaAvatarPreview, alt: 'Persona avatar preview' }),
     ]),
   ]) : null;
-  const shellChildren = state.showSettings ? [settingsPanel(), avatarPreviewModal, chatImagePreviewModal] : [scrim, drawer, main, jumpBtn, viz, newChatPersonaModal, avatarPreviewModal, chatImagePreviewModal];
+  const genericModal = state.modal ? el('div', {
+    class: 'modal-backdrop',
+    onclick: (e) => { if (e.target === e.currentTarget) closeModal(); },
+  }, [
+    el('div', { class: 'modal-card glass', role: 'dialog', ariaModal: true }, [
+      el('h3', { textContent: state.modal.title || 'Confirm action' }),
+      state.modal.message ? el('p', { class: 'meta', textContent: state.modal.message }) : null,
+      state.modal.kind === 'prompt' ? el('textarea', {
+        id: 'modalPromptInput',
+        class: 'search-input',
+        rows: 3,
+        value: state.modal.inputValue || '',
+        placeholder: state.modal.inputPlaceholder || '',
+        oninput: (e) => { state.modal.inputValue = e.target.value; },
+      }) : null,
+      el('div', { class: 'modal-actions' }, (state.modal.actions || []).map((action) => el('button', {
+        class: action.className || 'pill-btn',
+        textContent: action.label,
+        disabled: action.disabled,
+        onclick: () => runModalAction(action),
+      }))),
+    ]),
+  ]) : null;
+  const shellChildren = state.showSettings ? [settingsPanel(), avatarPreviewModal, chatImagePreviewModal, genericModal] : [scrim, drawer, main, jumpBtn, viz, newChatPersonaModal, avatarPreviewModal, chatImagePreviewModal, genericModal];
   app.append(el('div', { class: 'app-shell' }, shellChildren));
   requestAnimationFrame(() => {
     restoreMessagePaneScroll();
     const pane = document.getElementById('messagesPane');
     if (pane) onMessageScroll({ currentTarget: pane });
+    const composerInput = document.getElementById('chatInput');
+    if (composerInput) autoResizeComposer(composerInput);
+    if (state.modal) {
+      const modalInput = document.getElementById('modalPromptInput');
+      const modalRoot = app.querySelector('.modal-card');
+      if (modalInput) modalInput.focus();
+      else if (modalRoot) modalRoot.querySelector('button, textarea, input')?.focus();
+    }
   });
 }
 
