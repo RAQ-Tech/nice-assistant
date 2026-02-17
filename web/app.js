@@ -671,6 +671,88 @@ function speechTextFromReply(text = '') {
   return withoutUrls.trim();
 }
 
+function normalizePromptSourceText(text = '') {
+  const visible = splitThinking(text).visibleText || text || '';
+  return visible
+    .replace(/!\[[^\]]*\]\(([^)]+)\)/g, '')
+    .replace(/https?:\/\/\S+/g, '')
+    .replace(/[`*_>#-]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function compactPromptSnippet(text = '', maxLen = 220) {
+  if (!text) return '';
+  if (text.length <= maxLen) return text;
+  return `${text.slice(0, Math.max(0, maxLen - 1)).trim()}…`;
+}
+
+function inferVisualStyleHint(sourceText = '') {
+  const lowered = sourceText.toLowerCase();
+  if (/(logo|brand|wordmark|icon)/.test(lowered)) return 'clean vector logo style';
+  if (/(anime|manga|cel shade|studio ghibli)/.test(lowered)) return 'anime illustration style';
+  if (/(photo|photoreal|realistic|camera|dslr|portrait)/.test(lowered)) return 'cinematic photorealistic style';
+  if (/(pixel|8-bit|retro game)/.test(lowered)) return 'retro pixel art style';
+  if (/(watercolor|oil painting|painting|sketch)/.test(lowered)) return 'hand-painted illustration style';
+  if (/(futuristic|cyberpunk|sci-fi|neon)/.test(lowered)) return 'cinematic sci-fi concept art style';
+  return 'high-detail digital illustration style';
+}
+
+function contextualImagePromptFromMessage(message) {
+  const assistantText = compactPromptSnippet(normalizePromptSourceText(message?.text || ''), 260);
+  if (!assistantText) return 'A polished, coherent scene inspired by the current conversation.';
+
+  const messageIdx = state.messages.findIndex((m) => m.id && message?.id && m.id === message.id);
+  const boundedIdx = messageIdx >= 0 ? messageIdx : state.messages.length - 1;
+  const recent = state.messages
+    .slice(Math.max(0, boundedIdx - 6), boundedIdx + 1)
+    .filter((m) => m.role === 'user' || m.role === 'assistant');
+  const recentContext = recent
+    .map((m) => `${m.role === 'user' ? 'User' : 'Assistant'}: ${compactPromptSnippet(normalizePromptSourceText(m.text || ''), 160)}`)
+    .filter((line) => line.split(':')[1]?.trim())
+    .join(' | ');
+  const latestUser = [...recent].reverse().find((m) => m.role === 'user');
+  const userIntent = compactPromptSnippet(normalizePromptSourceText(latestUser?.text || ''), 180);
+  const styleHint = inferVisualStyleHint(`${assistantText} ${recentContext}`);
+
+  return [
+    `${styleHint}, single cohesive composition, no text overlay, safe for work.`,
+    `Primary scene: ${assistantText}`,
+    userIntent ? `Conversation intent to preserve: ${userIntent}` : '',
+    recentContext ? `Context clues: ${recentContext}` : '',
+  ].filter(Boolean).join('\n');
+}
+
+async function generateImageFromAssistantMessage(message) {
+  if (!state.currentChat?.id) return;
+  if (!message || message.role !== 'assistant') return;
+  const initialPrompt = contextualImagePromptFromMessage(message);
+  const prompt = await promptModal({
+    title: 'Generate image from this reply',
+    message: 'We drafted a fresh image prompt from this message and recent context. Edit as needed before generating.',
+    initialValue: initialPrompt,
+    confirmText: 'Generate image',
+  });
+  if (!prompt?.trim()) return;
+  try {
+    setUiError('');
+    state.status = 'Thinking';
+    render();
+    await api('/api/images/generate', { method: 'POST', body: JSON.stringify({ prompt: prompt.trim(), chatId: state.currentChat.id }) });
+    const withImage = await api(`/api/chats/${state.currentChat.id}`);
+    state.messages = withImage.messages;
+    state.status = 'Idle';
+    state.stickMessagesToBottom = true;
+    state.showJumpBottom = false;
+    render();
+    scrollMessagesToBottom();
+  } catch (e) {
+    state.status = 'Idle';
+    setUiError(e?.message || 'Image generation failed.');
+    render();
+  }
+}
+
 function downloadImage(url, suggestedName = 'generated-image.png') {
   const link = document.createElement('a');
   link.href = url;
@@ -1626,6 +1708,12 @@ function messageItem(m, personaId) {
       ]) : null,
       messageBody,
       el('div', { class: 'msg-actions' }, [
+        m.role === 'assistant' ? el('button', {
+          class: 'icon-btn',
+          textContent: '🖼',
+          title: 'Generate an image from this reply',
+          onclick: async () => { await generateImageFromAssistantMessage(m); },
+        }) : null,
         hasThinking ? el('button', {
           class: 'icon-btn',
           textContent: showThinking ? '🙈' : '💭',
