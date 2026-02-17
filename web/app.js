@@ -31,6 +31,7 @@ const state = {
   settingsError: '',
   settingsSaving: false,
   settingsSavedAt: 0,
+  settingsToastTimer: 0,
   settingsSection: 'General',
   selectedPersonaId: null,
   selectedModel: null,
@@ -45,9 +46,11 @@ const state = {
   newChatPersonaId: null,
   personaSettingsExpanded: {},
   personaAvatarPreview: '',
+  chatImagePreview: '',
   voiceResponsesEnabled: true,
   messageAudioById: {},
   currentAudioMessageId: '',
+  workspaceSectionExpanded: {},
   memorySectionExpanded: {
     active: false,
     pending: false,
@@ -74,6 +77,8 @@ const SETTINGS_DEFAULTS = {
   general_show_thinking: false,
   general_auto_logout: true,
   tts_voice: 'alloy',
+  tts_model: 'gpt-4o-mini-tts',
+  tts_speed: '1',
   stt_language: 'auto',
   image_provider: 'disabled',
   image_size: '1024x1024',
@@ -97,6 +102,11 @@ const IMAGE_QUALITY_ALIASES = {
 };
 
 const IMAGE_QUALITY_VALUES = ['low', 'medium', 'high', 'auto'];
+const SUPPORTED_IMAGE_SIZES = ['1024x1024', '1024x1536', '1536x1024', 'auto'];
+
+function normalizeImageSize(value) {
+  return SUPPORTED_IMAGE_SIZES.includes(value) ? value : SETTINGS_DEFAULTS.image_size;
+}
 
 function normalizeImageQuality(value) {
   const normalized = IMAGE_QUALITY_ALIASES[value] || value;
@@ -105,7 +115,7 @@ function normalizeImageQuality(value) {
 
 const SETTINGS_SECTION_KEYS = {
   General: ['general_theme', 'general_show_system_messages', 'general_show_thinking', 'general_auto_logout', 'global_default_model'],
-  TTS: ['tts_provider', 'tts_format', 'tts_voice'],
+  TTS: ['tts_provider', 'tts_format', 'tts_voice', 'tts_model', 'tts_speed'],
   STT: ['stt_provider', 'stt_language'],
   'Image Generation': ['image_provider', 'image_size', 'image_quality'],
   Memory: ['default_memory_mode', 'memory_auto_save_user_facts'],
@@ -125,6 +135,7 @@ function normalizeSettings(raw = {}) {
     normalized.model_overrides = {};
   }
   normalized.image_quality = normalizeImageQuality(normalized.image_quality);
+  normalized.image_size = normalizeImageSize(normalized.image_size);
   return normalized;
 }
 
@@ -144,9 +155,11 @@ function settingsPayload(nextSettings) {
     general_show_thinking: Boolean(nextSettings.general_show_thinking),
     general_auto_logout: Boolean(nextSettings.general_auto_logout),
     tts_voice: nextSettings.tts_voice,
+    tts_model: nextSettings.tts_model,
+    tts_speed: nextSettings.tts_speed,
     stt_language: nextSettings.stt_language,
     image_provider: nextSettings.image_provider,
-    image_size: nextSettings.image_size,
+    image_size: normalizeImageSize(nextSettings.image_size),
     image_quality: normalizeImageQuality(nextSettings.image_quality),
     memory_auto_save_user_facts: Boolean(nextSettings.memory_auto_save_user_facts),
     user_display_name: nextSettings.user_display_name,
@@ -217,6 +230,20 @@ function md(text = '') {
   tmp = tmp.split(/\n{2,}/).map((p) => (p.startsWith('<') ? p : `<p>${p.replace(/\n/g, '<br/>')}</p>`)).join('');
   blocks.forEach((b, i) => { tmp = tmp.replace(`__CODE_${i}__`, b); });
   return tmp;
+}
+
+
+function bindMessageImagePreview(node) {
+  if (!node) return;
+  node.querySelectorAll('.msg-inline-image').forEach((img) => {
+    if (img.dataset.boundPreview === '1') return;
+    img.dataset.boundPreview = '1';
+    img.style.cursor = 'zoom-in';
+    img.addEventListener('click', () => {
+      state.chatImagePreview = img.src;
+      render();
+    });
+  });
 }
 
 function ensureAudioGraph() {
@@ -389,10 +416,8 @@ async function openChat(chat) {
   state.showJumpBottom = false;
   render();
   scrollMessagesToBottom(false);
-  if (window.innerWidth < 900) {
-    state.drawerOpen = false;
-    render();
-  }
+  state.drawerOpen = false;
+  render();
 }
 
 async function hideChat(chatId) {
@@ -439,7 +464,7 @@ function extractImageUrl(text = '') {
 function speechTextFromReply(text = '') {
   const visible = splitThinking(text).visibleText || '';
   if (!visible.trim()) return '';
-  if (/^\s*(Model call failed|Image generation failed|I can generate images, but image generation is currently disabled)/i.test(visible)) return '';
+  if (/^\s*(Model call failed|Image generation failed|I can generate images, but image generation is currently disabled|I couldn't generate that image|That image size is not supported by OpenAI|OpenAI couldn't generate that image)/i.test(visible)) return '';
   const withoutImages = visible.replace(/!\[[^\]]*\]\(([^)]+)\)/g, '');
   const withoutUrls = withoutImages.replace(/https?:\/\/\S+/g, '');
   return withoutUrls.trim();
@@ -804,10 +829,28 @@ function personaEditorCard(persona) {
     el('option', { value: '', textContent: 'Use app default' }),
     ...state.models.map((m) => el('option', { value: m, textContent: m, selected: m === persona.default_model })),
   ]);
+  const ttsModelInput = el('input', {
+    class: 'search-input',
+    value: persona.preferred_tts_model || '',
+    placeholder: 'Persona TTS model (optional)',
+  });
   const ttsVoiceInput = el('input', {
     class: 'search-input',
     value: persona.preferred_voice || '',
     placeholder: 'Persona voice (optional, falls back to Default voice)',
+  });
+  const ttsSpeedInput = el('input', {
+    type: 'number',
+    min: 0.25,
+    max: 4,
+    step: 0.05,
+    class: 'search-input',
+    value: persona.preferred_tts_speed || '1',
+    placeholder: '1.0',
+  });
+  const workspaceOptions = state.workspaces.map((w) => {
+    const input = el('input', { type: 'checkbox', checked: (persona.workspace_ids || [persona.workspace_id]).includes(w.id) });
+    return { id: w.id, input };
   });
   const genderOptions = ['unspecified', 'male', 'female', 'other'];
   const genderInputs = {};
@@ -870,8 +913,14 @@ function personaEditorCard(persona) {
     systemPromptInput,
     el('label', { textContent: 'Preferred chat model' }),
     modelSelect,
-    el('label', { textContent: 'Preferred TTS voice model' }),
+    el('label', { textContent: 'Assigned workspaces' }),
+    el('div', { class: 'persona-gender-grid' }, workspaceOptions.map((opt) => el('label', { class: 'checkbox-row' }, [opt.input, state.workspaces.find((w) => w.id === opt.id)?.name || opt.id]))),
+    el('label', { textContent: 'Preferred TTS model' }),
+    ttsModelInput,
+    el('label', { textContent: 'Preferred TTS voice' }),
     ttsVoiceInput,
+    el('label', { textContent: 'Preferred voice speed' }),
+    ttsSpeedInput,
     el('label', { textContent: 'Gender' }),
     el('div', { class: 'persona-gender-grid' }, genderRows),
     genderOtherInput,
@@ -886,6 +935,8 @@ function personaEditorCard(persona) {
       el('button', { class: 'send-btn', textContent: 'Save persona', onclick: async () => {
         try {
           const selectedGender = genderOptions.find((opt) => genderInputs[opt]?.checked) || 'unspecified';
+          const workspaceIds = workspaceOptions.filter((opt) => opt.input.checked).map((opt) => opt.id);
+          if (!workspaceIds.length) { state.settingsError = 'A persona must belong to at least one workspace.'; render(); return; }
           await api(`/api/personas/${persona.id}`, {
             method: 'PUT',
             body: JSON.stringify({
@@ -895,6 +946,10 @@ function personaEditorCard(persona) {
               avatar_url: avatarInput.value,
               personality_details: personalityInput.value,
               preferred_voice: ttsVoiceInput.value.trim(),
+              preferred_tts_model: ttsModelInput.value.trim(),
+              preferred_tts_speed: ttsSpeedInput.value || '1',
+              workspace_id: workspaceIds[0],
+              workspace_ids: workspaceIds,
               traits: {
                 warmth: Number(warmthControls[1].value),
                 creativity: Number(creativityControls[1].value),
@@ -959,6 +1014,8 @@ function settingsPanel() {
       await api('/api/settings', { method: 'POST', body: JSON.stringify(settingsPayload(state.settings)) });
       state.settingsSaving = false;
       state.settingsSavedAt = Date.now();
+      if (state.settingsToastTimer) clearTimeout(state.settingsToastTimer);
+      state.settingsToastTimer = setTimeout(() => { state.settingsSavedAt = 0; state.settingsToastTimer = 0; render(); }, 3200);
       await refresh();
     } catch (e) {
       state.settingsError = e.message || 'Unable to save settings.';
@@ -980,41 +1037,37 @@ function settingsPanel() {
   };
 
   const workspaceRows = state.workspaces.map((w) => {
-    const currentPersonas = state.personas.filter((p) => p.workspace_id === w.id);
-    const addSelect = el('select', { class: 'chip-select' }, [
-      el('option', { value: '', textContent: 'Add persona to workspace…' }),
-      ...state.personas.filter((p) => p.workspace_id !== w.id).map((p) => el('option', { value: p.id, textContent: p.name })),
-    ]);
-    const addBtn = el('button', { class: 'pill-btn', textContent: 'Add', onclick: async () => {
-      const pid = addSelect.value;
-      if (!pid) return;
-      try { await api(`/api/personas/${pid}`, { method: 'PUT', body: JSON.stringify({ workspace_id: w.id }) }); await refresh(); }
-      catch (e) { state.settingsError = e.message; render(); }
-    } });
+    if (!(w.id in state.workspaceSectionExpanded)) state.workspaceSectionExpanded[w.id] = false;
+    const open = Boolean(state.workspaceSectionExpanded[w.id]);
+    const currentPersonas = state.personas.filter((p) => (p.workspace_ids || [p.workspace_id]).includes(w.id));
     return el('div', { class: 'persona-card' }, [
-      managerRow(w.name, [
-        el('button', { class: 'icon-btn', textContent: 'Rename', onclick: async () => {
-          const name = prompt('Rename workspace', w.name);
-          if (!name?.trim()) return;
-          try { await api(`/api/workspaces/${w.id}`, { method: 'PUT', body: JSON.stringify({ name: name.trim() }) }); await refresh(); }
-          catch (e) { state.settingsError = e.message; render(); }
-        } }),
-        el('button', { class: 'icon-btn', textContent: 'Delete', onclick: async () => {
-          if (!confirm(`Delete workspace "${w.name}"?`)) return;
-          try { await api(`/api/workspaces/${w.id}`, { method: 'DELETE' }); await refresh(); }
-          catch (e) { state.settingsError = e.message; render(); }
-        } }),
+      el('div', { class: 'persona-card-header' }, [
+        el('button', { class: 'pill-btn', textContent: `${open ? '▾' : '▸'} ${w.name}`, onclick: () => { state.workspaceSectionExpanded[w.id] = !open; render(); } }),
+        el('div', { class: 'chips' }, [
+          el('button', { class: 'icon-btn', textContent: 'Rename', onclick: async () => {
+            const name = prompt('Rename workspace', w.name);
+            if (!name?.trim()) return;
+            try { await api(`/api/workspaces/${w.id}`, { method: 'PUT', body: JSON.stringify({ name: name.trim() }) }); await refresh(); }
+            catch (e) { state.settingsError = e.message; render(); }
+          } }),
+          el('button', { class: 'icon-btn', textContent: 'Delete', onclick: async () => {
+            if (!confirm(`Delete workspace "${w.name}"?`)) return;
+            try { await api(`/api/workspaces/${w.id}`, { method: 'DELETE' }); await refresh(); }
+            catch (e) { state.settingsError = e.message; render(); }
+          } }),
+        ]),
       ]),
-      el('div', { class: 'meta', textContent: 'Personas in this workspace' }),
-      ...(currentPersonas.length ? currentPersonas.map((p) => managerRow(p.name, [
-        el('button', { class: 'icon-btn', textContent: 'Remove', onclick: async () => {
-          const fallbackWorkspace = state.workspaces.find((x) => x.id !== w.id);
-          if (!fallbackWorkspace) { state.settingsError = 'Create another workspace before removing this persona from the workspace.'; render(); return; }
-          try { await api(`/api/personas/${p.id}`, { method: 'PUT', body: JSON.stringify({ workspace_id: fallbackWorkspace.id }) }); await refresh(); }
-          catch (e) { state.settingsError = e.message; render(); }
-        } }),
-      ])) : [el('div', { class: 'meta', textContent: 'No personas assigned yet.' })]),
-      el('div', { class: 'chips' }, [addSelect, addBtn]),
+      open ? el('div', { class: 'persona-card-body' }, [
+        el('div', { class: 'meta', textContent: 'Personas in this workspace' }),
+        ...(currentPersonas.length ? currentPersonas.map((p) => managerRow(p.name, [
+          el('button', { class: 'icon-btn', textContent: 'Remove', onclick: async () => {
+            const ids = (p.workspace_ids || [p.workspace_id]).filter((wid) => wid !== w.id);
+            if (!ids.length) { state.settingsError = 'A persona must belong to at least one workspace.'; render(); return; }
+            try { await api(`/api/personas/${p.id}`, { method: 'PUT', body: JSON.stringify({ workspace_ids: ids, workspace_id: ids[0] }) }); await refresh(); }
+            catch (e) { state.settingsError = e.message; render(); }
+          } }),
+        ])) : [el('div', { class: 'meta', textContent: 'No personas assigned yet.' })]),
+      ]) : null,
     ]);
   });
 
@@ -1042,7 +1095,7 @@ function settingsPanel() {
       ]),
       el('label', { textContent: 'Default model' }),
       el('select', { class: 'chip-select', onchange: (e) => setVal('global_default_model', e.target.value) },
-        [el('option', { value: '', textContent: 'Auto' }), ...state.models.map((m) => el('option', { value: m, textContent: modelNickname(m), selected: m === state.settings.global_default_model }))]),
+        [el('option', { value: '', textContent: 'Auto' }), ...state.models.map((m) => el('option', { value: m, textContent: m, selected: m === state.settings.global_default_model }))]),
       el('label', { class: 'checkbox-row' }, [
         el('input', { type: 'checkbox', checked: Boolean(state.settings.general_show_system_messages), onchange: (e) => {
           setVal('general_show_system_messages', e.target.checked);
@@ -1070,8 +1123,12 @@ function settingsPanel() {
       el('select', { class: 'chip-select', onchange: (e) => setVal('tts_provider', e.target.value) }, ['disabled', 'openai', 'local'].map((x) => el('option', { value: x, textContent: x, selected: x === state.settings.tts_provider }))),
       el('label', { textContent: 'Audio format' }),
       el('select', { class: 'chip-select', onchange: (e) => setVal('tts_format', e.target.value) }, ['wav', 'mp3', 'opus'].map((x) => el('option', { value: x, textContent: x, selected: x === state.settings.tts_format }))),
-      el('label', { textContent: 'Default voice model' }),
+      el('label', { textContent: 'Default voice' }),
       el('input', { class: 'search-input', value: state.settings.tts_voice, oninput: (e) => setVal('tts_voice', e.target.value) }),
+      el('label', { textContent: 'Default TTS model' }),
+      el('input', { class: 'search-input', value: state.settings.tts_model, oninput: (e) => setVal('tts_model', e.target.value) }),
+      el('label', { textContent: 'Default voice speed' }),
+      el('input', { type: 'number', min: 0.25, max: 4, step: 0.05, class: 'search-input', value: state.settings.tts_speed, oninput: (e) => setVal('tts_speed', e.target.value || '1') }),
     ],
     STT: [
       el('label', { textContent: 'Provider' }),
@@ -1083,7 +1140,7 @@ function settingsPanel() {
       el('label', { textContent: 'Provider' }),
       el('select', { class: 'chip-select', onchange: (e) => setVal('image_provider', e.target.value) }, ['disabled', 'openai', 'local'].map((x) => el('option', { value: x, textContent: x, selected: x === state.settings.image_provider }))),
       el('label', { textContent: 'Size' }),
-      el('select', { class: 'chip-select', onchange: (e) => setVal('image_size', e.target.value) }, ['512x512', '1024x1024', '1536x1024'].map((x) => el('option', { value: x, textContent: x, selected: x === state.settings.image_size }))),
+      el('select', { class: 'chip-select', onchange: (e) => setVal('image_size', e.target.value) }, SUPPORTED_IMAGE_SIZES.map((x) => el('option', { value: x, textContent: x, selected: x === state.settings.image_size }))),
       el('label', { textContent: 'Quality' }),
       el('select', { class: 'chip-select', onchange: (e) => setVal('image_quality', e.target.value) }, IMAGE_QUALITY_VALUES.map((x) => el('option', { value: x, textContent: x, selected: x === state.settings.image_quality }))),
     ],
@@ -1184,10 +1241,10 @@ function settingsPanel() {
     Models: [
       el('label', { textContent: 'Default model' }),
       el('select', { class: 'chip-select', onchange: (e) => { setVal('global_default_model', e.target.value); if (!state.activeModelSettingsId) state.activeModelSettingsId = e.target.value; } },
-        [el('option', { value: '', textContent: 'Auto' }), ...state.models.map((m) => el('option', { value: m, textContent: modelNickname(m), selected: m === state.settings.global_default_model }))]),
+        [el('option', { value: '', textContent: 'Auto' }), ...state.models.map((m) => el('option', { value: m, textContent: m, selected: m === state.settings.global_default_model }))]),
       el('label', { textContent: 'Model-specific tuning' }),
       el('select', { class: 'chip-select', value: state.activeModelSettingsId, onchange: (e) => { state.activeModelSettingsId = e.target.value; render(); } },
-        [el('option', { value: '', textContent: state.models.length ? 'Select model…' : 'No models found' }), ...state.models.map((m) => el('option', { value: m, textContent: modelNickname(m), selected: m === state.activeModelSettingsId }))]),
+        [el('option', { value: '', textContent: state.models.length ? 'Select model…' : 'No models found' }), ...state.models.map((m) => el('option', { value: m, textContent: m, selected: m === state.activeModelSettingsId }))]),
       el('label', { textContent: 'Model nickname' }),
       el('input', { class: 'search-input', disabled: !state.activeModelSettingsId, value: (state.settings.model_overrides?.[state.activeModelSettingsId]?.nickname || state.activeModelSettingsId || ''), oninput: (e) => setModelSetting(state.activeModelSettingsId, 'nickname', e.target.value) }),
       el('label', { textContent: 'Temperature' }),
@@ -1213,7 +1270,7 @@ function settingsPanel() {
       ]),
     ]),
     state.settingsError ? el('div', { class: 'error-banner', textContent: state.settingsError }) : null,
-    state.settingsSavedAt ? el('div', { class: 'success-banner', textContent: `Settings saved at ${new Date(state.settingsSavedAt).toLocaleTimeString()}` }) : null,
+    state.settingsSavedAt ? el('div', { class: 'success-banner toast', textContent: 'Settings saved' }) : null,
     el('div', { class: 'settings-layout' }, [
       el('aside', { class: 'settings-nav glass' }, sectionNames.map((name) => el('button', {
         class: `settings-nav-item ${name === state.settingsSection ? 'active' : ''}`,
@@ -1244,14 +1301,18 @@ function messageItem(m, personaId) {
   const roleLabel = isUser ? 'You' : (m.role === 'assistant' ? personaName : m.role);
   const imageUrl = extractImageUrl(m.text || '');
   const audioUrl = state.messageAudioById[m.id];
+  const messageBody = el('div', { html: md(visibleText || m.text || '') });
+  bindMessageImagePreview(messageBody);
+  const personaAvatar = state.personas.find((p) => p.id === (personaId || state.selectedPersonaId))?.avatar_url || DEFAULT_PERSONA_AVATAR;
   return el('div', { class: `msg-wrap ${isUser ? 'user' : ''}` }, [
+    !isUser && m.role === 'assistant' ? el('img', { class: 'msg-avatar', src: personaAvatar, alt: `${personaName} avatar` }) : null,
     el('article', { class: `msg ${isUser ? 'user' : 'assistant'}` }, [
       el('small', { textContent: roleLabel }),
       hasThinking && showThinking ? el('details', { class: 'think-block', open: true }, [
         el('summary', { textContent: 'Model thinking' }),
         el('div', { class: 'think-content', html: md(thinking) }),
       ]) : null,
-      el('div', { html: md(visibleText || m.text || '') }),
+      messageBody,
       el('div', { class: 'msg-actions' }, [
         hasThinking ? el('button', {
           class: 'icon-btn',
@@ -1312,7 +1373,9 @@ function render() {
   const selectedPersonaId = state.selectedPersonaId || state.currentChat?.persona_id || state.personas[0]?.id;
   const selectedModel = state.selectedModel || state.currentChat?.model_override || state.settings?.global_default_model || state.models[0] || '';
   const selectedMemoryMode = state.selectedMemoryMode || state.currentChat?.memory_mode || state.settings?.default_memory_mode || 'auto';
-  const personaName = state.personas.find((p) => p.id === selectedPersonaId)?.name || 'Persona';
+  const selectedPersona = state.personas.find((p) => p.id === selectedPersonaId);
+  const personaName = selectedPersona?.name || 'Persona';
+  const personaAvatar = selectedPersona?.avatar_url || DEFAULT_PERSONA_AVATAR;
 
   const chatList = state.chats
     .filter((c) => (c.title || '').toLowerCase().includes(state.chatSearch.toLowerCase()))
@@ -1371,6 +1434,7 @@ function render() {
   const topbar = el('div', { class: 'topbar' }, [
     el('button', { class: 'icon-btn', textContent: '☰', onclick: () => { state.drawerOpen = !state.drawerOpen; render(); } }),
     el('div', { class: 'header-meta' }, [
+      el('img', { class: 'msg-avatar', src: personaAvatar, alt: `${personaName} avatar` }),
       el('div', { class: 'header-title', textContent: currentChatTitle }),
       el('div', { class: 'chips' }, [el('button', { class: 'chip', textContent: personaName }), el('button', { class: 'chip', textContent: activeWorkspace }), el('button', { class: 'chip', textContent: modelNickname(state.currentChat?.model_override || state.settings?.global_default_model || 'model') })]),
     ]),
@@ -1425,6 +1489,15 @@ function render() {
       ]),
     ]),
   ]) : null;
+  const chatImagePreviewModal = state.chatImagePreview ? el('div', {
+    class: 'modal-backdrop avatar-preview-backdrop',
+    onclick: (e) => { if (e.target === e.currentTarget) { state.chatImagePreview = ''; render(); } },
+  }, [
+    el('div', { class: 'avatar-preview-frame' }, [
+      el('button', { class: 'icon-btn avatar-preview-close', textContent: '✕', onclick: () => { state.chatImagePreview = ''; render(); } }),
+      el('img', { class: 'avatar-preview-full', src: state.chatImagePreview, alt: 'Generated image preview' }),
+    ]),
+  ]) : null;
   const avatarPreviewModal = state.personaAvatarPreview ? el('div', {
     class: 'modal-backdrop avatar-preview-backdrop',
     onclick: (e) => { if (e.target === e.currentTarget) { state.personaAvatarPreview = ''; render(); } },
@@ -1434,7 +1507,7 @@ function render() {
       el('img', { class: 'avatar-preview-full', src: state.personaAvatarPreview, alt: 'Persona avatar preview' }),
     ]),
   ]) : null;
-  const shellChildren = state.showSettings ? [settingsPanel(), avatarPreviewModal] : [scrim, drawer, main, jumpBtn, viz, newChatPersonaModal, avatarPreviewModal];
+  const shellChildren = state.showSettings ? [settingsPanel(), avatarPreviewModal, chatImagePreviewModal] : [scrim, drawer, main, jumpBtn, viz, newChatPersonaModal, avatarPreviewModal, chatImagePreviewModal];
   app.append(el('div', { class: 'app-shell' }, shellChildren));
   requestAnimationFrame(() => {
     restoreMessagePaneScroll();
