@@ -514,8 +514,33 @@ button, input, select, textarea {
 
 
 .status { position: fixed; top: .75rem; right: .75rem; }
-.viz-wrap { position: fixed; inset: 0; pointer-events: none; display: none; z-index: 2; opacity:.45; }
+.viz-wrap {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  display: none;
+  z-index: 2;
+  opacity: .88;
+  filter: saturate(1.2) contrast(1.08);
+  transition: opacity .32s ease;
+}
+
+.viz-wrap::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background:
+    radial-gradient(80vmax 65vmax at 12% 16%, rgba(44, 119, 255, 0.16), transparent 60%),
+    radial-gradient(72vmax 58vmax at 86% 78%, rgba(179, 110, 255, 0.14), transparent 64%);
+  mix-blend-mode: screen;
+}
+
 .viz-wrap.show { display:block; }
+
+#vizCanvas {
+  width: 100%;
+  height: 100%;
+}
 
 @media (max-width: 900px) {
   .main-pane { margin: .5rem; padding: .7rem; }

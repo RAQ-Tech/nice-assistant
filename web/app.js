@@ -244,8 +244,21 @@ function noteActivity() {
 
 document.documentElement.setAttribute('data-theme', state.theme);
 
-const VIZ = { N: 120, bandWidth: 2, maxOffset: 150, attack: 0.35, release: 0.1, spring: 0.12, damping: 0.82, ringR: 180 };
+const VIZ = {
+  N: 168,
+  bandWidth: 2,
+  maxOffset: 190,
+  attack: 0.38,
+  release: 0.11,
+  spring: 0.14,
+  damping: 0.8,
+  ringR: 170,
+  pulseR: 84,
+  starCount: 140,
+};
 let ctx, analyser, source, freq, dots = [];
+let vizCanvasNode = null;
+let vizStars = [];
 let recorder, chunks = [];
 
 function el(tag, attrs = {}, children = []) {
@@ -317,39 +330,133 @@ function ensureAudioGraph() {
   dots = [...Array(VIZ.N)].map((_, i) => ({ band: bands[i % bands.length], amp: 0, vel: 0 }));
 }
 
+function buildVizStars() {
+  vizStars = [...Array(VIZ.starCount)].map(() => ({
+    x: Math.random(),
+    y: Math.random(),
+    z: 0.15 + Math.random() * 0.85,
+    twinkle: Math.random() * Math.PI * 2,
+    speed: 0.002 + Math.random() * 0.004,
+  }));
+}
+
 function vizCanvas() {
+  if (vizCanvasNode) return vizCanvasNode;
+
   const c = el('canvas', { id: 'vizCanvas' });
-  c.width = innerWidth;
-  c.height = innerHeight;
-  addEventListener('resize', () => { c.width = innerWidth; c.height = innerHeight; });
   const g = c.getContext('2d');
-  (function loop() {
+
+  function resize() {
+    const ratio = Math.min(2, Math.max(1, window.devicePixelRatio || 1));
+    c.width = Math.floor(innerWidth * ratio);
+    c.height = Math.floor(innerHeight * ratio);
+    c.style.width = `${innerWidth}px`;
+    c.style.height = `${innerHeight}px`;
+    g.setTransform(ratio, 0, 0, ratio, 0, 0);
+  }
+
+  function drawStars(width, height, intensity, time) {
+    for (const star of vizStars) {
+      star.twinkle += star.speed;
+      if (star.twinkle > Math.PI * 2) star.twinkle -= Math.PI * 2;
+      const alpha = (0.15 + Math.sin(star.twinkle + time * 0.0012) * 0.12 + intensity * 0.35) * star.z;
+      g.fillStyle = `rgba(140, 255, 245, ${Math.max(0.02, alpha)})`;
+      g.beginPath();
+      g.arc(star.x * width, star.y * height, 0.4 + star.z * 1.4, 0, Math.PI * 2);
+      g.fill();
+    }
+  }
+
+  function drawOrb(cx, cy, radius, intensity, time) {
+    const pulse = 1 + Math.sin(time * 0.003) * 0.02 + intensity * 0.16;
+    const core = g.createRadialGradient(cx, cy, radius * 0.1, cx, cy, radius * pulse);
+    core.addColorStop(0, `rgba(166, 252, 255, ${0.26 + intensity * 0.2})`);
+    core.addColorStop(0.45, `rgba(82, 162, 255, ${0.11 + intensity * 0.13})`);
+    core.addColorStop(1, 'rgba(26, 56, 118, 0)');
+    g.fillStyle = core;
+    g.beginPath();
+    g.arc(cx, cy, radius * pulse, 0, Math.PI * 2);
+    g.fill();
+  }
+
+  resize();
+  if (!vizStars.length) buildVizStars();
+  addEventListener('resize', resize);
+
+  (function loop(time = 0) {
     requestAnimationFrame(loop);
     if (!state.showViz) return;
-    g.clearRect(0, 0, c.width, c.height);
-    g.fillStyle = 'rgba(4,13,20,.3)';
-    g.fillRect(0, 0, c.width, c.height);
-    if (!analyser) return;
-    analyser.getByteFrequencyData(freq);
+
+    const w = innerWidth;
+    const h = innerHeight;
+    g.clearRect(0, 0, w, h);
+
+    let energy = 0;
+    if (analyser) {
+      analyser.getByteFrequencyData(freq);
+      for (let i = 0; i < freq.length; i++) energy += freq[i] / 255;
+      energy /= Math.max(1, freq.length);
+    }
+
+    const bg = g.createLinearGradient(0, 0, w, h);
+    bg.addColorStop(0, `rgba(2, 8, 20, ${0.78 + energy * 0.1})`);
+    bg.addColorStop(0.5, `rgba(5, 16, 38, ${0.56 + energy * 0.12})`);
+    bg.addColorStop(1, `rgba(2, 8, 20, ${0.8 + energy * 0.1})`);
+    g.fillStyle = bg;
+    g.fillRect(0, 0, w, h);
+
+    drawStars(w, h, energy, time);
+
+    const cx = w / 2;
+    const cy = h / 2;
+    const baseR = Math.min(w, h) * 0.23;
+    const ringR = Math.max(VIZ.ringR * 0.58, Math.min(baseR, VIZ.ringR));
+    drawOrb(cx, cy, Math.max(VIZ.pulseR, ringR * 0.45), energy, time);
+
     g.globalCompositeOperation = 'lighter';
-    const cx = c.width / 2, cy = c.height / 2;
+
     for (let i = 0; i < dots.length; i++) {
-      const d = dots[i], a = (i / dots.length) * Math.PI * 2;
+      const d = dots[i];
+      const a = (i / dots.length) * Math.PI * 2 + time * 0.00012;
       let raw = 0;
       for (let b = 0; b < VIZ.bandWidth; b++) raw += (freq[(d.band + b) % freq.length] || 0) / 255;
       raw /= VIZ.bandWidth;
-      const target = Math.min(VIZ.maxOffset, raw * VIZ.maxOffset);
+      const target = Math.min(VIZ.maxOffset, raw * (VIZ.maxOffset + energy * 65));
       const k = target > d.amp ? VIZ.attack : VIZ.release;
       d.vel += (target - d.amp) * k * VIZ.spring;
       d.vel *= VIZ.damping;
       d.amp += d.vel;
-      const r = VIZ.ringR + d.amp, x = cx + Math.cos(a) * r, y = cy + Math.sin(a) * r;
-      g.fillStyle = 'rgba(95,247,255,.2)'; g.beginPath(); g.arc(x, y, 17, 0, Math.PI * 2); g.fill();
-      g.fillStyle = 'rgba(164, 112, 255, .95)'; g.beginPath(); g.arc(x, y, 5.2, 0, Math.PI * 2); g.fill();
+
+      const drift = Math.sin(time * 0.0015 + i * 0.3) * 9;
+      const r = ringR + d.amp + drift;
+      const x = cx + Math.cos(a) * r;
+      const y = cy + Math.sin(a) * r;
+      const glow = 7 + raw * 17;
+      const p = 1.8 + raw * 4.9;
+
+      g.fillStyle = `rgba(95, 247, 255, ${0.1 + raw * 0.5})`;
+      g.beginPath();
+      g.arc(x, y, glow, 0, Math.PI * 2);
+      g.fill();
+
+      g.fillStyle = `rgba(180, 132, 255, ${0.45 + raw * 0.45})`;
+      g.beginPath();
+      g.arc(x, y, p, 0, Math.PI * 2);
+      g.fill();
     }
+
+    const ringA = 0.12 + energy * 0.35;
+    g.strokeStyle = `rgba(114, 248, 255, ${ringA})`;
+    g.lineWidth = 1.4;
+    g.beginPath();
+    g.arc(cx, cy, ringR * (1.05 + Math.sin(time * 0.0024) * 0.012), 0, Math.PI * 2);
+    g.stroke();
+
     g.globalCompositeOperation = 'source-over';
   })();
-  return c;
+
+  vizCanvasNode = c;
+  return vizCanvasNode;
 }
 
 const fmtDate = (ts) => !ts ? '' : new Date(ts * 1000).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
