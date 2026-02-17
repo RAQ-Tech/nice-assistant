@@ -592,7 +592,9 @@ def model_image_instruction_for_provider(provider):
         "When a user clearly asks for an image, include exactly one XML tag like "
         "<generate_image>...</generate_image> in your reply. "
         "Inside the tag, provide a production-quality prompt with subject, environment, composition/camera, "
-        "lighting, style, and quality details. Keep it safe and policy-compliant."
+        "lighting, style, and quality details. Keep it safe and policy-compliant. "
+        "If the image includes the user or assistant persona, preserve known visual continuity from chat memory/persona settings "
+        "(for example avatar cues, physical traits, and wardrobe style) and do not invent sensitive physical details that are unknown."
     )
     if provider == "openai":
         return (
@@ -605,6 +607,55 @@ def model_image_instruction_for_provider(provider):
             "art direction tokens, and include details that pair well with a separate negative prompt."
         )
     return base
+
+
+def visual_identity_context(conn, uid, chat_id, persona_row):
+    cues = []
+    if persona_row:
+        traits = parse_traits(persona_row["traits_json"])
+        persona_bits = [f"assistant persona is '{persona_row['name']}'"]
+        if traits["gender"] == "other" and traits["gender_other"]:
+            persona_bits.append(f"gender: {traits['gender_other']}")
+        elif traits["gender"] != "unspecified":
+            persona_bits.append(f"gender: {traits['gender']}")
+        if traits["age"]:
+            persona_bits.append(f"age: {traits['age']}")
+        if persona_row["personality_details"]:
+            persona_bits.append(f"persona profile: {persona_row['personality_details'][:180]}")
+        cues.append("; ".join(persona_bits))
+
+    if conn and uid:
+        rows = conn.execute(
+            "SELECT content FROM memories WHERE user_id=? ORDER BY created_at DESC LIMIT 80",
+            (uid,),
+        ).fetchall()
+        if chat_id:
+            chat_rows = conn.execute(
+                "SELECT text AS content FROM messages WHERE chat_id=? ORDER BY created_at DESC LIMIT 20",
+                (chat_id,),
+            ).fetchall()
+            rows.extend(chat_rows)
+        pat = re.compile(r"\b(my|i am|i'm|look like|appearance|hair|eyes|face|skin|height|wear|wearing|outfit|avatar)\b", re.IGNORECASE)
+        seen = set()
+        for row in rows:
+            content = " ".join(str(row[0] or "").split())
+            if len(content) < 8 or not pat.search(content):
+                continue
+            lowered = content.lower()
+            if lowered in seen:
+                continue
+            seen.add(lowered)
+            cues.append(content[:180])
+            if len(cues) >= 6:
+                break
+
+    if not cues:
+        return ""
+    return (
+        "Visual continuity constraints: "
+        + " | ".join(cues)
+        + " If details are missing, keep identity descriptors neutral instead of guessing."
+    )
 
 
 def _extract_openai_error_detail(exc):
@@ -678,7 +729,7 @@ def extract_model_image_prompt(reply_text):
     return clean_reply, prompt
 
 
-def generate_image_reply(prompt, uid, chat_id, settings_row, prefs):
+def generate_image_reply(prompt, uid, chat_id, settings_row, prefs, context_hint=""):
     image_provider = (prefs or {}).get("image_provider", "disabled")
     if image_provider == "disabled":
         return "I can generate images, but image generation is currently disabled. Enable an image provider in Settings and try again.", ""
@@ -690,13 +741,14 @@ def generate_image_reply(prompt, uid, chat_id, settings_row, prefs):
     image_name = f"{uid}_{image_id}.{image_ext}"
     image_path = IMAGE_DIR / image_name
     try:
+        effective_prompt = f"{prompt}\n\n{context_hint}".strip() if context_hint else prompt
         if image_provider == "openai":
             key = settings_row["openai_api_key"] if settings_row else None
             if not key:
                 return "Image generation is enabled for OpenAI, but your OpenAI API key is missing in Settings.", ""
-            image_bytes = openai_image(prompt, image_size, image_quality, key)
+            image_bytes = openai_image(effective_prompt, image_size, image_quality, key)
         elif image_provider == "local":
-            image_bytes = automatic1111_image(prompt, image_size, image_quality, image_local_allow_nsfw)
+            image_bytes = automatic1111_image(effective_prompt, image_size, image_quality, image_local_allow_nsfw)
         else:
             return f"Image provider '{image_provider}' is not recognized by the server. Choose 'openai' or 'local'.", ""
         image_path.write_bytes(image_bytes)
@@ -983,7 +1035,13 @@ class Handler(BaseHTTPRequestHandler):
             conn = db_conn()
             settings = conn.execute("SELECT * FROM app_settings WHERE user_id=?", (uid,)).fetchone()
             prefs = parse_preferences_json(settings["preferences_json"] if settings else "{}")
-            reply, image_url = generate_image_reply(prompt, uid, chat_id, settings, prefs)
+            persona_row = None
+            if chat_id:
+                chat = conn.execute("SELECT persona_id FROM chats WHERE id=? AND user_id=?", (chat_id, uid)).fetchone()
+                if chat and chat["persona_id"]:
+                    persona_row = conn.execute("SELECT * FROM personas WHERE id=?", (chat["persona_id"],)).fetchone()
+            context_hint = visual_identity_context(conn, uid, chat_id, persona_row)
+            reply, image_url = generate_image_reply(prompt, uid, chat_id, settings, prefs, context_hint=context_hint)
             if image_url and chat_id:
                 owns = conn.execute("SELECT id FROM chats WHERE id=? AND user_id=?", (chat_id, uid)).fetchone()
                 if owns:
@@ -1051,7 +1109,8 @@ class Handler(BaseHTTPRequestHandler):
             except (TypeError, ValueError):
                 prefs = {}
             if looks_like_image_request(text):
-                reply, _ = generate_image_reply(text, uid, chat_id, settings, prefs)
+                context_hint = visual_identity_context(conn, uid, chat_id, persona)
+                reply, _ = generate_image_reply(text, uid, chat_id, settings, prefs, context_hint=context_hint)
                 conn.execute("INSERT INTO messages(id,chat_id,role,text,created_at) VALUES(?,?,?,?,?)", (secrets.token_hex(8),chat_id,"assistant",reply,now_ts()))
                 conn.execute("UPDATE chats SET updated_at=?, memory_mode=?, persona_id=?, workspace_id=?, model_override=? WHERE id=?", (now_ts(), mem_mode, persona_id, workspace_id, b.get("model") or chat["model_override"], chat_id))
                 if mem_mode == "auto":

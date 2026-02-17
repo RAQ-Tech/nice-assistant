@@ -13,6 +13,7 @@ from app.server import (
     normalize_image_size,
     parse_image_size,
     user_safe_image_error,
+    visual_identity_context,
 )
 
 
@@ -118,6 +119,21 @@ class ModelImagePromptPolicyTests(unittest.TestCase):
     def test_provider_instruction_mentions_target_style(self):
         self.assertIn("OpenAI image generation", model_image_instruction_for_provider("openai"))
         self.assertIn("Automatic1111", model_image_instruction_for_provider("local"))
+
+    def test_provider_instruction_mentions_visual_continuity(self):
+        self.assertIn("visual continuity", model_image_instruction_for_provider("openai").lower())
+
+
+class VisualIdentityContextTests(unittest.TestCase):
+    def test_persona_profile_is_included(self):
+        persona = {
+            "name": "Ari",
+            "traits_json": '{"gender":"female","age":"28"}',
+            "personality_details": "Short silver hair and round glasses.",
+        }
+        hint = visual_identity_context(conn=None, uid="u1", chat_id=None, persona_row=persona)
+        self.assertIn("assistant persona is 'Ari'", hint)
+        self.assertIn("silver hair", hint.lower())
 
 
 if __name__ == "__main__":
