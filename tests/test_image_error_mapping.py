@@ -187,6 +187,37 @@ class VisualIdentityContextTests(unittest.TestCase):
         self.assertIn("assistant persona is 'Ari'", hint)
         self.assertIn("silver hair", hint.lower())
 
+    def test_memory_cues_are_scoped_to_chat_persona_and_workspace(self):
+        import sqlite3
+
+        conn = sqlite3.connect(":memory:")
+        conn.execute("CREATE TABLE memories (user_id TEXT, tier TEXT, tier_ref_id TEXT, content TEXT, created_at INTEGER)")
+        conn.execute("CREATE TABLE messages (chat_id TEXT, text TEXT, created_at INTEGER)")
+        conn.execute("INSERT INTO memories VALUES (?,?,?,?,?)", ("u1", "chat", "chat-1", "I wear a green scarf", 1))
+        conn.execute("INSERT INTO memories VALUES (?,?,?,?,?)", ("u1", "persona", "persona-1", "My hair is short", 2))
+        conn.execute("INSERT INTO memories VALUES (?,?,?,?,?)", ("u1", "workspace", "workspace-1", "I have blue eyes", 3))
+        conn.execute("INSERT INTO memories VALUES (?,?,?,?,?)", ("u1", "persona", "persona-2", "I wear a red hat", 4))
+        conn.execute("INSERT INTO memories VALUES (?,?,?,?,?)", ("u1", "workspace", "workspace-2", "I have purple hair", 5))
+        conn.execute("INSERT INTO messages VALUES (?,?,?)", ("chat-1", "My avatar has freckles", 6))
+        conn.commit()
+
+        hint = visual_identity_context(
+            conn=conn,
+            uid="u1",
+            chat_id="chat-1",
+            persona_row=None,
+            workspace_id="workspace-1",
+            persona_id="persona-1",
+        )
+
+        self.assertIn("green scarf", hint.lower())
+        self.assertIn("blue eyes", hint.lower())
+        self.assertIn("freckles", hint.lower())
+        self.assertNotIn("red hat", hint.lower())
+        self.assertNotIn("purple hair", hint.lower())
+
+        conn.close()
+
 
 if __name__ == "__main__":
     unittest.main()

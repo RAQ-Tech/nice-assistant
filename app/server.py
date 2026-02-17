@@ -666,7 +666,7 @@ def model_image_instruction_for_provider(provider):
     return base
 
 
-def visual_identity_context(conn, uid, chat_id, persona_row):
+def visual_identity_context(conn, uid, chat_id, persona_row, workspace_id=None, persona_id=None):
     cues = []
     if persona_row:
         traits = parse_traits(persona_row["traits_json"])
@@ -682,10 +682,28 @@ def visual_identity_context(conn, uid, chat_id, persona_row):
         cues.append("; ".join(persona_bits))
 
     if conn and uid:
-        rows = conn.execute(
-            "SELECT content FROM memories WHERE user_id=? ORDER BY created_at DESC LIMIT 80",
-            (uid,),
-        ).fetchall()
+        rows = []
+        if chat_id:
+            rows.extend(
+                conn.execute(
+                    "SELECT content FROM memories WHERE user_id=? AND tier='chat' AND tier_ref_id=? ORDER BY created_at DESC LIMIT 20",
+                    (uid, chat_id),
+                ).fetchall()
+            )
+        if persona_id:
+            rows.extend(
+                conn.execute(
+                    "SELECT content FROM memories WHERE user_id=? AND tier='persona' AND tier_ref_id=? ORDER BY created_at DESC LIMIT 20",
+                    (uid, persona_id),
+                ).fetchall()
+            )
+        if workspace_id:
+            rows.extend(
+                conn.execute(
+                    "SELECT content FROM memories WHERE user_id=? AND tier='workspace' AND tier_ref_id=? ORDER BY created_at DESC LIMIT 20",
+                    (uid, workspace_id),
+                ).fetchall()
+            )
         if chat_id:
             chat_rows = conn.execute(
                 "SELECT text AS content FROM messages WHERE chat_id=? ORDER BY created_at DESC LIMIT 20",
@@ -1127,7 +1145,17 @@ class Handler(BaseHTTPRequestHandler):
                 chat = conn.execute("SELECT persona_id FROM chats WHERE id=? AND user_id=?", (chat_id, uid)).fetchone()
                 if chat and chat["persona_id"]:
                     persona_row = conn.execute("SELECT * FROM personas WHERE id=?", (chat["persona_id"],)).fetchone()
-            context_hint = visual_identity_context(conn, uid, chat_id, persona_row)
+            use_context_hint = bool(b.get("useContextHint", False))
+            context_hint = ""
+            if use_context_hint:
+                workspace_id = None
+                persona_id = None
+                if chat_id:
+                    chat = conn.execute("SELECT workspace_id, persona_id FROM chats WHERE id=? AND user_id=?", (chat_id, uid)).fetchone()
+                    if chat:
+                        workspace_id = chat["workspace_id"]
+                        persona_id = chat["persona_id"]
+                context_hint = visual_identity_context(conn, uid, chat_id, persona_row, workspace_id=workspace_id, persona_id=persona_id)
             reply, image_url = generate_image_reply(prompt, uid, chat_id, settings, prefs, context_hint=context_hint)
             if image_url and chat_id:
                 owns = conn.execute("SELECT id FROM chats WHERE id=? AND user_id=?", (chat_id, uid)).fetchone()
@@ -1196,8 +1224,7 @@ class Handler(BaseHTTPRequestHandler):
             except (TypeError, ValueError):
                 prefs = {}
             if looks_like_image_request(text):
-                context_hint = visual_identity_context(conn, uid, chat_id, persona)
-                reply, _ = generate_image_reply(text, uid, chat_id, settings, prefs, context_hint=context_hint)
+                reply, _ = generate_image_reply(text, uid, chat_id, settings, prefs, context_hint="")
                 conn.execute("INSERT INTO messages(id,chat_id,role,text,created_at) VALUES(?,?,?,?,?)", (secrets.token_hex(8),chat_id,"assistant",reply,now_ts()))
                 conn.execute("UPDATE chats SET updated_at=?, memory_mode=?, persona_id=?, workspace_id=?, model_override=? WHERE id=?", (now_ts(), mem_mode, persona_id, workspace_id, b.get("model") or chat["model_override"], chat_id))
                 if mem_mode == "auto":

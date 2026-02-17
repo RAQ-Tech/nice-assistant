@@ -974,7 +974,7 @@ async function generateImageFromAssistantMessage(message) {
     setUiError('');
     state.status = 'Thinking';
     render();
-    await api('/api/images/generate', { method: 'POST', body: JSON.stringify({ prompt: prompt.trim(), chatId: state.currentChat.id }) });
+    await api('/api/images/generate', { method: 'POST', body: JSON.stringify({ prompt: prompt.trim(), chatId: state.currentChat.id, useContextHint: false }) });
     const withImage = await api(`/api/chats/${state.currentChat.id}`);
     state.messages = withImage.messages;
     state.status = 'Idle';
@@ -1073,7 +1073,7 @@ async function sendChat(text) {
           if (!shouldContinue) {
             setUiError('Skipped image generation because NSFW mode is disabled.');
           } else {
-            await api('/api/images/generate', { method: 'POST', body: JSON.stringify({ prompt: r.imageOffer.prompt, chatId: r.chatId }) });
+            await api('/api/images/generate', { method: 'POST', body: JSON.stringify({ prompt: r.imageOffer.prompt, chatId: r.chatId, useContextHint: true }) });
           }
           const withImage = await api(`/api/chats/${r.chatId}`);
           state.messages = withImage.messages;
