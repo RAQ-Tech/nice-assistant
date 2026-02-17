@@ -586,6 +586,121 @@ button, input, select, textarea {
   .settings-nav { max-height: 180px; }
 }
 
+@media (max-width: 640px) {
+  body {
+    font-size: 17px;
+    line-height: 1.45;
+  }
+
+  .app-shell {
+    height: 100dvh;
+  }
+
+  .main-pane {
+    margin: 0;
+    border-radius: 0;
+    border: none;
+    box-shadow: none;
+    padding: .85rem;
+    gap: .7rem;
+  }
+
+  .drawer {
+    width: min(400px, calc(100vw - .7rem));
+    inset: .35rem auto .35rem .35rem;
+    padding: .85rem;
+    gap: .65rem;
+  }
+
+  .topbar {
+    gap: .5rem;
+  }
+
+  .header-title {
+    font-size: 1.05rem;
+  }
+
+  .icon-btn,
+  .send-btn,
+  .talk-btn,
+  .pill-btn,
+  .settings-nav-item,
+  .chat-row,
+  .chip-select,
+  .search-input,
+  .composer-input {
+    min-height: 44px;
+    font-size: .98rem;
+  }
+
+  .icon-btn,
+  .send-btn,
+  .talk-btn,
+  .pill-btn,
+  .settings-nav-item {
+    padding: .62rem .82rem;
+  }
+
+  .status {
+    top: .45rem;
+    right: .45rem;
+  }
+
+  .message-pane {
+    padding: .45rem;
+    gap: .65rem;
+  }
+
+  .msg {
+    max-width: 96%;
+    padding: .78rem .88rem;
+    font-size: .98rem;
+  }
+
+  .msg small {
+    font-size: .86rem;
+    margin-bottom: .4rem;
+  }
+
+  .msg-actions {
+    opacity: 1;
+    position: static;
+    margin-top: .55rem;
+    justify-content: flex-end;
+  }
+
+  .composer {
+    gap: .45rem;
+  }
+
+  .composer-input {
+    min-height: 52px;
+    max-height: 220px;
+    padding: .78rem .85rem;
+  }
+
+  .send-btn,
+  .talk-btn {
+    min-width: 86px;
+  }
+
+  .jump-btn {
+    right: .7rem;
+    bottom: 8.8rem;
+  }
+
+  .modal-card {
+    width: 100%;
+    max-height: calc(100dvh - 1.3rem);
+    overflow: auto;
+  }
+
+  .chat-controls-menu {
+    padding: .5rem;
+    gap: .35rem;
+  }
+}
+
 button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: 2px;
