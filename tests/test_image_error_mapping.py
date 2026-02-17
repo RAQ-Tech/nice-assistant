@@ -2,7 +2,13 @@ import io
 import unittest
 import urllib.error
 
-from app.server import extract_model_image_prompt, normalize_image_quality, normalize_image_size, user_safe_image_error
+from app.server import (
+    adjust_prompt_for_openai_image,
+    extract_model_image_prompt,
+    normalize_image_quality,
+    normalize_image_size,
+    user_safe_image_error,
+)
 
 
 class UserSafeImageErrorTests(unittest.TestCase):
@@ -65,6 +71,19 @@ class NormalizeImageSizeTests(unittest.TestCase):
     def test_invalid_values_fall_back_to_supported_default(self):
         self.assertEqual(normalize_image_size("512x512"), "1024x1024")
         self.assertEqual(normalize_image_size("1024x1024"), "1024x1024")
+
+
+class AdjustOpenAiPromptTests(unittest.TestCase):
+    def test_rewrites_sensitive_terms_and_appends_safety_suffix(self):
+        adjusted = adjust_prompt_for_openai_image("nsfw nude editorial portrait")
+        self.assertIn("safe-for-work", adjusted.lower())
+        self.assertIn("fully clothed", adjusted.lower())
+        self.assertIn("no explicit sexual content", adjusted.lower())
+
+    def test_empty_prompt_returns_safe_default(self):
+        adjusted = adjust_prompt_for_openai_image("")
+        self.assertIn("safe-for-work", adjusted.lower())
+
 
 
 class ExtractModelImagePromptTests(unittest.TestCase):

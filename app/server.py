@@ -54,6 +54,15 @@ IMAGE_QUALITY_ALIASES = {
 IMAGE_QUALITY_VALUES = {"low", "medium", "high", "auto"}
 SUPPORTED_IMAGE_SIZES = {"1024x1024", "1024x1536", "1536x1024", "auto"}
 MODEL_IMAGE_TAG_PATTERN = re.compile(r"<generate_image>(.*?)</generate_image>", re.IGNORECASE | re.DOTALL)
+OPENAI_IMAGE_TERM_REPLACEMENTS = {
+    "nsfw": "safe-for-work",
+    "nude": "fully clothed",
+    "naked": "fully clothed",
+    "explicit sex": "romantic scene",
+    "sexual": "romantic",
+    "porn": "editorial",
+    "fetish": "fashion concept",
+}
 
 
 def ensure_dirs():
@@ -448,10 +457,11 @@ def openai_stt(filepath, api_key, language="auto"):
 
 
 def openai_image(prompt, size, quality, api_key):
+    safe_prompt = adjust_prompt_for_openai_image(prompt)
     normalized_quality = normalize_image_quality(quality)
     payload = json.dumps({
         "model": "gpt-image-1",
-        "prompt": prompt,
+        "prompt": safe_prompt,
         "size": size or "1024x1024",
         "quality": normalized_quality,
     }).encode()
@@ -484,6 +494,19 @@ def normalize_image_size(size):
     if size in SUPPORTED_IMAGE_SIZES:
         return size
     return "1024x1024"
+
+
+def adjust_prompt_for_openai_image(prompt):
+    text = (prompt or "").strip()
+    if not text:
+        return "Generate a safe-for-work, policy-compliant image with no nudity, sexual content, or graphic violence."
+    adjusted = text
+    for term, replacement in OPENAI_IMAGE_TERM_REPLACEMENTS.items():
+        adjusted = re.sub(rf"\b{re.escape(term)}\b", replacement, adjusted, flags=re.IGNORECASE)
+    return (
+        f"{adjusted}"
+        " Render this as a safe-for-work image with no nudity, no explicit sexual content, and no graphic violence."
+    )
 
 
 def _extract_openai_error_detail(exc):
