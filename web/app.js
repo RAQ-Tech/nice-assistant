@@ -793,9 +793,18 @@ function speechTextFromReply(text = '') {
   const visible = splitThinking(text).visibleText || '';
   if (!visible.trim()) return '';
   if (/^\s*(Model call failed|Image generation failed|I can generate images, but image generation is currently disabled|I couldn't generate that image|That image size is not supported by OpenAI|OpenAI couldn't generate that image)/i.test(visible)) return '';
-  const withoutImages = visible.replace(/!\[[^\]]*\]\(([^)]+)\)/g, '');
-  const withoutUrls = withoutImages.replace(/https?:\/\/\S+/g, '');
-  return withoutUrls.trim();
+  const withoutCodeBlocks = visible.replace(/```[\s\S]*?```/g, ' [code omitted] ');
+  const withoutInlineCode = withoutCodeBlocks.replace(/`([^`]+)`/g, '$1');
+  const withoutImages = withoutInlineCode.replace(/!\[([^\]]*)\]\(([^)]+)\)/g, '$1');
+  const withoutLinks = withoutImages.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '$1');
+  const withoutUrls = withoutLinks.replace(/https?:\/\/\S+/g, '');
+  const withoutMarkdown = withoutUrls
+    .replace(/^\s{0,3}#{1,6}\s+/gm, '')
+    .replace(/^\s*[-*+]\s+/gm, '')
+    .replace(/^\s*\d+\.\s+/gm, '')
+    .replace(/^\s*>+\s?/gm, '')
+    .replace(/[*_~]/g, '');
+  return withoutMarkdown.replace(/\s+/g, ' ').trim();
 }
 
 function normalizePromptSourceText(text = '') {
@@ -1029,7 +1038,7 @@ async function sendChat(text) {
 
     const latestAssistant = [...state.messages].reverse().find((m) => m.role === 'assistant');
     if (state.voiceResponsesEnabled && state.settings?.tts_provider && state.settings.tts_provider !== 'disabled') {
-      const spokenText = speechTextFromReply(r.text || '');
+      const spokenText = speechTextFromReply(latestAssistant?.text || r.text || '');
       if (spokenText) {
         state.status = 'Speaking';
         state.isSynthesizing = true;
