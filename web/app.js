@@ -1220,7 +1220,12 @@ async function stopRec() {
     }
 
     if (j.text) {
-      document.getElementById('chatInput').value = j.text;
+      state.draftMessage = j.text;
+      const chatInput = document.getElementById('chatInput');
+      if (chatInput) {
+        chatInput.value = j.text;
+        autoResizeComposer(chatInput);
+      }
     } else {
       clientLog('stt.empty', 'stt request returned no text', { language: j?.language || '' });
     }
