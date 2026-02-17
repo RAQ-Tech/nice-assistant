@@ -315,6 +315,32 @@ function el(tag, attrs = {}, children = []) {
   return n;
 }
 
+function captureRenderFocusState() {
+  const active = document.activeElement;
+  if (!active || !app.contains(active)) return null;
+  const tag = active.tagName;
+  if (!['INPUT', 'TEXTAREA'].includes(tag)) return null;
+  const fields = [...app.querySelectorAll('input, textarea')];
+  const index = fields.indexOf(active);
+  if (index < 0) return null;
+  return {
+    index,
+    start: typeof active.selectionStart === 'number' ? active.selectionStart : null,
+    end: typeof active.selectionEnd === 'number' ? active.selectionEnd : null,
+  };
+}
+
+function restoreRenderFocusState(focusState) {
+  if (!focusState || state.modal) return;
+  const fields = app.querySelectorAll('input, textarea');
+  const target = fields[focusState.index];
+  if (!target || target.disabled) return;
+  target.focus();
+  if (typeof focusState.start === 'number' && typeof focusState.end === 'number' && typeof target.setSelectionRange === 'function') {
+    target.setSelectionRange(focusState.start, focusState.end);
+  }
+}
+
 async function api(path, opts = {}) {
   const r = await fetch(path, { headers: { 'Content-Type': 'application/json', ...(opts.headers || {}) }, ...opts });
   const t = await r.text();
@@ -2062,6 +2088,7 @@ function messageItem(m, personaId) {
 }
 
 function render() {
+  const focusState = captureRenderFocusState();
   app.innerHTML = '';
   if (!state.user) {
     app.append(authView());
@@ -2254,6 +2281,7 @@ function render() {
       if (modalInput) modalInput.focus();
       else if (modalRoot) modalRoot.querySelector('button, textarea, input')?.focus();
     }
+    restoreRenderFocusState(focusState);
   });
 }
 
