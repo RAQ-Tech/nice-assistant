@@ -18,6 +18,8 @@ const state = {
   recording: false,
   recStart: 0,
   recTimer: 0,
+  recStream: null,
+  recMimeType: '',
   theme: localStorage.getItem('na_theme') || 'dark',
   showJumpBottom: false,
   showSystemMessages: false,
@@ -80,6 +82,7 @@ const SETTINGS_DEFAULTS = {
   tts_model: 'gpt-4o-mini-tts',
   tts_speed: '1',
   stt_language: 'auto',
+  stt_store_recordings: false,
   image_provider: 'disabled',
   image_size: '1024x1024',
   image_quality: 'auto',
@@ -103,6 +106,47 @@ const IMAGE_QUALITY_ALIASES = {
 
 const IMAGE_QUALITY_VALUES = ['low', 'medium', 'high', 'auto'];
 const SUPPORTED_IMAGE_SIZES = ['1024x1024', '1024x1536', '1536x1024', 'auto'];
+const STT_LANGUAGES = [
+  { value: 'auto', label: 'Auto-detect' },
+  { value: 'en', label: 'English' },
+  { value: 'es', label: 'Español' },
+  { value: 'fr', label: 'Français' },
+  { value: 'de', label: 'Deutsch' },
+];
+
+async function clientLog(type, message, details = {}) {
+  if (!state.user) return;
+  try {
+    await fetch('/api/logs/client', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ type, message, details }),
+    });
+  } catch (_e) {
+    // no-op: logging must not block UI
+  }
+}
+
+function logAndShowUiError(message, details = {}) {
+  setUiError(message);
+  clientLog('ui.error', message, details);
+}
+
+function recorderMimeCandidates() {
+  return ['audio/webm;codecs=opus', 'audio/webm', 'audio/mp4', 'audio/ogg;codecs=opus', 'audio/ogg'];
+}
+
+function preferredRecorderMimeType() {
+  if (!window.MediaRecorder || typeof window.MediaRecorder.isTypeSupported !== 'function') return '';
+  return recorderMimeCandidates().find((type) => MediaRecorder.isTypeSupported(type)) || '';
+}
+
+function recordingFilenameForMime(mimeType) {
+  if (!mimeType) return 'audio.webm';
+  if (mimeType.includes('mp4')) return 'audio.mp4';
+  if (mimeType.includes('ogg')) return 'audio.ogg';
+  return 'audio.webm';
+}
 
 function normalizeImageSize(value) {
   return SUPPORTED_IMAGE_SIZES.includes(value) ? value : SETTINGS_DEFAULTS.image_size;
@@ -116,7 +160,7 @@ function normalizeImageQuality(value) {
 const SETTINGS_SECTION_KEYS = {
   General: ['general_theme', 'general_show_system_messages', 'general_show_thinking', 'general_auto_logout', 'global_default_model'],
   TTS: ['tts_provider', 'tts_format', 'tts_voice', 'tts_model', 'tts_speed'],
-  STT: ['stt_provider', 'stt_language'],
+  STT: ['stt_provider', 'stt_language', 'stt_store_recordings'],
   'Image Generation': ['image_provider', 'image_size', 'image_quality'],
   Memory: ['default_memory_mode', 'memory_auto_save_user_facts'],
   User: ['user_display_name', 'user_timezone'],
@@ -158,6 +202,7 @@ function settingsPayload(nextSettings) {
     tts_model: nextSettings.tts_model,
     tts_speed: nextSettings.tts_speed,
     stt_language: nextSettings.stt_language,
+    stt_store_recordings: Boolean(nextSettings.stt_store_recordings),
     image_provider: nextSettings.image_provider,
     image_size: normalizeImageSize(nextSettings.image_size),
     image_quality: normalizeImageQuality(nextSettings.image_quality),
@@ -210,7 +255,10 @@ async function api(path, opts = {}) {
   const t = await r.text();
   let j = {};
   try { j = JSON.parse(t); } catch {}
-  if (!r.ok) throw new Error(j.error || t || r.status);
+  if (!r.ok) {
+    clientLog('api.error', 'api request failed', { path, status: r.status, error: j.error || t || String(r.status) });
+    throw new Error(j.error || t || r.status);
+  }
   return j;
 }
 
@@ -563,36 +611,106 @@ async function sendChat(text) {
 audio.addEventListener('ended', () => { state.status = 'Idle'; state.currentAudioMessageId = ''; render(); });
 
 async function startRec() {
+  if (state.recording) return;
   ensureAudioGraph();
   await ctx.resume();
-  const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-  recorder = new MediaRecorder(stream, { mimeType: 'audio/webm' });
+  if (!navigator.mediaDevices?.getUserMedia) {
+    logAndShowUiError('Microphone is not supported in this browser.', { feature: 'getUserMedia' });
+    return;
+  }
+  if (!window.MediaRecorder) {
+    logAndShowUiError('Audio recording is not supported in this browser.', { feature: 'MediaRecorder' });
+    return;
+  }
+  try {
+    state.recStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+  } catch (e) {
+    const message = e?.name === 'NotAllowedError'
+      ? 'Microphone permission is blocked. Please allow microphone access for this site.'
+      : e?.name === 'NotFoundError'
+        ? 'No microphone was found on this device.'
+        : e?.name === 'NotReadableError'
+          ? 'Microphone is busy in another app. Close other apps and try again.'
+          : 'Could not access microphone. Check browser and OS microphone settings.';
+    logAndShowUiError(message, { error: e?.message || String(e), code: e?.name || 'unknown' });
+    return;
+  }
+
+  try {
+    const mimeType = preferredRecorderMimeType();
+    recorder = mimeType ? new MediaRecorder(state.recStream, { mimeType }) : new MediaRecorder(state.recStream);
+    state.recMimeType = mimeType || recorder.mimeType || 'audio/webm';
+  } catch (e) {
+    state.recStream?.getTracks().forEach((track) => track.stop());
+    state.recStream = null;
+    logAndShowUiError('This browser could not initialize audio recording.', { error: e?.message || String(e) });
+    return;
+  }
+
   chunks = [];
-  recorder.ondataavailable = (e) => chunks.push(e.data);
+  recorder.ondataavailable = (e) => { if (e.data?.size) chunks.push(e.data); };
+  recorder.onerror = (e) => logAndShowUiError('Recording failed unexpectedly.', { error: e?.error?.message || 'unknown recorder error' });
   recorder.start();
   state.recording = true;
   state.recStart = Date.now();
-  state.status = 'Listening';
+  state.status = 'Recording';
   render();
+  clientLog('recording.start', 'hold-to-talk recording started', { mimeType: state.recMimeType });
   state.recTimer = setInterval(() => render(), 250);
 }
 
 async function stopRec() {
   if (!recorder || recorder.state === 'inactive') return;
-  recorder.stop();
-  await new Promise((r) => (recorder.onstop = r));
+  try {
+    recorder.stop();
+    await new Promise((resolve) => {
+      recorder.onstop = resolve;
+    });
+  } catch (e) {
+    logAndShowUiError('Failed to stop recording cleanly.', { error: e?.message || String(e) });
+  }
+
   clearInterval(state.recTimer);
   state.recording = false;
-  const blob = new Blob(chunks, { type: 'audio/webm' });
-  const fd = new FormData();
-  fd.append('file', blob, 'audio.webm');
   state.status = 'Thinking';
   render();
-  const r = await fetch('/api/stt', { method: 'POST', body: fd });
-  const j = await r.json();
-  if (j.text) document.getElementById('chatInput').value = j.text;
-  state.status = 'Idle';
-  render();
+
+  try {
+    const blob = new Blob(chunks, { type: state.recMimeType || 'audio/webm' });
+    if (!blob.size) throw new Error('No audio was captured.');
+    const fd = new FormData();
+    fd.append('file', blob, recordingFilenameForMime(state.recMimeType));
+
+    const r = await fetch('/api/stt', { method: 'POST', body: fd });
+    let j = {};
+    try {
+      j = await r.json();
+    } catch (_e) {
+      throw new Error(`STT request failed (${r.status}) and returned invalid JSON.`);
+    }
+
+    if (!r.ok) {
+      const detail = j?.error || `STT request failed with status ${r.status}.`;
+      throw new Error(detail);
+    }
+
+    if (j.text) {
+      document.getElementById('chatInput').value = j.text;
+    } else {
+      clientLog('stt.empty', 'stt request returned no text', { language: j?.language || '' });
+    }
+    clientLog('stt.success', 'stt request completed', { language: j?.language || '', chars: (j.text || '').length });
+  } catch (e) {
+    logAndShowUiError(e.message || 'Failed to transcribe audio.', { phase: 'stt', error: e?.message || String(e) });
+    clientLog('stt.error', 'stt request failed', { error: e?.message || String(e) });
+  } finally {
+    state.recStream?.getTracks().forEach((track) => track.stop());
+    state.recStream = null;
+    recorder = null;
+    chunks = [];
+    state.status = 'Idle';
+    render();
+  }
 }
 
 function authView() {
@@ -650,7 +768,13 @@ async function ensureWizard() {
 }
 
 function statusClass() {
-  return state.status === 'Listening' ? 'status-listening' : state.status === 'Speaking' ? 'status-speaking' : state.status === 'Thinking' ? 'status-thinking' : 'status-idle';
+  return state.status === 'Listening' || state.status === 'Recording'
+    ? 'status-recording'
+    : state.status === 'Speaking'
+      ? 'status-speaking'
+      : state.status === 'Thinking'
+        ? 'status-thinking'
+        : 'status-idle';
 }
 
 function onMessageScroll(e) {
@@ -1114,9 +1238,14 @@ function settingsPanel() {
         el('input', { type: 'checkbox', checked: state.settings.general_auto_logout !== false, onchange: (e) => {
           setVal('general_auto_logout', e.target.checked);
           noteActivity();
+          clientLog('settings.change', 'auto logout updated', { value: e.target.checked });
         } }),
         'Auto logout after inactivity',
       ]),
+      el('button', { class: 'pill-btn', textContent: 'Download log', onclick: () => {
+        clientLog('settings.download_log', 'download log clicked');
+        window.open('/api/logs/download', '_blank', 'noopener');
+      } }),
     ],
     TTS: [
       el('label', { textContent: 'Provider' }),
@@ -1134,7 +1263,11 @@ function settingsPanel() {
       el('label', { textContent: 'Provider' }),
       el('select', { class: 'chip-select', onchange: (e) => setVal('stt_provider', e.target.value) }, ['disabled', 'openai', 'local'].map((x) => el('option', { value: x, textContent: x, selected: x === state.settings.stt_provider }))),
       el('label', { textContent: 'Language' }),
-      el('select', { class: 'chip-select', onchange: (e) => setVal('stt_language', e.target.value) }, ['auto', 'en', 'es', 'fr', 'de'].map((x) => el('option', { value: x, textContent: x, selected: x === state.settings.stt_language }))),
+      el('select', { class: 'chip-select', onchange: (e) => setVal('stt_language', e.target.value) }, STT_LANGUAGES.map((x) => el('option', { value: x.value, textContent: x.label, selected: x.value === state.settings.stt_language }))),
+      el('label', { class: 'checkbox-row' }, [
+        el('input', { type: 'checkbox', checked: Boolean(state.settings.stt_store_recordings), onchange: (e) => setVal('stt_store_recordings', e.target.checked) }),
+        'Store voice recordings for debugging (off by default)',
+      ]),
     ],
     'Image Generation': [
       el('label', { textContent: 'Provider' }),
@@ -1428,13 +1561,14 @@ function render() {
       onpointerup: stopRec,
       onpointercancel: stopRec,
       onpointerleave: (e) => { if (e.buttons === 1) stopRec(); },
+      onlostpointercapture: stopRec,
     }),
   ]);
 
   const topbar = el('div', { class: 'topbar' }, [
     el('button', { class: 'icon-btn', textContent: '☰', onclick: () => { state.drawerOpen = !state.drawerOpen; render(); } }),
     el('div', { class: 'header-meta' }, [
-      el('img', { class: 'msg-avatar', src: personaAvatar, alt: `${personaName} avatar` }),
+      el('img', { class: 'topbar-avatar', src: personaAvatar, alt: `${personaName} avatar`, onclick: () => { state.personaAvatarPreview = personaAvatar; render(); } }),
       el('div', { class: 'header-title', textContent: currentChatTitle }),
       el('div', { class: 'chips' }, [el('button', { class: 'chip', textContent: personaName }), el('button', { class: 'chip', textContent: activeWorkspace }), el('button', { class: 'chip', textContent: modelNickname(state.currentChat?.model_override || state.settings?.global_default_model || 'model') })]),
     ]),
@@ -1516,4 +1650,33 @@ function render() {
   });
 }
 
-refresh().then(ensureWizard);
+window.addEventListener('error', (e) => {
+  clientLog('browser.error', 'window error', { message: e.message, source: e.filename, line: e.lineno, column: e.colno });
+});
+window.addEventListener('unhandledrejection', (e) => {
+  clientLog('browser.unhandledrejection', 'promise rejection', { reason: String(e.reason || '') });
+});
+window.addEventListener('online', () => clientLog('browser.network', 'network online'));
+window.addEventListener('offline', () => clientLog('browser.network', 'network offline'));
+document.addEventListener('visibilitychange', () => {
+  clientLog('browser.visibility', 'visibility changed', { state: document.visibilityState });
+});
+document.addEventListener('click', (e) => {
+  const target = e.target?.closest('button, a, .chip, .icon-btn');
+  if (!target) return;
+  const label = (target.textContent || target.getAttribute('title') || target.id || target.className || '').trim().slice(0, 80);
+  clientLog('ui.click', 'click interaction', { label, tag: target.tagName });
+});
+document.addEventListener('change', (e) => {
+  const target = e.target;
+  if (!target) return;
+  const tag = target.tagName;
+  if (!['SELECT', 'INPUT', 'TEXTAREA'].includes(tag)) return;
+  const field = target.id || target.name || target.className || tag;
+  clientLog('ui.change', 'input changed', { field: String(field).slice(0, 80), tag });
+});
+
+refresh().then(async () => {
+  await clientLog('app.ready', 'application ready', { userId: state.user?.id || '' });
+  ensureWizard();
+});

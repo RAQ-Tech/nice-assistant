@@ -2,6 +2,7 @@ import base64
 import hashlib
 import json
 import logging
+from logging.handlers import RotatingFileHandler
 import mimetypes
 import os
 import secrets
@@ -34,6 +35,7 @@ SESSION_TTL_SECONDS = int(os.getenv("SESSION_TTL_SECONDS", "1800"))
 AUDIO_DIR = DATA_DIR / "audio"
 IMAGE_DIR = DATA_DIR / "images"
 LOG_DIR = DATA_DIR / "logs"
+STT_RECORDINGS_DIR = DATA_DIR / "stt_recordings"
 DB_PATH = DATA_DIR / "nice_assistant.db"
 SETTINGS_JSON = DATA_DIR / "settings.json"
 WEB_DIR = Path(__file__).resolve().parent.parent / "web"
@@ -43,6 +45,7 @@ logging.basicConfig(
     format="%(asctime)s %(levelname)s [%(threadName)s] %(message)s",
 )
 logger = logging.getLogger("nice-assistant")
+CLIENT_EVENT_LOG = "client-events"
 
 IMAGE_QUALITY_ALIASES = {
     "standard": "medium",
@@ -53,8 +56,17 @@ SUPPORTED_IMAGE_SIZES = {"1024x1024", "1024x1536", "1536x1024", "auto"}
 
 
 def ensure_dirs():
-    for p in [DATA_DIR, AUDIO_DIR, IMAGE_DIR, LOG_DIR, ARCHIVE_DIR, ARCHIVE_DIR / "audio", ARCHIVE_DIR / "logs", ARCHIVE_DIR / "db_backups"]:
+    for p in [DATA_DIR, AUDIO_DIR, IMAGE_DIR, LOG_DIR, STT_RECORDINGS_DIR, ARCHIVE_DIR, ARCHIVE_DIR / "audio", ARCHIVE_DIR / "logs", ARCHIVE_DIR / "db_backups"]:
         p.mkdir(parents=True, exist_ok=True)
+
+
+def setup_file_logger():
+    log_path = LOG_DIR / "events.log"
+    if any(getattr(h, "baseFilename", None) == str(log_path) for h in logger.handlers):
+        return
+    handler = RotatingFileHandler(log_path, maxBytes=2_000_000, backupCount=8, encoding="utf-8")
+    handler.setFormatter(logging.Formatter("%(asctime)s %(levelname)s [%(threadName)s] %(message)s"))
+    logger.addHandler(handler)
 
 
 def db_conn():
@@ -404,7 +416,7 @@ def openai_speech(text, voice, fmt, api_key, model="gpt-4o-mini-tts", speed="1")
         return r.read()
 
 
-def openai_stt(filepath, api_key):
+def openai_stt(filepath, api_key, language="auto"):
     boundary = "----NiceAssistantBoundary" + secrets.token_hex(8)
     with open(filepath, "rb") as f:
         audio = f.read()
@@ -419,6 +431,8 @@ def openai_stt(filepath, api_key):
         else:
             parts.append(f'Content-Disposition: form-data; name="{name}"\r\n\r\n{value}\r\n'.encode())
     add("model", "whisper-1")
+    if language and language != "auto":
+        add("language", str(language))
     add("file", audio, filename="audio.wav", ctype="audio/wav")
     parts.append(f"--{boundary}--\r\n".encode())
     body = b"".join(parts)
@@ -529,6 +543,42 @@ def user_safe_image_error(exc):
     if isinstance(exc, TimeoutError):
         return "Image generation timed out. Please try again with a shorter prompt or retry shortly.", detail, req_id
     return "Image generation failed unexpectedly. Please try again.", detail, req_id
+
+
+def parse_preferences_json(raw_value):
+    if not raw_value:
+        return {}
+    try:
+        parsed = json.loads(raw_value)
+        return parsed if isinstance(parsed, dict) else {}
+    except (TypeError, ValueError):
+        return {}
+
+
+def setting_bool(settings_row, key, default=False):
+    prefs = parse_preferences_json(settings_row["preferences_json"] if settings_row else "{}")
+    val = prefs.get(key, default)
+    if isinstance(val, bool):
+        return val
+    if isinstance(val, str):
+        return val.strip().lower() in {"1", "true", "yes", "on"}
+    return bool(val)
+
+
+def log_interaction(event_type, message, **context):
+    context_items = " ".join([f"{k}={json.dumps(v, ensure_ascii=False)}" for k, v in sorted(context.items()) if v is not None])
+    payload = f"event={event_type} message={message}"
+    if context_items:
+        payload = f"{payload} {context_items}"
+    logger.info(payload)
+
+
+def safe_name(name, fallback):
+    candidate = (name or "").strip().replace(" ", "_")
+    candidate = re.sub(r"[^a-zA-Z0-9_.-]", "", candidate)
+    return candidate or fallback
+
+
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -689,6 +739,20 @@ class Handler(BaseHTTPRequestHandler):
             else:
                 conn.close(); return self._json({"error": "unknown tier"}, 400)
             conn.close(); return self._json({"items": rows})
+        if self.path == "/api/logs/download":
+            uid = self._require_auth();
+            if not uid: return
+            target = LOG_DIR / "events.log"
+            if not target.exists():
+                return self._json({"error": "log file unavailable"}, 404)
+            stamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
+            filename = f"nice-assistant-events-{safe_name(uid, 'user')}-{stamp}.txt"
+            self._set_headers(200, "text/plain; charset=utf-8")
+            self.send_header("Content-Disposition", f'attachment; filename="{filename}"')
+            self.end_headers()
+            self.wfile.write(target.read_bytes())
+            log_interaction("log.download", "user downloaded diagnostic log", user_id=uid)
+            return
         if self.path == "/api/settings":
             uid = self._require_auth();
             if not uid: return
@@ -738,6 +802,13 @@ class Handler(BaseHTTPRequestHandler):
             return self._json({"ok": True}, cookie=f"{SESSION_COOKIE}=; Max-Age=0; Path=/; HttpOnly; SameSite=Lax")
         uid = self._require_auth()
         if not uid: return
+        if self.path == "/api/logs/client":
+            b = self._read_json() or {}
+            event_type = str(b.get("type") or CLIENT_EVENT_LOG)
+            message = str(b.get("message") or "client event")
+            details = b.get("details") if isinstance(b.get("details"), dict) else {}
+            log_interaction(event_type, message, user_id=uid, **details)
+            return self._json({"ok": True})
         if self.path == "/api/workspaces":
             b = self._read_json(); wid = secrets.token_hex(8)
             conn = db_conn(); conn.execute("INSERT INTO workspaces(id,user_id,name,created_at) VALUES(?,?,?,?)", (wid, uid, b.get("name", "Workspace"), now_ts())); conn.commit(); conn.close()
@@ -930,28 +1001,56 @@ class Handler(BaseHTTPRequestHandler):
             return self._json({"audioUrl": f"/api/tts/audio/{out_id}", "format": fmt})
         if self.path == "/api/stt":
             conn = db_conn(); settings = conn.execute("SELECT * FROM app_settings WHERE user_id=?", (uid,)).fetchone(); conn.close()
-            if not settings or settings["stt_provider"] == "disabled": return self._json({"error":"STT disabled"}, 400)
+            if not settings or settings["stt_provider"] == "disabled":
+                log_interaction("stt.error", "stt requested while disabled", user_id=uid)
+                return self._json({"error":"STT disabled"}, 400)
             content_length = int(self.headers.get("Content-Length", "0") or 0)
             content_type = self.headers.get("Content-Type", "")
             raw_body = self.rfile.read(content_length) if content_length else b""
             fields = parse_multipart_form_data(content_type, raw_body)
             fitem = fields.get("file")
             if not fitem or not fitem.get("value"):
+                log_interaction("stt.error", "missing audio file in request", user_id=uid)
                 return self._json({"error": "file required"}, 400)
-            raw = DATA_DIR / f"upload_{secrets.token_hex(6)}.webm"
+            ext = ".webm"
+            incoming = str((fitem.get("filename") or "").lower())
+            if incoming.endswith(".mp4") or incoming.endswith(".m4a"):
+                ext = ".mp4"
+            elif incoming.endswith(".ogg"):
+                ext = ".ogg"
+            raw = DATA_DIR / f"upload_{secrets.token_hex(6)}{ext}"
             wav = DATA_DIR / f"upload_{secrets.token_hex(6)}.wav"
-            with open(raw, "wb") as f:
-                f.write(fitem["value"])
-            subprocess.run(["ffmpeg", "-y", "-i", str(raw), str(wav)], check=False, capture_output=True)
-            if settings["stt_provider"] == "openai":
-                key = settings["openai_api_key"]
-                if not key: return self._json({"error":"OPENAI API key missing"}, 400)
-                try:
-                    data = openai_stt(str(wav), key)
-                    return self._json({"text": data.get("text", ""), "language": data.get("language")})
-                except Exception as e:
-                    return self._json({"error": f"STT failed: {e}"}, 500)
-            return self._json({"error":"Local provider not implemented yet"}, 400)
+            try:
+                with open(raw, "wb") as f:
+                    f.write(fitem["value"])
+                ffmpeg = subprocess.run(["ffmpeg", "-y", "-i", str(raw), str(wav)], check=False, capture_output=True)
+                if ffmpeg.returncode != 0 or not wav.exists():
+                    detail = ffmpeg.stderr.decode("utf-8", errors="replace")[:500]
+                    log_interaction("stt.error", "ffmpeg conversion failed", user_id=uid, return_code=ffmpeg.returncode, detail=detail)
+                    return self._json({"error": "Audio conversion failed. Please try again."}, 500)
+                if settings["stt_provider"] == "openai":
+                    key = settings["openai_api_key"]
+                    if not key:
+                        log_interaction("stt.error", "openai key missing for stt", user_id=uid)
+                        return self._json({"error":"OPENAI API key missing"}, 400)
+                    prefs = parse_preferences_json(settings["preferences_json"])
+                    lang = prefs.get("stt_language") or "auto"
+                    try:
+                        data = openai_stt(str(wav), key, lang)
+                        if setting_bool(settings, "stt_store_recordings", False):
+                            stored_raw = STT_RECORDINGS_DIR / f"{uid}_{int(time.time())}_{safe_name(raw.name, 'audio'+ext)}"
+                            shutil.copy2(raw, stored_raw)
+                        log_interaction("stt.success", "speech transcription complete", user_id=uid, language=data.get("language"), chars=len(data.get("text", "")))
+                        return self._json({"text": data.get("text", ""), "language": data.get("language")})
+                    except Exception as e:
+                        log_interaction("stt.error", "openai stt failure", user_id=uid, error=str(e)[:500])
+                        return self._json({"error": f"STT failed: {e}"}, 500)
+                return self._json({"error":"Local provider not implemented yet"}, 400)
+            finally:
+                if raw.exists():
+                    raw.unlink(missing_ok=True)
+                if wav.exists():
+                    wav.unlink(missing_ok=True)
         if self.path == "/api/tts/stream":
             return self._json({"todo": "Streaming TTS endpoint foundation placeholder"}, 501)
         return self._json({"error": "not found"}, 404)
@@ -1098,7 +1197,7 @@ class Handler(BaseHTTPRequestHandler):
 
 
 def main():
-    ensure_dirs(); init_db(); rotate_logs(); backup_db_if_needed()
+    ensure_dirs(); setup_file_logger(); init_db(); rotate_logs(); backup_db_if_needed()
     server = GracefulThreadingHTTPServer(("0.0.0.0", PORT), Handler)
     shutdown_requested = threading.Event()
 
