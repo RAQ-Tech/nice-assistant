@@ -10,6 +10,7 @@ from app.server import (
     local_negative_prompt,
     model_image_instruction_for_provider,
     normalize_image_quality,
+    normalize_local_image_base_url,
     normalize_image_size,
     parse_image_size,
     user_safe_image_error,
@@ -61,6 +62,18 @@ class UserSafeImageErrorTests(unittest.TestCase):
         self.assertIn("flagged by safety filters", message)
         self.assertIn("safety", detail.lower())
         self.assertEqual(req_id, "req_abc123")
+
+
+
+
+class LocalImageBaseUrlTests(unittest.TestCase):
+    def test_blank_base_url_uses_server_default(self):
+        normalized = normalize_local_image_base_url('')
+        self.assertTrue(normalized.startswith('http'))
+
+    def test_invalid_base_url_raises(self):
+        with self.assertRaises(ValueError):
+            normalize_local_image_base_url('automatic1111:7860')
 
 
 class NormalizeImageQualityTests(unittest.TestCase):
