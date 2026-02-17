@@ -794,26 +794,6 @@ class Handler(BaseHTTPRequestHandler):
             self.wfile.write(target.read_bytes())
             log_interaction("log.download", "user downloaded diagnostic log", user_id=uid)
             return
-        if self.path == "/api/images/generate":
-            b = self._read_json() or {}
-            prompt = str(b.get("prompt") or "").strip()
-            chat_id = b.get("chatId")
-            if not prompt:
-                return self._json({"error": "prompt required"}, 400)
-            conn = db_conn()
-            settings = conn.execute("SELECT * FROM app_settings WHERE user_id=?", (uid,)).fetchone()
-            prefs = parse_preferences_json(settings["preferences_json"] if settings else "{}")
-            reply, image_url = generate_image_reply(prompt, uid, chat_id, settings, prefs)
-            if image_url and chat_id:
-                owns = conn.execute("SELECT id FROM chats WHERE id=? AND user_id=?", (chat_id, uid)).fetchone()
-                if owns:
-                    conn.execute("INSERT INTO messages(id,chat_id,role,text,created_at) VALUES(?,?,?,?,?)", (secrets.token_hex(8), chat_id, "assistant", reply, now_ts()))
-                    conn.execute("UPDATE chats SET updated_at=? WHERE id=?", (now_ts(), chat_id))
-                    conn.commit()
-            conn.close()
-            if image_url:
-                return self._json({"ok": True, "text": reply, "imageUrl": image_url})
-            return self._json({"ok": False, "text": reply}, 400)
         if self.path == "/api/settings":
             uid = self._require_auth();
             if not uid: return
@@ -870,6 +850,26 @@ class Handler(BaseHTTPRequestHandler):
             details = b.get("details") if isinstance(b.get("details"), dict) else {}
             log_interaction(event_type, message, user_id=uid, **details)
             return self._json({"ok": True})
+        if self.path == "/api/images/generate":
+            b = self._read_json() or {}
+            prompt = str(b.get("prompt") or "").strip()
+            chat_id = b.get("chatId")
+            if not prompt:
+                return self._json({"error": "prompt required"}, 400)
+            conn = db_conn()
+            settings = conn.execute("SELECT * FROM app_settings WHERE user_id=?", (uid,)).fetchone()
+            prefs = parse_preferences_json(settings["preferences_json"] if settings else "{}")
+            reply, image_url = generate_image_reply(prompt, uid, chat_id, settings, prefs)
+            if image_url and chat_id:
+                owns = conn.execute("SELECT id FROM chats WHERE id=? AND user_id=?", (chat_id, uid)).fetchone()
+                if owns:
+                    conn.execute("INSERT INTO messages(id,chat_id,role,text,created_at) VALUES(?,?,?,?,?)", (secrets.token_hex(8), chat_id, "assistant", reply, now_ts()))
+                    conn.execute("UPDATE chats SET updated_at=? WHERE id=?", (now_ts(), chat_id))
+                    conn.commit()
+            conn.close()
+            if image_url:
+                return self._json({"ok": True, "text": reply, "imageUrl": image_url})
+            return self._json({"ok": False, "text": reply}, 400)
         if self.path == "/api/workspaces":
             b = self._read_json(); wid = secrets.token_hex(8)
             conn = db_conn(); conn.execute("INSERT INTO workspaces(id,user_id,name,created_at) VALUES(?,?,?,?)", (wid, uid, b.get("name", "Workspace"), now_ts())); conn.commit(); conn.close()
