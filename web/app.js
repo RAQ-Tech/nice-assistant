@@ -99,6 +99,7 @@ const SETTINGS_DEFAULTS = {
   video_quality: 'medium',
   video_duration: '5',
   image_local_allow_nsfw: false,
+  image_local_base_url: '',
   memory_auto_save_user_facts: true,
   user_display_name: '',
   user_timezone: 'local',
@@ -177,7 +178,7 @@ const SETTINGS_SECTION_KEYS = {
   General: ['general_theme', 'general_show_system_messages', 'general_show_thinking', 'general_auto_logout', 'global_default_model'],
   TTS: ['tts_provider', 'tts_format', 'tts_voice', 'tts_model', 'tts_speed'],
   STT: ['stt_provider', 'stt_language', 'stt_store_recordings'],
-  'Image Generation': ['image_provider', 'image_size', 'image_quality'],
+  'Image Generation': ['image_provider', 'image_size', 'image_quality', 'image_local_base_url'],
   'Video Generation': ['video_provider', 'video_model', 'video_size', 'video_quality', 'video_duration'],
   Memory: ['default_memory_mode', 'memory_auto_save_user_facts'],
   User: ['user_display_name', 'user_timezone'],
@@ -198,6 +199,7 @@ function normalizeSettings(raw = {}) {
   normalized.image_quality = normalizeImageQuality(normalized.image_quality);
   normalized.image_size = normalizeImageSize(normalized.image_size);
   normalized.video_quality = normalizeImageQuality(normalized.video_quality);
+  normalized.image_local_base_url = (normalized.image_local_base_url || '').trim();
   normalized.video_size = normalizeImageSize(normalized.video_size);
   return normalized;
 }
@@ -233,6 +235,7 @@ function settingsPayload(nextSettings) {
     video_quality: normalizeImageQuality(nextSettings.video_quality),
     video_duration: nextSettings.video_duration,
     image_local_allow_nsfw: Boolean(nextSettings.image_local_allow_nsfw),
+    image_local_base_url: (nextSettings.image_local_base_url || '').trim(),
     memory_auto_save_user_facts: Boolean(nextSettings.memory_auto_save_user_facts),
     user_display_name: nextSettings.user_display_name,
     user_timezone: nextSettings.user_timezone,
@@ -1742,6 +1745,14 @@ function settingsPanel() {
       el('label', { textContent: 'Provider' }),
       el('select', { class: 'chip-select', onchange: (e) => setVal('image_provider', e.target.value) }, ['disabled', 'openai', 'local'].map((x) => el('option', { value: x, textContent: x, selected: x === state.settings.image_provider }))),
       ...(state.settings.image_provider === 'local' ? [
+        el('label', { textContent: 'Automatic1111 URL' }),
+        el('input', {
+          class: 'search-input',
+          value: state.settings.image_local_base_url || '',
+          placeholder: 'http://automatic1111:7860',
+          oninput: (e) => setVal('image_local_base_url', e.target.value),
+        }),
+        el('div', { class: 'meta', textContent: 'Leave blank to use the server default AUTOMATIC1111_BASE_URL.' }),
         el('label', { class: 'checkbox-row' }, [
           el('input', { type: 'checkbox', checked: Boolean(state.settings.image_local_allow_nsfw), onchange: (e) => setVal('image_local_allow_nsfw', e.target.checked) }),
           'Allow NSFW prompts (off by default)',

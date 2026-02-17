@@ -486,7 +486,15 @@ def openai_image(prompt, size, quality, api_key):
     raise ValueError("Image response did not include data")
 
 
-def automatic1111_image(prompt, size, quality, allow_nsfw):
+def normalize_local_image_base_url(base_url):
+    candidate = (base_url or "").strip() or AUTOMATIC1111_BASE_URL
+    parsed = urllib.parse.urlparse(candidate)
+    if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+        raise ValueError("Local image server URL must be a valid http(s) URL")
+    return candidate.rstrip("/")
+
+
+def automatic1111_image(prompt, size, quality, allow_nsfw, base_url=None):
     width, height = parse_image_size(size)
     tuned_prompt = adjust_prompt_for_local_sd(prompt, allow_nsfw)
     payload = {
@@ -498,8 +506,9 @@ def automatic1111_image(prompt, size, quality, allow_nsfw):
         "cfg_scale": 7,
         "sampler_name": "DPM++ 2M Karras",
     }
+    request_base_url = normalize_local_image_base_url(base_url)
     req = urllib.request.Request(
-        f"{AUTOMATIC1111_BASE_URL.rstrip('/')}/sdapi/v1/txt2img",
+        f"{request_base_url}/sdapi/v1/txt2img",
         data=json.dumps(payload).encode(),
         headers={"Content-Type": "application/json"},
         method="POST",
@@ -738,6 +747,7 @@ def generate_image_reply(prompt, uid, chat_id, settings_row, prefs, context_hint
     image_size = normalize_image_size((prefs or {}).get("image_size") or "1024x1024")
     image_quality = (prefs or {}).get("image_quality") or "standard"
     image_local_allow_nsfw = bool((prefs or {}).get("image_local_allow_nsfw", False))
+    image_local_base_url = (prefs or {}).get("image_local_base_url")
     image_id = secrets.token_hex(12)
     image_ext = "png"
     image_name = f"{uid}_{image_id}.{image_ext}"
@@ -750,7 +760,7 @@ def generate_image_reply(prompt, uid, chat_id, settings_row, prefs, context_hint
                 return "Image generation is enabled for OpenAI, but your OpenAI API key is missing in Settings.", ""
             image_bytes = openai_image(effective_prompt, image_size, image_quality, key)
         elif image_provider == "local":
-            image_bytes = automatic1111_image(effective_prompt, image_size, image_quality, image_local_allow_nsfw)
+            image_bytes = automatic1111_image(effective_prompt, image_size, image_quality, image_local_allow_nsfw, image_local_base_url)
         else:
             return f"Image provider '{image_provider}' is not recognized by the server. Choose 'openai' or 'local'.", ""
         image_path.write_bytes(image_bytes)
