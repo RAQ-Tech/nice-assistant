@@ -14,6 +14,7 @@ import urllib.request
 import urllib.error
 import signal
 import threading
+import re
 from datetime import datetime, timezone
 from email.parser import BytesParser
 from email.policy import default
@@ -48,6 +49,7 @@ IMAGE_QUALITY_ALIASES = {
     "hd": "high",
 }
 IMAGE_QUALITY_VALUES = {"low", "medium", "high", "auto"}
+SUPPORTED_IMAGE_SIZES = {"1024x1024", "1024x1536", "1536x1024", "auto"}
 
 
 def ensure_dirs():
@@ -94,7 +96,14 @@ def init_db():
             traits_json TEXT DEFAULT '{}',
             default_model TEXT,
             preferred_voice TEXT,
+            preferred_tts_model TEXT,
+            preferred_tts_speed TEXT,
             created_at INTEGER NOT NULL
+        );
+        CREATE TABLE IF NOT EXISTS persona_workspace_links (
+            persona_id TEXT NOT NULL,
+            workspace_id TEXT NOT NULL,
+            PRIMARY KEY (persona_id, workspace_id)
         );
         CREATE TABLE IF NOT EXISTS chats (
             id TEXT PRIMARY KEY,
@@ -169,6 +178,17 @@ def init_db():
         conn.execute("ALTER TABLE personas ADD COLUMN traits_json TEXT DEFAULT '{}'")
         conn.execute("UPDATE personas SET traits_json='{}' WHERE traits_json IS NULL")
         conn.commit()
+    if "preferred_tts_model" not in persona_cols:
+        conn.execute("ALTER TABLE personas ADD COLUMN preferred_tts_model TEXT")
+        conn.commit()
+    if "preferred_tts_speed" not in persona_cols:
+        conn.execute("ALTER TABLE personas ADD COLUMN preferred_tts_speed TEXT")
+        conn.commit()
+    conn.execute("CREATE TABLE IF NOT EXISTS persona_workspace_links (persona_id TEXT NOT NULL, workspace_id TEXT NOT NULL, PRIMARY KEY (persona_id, workspace_id))")
+    conn.execute(
+        "INSERT OR IGNORE INTO persona_workspace_links(persona_id, workspace_id) SELECT id, workspace_id FROM personas WHERE workspace_id IS NOT NULL"
+    )
+    conn.commit()
     conn.close()
 
 
@@ -358,8 +378,8 @@ def parse_multipart_form_data(content_type, body):
         }
     return fields
 
-def openai_speech(text, voice, fmt, api_key):
-    payload = json.dumps({"model": "gpt-4o-mini-tts", "input": text, "voice": voice or "alloy", "format": fmt}).encode()
+def openai_speech(text, voice, fmt, api_key, model="gpt-4o-mini-tts", speed="1"):
+    payload = json.dumps({"model": model or "gpt-4o-mini-tts", "input": text, "voice": voice or "alloy", "format": fmt, "speed": speed or "1"}).encode()
     req = urllib.request.Request(
         "https://api.openai.com/v1/audio/speech",
         data=payload,
@@ -431,6 +451,35 @@ def normalize_image_quality(quality):
     return "auto"
 
 
+def normalize_image_size(size):
+    if size in SUPPORTED_IMAGE_SIZES:
+        return size
+    return "1024x1024"
+
+
+def _extract_openai_error_detail(exc):
+    if not isinstance(exc, urllib.error.HTTPError):
+        return ""
+    try:
+        body = exc.read().decode("utf-8", errors="replace")
+        if not body:
+            return ""
+        parsed = json.loads(body)
+        return ((parsed.get("error") or {}).get("message") or parsed.get("message") or "").strip()
+    except Exception:
+        return ""
+
+
+def log_image_error(uid, chat_id, detail):
+    try:
+        stamp = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        target = LOG_DIR / f"image_generation_{stamp}.log"
+        with target.open("a", encoding="utf-8") as f:
+            f.write(f"{datetime.now(timezone.utc).isoformat()} user={uid} chat={chat_id} detail={detail}\n")
+    except Exception:
+        logger.exception("failed to write image error log")
+
+
 def looks_like_image_request(text):
     if not text:
         return False
@@ -443,34 +492,29 @@ def looks_like_image_request(text):
 
 
 def user_safe_image_error(exc):
+    detail = _extract_openai_error_detail(exc)
+    req_match = re.search(r"(req_[a-zA-Z0-9]+)", detail or "")
+    req_id = req_match.group(1) if req_match else ""
+    if "safety" in (detail or "").lower() or "safety_violations" in (detail or "").lower():
+        return "I couldn't generate that image because the request was flagged by safety filters. Please try a safer rewording.", detail, req_id
+    if "Supported values are" in (detail or "") and "Invalid value" in (detail or ""):
+        return "That image size is not supported by OpenAI. Please choose 1024x1024, 1024x1536, 1536x1024, or auto.", detail, req_id
     if isinstance(exc, urllib.error.HTTPError):
         status = exc.code
-        detail = ""
-        try:
-            body = exc.read().decode("utf-8", errors="replace")
-            if body:
-                parsed = json.loads(body)
-                detail = (
-                    (parsed.get("error") or {}).get("message")
-                    or parsed.get("message")
-                    or ""
-                )
-        except Exception:
-            detail = ""
         if status in (401, 403):
-            return "Image generation failed: OpenAI rejected the request (check API key and image model access)."
+            return "Image generation failed: OpenAI rejected the request (check API key and image model access).", detail, req_id
         if status == 429:
-            return "Image generation is rate limited by OpenAI right now. Please retry in a moment."
+            return "Image generation is rate limited by OpenAI right now. Please retry in a moment.", detail, req_id
         if status in (400, 404):
-            return f"Image generation request was rejected by OpenAI: {detail or f'HTTP {status}'}"
+            return "OpenAI couldn't generate that image from the current request. Please revise the prompt and try again.", detail, req_id
         if 500 <= status <= 599:
-            return "Image generation is temporarily unavailable from OpenAI. Please try again shortly."
-        return f"Image generation failed with OpenAI error HTTP {status}."
+            return "Image generation is temporarily unavailable from OpenAI. Please try again shortly.", detail, req_id
+        return f"Image generation failed with OpenAI error HTTP {status}.", detail, req_id
     if isinstance(exc, urllib.error.URLError):
-        return "Image generation is currently unavailable because the image provider could not be reached. Please try again in a moment."
+        return "Image generation is currently unavailable because the image provider could not be reached. Please try again in a moment.", detail, req_id
     if isinstance(exc, TimeoutError):
-        return "Image generation timed out. Please try again with a shorter prompt or retry shortly."
-    return "Image generation failed unexpectedly. Please try again."
+        return "Image generation timed out. Please try again with a shorter prompt or retry shortly.", detail, req_id
+    return "Image generation failed unexpectedly. Please try again.", detail, req_id
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -586,7 +630,12 @@ class Handler(BaseHTTPRequestHandler):
         if self.path == "/api/personas":
             uid = self._require_auth();
             if not uid: return
-            conn = db_conn(); rows = [dict(r) for r in conn.execute("SELECT p.* FROM personas p JOIN workspaces w ON p.workspace_id=w.id WHERE w.user_id=?", (uid,)).fetchall()]; conn.close()
+            conn = db_conn()
+            rows = [dict(r) for r in conn.execute("SELECT p.* FROM personas p JOIN workspaces w ON p.workspace_id=w.id WHERE w.user_id=?", (uid,)).fetchall()]
+            for row in rows:
+                links = [r[0] for r in conn.execute("SELECT workspace_id FROM persona_workspace_links WHERE persona_id=? ORDER BY workspace_id", (row["id"],)).fetchall()]
+                row["workspace_ids"] = links or [row["workspace_id"]]
+            conn.close()
             return self._json({"items": rows})
         if self.path == "/api/chats":
             uid = self._require_auth();
@@ -667,7 +716,7 @@ class Handler(BaseHTTPRequestHandler):
             created = now_ts()
             expires = created + SESSION_TTL_SECONDS
             conn.execute("INSERT INTO sessions(token,user_id,created_at,expires_at) VALUES (?,?,?,?)", (tok, row["id"], created, expires)); conn.commit(); conn.close()
-            return self._json({"ok": True, "userId": row["id"], "expiresAt": expires, "ttlSeconds": SESSION_TTL_SECONDS}, cookie=f"{SESSION_COOKIE}={tok}; Max-Age={SESSION_TTL_SECONDS}; Path=/; HttpOnly; SameSite=Lax")
+            return self._json({"ok": True, "userId": row["id"], "expiresAt": expires, "ttlSeconds": SESSION_TTL_SECONDS}, cookie=f"{SESSION_COOKIE}={tok}; Max-Age={60*60*24*30}; Path=/; HttpOnly; SameSite=Lax")
         if self.path == "/api/logout":
             tok = self._cookies().get(SESSION_COOKIE)
             if tok:
@@ -681,7 +730,11 @@ class Handler(BaseHTTPRequestHandler):
             return self._json({"id": wid})
         if self.path == "/api/personas":
             b = self._read_json(); pid = secrets.token_hex(8)
-            conn = db_conn(); conn.execute("INSERT INTO personas(id,workspace_id,name,avatar_url,system_prompt,personality_details,traits_json,default_model,preferred_voice,created_at) VALUES(?,?,?,?,?,?,?,?,?,?)", (pid,b.get("workspaceId"),b.get("name","Persona"),b.get("avatarUrl"),b.get("systemPrompt"),b.get("personalityDetails"),json.dumps(b.get("traits") or {}),b.get("defaultModel"),b.get("preferredVoice"),now_ts())); conn.commit(); conn.close()
+            workspace_id = b.get("workspaceId")
+            conn = db_conn()
+            conn.execute("INSERT INTO personas(id,workspace_id,name,avatar_url,system_prompt,personality_details,traits_json,default_model,preferred_voice,preferred_tts_model,preferred_tts_speed,created_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)", (pid,workspace_id,b.get("name","Persona"),b.get("avatarUrl"),b.get("systemPrompt"),b.get("personalityDetails"),json.dumps(b.get("traits") or {}),b.get("defaultModel"),b.get("preferredVoice"),b.get("preferredTtsModel"),b.get("preferredTtsSpeed"),now_ts()))
+            conn.execute("INSERT OR IGNORE INTO persona_workspace_links(persona_id, workspace_id) VALUES(?,?)", (pid, workspace_id))
+            conn.commit(); conn.close()
             return self._json({"id": pid})
         if self.path == "/api/chats":
             b = self._read_json(); cid = secrets.token_hex(8); t=now_ts()
@@ -738,7 +791,7 @@ class Handler(BaseHTTPRequestHandler):
                     if not key:
                         reply = "Image generation is enabled for OpenAI, but your OpenAI API key is missing in Settings."
                     else:
-                        image_size = prefs.get("image_size") or "1024x1024"
+                        image_size = normalize_image_size(prefs.get("image_size") or "1024x1024")
                         image_quality = prefs.get("image_quality") or "standard"
                         image_id = secrets.token_hex(12)
                         image_ext = "png"
@@ -751,7 +804,9 @@ class Handler(BaseHTTPRequestHandler):
                             reply = f"Here is your generated image.\n\n![Generated image]({image_url})"
                         except Exception as e:
                             logger.exception("image generation failed user_id=%s chat_id=%s", uid, chat_id)
-                            reply = user_safe_image_error(e)
+                            reply, detail, req_id = user_safe_image_error(e)
+                            if detail:
+                                log_image_error(uid, chat_id, f"request_id={req_id or 'n/a'} {detail}")
 
                 conn.execute("INSERT INTO messages(id,chat_id,role,text,created_at) VALUES(?,?,?,?,?)", (secrets.token_hex(8),chat_id,"assistant",reply,now_ts()))
                 conn.execute("UPDATE chats SET updated_at=?, memory_mode=?, persona_id=?, workspace_id=?, model_override=? WHERE id=?", (now_ts(), mem_mode, persona_id, workspace_id, b.get("model") or chat["model_override"], chat_id))
@@ -811,7 +866,7 @@ class Handler(BaseHTTPRequestHandler):
                 if not owns:
                     conn.close(); return self._json({"error": "workspace not found"}, 404)
             elif tier == "persona":
-                owns = conn.execute("SELECT p.id FROM personas p JOIN workspaces w ON p.workspace_id=w.id WHERE p.id=? AND w.user_id=?", (ref, uid)).fetchone()
+                owns = conn.execute("SELECT p.id FROM personas p WHERE p.id=? AND EXISTS (SELECT 1 FROM persona_workspace_links l JOIN workspaces w ON w.id=l.workspace_id WHERE l.persona_id=p.id AND w.user_id=?)", (ref, uid)).fetchone()
                 if not owns:
                     conn.close(); return self._json({"error": "persona not found"}, 404)
             elif tier == "chat":
@@ -822,20 +877,24 @@ class Handler(BaseHTTPRequestHandler):
         if self.path == "/api/tts":
             b = self._read_json(); text=b.get("text","")
             conn = db_conn(); settings = conn.execute("SELECT * FROM app_settings WHERE user_id=?", (uid,)).fetchone()
-            if not settings or settings["tts_provider"] == "disabled": return self._json({"error":"TTS disabled"}, 400)
+            if not settings or settings["tts_provider"] == "disabled":
+                conn.close(); return self._json({"error":"TTS disabled"}, 400)
             fmt = b.get("format") or settings["tts_format"] or "wav"
-            preferred_voice = (b.get("voice") or "").strip()
+            persona_id = b.get("personaId")
+            persona = conn.execute("SELECT preferred_voice, preferred_tts_model, preferred_tts_speed FROM personas WHERE id=?", (persona_id,)).fetchone() if persona_id else None
+            preferred_voice = (b.get("voice") or ((persona and persona["preferred_voice"]) or "")).strip()
+            preferred_model = (b.get("model") or ((persona and persona["preferred_tts_model"]) or "")).strip()
+            preferred_speed = (b.get("speed") or ((persona and persona["preferred_tts_speed"]) or "")).strip()
+            try:
+                prefs = json.loads(settings["preferences_json"] or "{}")
+            except (TypeError, ValueError):
+                prefs = {}
             if not preferred_voice:
-                persona_id = b.get("personaId")
-                if persona_id:
-                    persona = conn.execute("SELECT preferred_voice FROM personas WHERE id=?", (persona_id,)).fetchone()
-                    preferred_voice = ((persona and persona["preferred_voice"]) or "").strip()
-            if not preferred_voice:
-                try:
-                    prefs = json.loads(settings["preferences_json"] or "{}")
-                except (TypeError, ValueError):
-                    prefs = {}
                 preferred_voice = (prefs.get("tts_voice") or "alloy").strip()
+            if not preferred_model:
+                preferred_model = (prefs.get("tts_model") or "gpt-4o-mini-tts").strip()
+            if not preferred_speed:
+                preferred_speed = str(prefs.get("tts_speed") or "1")
             conn.close()
             out_id = secrets.token_hex(8)
             out_path = AUDIO_DIR / f"{out_id}.{fmt}"
@@ -843,7 +902,7 @@ class Handler(BaseHTTPRequestHandler):
                 key = settings["openai_api_key"]
                 if not key: return self._json({"error":"OPENAI API key missing"}, 400)
                 try:
-                    audio = openai_speech(text, preferred_voice, fmt, key)
+                    audio = openai_speech(text, preferred_voice, fmt, key, preferred_model, preferred_speed)
                     out_path.write_bytes(audio)
                 except Exception as e:
                     return self._json({"error": f"TTS failed: {e}"}, 500)
@@ -913,14 +972,25 @@ class Handler(BaseHTTPRequestHandler):
         if self.path.startswith("/api/personas/"):
             pid = self.path.rsplit("/", 1)[-1]; b = self._read_json()
             conn = db_conn()
-            row = conn.execute("SELECT p.* FROM personas p JOIN workspaces w ON p.workspace_id=w.id WHERE p.id=? AND w.user_id=?", (pid, uid)).fetchone()
+            row = conn.execute("SELECT p.* FROM personas p WHERE p.id=? AND EXISTS (SELECT 1 FROM persona_workspace_links l JOIN workspaces w ON w.id=l.workspace_id WHERE l.persona_id=p.id AND w.user_id=?)", (pid, uid)).fetchone()
             if not row:
                 conn.close(); return self._json({"error": "not found"}, 404)
+            workspace_ids = b.get("workspace_ids")
+            if workspace_ids is not None:
+                workspace_ids = [wid for wid in workspace_ids if wid]
+                if not workspace_ids:
+                    conn.close(); return self._json({"error": "workspace_ids must include at least one workspace"}, 400)
+                for wid in workspace_ids:
+                    owns_workspace = conn.execute("SELECT id FROM workspaces WHERE id=? AND user_id=?", (wid, uid)).fetchone()
+                    if not owns_workspace:
+                        conn.close(); return self._json({"error": "workspace not found"}, 404)
+            else:
+                workspace_ids = [r[0] for r in conn.execute("SELECT workspace_id FROM persona_workspace_links WHERE persona_id=?", (pid,)).fetchall()] or [row["workspace_id"]]
+                if b.get("workspace_id") and b.get("workspace_id") not in workspace_ids:
+                    workspace_ids.append(b.get("workspace_id"))
             workspace_id = b.get("workspace_id", row["workspace_id"])
-            if workspace_id != row["workspace_id"]:
-                owns_workspace = conn.execute("SELECT id FROM workspaces WHERE id=? AND user_id=?", (workspace_id, uid)).fetchone()
-                if not owns_workspace:
-                    conn.close(); return self._json({"error": "workspace not found"}, 404)
+            if workspace_id not in workspace_ids:
+                workspace_ids.insert(0, workspace_id)
             conn.execute("UPDATE personas SET name=?, system_prompt=?, default_model=?, workspace_id=? WHERE id=?", (
                 b.get("name", row["name"]),
                 b.get("system_prompt", row["system_prompt"]),
@@ -928,14 +998,19 @@ class Handler(BaseHTTPRequestHandler):
                 workspace_id,
                 pid,
             ))
-            if "avatar_url" in b or "personality_details" in b or "traits" in b or "preferred_voice" in b:
-                conn.execute("UPDATE personas SET avatar_url=?, personality_details=?, traits_json=?, preferred_voice=? WHERE id=?", (
+            if "avatar_url" in b or "personality_details" in b or "traits" in b or "preferred_voice" in b or "preferred_tts_model" in b or "preferred_tts_speed" in b:
+                conn.execute("UPDATE personas SET avatar_url=?, personality_details=?, traits_json=?, preferred_voice=?, preferred_tts_model=?, preferred_tts_speed=? WHERE id=?", (
                     b.get("avatar_url", row["avatar_url"]),
                     b.get("personality_details", row["personality_details"]),
                     json.dumps(b.get("traits", json.loads(row["traits_json"] or "{}"))),
                     b.get("preferred_voice", row["preferred_voice"]),
+                    b.get("preferred_tts_model", row["preferred_tts_model"]),
+                    b.get("preferred_tts_speed", row["preferred_tts_speed"]),
                     pid,
                 ))
+            conn.execute("DELETE FROM persona_workspace_links WHERE persona_id=?", (pid,))
+            for wid in workspace_ids:
+                conn.execute("INSERT OR IGNORE INTO persona_workspace_links(persona_id, workspace_id) VALUES(?,?)", (pid, wid))
             conn.commit(); conn.close(); return self._json({"ok": True})
         if self.path.startswith("/api/memory/"):
             mid = self.path.rsplit("/", 1)[-1]; b = self._read_json()
@@ -952,7 +1027,7 @@ class Handler(BaseHTTPRequestHandler):
                 if not owns:
                     conn.close(); return self._json({"error": "workspace not found"}, 404)
             elif new_tier == "persona":
-                owns = conn.execute("SELECT p.id FROM personas p JOIN workspaces w ON p.workspace_id=w.id WHERE p.id=? AND w.user_id=?", (new_ref, uid)).fetchone()
+                owns = conn.execute("SELECT p.id FROM personas p WHERE p.id=? AND EXISTS (SELECT 1 FROM persona_workspace_links l JOIN workspaces w ON w.id=l.workspace_id WHERE l.persona_id=p.id AND w.user_id=?)", (new_ref, uid)).fetchone()
                 if not owns:
                     conn.close(); return self._json({"error": "persona not found"}, 404)
             elif new_tier == "chat":
@@ -981,11 +1056,12 @@ class Handler(BaseHTTPRequestHandler):
         if self.path.startswith("/api/personas/"):
             pid = self.path.rsplit("/", 1)[-1]
             conn = db_conn()
-            owns = conn.execute("SELECT p.id FROM personas p JOIN workspaces w ON p.workspace_id=w.id WHERE p.id=? AND w.user_id=?", (pid, uid)).fetchone()
+            owns = conn.execute("SELECT p.id FROM personas p WHERE p.id=? AND EXISTS (SELECT 1 FROM persona_workspace_links l JOIN workspaces w ON w.id=l.workspace_id WHERE l.persona_id=p.id AND w.user_id=?)", (pid, uid)).fetchone()
             if not owns:
                 conn.close(); return self._json({"error": "not found"}, 404)
             conn.execute("UPDATE chats SET persona_id=NULL WHERE user_id=? AND persona_id=?", (uid, pid))
             conn.execute("DELETE FROM memories WHERE user_id=? AND tier='persona' AND tier_ref_id=?", (uid, pid))
+            conn.execute("DELETE FROM persona_workspace_links WHERE persona_id=?", (pid,))
             conn.execute("DELETE FROM personas WHERE id=?", (pid,))
             conn.commit(); conn.close(); return self._json({"ok": True})
         if self.path.startswith("/api/workspaces/"):
@@ -994,7 +1070,7 @@ class Handler(BaseHTTPRequestHandler):
             owns = conn.execute("SELECT id FROM workspaces WHERE id=? AND user_id=?", (wid, uid)).fetchone()
             if not owns:
                 conn.close(); return self._json({"error": "not found"}, 404)
-            persona_count = conn.execute("SELECT COUNT(*) AS c FROM personas WHERE workspace_id=?", (wid,)).fetchone()["c"]
+            persona_count = conn.execute("SELECT COUNT(*) AS c FROM persona_workspace_links WHERE workspace_id=?", (wid,)).fetchone()["c"]
             chat_count = conn.execute("SELECT COUNT(*) AS c FROM chats WHERE user_id=? AND workspace_id=?", (uid, wid)).fetchone()["c"]
             if persona_count or chat_count:
                 conn.close(); return self._json({"error": "workspace not empty; remove personas/chats first"}, 400)
