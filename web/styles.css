@@ -177,6 +177,15 @@ button, input, select, textarea {
 .icon-btn:hover, .send-btn:hover, .talk-btn:hover, .pill-btn:hover { transform: translateY(-1px); border-color: var(--accent); }
 
 .header-meta { display: flex; flex-direction: column; min-width: 0; gap: .25rem; }
+.topbar-avatar {
+  width: 56px;
+  height: 56px;
+  border-radius: 999px;
+  object-fit: cover;
+  border: 1px solid var(--border);
+  cursor: zoom-in;
+}
+
 .header-title { font-size: 1rem; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .chips { display: flex; gap: .35rem; flex-wrap: wrap; }
 .chip {
@@ -190,6 +199,7 @@ button, input, select, textarea {
 
 .status-pill { margin-left: auto; font-size: .79rem; border-radius: 999px; padding: .3rem .75rem; border:1px solid var(--border); }
 .status-listening { color: #7bffe0; border-color: rgba(123,255,224,.5); background: rgba(23,77,74,.45); }
+.status-recording { color: #7bffe0; border-color: rgba(123,255,224,.5); background: rgba(23,77,74,.45); }
 .status-thinking { color: #ffe9a5; border-color: rgba(255,233,165,.5); background: rgba(81,66,28,.45); }
 .status-speaking { color: #c5b5ff; border-color: rgba(197,181,255,.5); background: rgba(56,44,90,.45); }
 .status-idle { color: var(--text-dim); background: rgba(31, 51, 70, 0.35); }
@@ -205,8 +215,8 @@ button, input, select, textarea {
 .msg-wrap { display: flex; align-items:flex-start; }
 
 .msg-avatar {
-  width: 30px;
-  height: 30px;
+  width: 34px;
+  height: 34px;
   border-radius: 999px;
   object-fit: cover;
   border: 1px solid var(--border);
@@ -274,7 +284,7 @@ button, input, select, textarea {
 }
 
 .send-btn { background: linear-gradient(135deg, rgba(49,167,217,.85), rgba(137,80,255,.75)); border-color: rgba(185,230,255,.65); }
-.talk-btn.active { background: rgba(117, 255, 201, 0.2); border-color: rgba(117, 255, 201, 0.75); }
+.talk-btn.active, .talk-btn:active { background: rgba(117, 255, 201, 0.2); border-color: rgba(117, 255, 201, 0.75); color: #bfffe9; }
 
 .record-indicator { font-size: .78rem; color: var(--text-dim); }
 
