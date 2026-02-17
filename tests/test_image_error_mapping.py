@@ -12,6 +12,7 @@ from app.server import (
     normalize_image_quality,
     normalize_local_image_base_url,
     normalize_image_size,
+    parse_additional_parameters,
     parse_image_size,
     user_safe_image_error,
     visual_identity_context,
@@ -19,6 +20,17 @@ from app.server import (
 
 
 class UserSafeImageErrorTests(unittest.TestCase):
+    def test_openai_http_401_still_mentions_openai_key(self):
+        exc = urllib.error.HTTPError(
+            url="https://api.openai.com/v1/images/generations",
+            code=401,
+            msg="Unauthorized",
+            hdrs=None,
+            fp=io.BytesIO(b'{"error":{"message":"Invalid API key"}}'),
+        )
+        message, _, _ = user_safe_image_error(exc, provider="openai")
+        self.assertIn("OpenAI rejected", message)
+
     def test_http_401_returns_api_key_hint(self):
         exc = urllib.error.HTTPError(
             url="https://api.openai.com/v1/images/generations",
@@ -94,6 +106,31 @@ class NormalizeImageSizeTests(unittest.TestCase):
     def test_parse_image_size_defaults_for_auto(self):
         self.assertEqual(parse_image_size("auto"), (1024, 1024))
 
+
+
+
+class LocalParameterParsingTests(unittest.TestCase):
+    def test_parse_image_size_accepts_custom_when_enabled(self):
+        self.assertEqual(parse_image_size("768x1152", allow_custom=True), (768, 1152))
+
+    def test_additional_parameters_requires_object(self):
+        self.assertEqual(parse_additional_parameters('{"enable_hr": true}')["enable_hr"], True)
+        with self.assertRaises(ValueError):
+            parse_additional_parameters('[1,2,3]')
+
+
+class LocalProviderErrorMappingTests(unittest.TestCase):
+    def test_local_unauthorized_mentions_auth(self):
+        exc = urllib.error.HTTPError(
+            url="http://localhost:7860/sdapi/v1/txt2img",
+            code=401,
+            msg="Unauthorized",
+            hdrs=None,
+            fp=io.BytesIO(b'{"detail":"Not authenticated"}'),
+        )
+        message, detail, _ = user_safe_image_error(exc, provider="local")
+        self.assertIn("authentication", message.lower())
+        self.assertIn("Not authenticated", detail)
 
 class AdjustPromptTests(unittest.TestCase):
     def test_openai_prompt_produces_natural_language_safe_instruction(self):

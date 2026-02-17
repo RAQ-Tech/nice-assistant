@@ -93,6 +93,7 @@ const SETTINGS_DEFAULTS = {
   image_provider: 'disabled',
   image_size: '1024x1024',
   image_quality: 'auto',
+  image_prompt_generation: true,
   video_provider: 'disabled',
   video_model: 'sora-2',
   video_size: '1024x1024',
@@ -100,6 +101,14 @@ const SETTINGS_DEFAULTS = {
   video_duration: '5',
   image_local_allow_nsfw: false,
   image_local_base_url: '',
+  image_local_api_auth: '',
+  image_local_model: '',
+  image_local_steps: '28',
+  image_local_sampler_name: 'DPM++ 2M Karras',
+  image_local_scheduler: '',
+  image_local_cfg_scale: '7',
+  image_local_seed: '-1',
+  image_local_additional_parameters: '',
   memory_auto_save_user_facts: true,
   user_display_name: '',
   user_timezone: 'local',
@@ -166,7 +175,10 @@ function recordingFilenameForMime(mimeType) {
 }
 
 function normalizeImageSize(value) {
-  return SUPPORTED_IMAGE_SIZES.includes(value) ? value : SETTINGS_DEFAULTS.image_size;
+  const candidate = String(value || '').trim().toLowerCase();
+  if (SUPPORTED_IMAGE_SIZES.includes(candidate)) return candidate;
+  if (/^\d{2,5}x\d{2,5}$/.test(candidate)) return candidate;
+  return SETTINGS_DEFAULTS.image_size;
 }
 
 function normalizeImageQuality(value) {
@@ -178,7 +190,7 @@ const SETTINGS_SECTION_KEYS = {
   General: ['general_theme', 'general_show_system_messages', 'general_show_thinking', 'general_auto_logout', 'global_default_model'],
   TTS: ['tts_provider', 'tts_format', 'tts_voice', 'tts_model', 'tts_speed'],
   STT: ['stt_provider', 'stt_language', 'stt_store_recordings'],
-  'Image Generation': ['image_provider', 'image_size', 'image_quality', 'image_local_base_url'],
+  'Image Generation': ['image_provider', 'image_size', 'image_quality', 'image_prompt_generation', 'image_local_base_url', 'image_local_api_auth', 'image_local_model', 'image_local_steps', 'image_local_sampler_name', 'image_local_scheduler', 'image_local_cfg_scale', 'image_local_seed', 'image_local_additional_parameters'],
   'Video Generation': ['video_provider', 'video_model', 'video_size', 'video_quality', 'video_duration'],
   Memory: ['default_memory_mode', 'memory_auto_save_user_facts'],
   User: ['user_display_name', 'user_timezone'],
@@ -200,6 +212,7 @@ function normalizeSettings(raw = {}) {
   normalized.image_size = normalizeImageSize(normalized.image_size);
   normalized.video_quality = normalizeImageQuality(normalized.video_quality);
   normalized.image_local_base_url = (normalized.image_local_base_url || '').trim();
+  normalized.image_provider = normalized.image_provider === 'local/automatic1111' ? 'local' : normalized.image_provider;
   normalized.video_size = normalizeImageSize(normalized.video_size);
   return normalized;
 }
@@ -229,6 +242,7 @@ function settingsPayload(nextSettings) {
     image_provider: nextSettings.image_provider,
     image_size: normalizeImageSize(nextSettings.image_size),
     image_quality: normalizeImageQuality(nextSettings.image_quality),
+    image_prompt_generation: Boolean(nextSettings.image_prompt_generation),
     video_provider: nextSettings.video_provider,
     video_model: nextSettings.video_model,
     video_size: normalizeImageSize(nextSettings.video_size),
@@ -236,6 +250,14 @@ function settingsPayload(nextSettings) {
     video_duration: nextSettings.video_duration,
     image_local_allow_nsfw: Boolean(nextSettings.image_local_allow_nsfw),
     image_local_base_url: (nextSettings.image_local_base_url || '').trim(),
+    image_local_api_auth: (nextSettings.image_local_api_auth || '').trim(),
+    image_local_model: (nextSettings.image_local_model || '').trim(),
+    image_local_steps: String(nextSettings.image_local_steps || ''),
+    image_local_sampler_name: (nextSettings.image_local_sampler_name || '').trim(),
+    image_local_scheduler: (nextSettings.image_local_scheduler || '').trim(),
+    image_local_cfg_scale: String(nextSettings.image_local_cfg_scale || ''),
+    image_local_seed: String(nextSettings.image_local_seed || ''),
+    image_local_additional_parameters: nextSettings.image_local_additional_parameters || '',
     memory_auto_save_user_facts: Boolean(nextSettings.memory_auto_save_user_facts),
     user_display_name: nextSettings.user_display_name,
     user_timezone: nextSettings.user_timezone,
@@ -1753,6 +1775,10 @@ function settingsPanel() {
     'Image Generation': [
       el('label', { textContent: 'Provider' }),
       el('select', { class: 'chip-select', onchange: (e) => setVal('image_provider', e.target.value) }, ['disabled', 'openai', 'local'].map((x) => el('option', { value: x, textContent: x, selected: x === state.settings.image_provider }))),
+      el('label', { class: 'checkbox-row' }, [
+        el('input', { type: 'checkbox', checked: Boolean(state.settings.image_prompt_generation), onchange: (e) => setVal('image_prompt_generation', e.target.checked) }),
+        'Enable model-assisted image prompt generation',
+      ]),
       ...(state.settings.image_provider === 'local' ? [
         el('label', { textContent: 'Automatic1111 URL' }),
         el('input', {
@@ -1762,13 +1788,41 @@ function settingsPanel() {
           oninput: (e) => setVal('image_local_base_url', e.target.value),
         }),
         el('div', { class: 'meta', textContent: 'Leave blank to use the server default AUTOMATIC1111_BASE_URL.' }),
+        el('label', { textContent: 'AUTOMATIC1111 API Auth String' }),
+        el('input', {
+          class: 'search-input',
+          value: state.settings.image_local_api_auth || '',
+          placeholder: 'username:password',
+          oninput: (e) => setVal('image_local_api_auth', e.target.value),
+        }),
+        el('div', { class: 'meta', textContent: 'Optional. Use when webui runs with --api-auth username:password.' }),
+        el('label', { textContent: 'Model checkpoint' }),
+        el('input', { class: 'search-input', value: state.settings.image_local_model || '', placeholder: 'checkpoint filename or title', oninput: (e) => setVal('image_local_model', e.target.value) }),
+        el('label', { textContent: 'Sampling method' }),
+        el('input', { class: 'search-input', value: state.settings.image_local_sampler_name || '', placeholder: 'e.g. DPM++ 2M Karras', oninput: (e) => setVal('image_local_sampler_name', e.target.value) }),
+        el('label', { textContent: 'Schedule type' }),
+        el('input', { class: 'search-input', value: state.settings.image_local_scheduler || '', placeholder: 'e.g. Karras', oninput: (e) => setVal('image_local_scheduler', e.target.value) }),
+        el('label', { textContent: 'Steps' }),
+        el('input', { class: 'search-input', value: state.settings.image_local_steps || '', oninput: (e) => setVal('image_local_steps', e.target.value) }),
+        el('label', { textContent: 'CFG Scale' }),
+        el('input', { class: 'search-input', value: state.settings.image_local_cfg_scale || '', oninput: (e) => setVal('image_local_cfg_scale', e.target.value) }),
+        el('label', { textContent: 'Seed' }),
+        el('input', { class: 'search-input', value: state.settings.image_local_seed || '', oninput: (e) => setVal('image_local_seed', e.target.value) }),
+        el('label', { textContent: 'Additional Parameters (JSON object)' }),
+        el('textarea', { class: 'search-input', rows: 4, value: state.settings.image_local_additional_parameters || '', placeholder: '{"enable_hr":true}', oninput: (e) => setVal('image_local_additional_parameters', e.target.value) }),
         el('label', { class: 'checkbox-row' }, [
           el('input', { type: 'checkbox', checked: Boolean(state.settings.image_local_allow_nsfw), onchange: (e) => setVal('image_local_allow_nsfw', e.target.checked) }),
           'Allow NSFW prompts (off by default)',
         ]),
+        el('div', { class: 'meta', textContent: 'Stable Diffusion WebUI must be started with --api (and --api-auth if auth is required).' }),
       ] : []),
-      el('label', { textContent: 'Size' }),
-      el('select', { class: 'chip-select', onchange: (e) => setVal('image_size', e.target.value) }, SUPPORTED_IMAGE_SIZES.map((x) => el('option', { value: x, textContent: x, selected: x === state.settings.image_size }))),
+      el('label', { textContent: 'Size (WIDTHxHEIGHT or auto)' }),
+      el('input', {
+        class: 'search-input',
+        value: state.settings.image_size,
+        placeholder: state.settings.image_provider === 'openai' ? '1024x1024 | 1024x1536 | 1536x1024 | auto' : 'e.g. 768x1152',
+        oninput: (e) => setVal('image_size', e.target.value),
+      }),
       el('label', { textContent: 'Quality' }),
       el('select', { class: 'chip-select', onchange: (e) => setVal('image_quality', e.target.value) }, IMAGE_QUALITY_VALUES.map((x) => el('option', { value: x, textContent: x, selected: x === state.settings.image_quality }))),
     ],
