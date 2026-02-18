@@ -96,9 +96,8 @@ const SETTINGS_DEFAULTS = {
   image_prompt_generation: true,
   video_provider: 'disabled',
   video_model: 'sora-2',
-  video_size: '1024x1024',
-  video_quality: 'medium',
-  video_duration: '5',
+  video_size: '720x1280',
+  video_duration: '4',
   image_local_allow_nsfw: false,
   image_local_base_url: '',
   image_local_api_auth: '',
@@ -131,6 +130,12 @@ const IMAGE_QUALITY_ALIASES = {
 
 const IMAGE_QUALITY_VALUES = ['low', 'medium', 'high', 'auto'];
 const SUPPORTED_IMAGE_SIZES = ['1024x1024', '1024x1536', '1536x1024', 'auto'];
+const VIDEO_MODEL_VALUES = ['sora-2', 'sora-2-pro'];
+const VIDEO_SECONDS_VALUES = ['4', '8', '12'];
+const VIDEO_SIZES_BY_MODEL = {
+  'sora-2': ['720x1280', '1280x720'],
+  'sora-2-pro': ['720x1280', '1280x720', '1024x1792', '1792x1024'],
+};
 const LOCAL_IMAGE_NSFW_GUARD_PATTERN = /\b(nsfw|nude|naked|explicit|porn|sexual|sex|fetish|erotic|hardcore|xxx)\b/i;
 const STT_LANGUAGES = [
   { value: 'auto', label: 'Auto-detect' },
@@ -186,12 +191,33 @@ function normalizeImageQuality(value) {
   return IMAGE_QUALITY_VALUES.includes(normalized) ? normalized : SETTINGS_DEFAULTS.image_quality;
 }
 
+function normalizeVideoModel(value) {
+  const candidate = String(value || '').trim().toLowerCase();
+  return VIDEO_MODEL_VALUES.includes(candidate) ? candidate : SETTINGS_DEFAULTS.video_model;
+}
+
+function availableVideoSizes(model) {
+  return VIDEO_SIZES_BY_MODEL[normalizeVideoModel(model)] || VIDEO_SIZES_BY_MODEL['sora-2'];
+}
+
+function normalizeVideoSize(model, value) {
+  const candidate = String(value || '').trim().toLowerCase();
+  const options = availableVideoSizes(model);
+  if (options.includes(candidate)) return candidate;
+  return options[0];
+}
+
+function normalizeVideoDuration(value) {
+  const candidate = String(value || '').trim();
+  return VIDEO_SECONDS_VALUES.includes(candidate) ? candidate : SETTINGS_DEFAULTS.video_duration;
+}
+
 const SETTINGS_SECTION_KEYS = {
   General: ['general_theme', 'general_show_system_messages', 'general_show_thinking', 'general_auto_logout', 'global_default_model'],
   TTS: ['tts_provider', 'tts_format', 'tts_voice', 'tts_model', 'tts_speed'],
   STT: ['stt_provider', 'stt_language', 'stt_store_recordings'],
   'Image Generation': ['image_provider', 'image_size', 'image_quality', 'image_prompt_generation', 'image_local_base_url', 'image_local_api_auth', 'image_local_model', 'image_local_steps', 'image_local_sampler_name', 'image_local_scheduler', 'image_local_cfg_scale', 'image_local_seed', 'image_local_additional_parameters'],
-  'Video Generation': ['video_provider', 'video_model', 'video_size', 'video_quality', 'video_duration'],
+  'Video Generation': ['video_provider', 'video_model', 'video_size', 'video_duration'],
   Memory: ['default_memory_mode', 'memory_auto_save_user_facts'],
   User: ['user_display_name', 'user_timezone'],
   Personas: ['personas_default_system_prompt'],
@@ -210,10 +236,11 @@ function normalizeSettings(raw = {}) {
   }
   normalized.image_quality = normalizeImageQuality(normalized.image_quality);
   normalized.image_size = normalizeImageSize(normalized.image_size);
-  normalized.video_quality = normalizeImageQuality(normalized.video_quality);
   normalized.image_local_base_url = (normalized.image_local_base_url || '').trim();
   normalized.image_provider = normalized.image_provider === 'local/automatic1111' ? 'local' : normalized.image_provider;
-  normalized.video_size = normalizeImageSize(normalized.video_size);
+  normalized.video_model = normalizeVideoModel(normalized.video_model);
+  normalized.video_duration = normalizeVideoDuration(normalized.video_duration);
+  normalized.video_size = normalizeVideoSize(normalized.video_model, normalized.video_size);
   return normalized;
 }
 
@@ -244,10 +271,9 @@ function settingsPayload(nextSettings) {
     image_quality: normalizeImageQuality(nextSettings.image_quality),
     image_prompt_generation: Boolean(nextSettings.image_prompt_generation),
     video_provider: nextSettings.video_provider,
-    video_model: nextSettings.video_model,
-    video_size: normalizeImageSize(nextSettings.video_size),
-    video_quality: normalizeImageQuality(nextSettings.video_quality),
-    video_duration: nextSettings.video_duration,
+    video_model: normalizeVideoModel(nextSettings.video_model),
+    video_size: normalizeVideoSize(nextSettings.video_model, nextSettings.video_size),
+    video_duration: normalizeVideoDuration(nextSettings.video_duration),
     image_local_allow_nsfw: Boolean(nextSettings.image_local_allow_nsfw),
     image_local_base_url: (nextSettings.image_local_base_url || '').trim(),
     image_local_api_auth: (nextSettings.image_local_api_auth || '').trim(),
@@ -1861,14 +1887,22 @@ function settingsPanel() {
       el('label', { textContent: 'Provider' }),
       el('select', { class: 'chip-select', onchange: (e) => setVal('video_provider', e.target.value) }, ['disabled', 'openai'].map((x) => el('option', { value: x, textContent: x, selected: x === state.settings.video_provider }))),
       el('label', { textContent: 'Model' }),
-      el('input', { class: 'search-input', value: state.settings.video_model, oninput: (e) => setVal('video_model', e.target.value) }),
+      el('select', {
+        class: 'chip-select',
+        onchange: (e) => {
+          const model = normalizeVideoModel(e.target.value);
+          setVal('video_model', model);
+          setVal('video_size', normalizeVideoSize(model, state.settings.video_size));
+        },
+      }, VIDEO_MODEL_VALUES.map((x) => el('option', { value: x, textContent: x, selected: x === normalizeVideoModel(state.settings.video_model) }))),
       el('label', { textContent: 'Resolution' }),
-      el('select', { class: 'chip-select', onchange: (e) => setVal('video_size', e.target.value) }, SUPPORTED_IMAGE_SIZES.map((x) => el('option', { value: x, textContent: x, selected: x === state.settings.video_size }))),
-      el('label', { textContent: 'Quality' }),
-      el('select', { class: 'chip-select', onchange: (e) => setVal('video_quality', e.target.value) }, IMAGE_QUALITY_VALUES.map((x) => el('option', { value: x, textContent: x, selected: x === state.settings.video_quality }))),
+      el('select', {
+        class: 'chip-select',
+        onchange: (e) => setVal('video_size', normalizeVideoSize(state.settings.video_model, e.target.value)),
+      }, availableVideoSizes(state.settings.video_model).map((x) => el('option', { value: x, textContent: x, selected: x === normalizeVideoSize(state.settings.video_model, state.settings.video_size) }))),
       el('label', { textContent: 'Duration (seconds)' }),
-      el('select', { class: 'chip-select', onchange: (e) => setVal('video_duration', e.target.value) }, ['5', '10', '15', '20'].map((x) => el('option', { value: x, textContent: x, selected: x === String(state.settings.video_duration || '5') }))),
-      el('div', { class: 'meta', textContent: 'Video generation controls mirror image generation settings. Provider support depends on server capabilities.' }),
+      el('select', { class: 'chip-select', onchange: (e) => setVal('video_duration', normalizeVideoDuration(e.target.value)) }, VIDEO_SECONDS_VALUES.map((x) => el('option', { value: x, textContent: x, selected: x === normalizeVideoDuration(state.settings.video_duration) }))),
+      el('div', { class: 'meta', textContent: 'OpenAI video options: sora-2 supports 720x1280 or 1280x720. sora-2-pro adds 1024x1792 and 1792x1024. Duration options are 4, 8, or 12 seconds. You can optionally send input_reference when calling /api/videos/generate with multipart form data.' }),
     ],
     Memory: (() => {
       const mem = groupedMemories();

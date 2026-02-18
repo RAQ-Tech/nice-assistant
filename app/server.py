@@ -55,6 +55,13 @@ IMAGE_QUALITY_ALIASES = {
 }
 IMAGE_QUALITY_VALUES = {"low", "medium", "high", "auto"}
 SUPPORTED_IMAGE_SIZES = {"1024x1024", "1024x1536", "1536x1024", "auto"}
+SUPPORTED_VIDEO_MODELS = {"sora-2", "sora-2-pro"}
+SUPPORTED_VIDEO_SECONDS = {"4", "8", "12"}
+SUPPORTED_VIDEO_SIZES = {"720x1280", "1280x720", "1024x1792", "1792x1024"}
+SUPPORTED_VIDEO_SIZES_BY_MODEL = {
+    "sora-2": {"720x1280", "1280x720"},
+    "sora-2-pro": SUPPORTED_VIDEO_SIZES,
+}
 MODEL_IMAGE_TAG_PATTERN = re.compile(r"<generate_image>(.*?)</generate_image>", re.IGNORECASE | re.DOTALL)
 OPENAI_IMAGE_TERM_REPLACEMENTS = {
     "nsfw": "safe-for-work",
@@ -530,18 +537,48 @@ def _extract_openai_video_output_url(payload):
     return ""
 
 
-def openai_video(prompt, size, quality, duration, api_key, model="sora-2"):
-    normalized_quality = normalize_image_quality(quality)
-    normalized_size = normalize_image_size(size)
-    duration_value = int(_coerce_number(duration, 5, int))
-    payload = {
-        "model": (model or "sora-2").strip() or "sora-2",
+def openai_video(prompt, size, seconds, api_key, model="sora-2", input_reference=None):
+    normalized_model = normalize_video_model(model)
+    normalized_seconds = normalize_video_seconds(seconds)
+    normalized_size = normalize_video_size(size, normalized_model)
+    base_payload = {
+        "model": normalized_model,
         "prompt": (prompt or "").strip(),
-        "size": normalized_size,
-        "quality": normalized_quality,
-        "duration": max(1, min(duration_value, 20)),
     }
-    data = _openai_auth_json_request("https://api.openai.com/v1/videos", payload, api_key, timeout=240)
+
+    payload_attempts = [
+        {**base_payload, "seconds": normalized_seconds, "size": normalized_size},
+        {**base_payload, "seconds": normalized_seconds},
+        {**base_payload, "size": normalized_size},
+        base_payload,
+    ]
+
+    data = None
+    last_exc = None
+    for payload in payload_attempts:
+        try:
+            if input_reference:
+                field_values = {k: str(v) for k, v in payload.items()}
+                data = _openai_auth_multipart_request(
+                    "https://api.openai.com/v1/videos",
+                    field_values,
+                    file_field=input_reference,
+                    api_key=api_key,
+                    timeout=240,
+                )
+            else:
+                data = _openai_auth_json_request("https://api.openai.com/v1/videos", payload, api_key, timeout=240)
+            break
+        except urllib.error.HTTPError as exc:
+            if exc.code == 400:
+                last_exc = exc
+                continue
+            raise
+    if data is None and last_exc is not None:
+        raise last_exc
+    if data is None:
+        raise ValueError("OpenAI video generation did not return a response payload")
+
     video_url = _extract_openai_video_output_url(data)
     if not video_url:
         video_id = data.get("id") if isinstance(data, dict) else None
@@ -569,6 +606,63 @@ def openai_video(prompt, size, quality, duration, api_key, model="sora-2"):
     elif "quicktime" in content_type:
         ext = ".mov"
     return data, ext
+
+
+def normalize_video_model(model):
+    candidate = (model or "").strip().lower()
+    if candidate in SUPPORTED_VIDEO_MODELS:
+        return candidate
+    return "sora-2"
+
+
+def normalize_video_seconds(seconds):
+    candidate = str(seconds or "").strip()
+    if candidate in SUPPORTED_VIDEO_SECONDS:
+        return candidate
+    return "4"
+
+
+def normalize_video_size(size, model="sora-2"):
+    candidate = (size or "").strip().lower()
+    normalized_model = normalize_video_model(model)
+    allowed_sizes = SUPPORTED_VIDEO_SIZES_BY_MODEL.get(normalized_model, SUPPORTED_VIDEO_SIZES_BY_MODEL["sora-2"])
+    if candidate in allowed_sizes:
+        return candidate
+    if normalized_model == "sora-2-pro":
+        return "1024x1792"
+    return "720x1280"
+
+
+def _openai_auth_multipart_request(url, fields, file_field, api_key, timeout=240):
+    boundary = "----NiceAssistantBoundary" + secrets.token_hex(8)
+    parts = []
+
+    def add_field(name, value):
+        parts.append(f"--{boundary}\r\n".encode())
+        parts.append(f'Content-Disposition: form-data; name="{name}"\r\n\r\n{value}\r\n'.encode())
+
+    for name, value in fields.items():
+        add_field(name, value)
+
+    if file_field:
+        parts.append(f"--{boundary}\r\n".encode())
+        parts.append(
+            f'Content-Disposition: form-data; name="input_reference"; filename="{file_field.get("filename") or "reference.png"}"\r\n'.encode()
+        )
+        parts.append(f'Content-Type: {file_field.get("content_type") or "application/octet-stream"}\r\n\r\n'.encode())
+        parts.append(file_field.get("value") or b"")
+        parts.append(b"\r\n")
+
+    parts.append(f"--{boundary}--\r\n".encode())
+    body = b"".join(parts)
+    req = urllib.request.Request(
+        url,
+        data=body,
+        headers={"Content-Type": f"multipart/form-data; boundary={boundary}", "Authorization": f"Bearer {api_key}"},
+        method="POST",
+    )
+    with urllib.request.urlopen(req, timeout=timeout) as r:
+        return json.loads(r.read().decode())
 
 
 def normalize_local_image_base_url(base_url):
@@ -917,6 +1011,11 @@ def user_safe_video_error(exc):
         if status == 429:
             return "Video generation is rate limited by OpenAI right now. Please retry in a moment.", detail, req_id
         if status in (400, 404, 422):
+            if detail:
+                return (
+                    "OpenAI rejected the video request settings or payload. "
+                    "Try video model 'sora-2' with 4 seconds and size 720x1280 or 1280x720, then retry."
+                ), detail, req_id
             return "OpenAI couldn't generate that video from the current request. Please revise the prompt and try again.", detail, req_id
         if 500 <= status <= 599:
             return "Video generation is temporarily unavailable from OpenAI. Please try again shortly.", detail, req_id
@@ -987,7 +1086,7 @@ def generate_image_reply(prompt, uid, chat_id, settings_row, prefs, context_hint
 
 
 
-def generate_video_reply(prompt, uid, chat_id, settings_row, prefs):
+def generate_video_reply(prompt, uid, chat_id, settings_row, prefs, input_reference=None):
     video_provider = ((prefs or {}).get("video_provider") or "disabled").strip().lower()
     if video_provider == "disabled":
         return "I can generate videos, but video generation is currently disabled. Enable a video provider in Settings and try again.", ""
@@ -998,14 +1097,13 @@ def generate_video_reply(prompt, uid, chat_id, settings_row, prefs):
     if not key:
         return "Video generation is enabled for OpenAI, but your OpenAI API key is missing in Settings.", ""
 
-    video_size = (prefs or {}).get("video_size") or "1024x1024"
-    video_quality = (prefs or {}).get("video_quality") or "standard"
-    video_duration = (prefs or {}).get("video_duration") or "5"
-    video_model = (prefs or {}).get("video_model") or "sora-2"
+    video_model = normalize_video_model((prefs or {}).get("video_model") or "sora-2")
+    video_size = normalize_video_size((prefs or {}).get("video_size") or "720x1280", video_model)
+    video_duration = normalize_video_seconds((prefs or {}).get("video_duration") or "4")
 
     video_id = secrets.token_hex(12)
     try:
-        video_bytes, ext = openai_video(prompt, video_size, video_quality, video_duration, key, model=video_model)
+        video_bytes, ext = openai_video(prompt, video_size, video_duration, key, model=video_model, input_reference=input_reference)
         safe_ext = ext if ext in {".mp4", ".webm", ".mov"} else ".mp4"
         video_name = f"{uid}_{video_id}{safe_ext}"
         video_path = VIDEO_DIR / video_name
@@ -1333,15 +1431,31 @@ class Handler(BaseHTTPRequestHandler):
                 return self._json({"ok": True, "text": reply, "imageUrl": image_url})
             return self._json({"ok": False, "text": reply}, 400)
         if self.path == "/api/videos/generate":
-            b = self._read_json() or {}
-            prompt = str(b.get("prompt") or "").strip()
-            chat_id = b.get("chatId")
+            content_type = self.headers.get("Content-Type", "")
+            input_reference = None
+            if "multipart/form-data" in content_type:
+                content_length = int(self.headers.get("Content-Length", "0") or 0)
+                raw_body = self.rfile.read(content_length) if content_length else b""
+                fields = parse_multipart_form_data(content_type, raw_body)
+                prompt = (fields.get("prompt") or {}).get("value", b"").decode("utf-8", errors="replace").strip()
+                chat_id = (fields.get("chatId") or {}).get("value", b"").decode("utf-8", errors="replace").strip() or None
+                file_item = fields.get("input_reference")
+                if file_item and file_item.get("value"):
+                    input_reference = {
+                        "filename": file_item.get("filename") or "reference.png",
+                        "content_type": file_item.get("content_type") or "application/octet-stream",
+                        "value": file_item.get("value"),
+                    }
+            else:
+                b = self._read_json() or {}
+                prompt = str(b.get("prompt") or "").strip()
+                chat_id = b.get("chatId")
             if not prompt:
                 return self._json({"error": "prompt required"}, 400)
             conn = db_conn()
             settings = conn.execute("SELECT * FROM app_settings WHERE user_id=?", (uid,)).fetchone()
             prefs = parse_preferences_json(settings["preferences_json"] if settings else "{}")
-            reply, video_url = generate_video_reply(prompt, uid, chat_id, settings, prefs)
+            reply, video_url = generate_video_reply(prompt, uid, chat_id, settings, prefs, input_reference=input_reference)
             if video_url and chat_id:
                 owns = conn.execute("SELECT id FROM chats WHERE id=? AND user_id=?", (chat_id, uid)).fetchone()
                 if owns:
