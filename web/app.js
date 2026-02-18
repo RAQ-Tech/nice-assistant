@@ -52,6 +52,7 @@ const state = {
   personaSettingsExpanded: {},
   personaAvatarPreview: '',
   chatImagePreview: '',
+  chatVideoPreview: '',
   voiceResponsesEnabled: true,
   isSending: false,
   isTranscribing: false,
@@ -864,6 +865,29 @@ async function createChatWithPersona(personaId) {
 function extractImageUrl(text = '') {
   const match = text.match(/!\[[^\]]*\]\(([^)]+)\)/);
   return match ? match[1] : '';
+}
+
+function extractVideoUrl(text = '') {
+  const markdownVideoMatch = text.match(/\[[^\]]*\]\((\/api\/videos\/[^)\s]+)\)/i);
+  if (markdownVideoMatch) return markdownVideoMatch[1];
+  const plainVideoMatch = text.match(/(\/api\/videos\/[^\s)]+)/i);
+  return plainVideoMatch ? plainVideoMatch[1] : '';
+}
+
+function stripVideoLinks(text = '') {
+  return text
+    .replace(/\n?\s*\[[^\]]*\]\((\/api\/videos\/[^)\s]+)\)\s*/gi, '\n')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+}
+
+function downloadVideo(url, suggestedName = 'generated-video.mp4') {
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = suggestedName;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
 }
 
 function speechTextFromReply(text = '') {
@@ -2059,9 +2083,12 @@ function messageItem(m, personaId) {
   const showThinking = state.showThinkingByDefault || Boolean(state.thinkingExpanded[messageId]);
   const personaName = state.personas.find((p) => p.id === (personaId || state.selectedPersonaId))?.name || 'assistant';
   const roleLabel = isUser ? 'You' : (m.role === 'assistant' ? personaName : m.role);
-  const imageUrl = extractImageUrl(m.text || '');
+  const rawMessageText = visibleText || m.text || '';
+  const imageUrl = extractImageUrl(rawMessageText);
+  const videoUrl = extractVideoUrl(rawMessageText);
+  const displayText = videoUrl ? stripVideoLinks(rawMessageText) : rawMessageText;
   const audioUrl = state.messageAudioById[m.id];
-  const messageBody = el('div', { html: md(visibleText || m.text || '') });
+  const messageBody = el('div', { html: md(displayText) });
   bindMessageImagePreview(messageBody);
   const personaAvatar = state.personas.find((p) => p.id === (personaId || state.selectedPersonaId))?.avatar_url || DEFAULT_PERSONA_AVATAR;
   return el('div', { class: `msg-wrap ${isUser ? 'user' : ''}` }, [
@@ -2073,6 +2100,22 @@ function messageItem(m, personaId) {
         el('div', { class: 'think-content', html: md(thinking) }),
       ]) : null,
       messageBody,
+      videoUrl ? el('button', {
+        class: 'msg-video-preview',
+        title: 'Open generated video',
+        onclick: () => { state.chatVideoPreview = videoUrl; render(); },
+      }, [
+        el('video', {
+          class: 'msg-inline-video',
+          src: videoUrl,
+          preload: 'metadata',
+          muted: true,
+          playsinline: true,
+          ariaLabel: 'Generated video preview',
+        }),
+        el('span', { class: 'msg-video-play', textContent: '▶', ariaHidden: true }),
+        el('span', { class: 'msg-video-label', textContent: 'Play video' }),
+      ]) : null,
       el('div', { class: 'msg-actions' }, [
         m.role === 'assistant' ? el('button', {
           class: 'icon-btn',
@@ -2095,6 +2138,7 @@ function messageItem(m, personaId) {
         }) : null,
         el('button', { class: 'icon-btn', textContent: '⧉', title: 'Copy', onclick: async () => { try { await copyTextToClipboard(visibleText || m.text || ''); } catch { } } }),
         imageUrl ? el('button', { class: 'icon-btn', textContent: '⬇', title: 'Save image', onclick: () => downloadImage(imageUrl, `nice-assistant-image-${Date.now()}.png`) }) : null,
+        videoUrl ? el('button', { class: 'icon-btn', textContent: '⬇', title: 'Save video', onclick: () => downloadVideo(videoUrl, `nice-assistant-video-${Date.now()}.mp4`) }) : null,
         audioUrl ? el('button', { class: 'icon-btn', textContent: '⟲', title: 'Replay response audio', onclick: async () => {
           try {
             ensureAudioGraph();
@@ -2274,6 +2318,15 @@ function render() {
       el('img', { class: 'avatar-preview-full', src: state.chatImagePreview, alt: 'Generated image preview' }),
     ]),
   ]) : null;
+  const chatVideoPreviewModal = state.chatVideoPreview ? el('div', {
+    class: 'modal-backdrop avatar-preview-backdrop',
+    onclick: (e) => { if (e.target === e.currentTarget) { state.chatVideoPreview = ''; render(); } },
+  }, [
+    el('div', { class: 'avatar-preview-frame video-preview-frame' }, [
+      el('button', { class: 'icon-btn avatar-preview-close', textContent: '✕', ariaLabel: 'Close video preview', onclick: () => { state.chatVideoPreview = ''; render(); } }),
+      el('video', { class: 'video-preview-full', src: state.chatVideoPreview, controls: true, autoplay: true, playsinline: true }),
+    ]),
+  ]) : null;
   const avatarPreviewModal = state.personaAvatarPreview ? el('div', {
     class: 'modal-backdrop avatar-preview-backdrop',
     onclick: (e) => { if (e.target === e.currentTarget) { state.personaAvatarPreview = ''; render(); } },
@@ -2306,7 +2359,9 @@ function render() {
       }))),
     ]),
   ]) : null;
-  const shellChildren = state.showSettings ? [settingsPanel(), avatarPreviewModal, chatImagePreviewModal, genericModal] : [scrim, drawer, main, jumpBtn, viz, newChatPersonaModal, avatarPreviewModal, chatImagePreviewModal, genericModal];
+  const shellChildren = state.showSettings
+    ? [settingsPanel(), avatarPreviewModal, chatImagePreviewModal, chatVideoPreviewModal, genericModal]
+    : [scrim, drawer, main, jumpBtn, viz, newChatPersonaModal, avatarPreviewModal, chatImagePreviewModal, chatVideoPreviewModal, genericModal];
   app.append(el('div', { class: 'app-shell' }, shellChildren));
   requestAnimationFrame(() => {
     restoreMessagePaneScroll();

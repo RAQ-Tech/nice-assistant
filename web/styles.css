@@ -255,6 +255,57 @@ button, input, select, textarea {
 .msg ul { margin: .4rem 0 .4rem 1.1rem; }
 .msg a { color: var(--accent); }
 .msg-inline-image { display:block; max-width:min(100%, 480px); width:100%; height:auto; margin:.45rem 0; border-radius:10px; border:1px solid var(--border); }
+.msg-video-preview {
+  position: relative;
+  margin: .45rem 0;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: rgba(0, 0, 0, .35);
+  overflow: hidden;
+  cursor: pointer;
+  display: block;
+  max-width: min(100%, 520px);
+}
+
+.msg-inline-video {
+  display: block;
+  width: 100%;
+  height: auto;
+  max-height: 320px;
+  background: #02060b;
+}
+
+.msg-video-play {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  width: 68px;
+  height: 68px;
+  border-radius: 999px;
+  background: rgba(8, 17, 31, .78);
+  border: 1px solid rgba(190, 232, 255, .7);
+  display: grid;
+  place-items: center;
+  font-size: 1.6rem;
+  color: #fff;
+  pointer-events: none;
+  box-shadow: 0 10px 24px rgba(0, 0, 0, .45);
+}
+
+.msg-video-label {
+  position: absolute;
+  left: .65rem;
+  bottom: .55rem;
+  font-size: .76rem;
+  color: #ebf6ff;
+  background: rgba(5, 16, 30, .7);
+  border: 1px solid rgba(157, 214, 255, .45);
+  border-radius: 999px;
+  padding: .2rem .55rem;
+  pointer-events: none;
+}
 .think-block {
   margin: .25rem 0 .55rem;
   border: 1px solid var(--border);
@@ -530,6 +581,19 @@ button, input, select, textarea {
   max-width: 100%;
   max-height: 90vh;
   border-radius: 14px;
+  border: 1px solid var(--border);
+}
+
+.video-preview-frame {
+  width: min(96vw, 980px);
+}
+
+.video-preview-full {
+  display: block;
+  width: 100%;
+  max-height: 86vh;
+  border-radius: 14px;
+  background: #000;
   border: 1px solid var(--border);
 }
 
