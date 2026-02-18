@@ -323,6 +323,97 @@ class OpenAIVideoRequestTests(unittest.TestCase):
         final_video_post_payload = json.loads([c[2] for c in calls if c[0] == "https://api.openai.com/v1/videos"][-1])
         self.assertEqual(set(final_video_post_payload.keys()), {"model", "prompt"})
 
+    def test_openai_video_downloads_content_from_video_id_when_completed(self):
+        class FakeResponse:
+            def __init__(self, payload=None, headers=None, data_bytes=None):
+                self.payload = payload or {}
+                self.headers = headers or {"Content-Type": "application/json"}
+                self.data_bytes = data_bytes
+
+            def read(self):
+                if self.data_bytes is not None:
+                    return self.data_bytes
+                return json.dumps(self.payload).encode("utf-8")
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, exc_type, exc, tb):
+                return False
+
+        calls = []
+
+        def fake_urlopen(req, timeout=0):
+            if isinstance(req, str):
+                url = req
+                method = "GET"
+            else:
+                url = req.full_url
+                method = req.method
+            calls.append((url, method))
+
+            if url == "https://api.openai.com/v1/videos" and method == "POST":
+                return FakeResponse({"id": "vid_123", "status": "in_progress"})
+            if url == "https://api.openai.com/v1/videos/vid_123" and method == "GET":
+                return FakeResponse({"id": "vid_123", "status": "completed"})
+            if url == "https://api.openai.com/v1/videos/vid_123/content" and method == "GET":
+                return FakeResponse(headers={"Content-Type": "video/mp4"}, data_bytes=b"video-binary")
+            raise AssertionError(f"unexpected URL {url} ({method})")
+
+        with mock.patch("urllib.request.urlopen", side_effect=fake_urlopen), mock.patch("time.sleep"):
+            data, ext = openai_video(
+                prompt="a dog chasing a cat",
+                size="720x1280",
+                seconds="4",
+                api_key="sk-test",
+                model="sora-2",
+            )
+
+        self.assertEqual(data, b"video-binary")
+        self.assertEqual(ext, ".mp4")
+        self.assertIn(("https://api.openai.com/v1/videos/vid_123/content", "GET"), calls)
+
+    def test_openai_video_surfaces_failed_status_message(self):
+        class FakeResponse:
+            def __init__(self, payload):
+                self.payload = payload
+                self.headers = {"Content-Type": "application/json"}
+
+            def read(self):
+                return json.dumps(self.payload).encode("utf-8")
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, exc_type, exc, tb):
+                return False
+
+        def fake_urlopen(req, timeout=0):
+            if isinstance(req, str):
+                url = req
+                method = "GET"
+            else:
+                url = req.full_url
+                method = req.method
+            if url == "https://api.openai.com/v1/videos" and method == "POST":
+                return FakeResponse({"id": "vid_124", "status": "queued"})
+            if url == "https://api.openai.com/v1/videos/vid_124" and method == "GET":
+                return FakeResponse({"id": "vid_124", "status": "failed", "error": {"message": "safety policy hit"}})
+            raise AssertionError(f"unexpected URL {url} ({method})")
+
+        with mock.patch("urllib.request.urlopen", side_effect=fake_urlopen), mock.patch("time.sleep"):
+            with self.assertRaises(ValueError) as ctx:
+                openai_video(
+                    prompt="a dog chasing a cat",
+                    size="720x1280",
+                    seconds="4",
+                    api_key="sk-test",
+                    model="sora-2",
+                )
+
+        self.assertIn("failed", str(ctx.exception))
+        self.assertIn("safety policy hit", str(ctx.exception))
+
 
 if __name__ == "__main__":
     unittest.main()
