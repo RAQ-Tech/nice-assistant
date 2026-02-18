@@ -326,3 +326,22 @@ class OpenAIVideoRequestTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class VideoRequestAndErrorTests(unittest.TestCase):
+    def test_video_intent_detection(self):
+        self.assertTrue(looks_like_video_request("Please generate a video of a rollercoaster"))
+        self.assertFalse(looks_like_video_request("Please explain rollercoasters"))
+
+    def test_video_error_mapping_never_mentions_automatic1111(self):
+        exc = urllib.error.HTTPError(
+            url="https://api.openai.com/v1/videos",
+            code=503,
+            msg="Service Unavailable",
+            hdrs=None,
+            fp=io.BytesIO(b'{"error":{"message":"temporary outage"}}'),
+        )
+        message, detail, _ = user_safe_video_error(exc)
+        self.assertIn("OpenAI", message)
+        self.assertNotIn("Automatic1111", message)
+        self.assertIn("temporary outage", detail)
