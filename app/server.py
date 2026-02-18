@@ -35,6 +35,7 @@ SESSION_TTL_SECONDS = int(os.getenv("SESSION_TTL_SECONDS", "1800"))
 
 AUDIO_DIR = DATA_DIR / "audio"
 IMAGE_DIR = DATA_DIR / "images"
+VIDEO_DIR = DATA_DIR / "videos"
 LOG_DIR = DATA_DIR / "logs"
 STT_RECORDINGS_DIR = DATA_DIR / "stt_recordings"
 DB_PATH = DATA_DIR / "nice_assistant.db"
@@ -54,6 +55,13 @@ IMAGE_QUALITY_ALIASES = {
 }
 IMAGE_QUALITY_VALUES = {"low", "medium", "high", "auto"}
 SUPPORTED_IMAGE_SIZES = {"1024x1024", "1024x1536", "1536x1024", "auto"}
+SUPPORTED_VIDEO_MODELS = {"sora-2", "sora-2-pro"}
+SUPPORTED_VIDEO_SECONDS = {"4", "8", "12"}
+SUPPORTED_VIDEO_SIZES = {"720x1280", "1280x720", "1024x1792", "1792x1024"}
+SUPPORTED_VIDEO_SIZES_BY_MODEL = {
+    "sora-2": {"720x1280", "1280x720"},
+    "sora-2-pro": SUPPORTED_VIDEO_SIZES,
+}
 MODEL_IMAGE_TAG_PATTERN = re.compile(r"<generate_image>(.*?)</generate_image>", re.IGNORECASE | re.DOTALL)
 OPENAI_IMAGE_TERM_REPLACEMENTS = {
     "nsfw": "safe-for-work",
@@ -69,7 +77,7 @@ OPENAI_IMAGE_TERM_REPLACEMENTS = {
 
 
 def ensure_dirs():
-    for p in [DATA_DIR, AUDIO_DIR, IMAGE_DIR, LOG_DIR, STT_RECORDINGS_DIR, ARCHIVE_DIR, ARCHIVE_DIR / "audio", ARCHIVE_DIR / "logs", ARCHIVE_DIR / "db_backups"]:
+    for p in [DATA_DIR, AUDIO_DIR, IMAGE_DIR, VIDEO_DIR, LOG_DIR, STT_RECORDINGS_DIR, ARCHIVE_DIR, ARCHIVE_DIR / "audio", ARCHIVE_DIR / "logs", ARCHIVE_DIR / "db_backups"]:
         p.mkdir(parents=True, exist_ok=True)
 
 
@@ -486,6 +494,177 @@ def openai_image(prompt, size, quality, api_key):
     raise ValueError("Image response did not include data")
 
 
+
+def _openai_auth_json_request(url, payload, api_key, timeout=180):
+    req = urllib.request.Request(
+        url,
+        data=json.dumps(payload).encode(),
+        headers={"Content-Type": "application/json", "Authorization": f"Bearer {api_key}"},
+        method="POST",
+    )
+    with urllib.request.urlopen(req, timeout=timeout) as r:
+        return json.loads(r.read().decode())
+
+
+def _openai_get_json(url, api_key, timeout=120):
+    req = urllib.request.Request(url, headers={"Authorization": f"Bearer {api_key}"}, method="GET")
+    with urllib.request.urlopen(req, timeout=timeout) as r:
+        return json.loads(r.read().decode())
+
+
+def _extract_openai_video_output_url(payload):
+    if isinstance(payload, dict):
+        for key in ("url", "video_url", "output_video_url"):
+            val = payload.get(key)
+            if isinstance(val, str) and val.startswith(("http://", "https://")):
+                return val
+        for container_key in ("data", "output", "result"):
+            nested = payload.get(container_key)
+            if isinstance(nested, list):
+                for item in nested:
+                    found = _extract_openai_video_output_url(item)
+                    if found:
+                        return found
+            elif isinstance(nested, dict):
+                found = _extract_openai_video_output_url(nested)
+                if found:
+                    return found
+    elif isinstance(payload, list):
+        for item in payload:
+            found = _extract_openai_video_output_url(item)
+            if found:
+                return found
+    return ""
+
+
+def openai_video(prompt, size, seconds, api_key, model="sora-2", input_reference=None):
+    normalized_model = normalize_video_model(model)
+    normalized_seconds = normalize_video_seconds(seconds)
+    normalized_size = normalize_video_size(size, normalized_model)
+    base_payload = {
+        "model": normalized_model,
+        "prompt": (prompt or "").strip(),
+    }
+
+    payload_attempts = [
+        {**base_payload, "seconds": normalized_seconds, "size": normalized_size},
+        {**base_payload, "seconds": normalized_seconds},
+        {**base_payload, "size": normalized_size},
+        base_payload,
+    ]
+
+    data = None
+    last_exc = None
+    for payload in payload_attempts:
+        try:
+            if input_reference:
+                field_values = {k: str(v) for k, v in payload.items()}
+                data = _openai_auth_multipart_request(
+                    "https://api.openai.com/v1/videos",
+                    field_values,
+                    file_field=input_reference,
+                    api_key=api_key,
+                    timeout=240,
+                )
+            else:
+                data = _openai_auth_json_request("https://api.openai.com/v1/videos", payload, api_key, timeout=240)
+            break
+        except urllib.error.HTTPError as exc:
+            if exc.code == 400:
+                last_exc = exc
+                continue
+            raise
+    if data is None and last_exc is not None:
+        raise last_exc
+    if data is None:
+        raise ValueError("OpenAI video generation did not return a response payload")
+
+    video_url = _extract_openai_video_output_url(data)
+    if not video_url:
+        video_id = data.get("id") if isinstance(data, dict) else None
+        status = str((data or {}).get("status") or "").lower()
+        if video_id and status in {"queued", "in_progress", "processing", "running", "pending"}:
+            for _ in range(45):
+                time.sleep(2)
+                polled = _openai_get_json(f"https://api.openai.com/v1/videos/{video_id}", api_key, timeout=120)
+                polled_status = str((polled or {}).get("status") or "").lower()
+                video_url = _extract_openai_video_output_url(polled)
+                if video_url:
+                    break
+                if polled_status in {"failed", "cancelled", "canceled", "error"}:
+                    raise ValueError(f"OpenAI video generation failed with status '{polled_status}'")
+                if polled_status in {"completed", "succeeded", "done"}:
+                    break
+    if not video_url:
+        raise ValueError("OpenAI video response did not include a downloadable URL")
+    with urllib.request.urlopen(video_url, timeout=300) as video_resp:
+        data = video_resp.read()
+        content_type = (video_resp.headers.get("Content-Type") or "").lower()
+    ext = ".mp4"
+    if "webm" in content_type:
+        ext = ".webm"
+    elif "quicktime" in content_type:
+        ext = ".mov"
+    return data, ext
+
+
+def normalize_video_model(model):
+    candidate = (model or "").strip().lower()
+    if candidate in SUPPORTED_VIDEO_MODELS:
+        return candidate
+    return "sora-2"
+
+
+def normalize_video_seconds(seconds):
+    candidate = str(seconds or "").strip()
+    if candidate in SUPPORTED_VIDEO_SECONDS:
+        return candidate
+    return "4"
+
+
+def normalize_video_size(size, model="sora-2"):
+    candidate = (size or "").strip().lower()
+    normalized_model = normalize_video_model(model)
+    allowed_sizes = SUPPORTED_VIDEO_SIZES_BY_MODEL.get(normalized_model, SUPPORTED_VIDEO_SIZES_BY_MODEL["sora-2"])
+    if candidate in allowed_sizes:
+        return candidate
+    if normalized_model == "sora-2-pro":
+        return "1024x1792"
+    return "720x1280"
+
+
+def _openai_auth_multipart_request(url, fields, file_field, api_key, timeout=240):
+    boundary = "----NiceAssistantBoundary" + secrets.token_hex(8)
+    parts = []
+
+    def add_field(name, value):
+        parts.append(f"--{boundary}\r\n".encode())
+        parts.append(f'Content-Disposition: form-data; name="{name}"\r\n\r\n{value}\r\n'.encode())
+
+    for name, value in fields.items():
+        add_field(name, value)
+
+    if file_field:
+        parts.append(f"--{boundary}\r\n".encode())
+        parts.append(
+            f'Content-Disposition: form-data; name="input_reference"; filename="{file_field.get("filename") or "reference.png"}"\r\n'.encode()
+        )
+        parts.append(f'Content-Type: {file_field.get("content_type") or "application/octet-stream"}\r\n\r\n'.encode())
+        parts.append(file_field.get("value") or b"")
+        parts.append(b"\r\n")
+
+    parts.append(f"--{boundary}--\r\n".encode())
+    body = b"".join(parts)
+    req = urllib.request.Request(
+        url,
+        data=body,
+        headers={"Content-Type": f"multipart/form-data; boundary={boundary}", "Authorization": f"Bearer {api_key}"},
+        method="POST",
+    )
+    with urllib.request.urlopen(req, timeout=timeout) as r:
+        return json.loads(r.read().decode())
+
+
 def normalize_local_image_base_url(base_url):
     candidate = (base_url or "").strip() or AUTOMATIC1111_BASE_URL
     parsed = urllib.parse.urlparse(candidate)
@@ -770,6 +949,17 @@ def looks_like_image_request(text):
     return has_verb and has_noun
 
 
+def looks_like_video_request(text):
+    if not text:
+        return False
+    lowered = " ".join(text.lower().split())
+    verbs = ("generate", "create", "make", "render", "produce")
+    nouns = ("video", "clip", "animation", "movie", "footage")
+    has_verb = any(v in lowered for v in verbs)
+    has_noun = any(n in lowered for n in nouns)
+    return has_verb and has_noun
+
+
 def user_safe_image_error(exc, provider="openai"):
     provider = (provider or "openai").strip().lower()
     detail = _extract_http_error_detail(exc)
@@ -808,6 +998,33 @@ def user_safe_image_error(exc, provider="openai"):
         return "Image generation timed out. Please try again with a shorter prompt or retry shortly.", detail, req_id
     return "Image generation failed unexpectedly. Please try again.", detail, req_id
 
+
+
+def user_safe_video_error(exc):
+    detail = _extract_http_error_detail(exc)
+    req_match = re.search(r"(req_[a-zA-Z0-9]+)", detail or "")
+    req_id = req_match.group(1) if req_match else ""
+    if isinstance(exc, urllib.error.HTTPError):
+        status = exc.code
+        if status in (401, 403):
+            return "Video generation failed: OpenAI rejected the request (check API key and video model access).", detail, req_id
+        if status == 429:
+            return "Video generation is rate limited by OpenAI right now. Please retry in a moment.", detail, req_id
+        if status in (400, 404, 422):
+            if detail:
+                return (
+                    "OpenAI rejected the video request settings or payload. "
+                    "Try video model 'sora-2' with 4 seconds and size 720x1280 or 1280x720, then retry."
+                ), detail, req_id
+            return "OpenAI couldn't generate that video from the current request. Please revise the prompt and try again.", detail, req_id
+        if 500 <= status <= 599:
+            return "Video generation is temporarily unavailable from OpenAI. Please try again shortly.", detail, req_id
+        return f"Video generation failed with OpenAI error HTTP {status}.", detail, req_id
+    if isinstance(exc, urllib.error.URLError):
+        return "Video generation is currently unavailable because the OpenAI provider could not be reached. Please try again in a moment.", detail, req_id
+    if isinstance(exc, TimeoutError):
+        return "Video generation timed out. Please try again with a shorter prompt or retry shortly.", detail, req_id
+    return "Video generation failed unexpectedly. Please try again.", detail, req_id
 
 def extract_model_image_prompt(reply_text):
     if not reply_text:
@@ -866,6 +1083,39 @@ def generate_image_reply(prompt, uid, chat_id, settings_row, prefs, context_hint
             log_image_error(uid, chat_id, f"request_id={req_id or 'n/a'} {detail}")
         return message, ""
 
+
+
+
+def generate_video_reply(prompt, uid, chat_id, settings_row, prefs, input_reference=None):
+    video_provider = ((prefs or {}).get("video_provider") or "disabled").strip().lower()
+    if video_provider == "disabled":
+        return "I can generate videos, but video generation is currently disabled. Enable a video provider in Settings and try again.", ""
+    if video_provider != "openai":
+        return f"Video provider '{video_provider}' is not recognized by the server. Choose 'openai'.", ""
+
+    key = settings_row["openai_api_key"] if settings_row else None
+    if not key:
+        return "Video generation is enabled for OpenAI, but your OpenAI API key is missing in Settings.", ""
+
+    video_model = normalize_video_model((prefs or {}).get("video_model") or "sora-2")
+    video_size = normalize_video_size((prefs or {}).get("video_size") or "720x1280", video_model)
+    video_duration = normalize_video_seconds((prefs or {}).get("video_duration") or "4")
+
+    video_id = secrets.token_hex(12)
+    try:
+        video_bytes, ext = openai_video(prompt, video_size, video_duration, key, model=video_model, input_reference=input_reference)
+        safe_ext = ext if ext in {".mp4", ".webm", ".mov"} else ".mp4"
+        video_name = f"{uid}_{video_id}{safe_ext}"
+        video_path = VIDEO_DIR / video_name
+        video_path.write_bytes(video_bytes)
+        video_url = f"/api/videos/{urllib.parse.quote(video_name)}"
+        return f"Here is your generated video.\n\n[Download generated video]({video_url})", video_url
+    except Exception as exc:
+        logger.exception("video generation failed user_id=%s chat_id=%s", uid, chat_id)
+        message, detail, req_id = user_safe_video_error(exc)
+        if detail:
+            log_image_error(uid, chat_id, f"video request_id={req_id or 'n/a'} {detail}")
+        return message, ""
 
 def parse_preferences_json(raw_value):
     if not raw_value:
@@ -1007,6 +1257,19 @@ class Handler(BaseHTTPRequestHandler):
             self._set_headers(200, mimetypes.guess_type(str(image_path))[0] or "application/octet-stream")
             self.end_headers()
             self.wfile.write(image_path.read_bytes())
+            return
+        if self.path.startswith("/api/videos/"):
+            uid = self._require_auth()
+            if not uid:
+                return
+            vid = self.path.rsplit("/", 1)[-1]
+            safe_name = os.path.basename(vid)
+            video_path = VIDEO_DIR / safe_name
+            if not video_path.exists() or not video_path.is_file():
+                return self._json({"error": "not found"}, 404)
+            self._set_headers(200, mimetypes.guess_type(str(video_path))[0] or "application/octet-stream")
+            self.end_headers()
+            self.wfile.write(video_path.read_bytes())
             return
         if self.path == "/api/workspaces":
             uid = self._require_auth();
@@ -1167,6 +1430,42 @@ class Handler(BaseHTTPRequestHandler):
             if image_url:
                 return self._json({"ok": True, "text": reply, "imageUrl": image_url})
             return self._json({"ok": False, "text": reply}, 400)
+        if self.path == "/api/videos/generate":
+            content_type = self.headers.get("Content-Type", "")
+            input_reference = None
+            if "multipart/form-data" in content_type:
+                content_length = int(self.headers.get("Content-Length", "0") or 0)
+                raw_body = self.rfile.read(content_length) if content_length else b""
+                fields = parse_multipart_form_data(content_type, raw_body)
+                prompt = (fields.get("prompt") or {}).get("value", b"").decode("utf-8", errors="replace").strip()
+                chat_id = (fields.get("chatId") or {}).get("value", b"").decode("utf-8", errors="replace").strip() or None
+                file_item = fields.get("input_reference")
+                if file_item and file_item.get("value"):
+                    input_reference = {
+                        "filename": file_item.get("filename") or "reference.png",
+                        "content_type": file_item.get("content_type") or "application/octet-stream",
+                        "value": file_item.get("value"),
+                    }
+            else:
+                b = self._read_json() or {}
+                prompt = str(b.get("prompt") or "").strip()
+                chat_id = b.get("chatId")
+            if not prompt:
+                return self._json({"error": "prompt required"}, 400)
+            conn = db_conn()
+            settings = conn.execute("SELECT * FROM app_settings WHERE user_id=?", (uid,)).fetchone()
+            prefs = parse_preferences_json(settings["preferences_json"] if settings else "{}")
+            reply, video_url = generate_video_reply(prompt, uid, chat_id, settings, prefs, input_reference=input_reference)
+            if video_url and chat_id:
+                owns = conn.execute("SELECT id FROM chats WHERE id=? AND user_id=?", (chat_id, uid)).fetchone()
+                if owns:
+                    conn.execute("INSERT INTO messages(id,chat_id,role,text,created_at) VALUES(?,?,?,?,?)", (secrets.token_hex(8), chat_id, "assistant", reply, now_ts()))
+                    conn.execute("UPDATE chats SET updated_at=? WHERE id=?", (now_ts(), chat_id))
+                    conn.commit()
+            conn.close()
+            if video_url:
+                return self._json({"ok": True, "text": reply, "videoUrl": video_url})
+            return self._json({"ok": False, "text": reply}, 400)
         if self.path == "/api/workspaces":
             b = self._read_json(); wid = secrets.token_hex(8)
             conn = db_conn(); conn.execute("INSERT INTO workspaces(id,user_id,name,created_at) VALUES(?,?,?,?)", (wid, uid, b.get("name", "Workspace"), now_ts())); conn.commit(); conn.close()
@@ -1223,6 +1522,15 @@ class Handler(BaseHTTPRequestHandler):
                 prefs = json.loads(settings["preferences_json"] or "{}") if settings else {}
             except (TypeError, ValueError):
                 prefs = {}
+            if looks_like_video_request(text):
+                reply, _ = generate_video_reply(text, uid, chat_id, settings, prefs)
+                conn.execute("INSERT INTO messages(id,chat_id,role,text,created_at) VALUES(?,?,?,?,?)", (secrets.token_hex(8),chat_id,"assistant",reply,now_ts()))
+                conn.execute("UPDATE chats SET updated_at=?, memory_mode=?, persona_id=?, workspace_id=?, model_override=? WHERE id=?", (now_ts(), mem_mode, persona_id, workspace_id, b.get("model") or chat["model_override"], chat_id))
+                if mem_mode == "auto":
+                    conn.execute("INSERT INTO memories(id,user_id,tier,tier_ref_id,content,created_at) VALUES(?,?,?,?,?,?)", (secrets.token_hex(8), uid, "chat", chat_id, text, now_ts()))
+                conn.commit(); conn.close(); backup_db_if_needed()
+                return self._json({"text": reply, "chatId": chat_id})
+
             if looks_like_image_request(text):
                 reply, _ = generate_image_reply(text, uid, chat_id, settings, prefs, context_hint="")
                 conn.execute("INSERT INTO messages(id,chat_id,role,text,created_at) VALUES(?,?,?,?,?)", (secrets.token_hex(8),chat_id,"assistant",reply,now_ts()))

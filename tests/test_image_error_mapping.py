@@ -1,5 +1,7 @@
 import io
+import json
 import unittest
+from unittest import mock
 import urllib.error
 
 from app.server import (
@@ -12,9 +14,15 @@ from app.server import (
     normalize_image_quality,
     normalize_local_image_base_url,
     normalize_image_size,
+    normalize_video_model,
+    normalize_video_seconds,
+    normalize_video_size,
+    openai_video,
     parse_additional_parameters,
     parse_image_size,
     user_safe_image_error,
+    user_safe_video_error,
+    looks_like_video_request,
     visual_identity_context,
 )
 
@@ -217,6 +225,103 @@ class VisualIdentityContextTests(unittest.TestCase):
         self.assertNotIn("purple hair", hint.lower())
 
         conn.close()
+
+
+class VideoRequestAndErrorTests(unittest.TestCase):
+    def test_video_intent_detection(self):
+        self.assertTrue(looks_like_video_request("Please generate a video of a rollercoaster"))
+        self.assertFalse(looks_like_video_request("Please explain rollercoasters"))
+
+    def test_video_error_mapping_never_mentions_automatic1111(self):
+        exc = urllib.error.HTTPError(
+            url="https://api.openai.com/v1/videos",
+            code=503,
+            msg="Service Unavailable",
+            hdrs=None,
+            fp=io.BytesIO(b'{"error":{"message":"temporary outage"}}'),
+        )
+        message, detail, _ = user_safe_video_error(exc)
+        self.assertIn("OpenAI", message)
+        self.assertNotIn("Automatic1111", message)
+        self.assertIn("temporary outage", detail)
+
+
+class NormalizeVideoSettingsTests(unittest.TestCase):
+    def test_video_model_normalization(self):
+        self.assertEqual(normalize_video_model("sora-2"), "sora-2")
+        self.assertEqual(normalize_video_model("SORA-2-PRO"), "sora-2-pro")
+        self.assertEqual(normalize_video_model("unknown"), "sora-2")
+
+    def test_video_seconds_normalization(self):
+        self.assertEqual(normalize_video_seconds("4"), "4")
+        self.assertEqual(normalize_video_seconds("8"), "8")
+        self.assertEqual(normalize_video_seconds("9"), "4")
+
+    def test_video_size_normalization_for_model(self):
+        self.assertEqual(normalize_video_size("720x1280", "sora-2"), "720x1280")
+        self.assertEqual(normalize_video_size("1024x1792", "sora-2"), "720x1280")
+        self.assertEqual(normalize_video_size("1792x1024", "sora-2-pro"), "1792x1024")
+
+
+class OpenAIVideoRequestTests(unittest.TestCase):
+    def test_openai_video_retries_with_minimal_payload_on_http_400(self):
+        class FakeResponse:
+            def __init__(self, payload):
+                self.payload = payload
+                self.headers = {"Content-Type": "application/json"}
+
+            def read(self):
+                return json.dumps(self.payload).encode("utf-8")
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, exc_type, exc, tb):
+                return False
+
+        calls = []
+
+        def fake_urlopen(req, timeout=0):
+            if isinstance(req, str):
+                url = req
+                calls.append((url, "GET", ""))
+            else:
+                url = req.full_url
+                calls.append((url, req.method, req.data.decode("utf-8") if req.data else ""))
+            if url == "https://api.openai.com/v1/videos":
+                body = req.data.decode("utf-8") if req.data else "{}"
+                payload = json.loads(body)
+                if set(payload.keys()) != {"model", "prompt"}:
+                    raise urllib.error.HTTPError(
+                        url=url,
+                        code=400,
+                        msg="Bad Request",
+                        hdrs=None,
+                        fp=io.BytesIO(b'{"error":{"message":"unknown parameter: duration"}}'),
+                    )
+                return FakeResponse({"url": "https://cdn.example.com/video.mp4"})
+            if url == "https://cdn.example.com/video.mp4":
+                resp = FakeResponse({})
+                resp.headers = {"Content-Type": "video/mp4"}
+                resp.read = lambda: b"video-bytes"
+                return resp
+            raise AssertionError(f"unexpected URL {url}")
+
+        with mock.patch("urllib.request.urlopen", side_effect=fake_urlopen):
+            data, ext = openai_video(
+                prompt="a dog chasing a cat",
+                size="1024x1024",
+                seconds="12",
+                api_key="sk-test",
+                model="sora-2",
+            )
+
+        self.assertEqual(data, b"video-bytes")
+        self.assertEqual(ext, ".mp4")
+        first_request_payload = json.loads(calls[0][2])
+        self.assertIn("seconds", first_request_payload)
+        final_video_post_payload = json.loads([c[2] for c in calls if c[0] == "https://api.openai.com/v1/videos"][-1])
+        self.assertEqual(set(final_video_post_payload.keys()), {"model", "prompt"})
 
 
 if __name__ == "__main__":
