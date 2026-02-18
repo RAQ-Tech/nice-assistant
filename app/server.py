@@ -512,6 +512,12 @@ def _openai_get_json(url, api_key, timeout=120):
         return json.loads(r.read().decode())
 
 
+def _openai_get_bytes(url, api_key, timeout=300):
+    req = urllib.request.Request(url, headers={"Authorization": f"Bearer {api_key}"}, method="GET")
+    with urllib.request.urlopen(req, timeout=timeout) as r:
+        return r.read(), (r.headers.get("Content-Type") or "").lower()
+
+
 def _extract_openai_video_output_url(payload):
     if isinstance(payload, dict):
         for key in ("url", "video_url", "output_video_url"):
@@ -580,26 +586,35 @@ def openai_video(prompt, size, seconds, api_key, model="sora-2", input_reference
         raise ValueError("OpenAI video generation did not return a response payload")
 
     video_url = _extract_openai_video_output_url(data)
-    if not video_url:
-        video_id = data.get("id") if isinstance(data, dict) else None
-        status = str((data or {}).get("status") or "").lower()
-        if video_id and status in {"queued", "in_progress", "processing", "running", "pending"}:
-            for _ in range(45):
-                time.sleep(2)
-                polled = _openai_get_json(f"https://api.openai.com/v1/videos/{video_id}", api_key, timeout=120)
-                polled_status = str((polled or {}).get("status") or "").lower()
+    video_id = data.get("id") if isinstance(data, dict) else None
+    status = str((data or {}).get("status") or "").lower()
+
+    if video_id and status in {"queued", "in_progress", "processing", "running", "pending", ""}:
+        for _ in range(45):
+            time.sleep(2)
+            polled = _openai_get_json(f"https://api.openai.com/v1/videos/{video_id}", api_key, timeout=120)
+            status = str((polled or {}).get("status") or "").lower()
+            if not video_url:
                 video_url = _extract_openai_video_output_url(polled)
-                if video_url:
-                    break
-                if polled_status in {"failed", "cancelled", "canceled", "error"}:
-                    raise ValueError(f"OpenAI video generation failed with status '{polled_status}'")
-                if polled_status in {"completed", "succeeded", "done"}:
-                    break
-    if not video_url:
-        raise ValueError("OpenAI video response did not include a downloadable URL")
-    with urllib.request.urlopen(video_url, timeout=300) as video_resp:
-        data = video_resp.read()
-        content_type = (video_resp.headers.get("Content-Type") or "").lower()
+            if status in {"failed", "cancelled", "canceled", "error"}:
+                error_obj = (polled or {}).get("error") if isinstance(polled, dict) else None
+                error_msg = ""
+                if isinstance(error_obj, dict):
+                    error_msg = str(error_obj.get("message") or "").strip()
+                suffix = f": {error_msg}" if error_msg else ""
+                raise ValueError(f"OpenAI video generation failed with status '{status}'{suffix}")
+            if status in {"completed", "succeeded", "done"}:
+                break
+
+    if video_id and status in {"completed", "succeeded", "done"}:
+        data, content_type = _openai_get_bytes(f"https://api.openai.com/v1/videos/{video_id}/content", api_key, timeout=300)
+    elif video_url:
+        with urllib.request.urlopen(video_url, timeout=300) as video_resp:
+            data = video_resp.read()
+            content_type = (video_resp.headers.get("Content-Type") or "").lower()
+    else:
+        raise ValueError("OpenAI video response did not include downloadable content")
+
     ext = ".mp4"
     if "webm" in content_type:
         ext = ".webm"
