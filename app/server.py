@@ -131,6 +131,12 @@ def init_db():
             preferred_voice TEXT,
             preferred_tts_model TEXT,
             preferred_tts_speed TEXT,
+            preferred_voice_openai TEXT,
+            preferred_tts_model_openai TEXT,
+            preferred_tts_speed_openai TEXT,
+            preferred_voice_local TEXT,
+            preferred_tts_model_local TEXT,
+            preferred_tts_speed_local TEXT,
             created_at INTEGER NOT NULL
         );
         CREATE TABLE IF NOT EXISTS persona_workspace_links (
@@ -216,6 +222,24 @@ def init_db():
         conn.commit()
     if "preferred_tts_speed" not in persona_cols:
         conn.execute("ALTER TABLE personas ADD COLUMN preferred_tts_speed TEXT")
+        conn.commit()
+    if "preferred_voice_openai" not in persona_cols:
+        conn.execute("ALTER TABLE personas ADD COLUMN preferred_voice_openai TEXT")
+        conn.commit()
+    if "preferred_tts_model_openai" not in persona_cols:
+        conn.execute("ALTER TABLE personas ADD COLUMN preferred_tts_model_openai TEXT")
+        conn.commit()
+    if "preferred_tts_speed_openai" not in persona_cols:
+        conn.execute("ALTER TABLE personas ADD COLUMN preferred_tts_speed_openai TEXT")
+        conn.commit()
+    if "preferred_voice_local" not in persona_cols:
+        conn.execute("ALTER TABLE personas ADD COLUMN preferred_voice_local TEXT")
+        conn.commit()
+    if "preferred_tts_model_local" not in persona_cols:
+        conn.execute("ALTER TABLE personas ADD COLUMN preferred_tts_model_local TEXT")
+        conn.commit()
+    if "preferred_tts_speed_local" not in persona_cols:
+        conn.execute("ALTER TABLE personas ADD COLUMN preferred_tts_speed_local TEXT")
         conn.commit()
     conn.execute("CREATE TABLE IF NOT EXISTS persona_workspace_links (persona_id TEXT NOT NULL, workspace_id TEXT NOT NULL, PRIMARY KEY (persona_id, workspace_id))")
     conn.execute(
@@ -1566,7 +1590,13 @@ class Handler(BaseHTTPRequestHandler):
             b = self._read_json(); pid = secrets.token_hex(8)
             workspace_id = b.get("workspaceId")
             conn = db_conn()
-            conn.execute("INSERT INTO personas(id,workspace_id,name,avatar_url,system_prompt,personality_details,traits_json,default_model,preferred_voice,preferred_tts_model,preferred_tts_speed,created_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)", (pid,workspace_id,b.get("name","Persona"),b.get("avatarUrl"),b.get("systemPrompt"),b.get("personalityDetails"),json.dumps(b.get("traits") or {}),b.get("defaultModel"),b.get("preferredVoice"),b.get("preferredTtsModel"),b.get("preferredTtsSpeed"),now_ts()))
+            conn.execute("INSERT INTO personas(id,workspace_id,name,avatar_url,system_prompt,personality_details,traits_json,default_model,preferred_voice,preferred_tts_model,preferred_tts_speed,preferred_voice_openai,preferred_tts_model_openai,preferred_tts_speed_openai,preferred_voice_local,preferred_tts_model_local,preferred_tts_speed_local,created_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)", (
+                pid, workspace_id, b.get("name", "Persona"), b.get("avatarUrl"), b.get("systemPrompt"), b.get("personalityDetails"), json.dumps(b.get("traits") or {}), b.get("defaultModel"),
+                b.get("preferredVoice"), b.get("preferredTtsModel"), b.get("preferredTtsSpeed"),
+                b.get("preferred_voice_openai"), b.get("preferred_tts_model_openai"), b.get("preferred_tts_speed_openai"),
+                b.get("preferred_voice_local"), b.get("preferred_tts_model_local"), b.get("preferred_tts_speed_local"),
+                now_ts(),
+            ))
             conn.execute("INSERT OR IGNORE INTO persona_workspace_links(persona_id, workspace_id) VALUES(?,?)", (pid, workspace_id))
             conn.commit(); conn.close()
             return self._json({"id": pid})
@@ -1713,20 +1743,21 @@ class Handler(BaseHTTPRequestHandler):
                 conn.close(); return self._json({"error":"TTS disabled"}, 400)
             fmt = b.get("format") or settings["tts_format"] or "wav"
             persona_id = b.get("personaId")
-            persona = conn.execute("SELECT preferred_voice, preferred_tts_model, preferred_tts_speed FROM personas WHERE id=?", (persona_id,)).fetchone() if persona_id else None
-            preferred_voice = (b.get("voice") or ((persona and persona["preferred_voice"]) or "")).strip()
-            preferred_model = (b.get("model") or ((persona and persona["preferred_tts_model"]) or "")).strip()
-            preferred_speed = (b.get("speed") or ((persona and persona["preferred_tts_speed"]) or "")).strip()
+            persona = conn.execute("SELECT preferred_voice, preferred_tts_model, preferred_tts_speed, preferred_voice_openai, preferred_tts_model_openai, preferred_tts_speed_openai, preferred_voice_local, preferred_tts_model_local, preferred_tts_speed_local FROM personas WHERE id=?", (persona_id,)).fetchone() if persona_id else None
+            tts_provider = settings["tts_provider"]
+            preferred_voice = (b.get("voice") or ((persona and (persona[f"preferred_voice_{tts_provider}"] if tts_provider in ("openai", "local") else persona["preferred_voice"])) or "")).strip()
+            preferred_model = (b.get("model") or ((persona and (persona[f"preferred_tts_model_{tts_provider}"] if tts_provider in ("openai", "local") else persona["preferred_tts_model"])) or "")).strip()
+            preferred_speed = (b.get("speed") or ((persona and (persona[f"preferred_tts_speed_{tts_provider}"] if tts_provider in ("openai", "local") else persona["preferred_tts_speed"])) or "")).strip()
             try:
                 prefs = json.loads(settings["preferences_json"] or "{}")
             except (TypeError, ValueError):
                 prefs = {}
             if not preferred_voice:
-                preferred_voice = (prefs.get("tts_voice") or ("af_heart" if settings["tts_provider"] == "local" else "alloy")).strip()
+                preferred_voice = (prefs.get(f"tts_voice_{tts_provider}") or prefs.get("tts_voice") or ("af_heart" if tts_provider == "local" else "alloy")).strip()
             if not preferred_model:
-                preferred_model = (prefs.get("tts_model") or ("kokoro" if settings["tts_provider"] == "local" else "gpt-4o-mini-tts")).strip()
+                preferred_model = (prefs.get(f"tts_model_{tts_provider}") or prefs.get("tts_model") or ("kokoro" if tts_provider == "local" else "gpt-4o-mini-tts")).strip()
             if not preferred_speed:
-                preferred_speed = str(prefs.get("tts_speed") or "1")
+                preferred_speed = str(prefs.get(f"tts_speed_{tts_provider}") or prefs.get("tts_speed") or "1")
             local_tts_base_url = prefs.get("tts_local_base_url")
             conn.close()
             out_id = secrets.token_hex(8)
@@ -1871,14 +1902,20 @@ class Handler(BaseHTTPRequestHandler):
                 workspace_id,
                 pid,
             ))
-            if "avatar_url" in b or "personality_details" in b or "traits" in b or "preferred_voice" in b or "preferred_tts_model" in b or "preferred_tts_speed" in b:
-                conn.execute("UPDATE personas SET avatar_url=?, personality_details=?, traits_json=?, preferred_voice=?, preferred_tts_model=?, preferred_tts_speed=? WHERE id=?", (
+            if "avatar_url" in b or "personality_details" in b or "traits" in b or "preferred_voice" in b or "preferred_tts_model" in b or "preferred_tts_speed" in b or "preferred_voice_openai" in b or "preferred_tts_model_openai" in b or "preferred_tts_speed_openai" in b or "preferred_voice_local" in b or "preferred_tts_model_local" in b or "preferred_tts_speed_local" in b:
+                conn.execute("UPDATE personas SET avatar_url=?, personality_details=?, traits_json=?, preferred_voice=?, preferred_tts_model=?, preferred_tts_speed=?, preferred_voice_openai=?, preferred_tts_model_openai=?, preferred_tts_speed_openai=?, preferred_voice_local=?, preferred_tts_model_local=?, preferred_tts_speed_local=? WHERE id=?", (
                     b.get("avatar_url", row["avatar_url"]),
                     b.get("personality_details", row["personality_details"]),
                     json.dumps(b.get("traits", json.loads(row["traits_json"] or "{}"))),
                     b.get("preferred_voice", row["preferred_voice"]),
                     b.get("preferred_tts_model", row["preferred_tts_model"]),
                     b.get("preferred_tts_speed", row["preferred_tts_speed"]),
+                    b.get("preferred_voice_openai", row["preferred_voice_openai"]),
+                    b.get("preferred_tts_model_openai", row["preferred_tts_model_openai"]),
+                    b.get("preferred_tts_speed_openai", row["preferred_tts_speed_openai"]),
+                    b.get("preferred_voice_local", row["preferred_voice_local"]),
+                    b.get("preferred_tts_model_local", row["preferred_tts_model_local"]),
+                    b.get("preferred_tts_speed_local", row["preferred_tts_speed_local"]),
                     pid,
                 ))
             conn.execute("DELETE FROM persona_workspace_links WHERE persona_id=?", (pid,))
