@@ -1641,7 +1641,11 @@ function personaEditorCard(persona) {
   const personaModelKey = provider === 'local' ? 'preferred_tts_model_local' : 'preferred_tts_model_openai';
   const personaSpeedKey = provider === 'local' ? 'preferred_tts_speed_local' : 'preferred_tts_speed_openai';
   const personaVoiceValue = provider === 'disabled' ? '' : (persona[personaVoiceKey] || persona.preferred_voice || '');
-  const personaModelValue = provider === 'disabled' ? '' : (persona[personaModelKey] || persona.preferred_tts_model || '');
+  const legacyModelValue = (persona.preferred_tts_model || '').trim();
+  const fallbackLegacyModelValue = provider === 'local'
+    ? (legacyModelValue.toLowerCase().includes('kokoro') ? legacyModelValue : '')
+    : legacyModelValue;
+  const personaModelValue = provider === 'disabled' ? '' : (persona[personaModelKey] || fallbackLegacyModelValue || '');
   const personaSpeedValue = provider === 'disabled' ? '1' : (persona[personaSpeedKey] || persona.preferred_tts_speed || '1');
   const personaLocalVoices = (state.ttsVoices || []).filter((voiceId) => matchesTtsVoiceFilters(voiceId, state.settings));
   const ttsModelInput = provider === 'openai'
