@@ -61,6 +61,10 @@ const state = {
   messageAudioById: {},
   currentAudioMessageId: '',
   workspaceSectionExpanded: {},
+  ttsVoices: [],
+  ttsVoicesLoading: false,
+  ttsVoicesError: '',
+  ttsVoicesLoadedKey: '',
   memorySectionExpanded: {
     active: false,
     pending: false,
@@ -89,6 +93,10 @@ const SETTINGS_DEFAULTS = {
   tts_voice: 'alloy',
   tts_model: 'gpt-4o-mini-tts',
   tts_speed: '1',
+  tts_local_base_url: '',
+  tts_voice_filter_region: 'all',
+  tts_voice_filter_gender: 'all',
+  tts_voice_filter_query: '',
   stt_language: 'auto',
   stt_store_recordings: false,
   image_provider: 'disabled',
@@ -145,6 +153,55 @@ const STT_LANGUAGES = [
   { value: 'fr', label: 'Français' },
   { value: 'de', label: 'Deutsch' },
 ];
+
+function ttsVoiceMetadata(voiceId) {
+  const id = String(voiceId || '').trim().toLowerCase();
+  const m = /^([a-z])([fm])_/.exec(id);
+  let region = 'other';
+  if (m?.[1] === 'a') region = 'american';
+  if (m?.[1] === 'b') region = 'british';
+  let gender = 'other';
+  if (m?.[2] === 'f') gender = 'female';
+  if (m?.[2] === 'm') gender = 'male';
+  return { region, gender };
+}
+
+function matchesTtsVoiceFilters(voiceId, settings) {
+  const query = String(settings.tts_voice_filter_query || '').trim().toLowerCase();
+  const metadata = ttsVoiceMetadata(voiceId);
+  if (settings.tts_voice_filter_region && settings.tts_voice_filter_region !== 'all' && metadata.region !== settings.tts_voice_filter_region) return false;
+  if (settings.tts_voice_filter_gender && settings.tts_voice_filter_gender !== 'all' && metadata.gender !== settings.tts_voice_filter_gender) return false;
+  if (query && !String(voiceId || '').toLowerCase().includes(query)) return false;
+  return true;
+}
+
+async function fetchLocalTtsVoices(force = false) {
+  const baseUrl = (state.settings?.tts_local_base_url || '').trim();
+  const cacheKey = `${baseUrl}::${state.settings?.tts_provider || ''}`;
+  if (!force && state.ttsVoicesLoadedKey === cacheKey && state.ttsVoices.length) return;
+  if (state.ttsVoicesLoading) return;
+  if (!state.settings || state.settings.tts_provider !== 'local') {
+    state.ttsVoices = [];
+    state.ttsVoicesError = '';
+    state.ttsVoicesLoadedKey = '';
+    return;
+  }
+  state.ttsVoicesLoading = true;
+  state.ttsVoicesError = '';
+  render();
+  try {
+    const response = await api(`/api/tts/voices?baseUrl=${encodeURIComponent(baseUrl)}`);
+    state.ttsVoices = Array.isArray(response.voices) ? response.voices : [];
+    state.ttsVoicesLoadedKey = cacheKey;
+  } catch (e) {
+    state.ttsVoices = [];
+    state.ttsVoicesError = e.message || 'Unable to load local voices.';
+  } finally {
+    state.ttsVoicesLoading = false;
+    render();
+  }
+}
+
 
 async function clientLog(type, message, details = {}) {
   if (!state.user) return;
@@ -215,7 +272,7 @@ function normalizeVideoDuration(value) {
 
 const SETTINGS_SECTION_KEYS = {
   General: ['general_theme', 'general_show_system_messages', 'general_show_thinking', 'general_auto_logout', 'global_default_model'],
-  TTS: ['tts_provider', 'tts_format', 'tts_voice', 'tts_model', 'tts_speed'],
+  TTS: ['tts_provider', 'tts_format', 'tts_voice', 'tts_model', 'tts_speed', 'tts_local_base_url', 'tts_voice_filter_region', 'tts_voice_filter_gender', 'tts_voice_filter_query'],
   STT: ['stt_provider', 'stt_language', 'stt_store_recordings'],
   'Image Generation': ['image_provider', 'image_size', 'image_quality', 'image_prompt_generation', 'image_local_base_url', 'image_local_api_auth', 'image_local_model', 'image_local_steps', 'image_local_sampler_name', 'image_local_scheduler', 'image_local_cfg_scale', 'image_local_seed', 'image_local_additional_parameters'],
   'Video Generation': ['video_provider', 'video_model', 'video_size', 'video_duration'],
@@ -265,6 +322,10 @@ function settingsPayload(nextSettings) {
     tts_voice: nextSettings.tts_voice,
     tts_model: nextSettings.tts_model,
     tts_speed: nextSettings.tts_speed,
+    tts_local_base_url: (nextSettings.tts_local_base_url || '').trim(),
+    tts_voice_filter_region: nextSettings.tts_voice_filter_region || 'all',
+    tts_voice_filter_gender: nextSettings.tts_voice_filter_gender || 'all',
+    tts_voice_filter_query: nextSettings.tts_voice_filter_query || '',
     stt_language: nextSettings.stt_language,
     stt_store_recordings: Boolean(nextSettings.stt_store_recordings),
     image_provider: nextSettings.image_provider,
@@ -1706,6 +1767,14 @@ function settingsPanel() {
 
   const setVal = (key, value) => {
     state.settings[key] = value;
+    if (key === 'tts_provider' && value !== 'local') {
+      state.ttsVoices = [];
+      state.ttsVoicesError = '';
+      state.ttsVoicesLoadedKey = '';
+    }
+    if (key === 'tts_local_base_url') {
+      state.ttsVoicesLoadedKey = '';
+    }
     state.settingsSavedAt = 0;
     render();
   };
@@ -1784,6 +1853,15 @@ function settingsPanel() {
   }
   const activeModelSettings = modelSettingsFor(state.activeModelSettingsId);
 
+  if (state.settings.tts_provider === 'local' && !state.ttsVoicesLoading) {
+    const currentTtsVoiceCacheKey = `${(state.settings.tts_local_base_url || '').trim()}::local`;
+    if (state.ttsVoicesLoadedKey !== currentTtsVoiceCacheKey) {
+      fetchLocalTtsVoices();
+    }
+  }
+
+  const filteredTtsVoices = (state.ttsVoices || []).filter((voiceId) => matchesTtsVoiceFilters(voiceId, state.settings));
+
   const sectionContent = {
     General: [
       el('label', { textContent: 'Theme' }),
@@ -1835,9 +1913,31 @@ function settingsPanel() {
       el('label', { textContent: 'Provider' }),
       el('select', { class: 'chip-select', onchange: (e) => setVal('tts_provider', e.target.value) }, ['disabled', 'openai', 'local'].map((x) => el('option', { value: x, textContent: x, selected: x === state.settings.tts_provider }))),
       el('label', { textContent: 'Audio format' }),
-      el('select', { class: 'chip-select', onchange: (e) => setVal('tts_format', e.target.value) }, ['wav', 'mp3', 'opus'].map((x) => el('option', { value: x, textContent: x, selected: x === state.settings.tts_format }))),
+      el('select', { class: 'chip-select', onchange: (e) => setVal('tts_format', e.target.value) }, ['wav', 'mp3', 'opus', 'flac', 'pcm'].map((x) => el('option', { value: x, textContent: x, selected: x === state.settings.tts_format }))),
+      ...(state.settings.tts_provider === 'local' ? [
+        el('label', { textContent: 'Kokoro base URL' }),
+        el('input', {
+          class: 'search-input',
+          value: state.settings.tts_local_base_url || '',
+          placeholder: 'http://192.168.18.200:8880',
+          oninput: (e) => setVal('tts_local_base_url', e.target.value),
+        }),
+        el('div', { class: 'meta', textContent: 'Leave blank to use server default KOKORO_BASE_URL (or http://127.0.0.1:8880).' }),
+        el('label', { textContent: 'Voice filters' }),
+        el('div', { class: 'chips' }, [
+          el('select', { class: 'chip-select', onchange: (e) => setVal('tts_voice_filter_region', e.target.value) }, ['all', 'american', 'british', 'other'].map((x) => el('option', { value: x, textContent: `Region: ${x}`, selected: x === state.settings.tts_voice_filter_region }))),
+          el('select', { class: 'chip-select', onchange: (e) => setVal('tts_voice_filter_gender', e.target.value) }, ['all', 'female', 'male', 'other'].map((x) => el('option', { value: x, textContent: `Gender: ${x}`, selected: x === state.settings.tts_voice_filter_gender }))),
+          el('input', { class: 'search-input', value: state.settings.tts_voice_filter_query || '', placeholder: 'Search voice id', oninput: (e) => setVal('tts_voice_filter_query', e.target.value) }),
+          el('button', { class: 'pill-btn', textContent: state.ttsVoicesLoading ? 'Loading voices…' : 'Refresh voices', disabled: state.ttsVoicesLoading, onclick: () => fetchLocalTtsVoices(true) }),
+        ]),
+        state.ttsVoicesError ? el('div', { class: 'meta', textContent: state.ttsVoicesError }) : el('div', { class: 'meta', textContent: `${filteredTtsVoices.length} / ${(state.ttsVoices || []).length} voices visible` }),
+      ] : []),
       el('label', { textContent: 'Default voice' }),
-      el('input', { class: 'search-input', value: state.settings.tts_voice, oninput: (e) => setVal('tts_voice', e.target.value) }),
+      ...(state.settings.tts_provider === 'local' && filteredTtsVoices.length ? [
+        el('select', { class: 'chip-select', onchange: (e) => setVal('tts_voice', e.target.value) }, filteredTtsVoices.map((x) => el('option', { value: x, textContent: x, selected: x === state.settings.tts_voice }))),
+      ] : [
+        el('input', { class: 'search-input', value: state.settings.tts_voice, oninput: (e) => setVal('tts_voice', e.target.value) }),
+      ]),
       el('label', { textContent: 'Default TTS model' }),
       el('input', { class: 'search-input', value: state.settings.tts_model, oninput: (e) => setVal('tts_model', e.target.value) }),
       el('label', { textContent: 'Default voice speed' }),

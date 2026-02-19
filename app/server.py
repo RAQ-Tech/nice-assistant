@@ -437,6 +437,63 @@ def openai_speech(text, voice, fmt, api_key, model="gpt-4o-mini-tts", speed="1")
         return r.read()
 
 
+def _normalized_tts_local_base_url(raw_url):
+    candidate = (raw_url or "").strip()
+    if not candidate:
+        candidate = os.getenv("KOKORO_BASE_URL", "http://127.0.0.1:8880")
+    return candidate.rstrip("/")
+
+
+def kokoro_speech(text, voice, fmt, base_url, model="kokoro", speed="1"):
+    payload = json.dumps({
+        "model": model or "kokoro",
+        "input": text,
+        "voice": voice or "af_heart",
+        "response_format": fmt,
+        "speed": normalize_tts_speed(speed),
+        "stream": False,
+    }).encode()
+    req = urllib.request.Request(
+        f"{_normalized_tts_local_base_url(base_url)}/v1/audio/speech",
+        data=payload,
+        headers={"Content-Type": "application/json", "x-raw-response": "true"},
+        method="POST",
+    )
+    with urllib.request.urlopen(req, timeout=300) as r:
+        body = r.read()
+        content_type = (r.headers.get("Content-Type") or "").lower()
+    if content_type.startswith("audio/") or fmt == "pcm":
+        return body
+    try:
+        parsed = json.loads(body.decode("utf-8", errors="replace"))
+    except Exception as exc:
+        raise ValueError(f"Unexpected Kokoro response ({content_type or 'unknown'}).") from exc
+    download_url = (parsed.get("download_url") or parsed.get("url") or "").strip()
+    if download_url:
+        req = urllib.request.Request(urllib.parse.urljoin(f"{_normalized_tts_local_base_url(base_url)}/", download_url.lstrip("/")), method="GET")
+        with urllib.request.urlopen(req, timeout=120) as audio_resp:
+            return audio_resp.read()
+    audio_b64 = parsed.get("audio_base64") or parsed.get("audio")
+    if audio_b64:
+        return base64.b64decode(audio_b64)
+    raise ValueError("Kokoro response did not include audio bytes.")
+
+
+def kokoro_list_voices(base_url):
+    req = urllib.request.Request(f"{_normalized_tts_local_base_url(base_url)}/v1/audio/voices", method="GET")
+    with urllib.request.urlopen(req, timeout=30) as r:
+        payload = json.loads(r.read().decode("utf-8", errors="replace"))
+    voices = []
+    if isinstance(payload, list):
+        voices = [str(v).strip() for v in payload]
+    elif isinstance(payload, dict):
+        for key in ("voices", "data", "items"):
+            if isinstance(payload.get(key), list):
+                voices = [str(v if isinstance(v, str) else (v.get("id") if isinstance(v, dict) else "")).strip() for v in payload[key]]
+                break
+    return sorted({v for v in voices if v})
+
+
 def openai_stt(filepath, api_key, language="auto"):
     boundary = "----NiceAssistantBoundary" + secrets.token_hex(8)
     with open(filepath, "rb") as f:
@@ -1358,6 +1415,26 @@ class Handler(BaseHTTPRequestHandler):
             if not uid: return
             conn = db_conn(); row = conn.execute("SELECT * FROM app_settings WHERE user_id=?", (uid,)).fetchone(); conn.close()
             return self._json({"settings": dict(row) if row else {"default_memory_mode": "auto", "stt_provider": "disabled", "tts_provider": "disabled", "tts_format": "wav", "preferences_json": "{}"}})
+        if self.path.startswith("/api/tts/voices"):
+            uid = self._require_auth();
+            if not uid: return
+            conn = db_conn(); settings = conn.execute("SELECT * FROM app_settings WHERE user_id=?", (uid,)).fetchone(); conn.close()
+            if not settings or settings["tts_provider"] != "local":
+                return self._json({"voices": []})
+            try:
+                prefs = json.loads(settings["preferences_json"] or "{}")
+            except (TypeError, ValueError):
+                prefs = {}
+            req_base_url = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query).get("baseUrl", [""])[0]
+            base_url = req_base_url.strip() or prefs.get("tts_local_base_url")
+            try:
+                voices = kokoro_list_voices(base_url)
+            except urllib.error.HTTPError as e:
+                detail = e.read().decode("utf-8", errors="replace")
+                return self._json({"error": f"Failed to load local voices: {e}. {detail}"}, 500)
+            except Exception as e:
+                return self._json({"error": f"Failed to load local voices: {e}"}, 500)
+            return self._json({"voices": voices})
         if self.path == "/api/session":
             uid = self._require_auth();
             if not uid: return
@@ -1645,11 +1722,12 @@ class Handler(BaseHTTPRequestHandler):
             except (TypeError, ValueError):
                 prefs = {}
             if not preferred_voice:
-                preferred_voice = (prefs.get("tts_voice") or "alloy").strip()
+                preferred_voice = (prefs.get("tts_voice") or ("af_heart" if settings["tts_provider"] == "local" else "alloy")).strip()
             if not preferred_model:
-                preferred_model = (prefs.get("tts_model") or "gpt-4o-mini-tts").strip()
+                preferred_model = (prefs.get("tts_model") or ("kokoro" if settings["tts_provider"] == "local" else "gpt-4o-mini-tts")).strip()
             if not preferred_speed:
                 preferred_speed = str(prefs.get("tts_speed") or "1")
+            local_tts_base_url = prefs.get("tts_local_base_url")
             conn.close()
             out_id = secrets.token_hex(8)
             out_path = AUDIO_DIR / f"{out_id}.{fmt}"
@@ -1664,8 +1742,17 @@ class Handler(BaseHTTPRequestHandler):
                     return self._json({"error": f"TTS failed: {e}. {detail}"}, 500)
                 except Exception as e:
                     return self._json({"error": f"TTS failed: {e}"}, 500)
+            elif settings["tts_provider"] == "local":
+                try:
+                    audio = kokoro_speech(text, preferred_voice, fmt, local_tts_base_url, preferred_model, preferred_speed)
+                    out_path.write_bytes(audio)
+                except urllib.error.HTTPError as e:
+                    detail = e.read().decode("utf-8", errors="replace")
+                    return self._json({"error": f"Local TTS failed: {e}. {detail}"}, 500)
+                except Exception as e:
+                    return self._json({"error": f"Local TTS failed: {e}"}, 500)
             else:
-                return self._json({"error":"Local provider not implemented yet"}, 400)
+                return self._json({"error":"Unknown TTS provider"}, 400)
             conn = db_conn(); conn.execute("INSERT INTO audio_files(id,user_id,persona_id,chat_id,format,local_path,created_at) VALUES(?,?,?,?,?,?,?)", (out_id, uid, b.get("personaId"), b.get("chatId"), fmt, str(out_path), now_ts())); conn.commit(); conn.close()
             rotate_audio_cache()
             return self._json({"audioUrl": f"/api/tts/audio/{out_id}", "format": fmt})
