@@ -90,12 +90,15 @@ const SETTINGS_DEFAULTS = {
   general_show_system_messages: false,
   general_show_thinking: false,
   general_auto_logout: true,
-  tts_voice: 'alloy',
-  tts_model: 'gpt-4o-mini-tts',
-  tts_speed: '1',
+  tts_voice_openai: 'alloy',
+  tts_model_openai: 'gpt-4o-mini-tts',
+  tts_speed_openai: '1',
+  tts_voice_local: 'af_heart',
+  tts_model_local: 'kokoro',
+  tts_speed_local: '1',
   tts_local_base_url: '',
-  tts_voice_filter_region: 'all',
-  tts_voice_filter_gender: 'all',
+  tts_voice_filter_regions: [],
+  tts_voice_filter_genders: [],
   tts_voice_filter_query: '',
   stt_language: 'auto',
   stt_store_recordings: false,
@@ -153,6 +156,32 @@ const STT_LANGUAGES = [
   { value: 'fr', label: 'Français' },
   { value: 'de', label: 'Deutsch' },
 ];
+const OPENAI_TTS_MODELS = ['gpt-4o-mini-tts', 'gpt-4o-audio-preview'];
+const OPENAI_TTS_VOICES = ['alloy', 'ash', 'ballad', 'coral', 'echo', 'fable', 'nova', 'onyx', 'sage', 'shimmer'];
+
+function providerSettingKey(baseKey, provider) {
+  const activeProvider = provider || state.settings?.tts_provider || 'disabled';
+  if (activeProvider === 'openai') return `${baseKey}_openai`;
+  if (activeProvider === 'local') return `${baseKey}_local`;
+  return '';
+}
+
+function providerSettingValue(baseKey, provider) {
+  const key = providerSettingKey(baseKey, provider);
+  return key ? (state.settings?.[key] ?? '') : '';
+}
+
+function setProviderSetting(baseKey, value, provider) {
+  const key = providerSettingKey(baseKey, provider);
+  if (!key || !state.settings) return;
+  state.settings[key] = value;
+  state.settingsSavedAt = 0;
+  render();
+}
+
+function hasVoiceFilter(selectedValues, candidate) {
+  return !selectedValues.length || selectedValues.includes(candidate);
+}
 
 function ttsVoiceMetadata(voiceId) {
   const id = String(voiceId || '').trim().toLowerCase();
@@ -169,8 +198,10 @@ function ttsVoiceMetadata(voiceId) {
 function matchesTtsVoiceFilters(voiceId, settings) {
   const query = String(settings.tts_voice_filter_query || '').trim().toLowerCase();
   const metadata = ttsVoiceMetadata(voiceId);
-  if (settings.tts_voice_filter_region && settings.tts_voice_filter_region !== 'all' && metadata.region !== settings.tts_voice_filter_region) return false;
-  if (settings.tts_voice_filter_gender && settings.tts_voice_filter_gender !== 'all' && metadata.gender !== settings.tts_voice_filter_gender) return false;
+  const regions = Array.isArray(settings.tts_voice_filter_regions) ? settings.tts_voice_filter_regions : [];
+  const genders = Array.isArray(settings.tts_voice_filter_genders) ? settings.tts_voice_filter_genders : [];
+  if (!hasVoiceFilter(regions, metadata.region)) return false;
+  if (!hasVoiceFilter(genders, metadata.gender)) return false;
   if (query && !String(voiceId || '').toLowerCase().includes(query)) return false;
   return true;
 }
@@ -272,7 +303,7 @@ function normalizeVideoDuration(value) {
 
 const SETTINGS_SECTION_KEYS = {
   General: ['general_theme', 'general_show_system_messages', 'general_show_thinking', 'general_auto_logout', 'global_default_model'],
-  TTS: ['tts_provider', 'tts_format', 'tts_voice', 'tts_model', 'tts_speed', 'tts_local_base_url', 'tts_voice_filter_region', 'tts_voice_filter_gender', 'tts_voice_filter_query'],
+  TTS: ['tts_provider', 'tts_format', 'tts_voice_openai', 'tts_model_openai', 'tts_speed_openai', 'tts_voice_local', 'tts_model_local', 'tts_speed_local', 'tts_local_base_url', 'tts_voice_filter_regions', 'tts_voice_filter_genders', 'tts_voice_filter_query'],
   STT: ['stt_provider', 'stt_language', 'stt_store_recordings'],
   'Image Generation': ['image_provider', 'image_size', 'image_quality', 'image_prompt_generation', 'image_local_base_url', 'image_local_api_auth', 'image_local_model', 'image_local_steps', 'image_local_sampler_name', 'image_local_scheduler', 'image_local_cfg_scale', 'image_local_seed', 'image_local_additional_parameters'],
   'Video Generation': ['video_provider', 'video_model', 'video_size', 'video_duration'],
@@ -299,6 +330,16 @@ function normalizeSettings(raw = {}) {
   normalized.video_model = normalizeVideoModel(normalized.video_model);
   normalized.video_duration = normalizeVideoDuration(normalized.video_duration);
   normalized.video_size = normalizeVideoSize(normalized.video_model, normalized.video_size);
+  normalized.tts_voice_openai = normalized.tts_voice_openai || normalized.tts_voice || SETTINGS_DEFAULTS.tts_voice_openai;
+  normalized.tts_model_openai = normalized.tts_model_openai || normalized.tts_model || SETTINGS_DEFAULTS.tts_model_openai;
+  normalized.tts_speed_openai = String(normalized.tts_speed_openai || normalized.tts_speed || SETTINGS_DEFAULTS.tts_speed_openai);
+  normalized.tts_voice_local = normalized.tts_voice_local || (normalized.tts_provider === 'local' ? normalized.tts_voice : '') || SETTINGS_DEFAULTS.tts_voice_local;
+  normalized.tts_model_local = normalized.tts_model_local || (normalized.tts_provider === 'local' ? normalized.tts_model : '') || SETTINGS_DEFAULTS.tts_model_local;
+  normalized.tts_speed_local = String(normalized.tts_speed_local || (normalized.tts_provider === 'local' ? normalized.tts_speed : '') || SETTINGS_DEFAULTS.tts_speed_local);
+  const region = normalized.tts_voice_filter_region;
+  const gender = normalized.tts_voice_filter_gender;
+  normalized.tts_voice_filter_regions = Array.isArray(normalized.tts_voice_filter_regions) ? normalized.tts_voice_filter_regions : (region && region !== 'all' ? [region] : []);
+  normalized.tts_voice_filter_genders = Array.isArray(normalized.tts_voice_filter_genders) ? normalized.tts_voice_filter_genders : (gender && gender !== 'all' ? [gender] : []);
   return normalized;
 }
 
@@ -319,12 +360,15 @@ function settingsPayload(nextSettings) {
     general_auto_logout: Boolean(nextSettings.general_auto_logout),
     general_voice_responses: Boolean(nextSettings.general_voice_responses),
     general_show_viz: Boolean(nextSettings.general_show_viz),
-    tts_voice: nextSettings.tts_voice,
-    tts_model: nextSettings.tts_model,
-    tts_speed: nextSettings.tts_speed,
+    tts_voice_openai: nextSettings.tts_voice_openai,
+    tts_model_openai: nextSettings.tts_model_openai,
+    tts_speed_openai: nextSettings.tts_speed_openai,
+    tts_voice_local: nextSettings.tts_voice_local,
+    tts_model_local: nextSettings.tts_model_local,
+    tts_speed_local: nextSettings.tts_speed_local,
     tts_local_base_url: (nextSettings.tts_local_base_url || '').trim(),
-    tts_voice_filter_region: nextSettings.tts_voice_filter_region || 'all',
-    tts_voice_filter_gender: nextSettings.tts_voice_filter_gender || 'all',
+    tts_voice_filter_regions: nextSettings.tts_voice_filter_regions || [],
+    tts_voice_filter_genders: nextSettings.tts_voice_filter_genders || [],
     tts_voice_filter_query: nextSettings.tts_voice_filter_query || '',
     stt_language: nextSettings.stt_language,
     stt_store_recordings: Boolean(nextSettings.stt_store_recordings),
@@ -1592,23 +1636,29 @@ function personaEditorCard(persona) {
     el('option', { value: '', textContent: 'Use app default' }),
     ...state.models.map((m) => el('option', { value: m, textContent: m, selected: m === persona.default_model })),
   ]);
-  const ttsModelInput = el('input', {
-    class: 'search-input',
-    value: persona.preferred_tts_model || '',
-    placeholder: 'Persona TTS model (optional)',
-  });
-  const ttsVoiceInput = el('input', {
-    class: 'search-input',
-    value: persona.preferred_voice || '',
-    placeholder: 'Persona voice (optional, falls back to Default voice)',
-  });
+  const provider = state.settings?.tts_provider || 'disabled';
+  const personaVoiceKey = provider === 'local' ? 'preferred_voice_local' : 'preferred_voice_openai';
+  const personaModelKey = provider === 'local' ? 'preferred_tts_model_local' : 'preferred_tts_model_openai';
+  const personaSpeedKey = provider === 'local' ? 'preferred_tts_speed_local' : 'preferred_tts_speed_openai';
+  const personaVoiceValue = provider === 'disabled' ? '' : (persona[personaVoiceKey] || persona.preferred_voice || '');
+  const personaModelValue = provider === 'disabled' ? '' : (persona[personaModelKey] || persona.preferred_tts_model || '');
+  const personaSpeedValue = provider === 'disabled' ? '1' : (persona[personaSpeedKey] || persona.preferred_tts_speed || '1');
+  const personaLocalVoices = (state.ttsVoices || []).filter((voiceId) => matchesTtsVoiceFilters(voiceId, state.settings));
+  const ttsModelInput = provider === 'openai'
+    ? el('select', { class: 'chip-select' }, OPENAI_TTS_MODELS.map((x) => el('option', { value: x, textContent: x, selected: x === personaModelValue })))
+    : el('input', { class: 'search-input', value: personaModelValue, placeholder: 'Persona TTS model (optional)' });
+  const ttsVoiceInput = provider === 'openai'
+    ? el('select', { class: 'chip-select' }, OPENAI_TTS_VOICES.map((x) => el('option', { value: x, textContent: x, selected: x === personaVoiceValue })))
+    : (provider === 'local' && personaLocalVoices.length
+      ? el('select', { class: 'chip-select' }, personaLocalVoices.map((x) => el('option', { value: x, textContent: x, selected: x === personaVoiceValue })))
+      : el('input', { class: 'search-input', value: personaVoiceValue, placeholder: 'Persona voice (optional, falls back to provider default voice)' }));
   const ttsSpeedInput = el('input', {
     type: 'number',
     min: 0.25,
     max: 4,
     step: 0.05,
     class: 'search-input',
-    value: persona.preferred_tts_speed || '1',
+    value: personaSpeedValue || '1',
     placeholder: '1.0',
   });
   const workspaceOptions = state.workspaces.map((w) => {
@@ -1678,12 +1728,14 @@ function personaEditorCard(persona) {
     modelSelect,
     el('label', { textContent: 'Assigned workspaces' }),
     el('div', { class: 'persona-gender-grid' }, workspaceOptions.map((opt) => el('label', { class: 'checkbox-row' }, [opt.input, state.workspaces.find((w) => w.id === opt.id)?.name || opt.id]))),
-    el('label', { textContent: 'Preferred TTS model' }),
-    ttsModelInput,
-    el('label', { textContent: 'Preferred TTS voice' }),
-    ttsVoiceInput,
-    el('label', { textContent: 'Preferred voice speed' }),
-    ttsSpeedInput,
+    ...(provider !== 'disabled' ? [
+      el('label', { textContent: `Preferred ${provider} TTS model` }),
+      ttsModelInput,
+      el('label', { textContent: `Preferred ${provider} TTS voice` }),
+      ttsVoiceInput,
+      el('label', { textContent: `Preferred ${provider} voice speed` }),
+      ttsSpeedInput,
+    ] : []),
     el('label', { textContent: 'Gender' }),
     el('div', { class: 'persona-gender-grid' }, genderRows),
     genderOtherInput,
@@ -1711,6 +1763,12 @@ function personaEditorCard(persona) {
               preferred_voice: ttsVoiceInput.value.trim(),
               preferred_tts_model: ttsModelInput.value.trim(),
               preferred_tts_speed: ttsSpeedInput.value || '1',
+              preferred_voice_openai: provider === 'openai' ? ttsVoiceInput.value.trim() : (persona.preferred_voice_openai || ''),
+              preferred_tts_model_openai: provider === 'openai' ? ttsModelInput.value.trim() : (persona.preferred_tts_model_openai || ''),
+              preferred_tts_speed_openai: provider === 'openai' ? (ttsSpeedInput.value || '1') : (persona.preferred_tts_speed_openai || '1'),
+              preferred_voice_local: provider === 'local' ? ttsVoiceInput.value.trim() : (persona.preferred_voice_local || ''),
+              preferred_tts_model_local: provider === 'local' ? ttsModelInput.value.trim() : (persona.preferred_tts_model_local || ''),
+              preferred_tts_speed_local: provider === 'local' ? (ttsSpeedInput.value || '1') : (persona.preferred_tts_speed_local || '1'),
               workspace_id: workspaceIds[0],
               workspace_ids: workspaceIds,
               traits: {
@@ -1767,10 +1825,20 @@ function settingsPanel() {
 
   const setVal = (key, value) => {
     state.settings[key] = value;
-    if (key === 'tts_provider' && value !== 'local') {
-      state.ttsVoices = [];
-      state.ttsVoicesError = '';
-      state.ttsVoicesLoadedKey = '';
+    if (key === 'tts_provider') {
+      if (value !== 'local') {
+        state.ttsVoices = [];
+        state.ttsVoicesError = '';
+        state.ttsVoicesLoadedKey = '';
+      }
+      if (value === 'openai') {
+        setProviderSetting('tts_voice', providerSettingValue('tts_voice', 'openai') || SETTINGS_DEFAULTS.tts_voice_openai, 'openai');
+        setProviderSetting('tts_model', providerSettingValue('tts_model', 'openai') || SETTINGS_DEFAULTS.tts_model_openai, 'openai');
+      }
+      if (value === 'local') {
+        setProviderSetting('tts_voice', providerSettingValue('tts_voice', 'local') || SETTINGS_DEFAULTS.tts_voice_local, 'local');
+        setProviderSetting('tts_model', providerSettingValue('tts_model', 'local') || SETTINGS_DEFAULTS.tts_model_local, 'local');
+      }
     }
     if (key === 'tts_local_base_url') {
       state.ttsVoicesLoadedKey = '';
@@ -1912,8 +1980,10 @@ function settingsPanel() {
     TTS: [
       el('label', { textContent: 'Provider' }),
       el('select', { class: 'chip-select', onchange: (e) => setVal('tts_provider', e.target.value) }, ['disabled', 'openai', 'local'].map((x) => el('option', { value: x, textContent: x, selected: x === state.settings.tts_provider }))),
-      el('label', { textContent: 'Audio format' }),
-      el('select', { class: 'chip-select', onchange: (e) => setVal('tts_format', e.target.value) }, ['wav', 'mp3', 'opus', 'flac', 'pcm'].map((x) => el('option', { value: x, textContent: x, selected: x === state.settings.tts_format }))),
+      ...(state.settings.tts_provider !== 'disabled' ? [
+        el('label', { textContent: 'Audio format' }),
+        el('select', { class: 'chip-select', onchange: (e) => setVal('tts_format', e.target.value) }, ['wav', 'mp3', 'opus', 'flac', 'pcm'].map((x) => el('option', { value: x, textContent: x, selected: x === state.settings.tts_format }))),
+      ] : []),
       ...(state.settings.tts_provider === 'local' ? [
         el('label', { textContent: 'Kokoro base URL' }),
         el('input', {
@@ -1925,23 +1995,53 @@ function settingsPanel() {
         el('div', { class: 'meta', textContent: 'Leave blank to use server default KOKORO_BASE_URL (or http://127.0.0.1:8880).' }),
         el('label', { textContent: 'Voice filters' }),
         el('div', { class: 'chips' }, [
-          el('select', { class: 'chip-select', onchange: (e) => setVal('tts_voice_filter_region', e.target.value) }, ['all', 'american', 'british', 'other'].map((x) => el('option', { value: x, textContent: `Region: ${x}`, selected: x === state.settings.tts_voice_filter_region }))),
-          el('select', { class: 'chip-select', onchange: (e) => setVal('tts_voice_filter_gender', e.target.value) }, ['all', 'female', 'male', 'other'].map((x) => el('option', { value: x, textContent: `Gender: ${x}`, selected: x === state.settings.tts_voice_filter_gender }))),
+          ...['american', 'british', 'other'].map((region) => el('label', { class: 'checkbox-row' }, [
+            el('input', {
+              type: 'checkbox',
+              checked: (state.settings.tts_voice_filter_regions || []).includes(region),
+              onchange: (e) => {
+                const next = new Set(state.settings.tts_voice_filter_regions || []);
+                if (e.target.checked) next.add(region); else next.delete(region);
+                setVal('tts_voice_filter_regions', Array.from(next));
+              },
+            }),
+            `Region: ${region}`,
+          ])),
+          ...['female', 'male', 'other'].map((gender) => el('label', { class: 'checkbox-row' }, [
+            el('input', {
+              type: 'checkbox',
+              checked: (state.settings.tts_voice_filter_genders || []).includes(gender),
+              onchange: (e) => {
+                const next = new Set(state.settings.tts_voice_filter_genders || []);
+                if (e.target.checked) next.add(gender); else next.delete(gender);
+                setVal('tts_voice_filter_genders', Array.from(next));
+              },
+            }),
+            `Gender: ${gender}`,
+          ])),
           el('input', { class: 'search-input', value: state.settings.tts_voice_filter_query || '', placeholder: 'Search voice id', oninput: (e) => setVal('tts_voice_filter_query', e.target.value) }),
           el('button', { class: 'pill-btn', textContent: state.ttsVoicesLoading ? 'Loading voices…' : 'Refresh voices', disabled: state.ttsVoicesLoading, onclick: () => fetchLocalTtsVoices(true) }),
         ]),
         state.ttsVoicesError ? el('div', { class: 'meta', textContent: state.ttsVoicesError }) : el('div', { class: 'meta', textContent: `${filteredTtsVoices.length} / ${(state.ttsVoices || []).length} voices visible` }),
+        el('label', { textContent: 'Default voice' }),
+        ...(filteredTtsVoices.length ? [
+          el('select', { class: 'chip-select', onchange: (e) => setProviderSetting('tts_voice', e.target.value, 'local') }, filteredTtsVoices.map((x) => el('option', { value: x, textContent: x, selected: x === providerSettingValue('tts_voice', 'local') }))),
+        ] : [
+          el('input', { class: 'search-input', value: providerSettingValue('tts_voice', 'local'), oninput: (e) => setProviderSetting('tts_voice', e.target.value, 'local') }),
+        ]),
+        el('label', { textContent: 'Default TTS model' }),
+        el('input', { class: 'search-input', value: providerSettingValue('tts_model', 'local'), oninput: (e) => setProviderSetting('tts_model', e.target.value, 'local') }),
+        el('label', { textContent: 'Default voice speed' }),
+        el('input', { type: 'number', min: 0.25, max: 4, step: 0.05, class: 'search-input', value: providerSettingValue('tts_speed', 'local'), oninput: (e) => setProviderSetting('tts_speed', e.target.value || '1', 'local') }),
       ] : []),
-      el('label', { textContent: 'Default voice' }),
-      ...(state.settings.tts_provider === 'local' && filteredTtsVoices.length ? [
-        el('select', { class: 'chip-select', onchange: (e) => setVal('tts_voice', e.target.value) }, filteredTtsVoices.map((x) => el('option', { value: x, textContent: x, selected: x === state.settings.tts_voice }))),
-      ] : [
-        el('input', { class: 'search-input', value: state.settings.tts_voice, oninput: (e) => setVal('tts_voice', e.target.value) }),
-      ]),
-      el('label', { textContent: 'Default TTS model' }),
-      el('input', { class: 'search-input', value: state.settings.tts_model, oninput: (e) => setVal('tts_model', e.target.value) }),
-      el('label', { textContent: 'Default voice speed' }),
-      el('input', { type: 'number', min: 0.25, max: 4, step: 0.05, class: 'search-input', value: state.settings.tts_speed, oninput: (e) => setVal('tts_speed', e.target.value || '1') }),
+      ...(state.settings.tts_provider === 'openai' ? [
+        el('label', { textContent: 'Default voice' }),
+        el('select', { class: 'chip-select', onchange: (e) => setProviderSetting('tts_voice', e.target.value, 'openai') }, OPENAI_TTS_VOICES.map((x) => el('option', { value: x, textContent: x, selected: x === providerSettingValue('tts_voice', 'openai') }))),
+        el('label', { textContent: 'Default TTS model' }),
+        el('select', { class: 'chip-select', onchange: (e) => setProviderSetting('tts_model', e.target.value, 'openai') }, OPENAI_TTS_MODELS.map((x) => el('option', { value: x, textContent: x, selected: x === providerSettingValue('tts_model', 'openai') }))),
+        el('label', { textContent: 'Default voice speed' }),
+        el('input', { type: 'number', min: 0.25, max: 4, step: 0.05, class: 'search-input', value: providerSettingValue('tts_speed', 'openai'), oninput: (e) => setProviderSetting('tts_speed', e.target.value || '1', 'openai') }),
+      ] : []),
     ],
     STT: [
       el('label', { textContent: 'Provider' }),
