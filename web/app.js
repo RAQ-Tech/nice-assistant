@@ -209,7 +209,7 @@ function matchesTtsVoiceFilters(voiceId, settings) {
 async function fetchLocalTtsVoices(force = false) {
   const baseUrl = (state.settings?.tts_local_base_url || '').trim();
   const cacheKey = `${baseUrl}::${state.settings?.tts_provider || ''}`;
-  if (!force && state.ttsVoicesLoadedKey === cacheKey && state.ttsVoices.length) return;
+  if (!force && state.ttsVoicesLoadedKey === cacheKey) return;
   if (state.ttsVoicesLoading) return;
   if (!state.settings || state.settings.tts_provider !== 'local') {
     state.ttsVoices = [];
@@ -227,6 +227,7 @@ async function fetchLocalTtsVoices(force = false) {
   } catch (e) {
     state.ttsVoices = [];
     state.ttsVoicesError = e.message || 'Unable to load local voices.';
+    state.ttsVoicesLoadedKey = cacheKey;
   } finally {
     state.ttsVoicesLoading = false;
     render();
