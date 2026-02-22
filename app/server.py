@@ -866,8 +866,23 @@ def parse_image_size(size, allow_custom=False):
         return 1024, 1024
 
 
+def clean_user_image_prompt(prompt):
+    text = " ".join((prompt or "").split()).strip()
+    if not text:
+        return ""
+    prefixes = [
+        r"^(please\s+)?(can you\s+)?(generate|create|make|draw|render|produce)\s+(me\s+)?(an?|the)?\s*(image|picture|photo|illustration|artwork)?\s*(of|with)?\s+",
+        r"^(please\s+)?(show|give)\s+me\s+(an?|the)?\s*(image|picture|photo|illustration)\s*(of|with)?\s+",
+    ]
+    cleaned = text
+    for pattern in prefixes:
+        cleaned = re.sub(pattern, "", cleaned, flags=re.IGNORECASE).strip(" ,.:;-")
+    cleaned = re.sub(r"^an?\s+image\s+of\s+", "", cleaned, flags=re.IGNORECASE).strip(" ,.:;-")
+    return cleaned or text
+
+
 def adjust_prompt_for_openai_image(prompt):
-    text = (prompt or "").strip()
+    text = clean_user_image_prompt(prompt)
     if not text:
         return "Generate a polished, policy-compliant image suitable for general audiences."
     adjusted = text
@@ -897,7 +912,7 @@ def local_negative_prompt(allow_nsfw):
 
 
 def adjust_prompt_for_local_sd(prompt, allow_nsfw):
-    text = " ".join((prompt or "").split()).strip()
+    text = clean_user_image_prompt(prompt)
     if not text:
         text = "cinematic portrait of a friendly assistant in a modern workspace, detailed lighting, highly detailed"
     if not allow_nsfw:

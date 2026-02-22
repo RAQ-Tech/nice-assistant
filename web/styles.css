@@ -222,6 +222,7 @@ button, input, select, textarea {
 .msg-wrap { display: flex; align-items:flex-start; }
 
 .msg-avatar {
+  cursor: zoom-in;
   width: 56px;
   height: 56px;
   border-radius: 999px;
@@ -292,6 +293,17 @@ button, input, select, textarea {
   color: #fff;
   pointer-events: none;
   box-shadow: 0 10px 24px rgba(0, 0, 0, .45);
+}
+
+
+.msg-inline-image.image-blurred {
+  filter: blur(18px) saturate(0.7);
+  transform: scale(1.01);
+}
+
+.typing-indicator {
+  font-style: italic;
+  color: var(--text-dim);
 }
 
 .msg-video-label {

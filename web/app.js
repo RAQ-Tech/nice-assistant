@@ -12,7 +12,7 @@ const state = {
   models: [],
   status: 'Idle',
   showViz: false,
-  drawerOpen: window.innerWidth > 900,
+  drawerOpen: false,
   chatSearch: '',
   showSettings: false,
   modal: null,
@@ -53,6 +53,8 @@ const state = {
   personaAvatarPreview: '',
   chatImagePreview: '',
   chatVideoPreview: '',
+  revealedImages: {},
+  personaDrafts: {},
   voiceResponsesEnabled: true,
   isSending: false,
   isTranscribing: false,
@@ -510,12 +512,50 @@ function bindMessageImagePreview(node) {
   node.querySelectorAll('.msg-inline-image').forEach((img) => {
     if (img.dataset.boundPreview === '1') return;
     img.dataset.boundPreview = '1';
-    img.style.cursor = 'zoom-in';
+    const key = img.src || img.currentSrc || '';
+    if (!state.revealedImages[key]) {
+      img.classList.add('image-blurred');
+      img.title = 'Tap to reveal image';
+      img.style.cursor = 'pointer';
+    } else {
+      img.style.cursor = 'zoom-in';
+    }
     img.addEventListener('click', () => {
+      const imageKey = img.src || img.currentSrc || '';
+      if (!state.revealedImages[imageKey]) {
+        state.revealedImages[imageKey] = true;
+        img.classList.remove('image-blurred');
+        img.title = 'Open image preview';
+        img.style.cursor = 'zoom-in';
+        return;
+      }
       state.chatImagePreview = img.src;
       render();
     });
   });
+}
+
+function personaDraftFor(persona) {
+  if (!persona?.id) return null;
+  if (!state.personaDrafts[persona.id]) {
+    const traits = parsePersonaTraits(persona.traits_json);
+    state.personaDrafts[persona.id] = {
+      name: persona.name || '',
+      avatar_url: persona.avatar_url || '',
+      personality_details: persona.personality_details || '',
+      system_prompt: persona.system_prompt || '',
+      default_model: persona.default_model || '',
+      preferred_voice_openai: persona.preferred_voice_openai || '',
+      preferred_tts_model_openai: persona.preferred_tts_model_openai || '',
+      preferred_tts_speed_openai: persona.preferred_tts_speed_openai || '1',
+      preferred_voice_local: persona.preferred_voice_local || '',
+      preferred_tts_model_local: persona.preferred_tts_model_local || '',
+      preferred_tts_speed_local: persona.preferred_tts_speed_local || '1',
+      workspace_ids: [...(persona.workspace_ids || [persona.workspace_id]).filter(Boolean)],
+      traits,
+    };
+  }
+  return state.personaDrafts[persona.id];
 }
 
 function ensureAudioGraph() {
@@ -667,7 +707,9 @@ function settingsSavedLabel(ts) {
   return `Saved ${new Date(ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}`;
 }
 
-async function refresh() {
+async function refresh(options = {}) {
+  const openMostRecent = Boolean(options.openMostRecent);
+  const shouldAutoOpen = openMostRecent && !state.showSettings && !state.showNewChatPersonaModal;
   try { state.models = (await api('/api/models')).models || []; } catch { state.models = []; }
   try {
     state.workspaces = (await api('/api/workspaces')).items;
@@ -696,6 +738,18 @@ async function refresh() {
       clearTimeout(state.sessionTimer);
       state.sessionTimer = 0;
     }
+  }
+  if (!state.user) {
+    state.currentChat = null;
+    state.messages = [];
+  } else if (!state.chats.length) {
+    state.currentChat = null;
+    state.messages = [];
+  } else if (shouldAutoOpen) {
+    await openChat(state.chats[0], { closeDrawer: true });
+    armSessionTimer();
+    render();
+    return;
   }
   armSessionTimer();
   render();
@@ -916,7 +970,7 @@ function splitThinking(text = '') {
   return { thinking, visibleText: visibleText || text };
 }
 
-async function openChat(chat) {
+async function openChat(chat, options = {}) {
   state.currentChat = chat;
   const detail = await api(`/api/chats/${chat.id}`);
   state.currentChat = detail.chat || chat;
@@ -928,7 +982,7 @@ async function openChat(chat) {
   state.showJumpBottom = false;
   render();
   scrollMessagesToBottom(false);
-  state.drawerOpen = false;
+  if (options.closeDrawer !== false) state.drawerOpen = false;
   render();
 }
 
@@ -1204,7 +1258,8 @@ async function sendChat(text) {
   state.status = 'Thinking';
   state.isSending = true;
   const pendingMessage = { id: `__pending__${Date.now()}`, role: 'user', text: trimmed };
-  state.messages = [...state.messages, pendingMessage];
+  const typingMessage = { id: `__typing__${Date.now()}`, role: 'assistant', text: 'Typing…', isTyping: true };
+  state.messages = [...state.messages, pendingMessage, typingMessage];
   state.stickMessagesToBottom = true;
   state.showJumpBottom = false;
   render();
@@ -1267,7 +1322,7 @@ async function sendChat(text) {
 
     refresh();
   } catch (e) {
-    state.messages = state.messages.filter((m) => m.id !== pendingMessage.id);
+    state.messages = state.messages.filter((m) => m.id !== pendingMessage.id && !m.isTyping);
     state.status = 'Idle';
     setUiError(e.message || 'Failed to send message.');
   } finally {
@@ -1616,47 +1671,48 @@ function parsePersonaTraits(rawTraits) {
 }
 
 function personaEditorCard(persona) {
-  const traits = parsePersonaTraits(persona.traits_json);
+  const draft = personaDraftFor(persona);
+  const traits = draft?.traits || parsePersonaTraits(persona.traits_json);
   const personaKey = persona.id || persona.name || String(Math.random());
   if (!(personaKey in state.personaSettingsExpanded)) {
     state.personaSettingsExpanded[personaKey] = false;
   }
-  const nameInput = el('input', { class: 'search-input', value: persona.name || '' });
-  const avatarInput = el('input', { class: 'search-input', value: persona.avatar_url || '', placeholder: 'Avatar URL (optional)' });
+  const nameInput = el('input', { class: 'search-input', value: draft?.name || persona.name || '', oninput: (e) => { draft.name = e.target.value; } });
+  const avatarInput = el('input', { class: 'search-input', value: draft?.avatar_url || persona.avatar_url || '', placeholder: 'Avatar URL (optional)', oninput: (e) => { draft.avatar_url = e.target.value; } });
   const fileInput = el('input', { type: 'file', accept: 'image/*', class: 'search-input' });
   fileInput.addEventListener('change', () => {
     const file = fileInput.files?.[0];
     if (!file) return;
     const reader = new FileReader();
-    reader.onload = () => { avatarInput.value = String(reader.result || ''); };
+    reader.onload = () => { const nextValue = String(reader.result || ''); avatarInput.value = nextValue; draft.avatar_url = nextValue; };
     reader.readAsDataURL(file);
   });
-  const personalityInput = el('textarea', { class: 'search-input', rows: 2, value: persona.personality_details || '', placeholder: 'Personality details for this persona' });
-  const systemPromptInput = el('textarea', { class: 'search-input', rows: 3, value: persona.system_prompt || '', placeholder: 'System prompt' });
-  const modelSelect = el('select', { class: 'chip-select' }, [
+  const personalityInput = el('textarea', { class: 'search-input', rows: 2, value: draft?.personality_details || persona.personality_details || '', placeholder: 'Personality details for this persona', oninput: (e) => { draft.personality_details = e.target.value; } });
+  const systemPromptInput = el('textarea', { class: 'search-input', rows: 3, value: draft?.system_prompt || persona.system_prompt || '', placeholder: 'System prompt', oninput: (e) => { draft.system_prompt = e.target.value; } });
+  const modelSelect = el('select', { class: 'chip-select', onchange: (e) => { draft.default_model = e.target.value; } }, [
     el('option', { value: '', textContent: 'Use app default' }),
-    ...state.models.map((m) => el('option', { value: m, textContent: m, selected: m === persona.default_model })),
+    ...state.models.map((m) => el('option', { value: m, textContent: m, selected: m === (draft?.default_model || persona.default_model) })),
   ]);
   const provider = state.settings?.tts_provider || 'disabled';
   const personaVoiceKey = provider === 'local' ? 'preferred_voice_local' : 'preferred_voice_openai';
   const personaModelKey = provider === 'local' ? 'preferred_tts_model_local' : 'preferred_tts_model_openai';
   const personaSpeedKey = provider === 'local' ? 'preferred_tts_speed_local' : 'preferred_tts_speed_openai';
-  const personaVoiceValue = provider === 'disabled' ? '' : (persona[personaVoiceKey] || persona.preferred_voice || '');
+  const personaVoiceValue = provider === 'disabled' ? '' : (draft?.[personaVoiceKey] || persona[personaVoiceKey] || persona.preferred_voice || '');
   const legacyModelValue = (persona.preferred_tts_model || '').trim();
   const fallbackLegacyModelValue = provider === 'local'
     ? (legacyModelValue.toLowerCase().includes('kokoro') ? legacyModelValue : '')
     : legacyModelValue;
-  const personaModelValue = provider === 'disabled' ? '' : (persona[personaModelKey] || fallbackLegacyModelValue || '');
-  const personaSpeedValue = provider === 'disabled' ? '1' : (persona[personaSpeedKey] || persona.preferred_tts_speed || '1');
+  const personaModelValue = provider === 'disabled' ? '' : (draft?.[personaModelKey] || persona[personaModelKey] || fallbackLegacyModelValue || '');
+  const personaSpeedValue = provider === 'disabled' ? '1' : (draft?.[personaSpeedKey] || persona[personaSpeedKey] || persona.preferred_tts_speed || '1');
   const personaLocalVoices = (state.ttsVoices || []).filter((voiceId) => matchesTtsVoiceFilters(voiceId, state.settings));
   const ttsModelInput = provider === 'openai'
-    ? el('select', { class: 'chip-select' }, OPENAI_TTS_MODELS.map((x) => el('option', { value: x, textContent: x, selected: x === personaModelValue })))
-    : el('input', { class: 'search-input', value: personaModelValue, placeholder: 'Persona TTS model (optional)' });
+    ? el('select', { class: 'chip-select', onchange: (e) => { draft[personaModelKey] = e.target.value; } }, OPENAI_TTS_MODELS.map((x) => el('option', { value: x, textContent: x, selected: x === personaModelValue })))
+    : el('input', { class: 'search-input', value: personaModelValue, placeholder: 'Persona TTS model (optional)', oninput: (e) => { draft[personaModelKey] = e.target.value; } });
   const ttsVoiceInput = provider === 'openai'
-    ? el('select', { class: 'chip-select' }, OPENAI_TTS_VOICES.map((x) => el('option', { value: x, textContent: x, selected: x === personaVoiceValue })))
+    ? el('select', { class: 'chip-select', onchange: (e) => { draft[personaVoiceKey] = e.target.value; } }, OPENAI_TTS_VOICES.map((x) => el('option', { value: x, textContent: x, selected: x === personaVoiceValue })))
     : (provider === 'local' && personaLocalVoices.length
-      ? el('select', { class: 'chip-select' }, personaLocalVoices.map((x) => el('option', { value: x, textContent: x, selected: x === personaVoiceValue })))
-      : el('input', { class: 'search-input', value: personaVoiceValue, placeholder: 'Persona voice (optional, falls back to provider default voice)' }));
+      ? el('select', { class: 'chip-select', onchange: (e) => { draft[personaVoiceKey] = e.target.value; } }, personaLocalVoices.map((x) => el('option', { value: x, textContent: x, selected: x === personaVoiceValue })))
+      : el('input', { class: 'search-input', value: personaVoiceValue, placeholder: 'Persona voice (optional, falls back to provider default voice)', oninput: (e) => { draft[personaVoiceKey] = e.target.value; } }));
   const ttsSpeedInput = el('input', {
     type: 'number',
     min: 0.25,
@@ -1665,22 +1721,29 @@ function personaEditorCard(persona) {
     class: 'search-input',
     value: personaSpeedValue || '1',
     placeholder: '1.0',
+    oninput: (e) => { draft[personaSpeedKey] = e.target.value || '1'; },
   });
   const workspaceOptions = state.workspaces.map((w) => {
-    const input = el('input', { type: 'checkbox', checked: (persona.workspace_ids || [persona.workspace_id]).includes(w.id) });
+    const input = el('input', {
+      type: 'checkbox',
+      checked: (draft?.workspace_ids || persona.workspace_ids || [persona.workspace_id]).includes(w.id),
+      onchange: () => { draft.workspace_ids = workspaceOptions.filter((opt) => opt.input.checked).map((opt) => opt.id); },
+    });
     return { id: w.id, input };
   });
   const genderOptions = ['unspecified', 'male', 'female', 'other'];
   const genderInputs = {};
   const genderOtherInput = el('input', {
     class: 'search-input',
-    value: traits.gender_other || '',
+    value: draft?.traits?.gender_other || traits.gender_other || '',
     placeholder: 'Enter custom gender',
+    oninput: (e) => { draft.traits.gender_other = e.target.value; },
   });
   const ageInput = el('input', {
     class: 'search-input',
-    value: traits.age || '',
+    value: draft?.traits?.age || traits.age || '',
     placeholder: 'Age (e.g. 35, young, senior citizen, 55-60)',
+    oninput: (e) => { draft.traits.age = e.target.value; },
   });
   const sliderRow = (label, key) => {
     const value = el('span', { class: 'meta', textContent: String(Math.round(traits[key])) });
@@ -1690,7 +1753,7 @@ function personaEditorCard(persona) {
       max: 100,
       step: 1,
       value: String(Math.round(traits[key])),
-      oninput: (e) => { value.textContent = e.target.value; },
+      oninput: (e) => { value.textContent = e.target.value; draft.traits[key] = Number(e.target.value); },
     });
     return [label, slider, value];
   };
@@ -1711,7 +1774,7 @@ function personaEditorCard(persona) {
     const input = el('input', {
       type: 'checkbox',
       checked: traits.gender === opt,
-      onchange: () => setGender(opt),
+      onchange: () => { setGender(opt); draft.traits.gender = opt; },
     });
     genderInputs[opt] = input;
     return el('label', { class: 'checkbox-row' }, [input, opt[0].toUpperCase() + opt.slice(1)]);
@@ -1752,48 +1815,8 @@ function personaEditorCard(persona) {
     el('label', { textContent: conversationalControls[0] }), conversationalControls[1], conversationalControls[2],
     el('label', { textContent: casualControls[0] }), casualControls[1], casualControls[2],
     el('div', { class: 'chips' }, [
-      el('button', { class: 'send-btn', textContent: 'Save persona', onclick: async () => {
-        try {
-          const selectedGender = genderOptions.find((opt) => genderInputs[opt]?.checked) || 'unspecified';
-          const workspaceIds = workspaceOptions.filter((opt) => opt.input.checked).map((opt) => opt.id);
-          if (!workspaceIds.length) { state.settingsError = 'A persona must belong to at least one workspace.'; render(); return; }
-          await api(`/api/personas/${persona.id}`, {
-            method: 'PUT',
-            body: JSON.stringify({
-              name: nameInput.value.trim() || persona.name,
-              system_prompt: systemPromptInput.value,
-              default_model: modelSelect.value,
-              avatar_url: avatarInput.value,
-              personality_details: personalityInput.value,
-              preferred_voice: ttsVoiceInput.value.trim(),
-              preferred_tts_model: ttsModelInput.value.trim(),
-              preferred_tts_speed: ttsSpeedInput.value || '1',
-              preferred_voice_openai: provider === 'openai' ? ttsVoiceInput.value.trim() : (persona.preferred_voice_openai || ''),
-              preferred_tts_model_openai: provider === 'openai' ? ttsModelInput.value.trim() : (persona.preferred_tts_model_openai || ''),
-              preferred_tts_speed_openai: provider === 'openai' ? (ttsSpeedInput.value || '1') : (persona.preferred_tts_speed_openai || '1'),
-              preferred_voice_local: provider === 'local' ? ttsVoiceInput.value.trim() : (persona.preferred_voice_local || ''),
-              preferred_tts_model_local: provider === 'local' ? ttsModelInput.value.trim() : (persona.preferred_tts_model_local || ''),
-              preferred_tts_speed_local: provider === 'local' ? (ttsSpeedInput.value || '1') : (persona.preferred_tts_speed_local || '1'),
-              workspace_id: workspaceIds[0],
-              workspace_ids: workspaceIds,
-              traits: {
-                warmth: Number(warmthControls[1].value),
-                creativity: Number(creativityControls[1].value),
-                directness: Number(directnessControls[1].value),
-                conversational: Number(conversationalControls[1].value),
-                casual: Number(casualControls[1].value),
-                gender: selectedGender,
-                gender_other: selectedGender === 'other' ? genderOtherInput.value.trim() : '',
-                age: ageInput.value.trim(),
-              },
-            }),
-          });
-          await refresh();
-          state.settingsSection = 'Personas';
-          state.showSettings = true;
-        } catch (e) { state.settingsError = e.message; render(); }
-      } }),
-      el('button', { class: 'icon-btn', textContent: 'Delete', onclick: async () => {
+      el('div', { class: 'meta', textContent: 'Use Save all at the top of Settings to apply persona changes.' }),
+            el('button', { class: 'icon-btn', textContent: 'Delete', onclick: async () => {
         const ok = await confirmModal({ title: 'Delete persona', message: `Delete persona "${persona.name}"?`, confirmText: 'Delete persona' });
         if (!ok) return;
         try { await api(`/api/personas/${persona.id}`, { method: 'DELETE' }); await refresh(); state.settingsSection = 'Personas'; state.showSettings = true; }
@@ -1852,12 +1875,50 @@ function settingsPanel() {
     render();
   };
 
+  const persistPersonaDrafts = async () => {
+    const draftEntries = Object.entries(state.personaDrafts || {});
+    for (const [personaId, draft] of draftEntries) {
+      const selectedGender = draft?.traits?.gender || 'unspecified';
+      const workspaceIds = (draft.workspace_ids || []).filter(Boolean);
+      if (!workspaceIds.length) throw new Error('A persona must belong to at least one workspace.');
+      await api(`/api/personas/${personaId}`, {
+        method: 'PUT',
+        body: JSON.stringify({
+          name: (draft.name || '').trim(),
+          system_prompt: draft.system_prompt || '',
+          default_model: draft.default_model || '',
+          avatar_url: draft.avatar_url || '',
+          personality_details: draft.personality_details || '',
+          preferred_voice_openai: draft.preferred_voice_openai || '',
+          preferred_tts_model_openai: draft.preferred_tts_model_openai || '',
+          preferred_tts_speed_openai: draft.preferred_tts_speed_openai || '1',
+          preferred_voice_local: draft.preferred_voice_local || '',
+          preferred_tts_model_local: draft.preferred_tts_model_local || '',
+          preferred_tts_speed_local: draft.preferred_tts_speed_local || '1',
+          workspace_id: workspaceIds[0],
+          workspace_ids: workspaceIds,
+          traits: {
+            warmth: Number(draft?.traits?.warmth ?? 50),
+            creativity: Number(draft?.traits?.creativity ?? 50),
+            directness: Number(draft?.traits?.directness ?? 50),
+            conversational: Number(draft?.traits?.conversational ?? 50),
+            casual: Number(draft?.traits?.casual ?? 50),
+            gender: selectedGender,
+            gender_other: selectedGender === 'other' ? (draft?.traits?.gender_other || '').trim() : '',
+            age: (draft?.traits?.age || '').trim(),
+          },
+        }),
+      });
+    }
+  };
+
   const persistSettings = async () => {
     state.settingsSaving = true;
     state.settingsError = '';
     render();
     try {
       await api('/api/settings', { method: 'POST', body: JSON.stringify(settingsPayload(state.settings)) });
+      await persistPersonaDrafts();
       state.settingsSaving = false;
       state.settingsSavedAt = Date.now();
       await refresh();
@@ -2288,6 +2349,7 @@ function messageItem(m, personaId) {
   const showThinking = state.showThinkingByDefault || Boolean(state.thinkingExpanded[messageId]);
   const personaName = state.personas.find((p) => p.id === (personaId || state.selectedPersonaId))?.name || 'assistant';
   const roleLabel = isUser ? 'You' : (m.role === 'assistant' ? personaName : m.role);
+  const isTyping = Boolean(m.isTyping);
   const rawMessageText = visibleText || m.text || '';
   const imageUrl = extractImageUrl(rawMessageText);
   const videoUrl = extractVideoUrl(rawMessageText);
@@ -2297,14 +2359,15 @@ function messageItem(m, personaId) {
   bindMessageImagePreview(messageBody);
   const personaAvatar = state.personas.find((p) => p.id === (personaId || state.selectedPersonaId))?.avatar_url || DEFAULT_PERSONA_AVATAR;
   return el('div', { class: `msg-wrap ${isUser ? 'user' : ''}` }, [
-    !isUser && m.role === 'assistant' ? el('img', { class: 'msg-avatar', src: personaAvatar, alt: `${personaName} avatar` }) : null,
+    !isUser && m.role === 'assistant' ? el('img', { class: 'msg-avatar', src: personaAvatar, alt: `${personaName} avatar`, onclick: () => { state.personaAvatarPreview = personaAvatar; render(); } }) : null,
     el('article', { class: `msg ${isUser ? 'user' : 'assistant'}` }, [
       el('small', { textContent: roleLabel }),
+      isTyping ? el('div', { class: 'typing-indicator', textContent: 'typing…' }) : null,
       hasThinking && showThinking ? el('details', { class: 'think-block', open: true }, [
         el('summary', { textContent: 'Model thinking' }),
         el('div', { class: 'think-content', html: md(thinking) }),
       ]) : null,
-      messageBody,
+      isTyping ? null : messageBody,
       videoUrl ? el('button', {
         class: 'msg-video-preview',
         title: 'Open generated video',
@@ -2321,7 +2384,7 @@ function messageItem(m, personaId) {
         el('span', { class: 'msg-video-play', textContent: '▶', ariaHidden: true }),
         el('span', { class: 'msg-video-label', textContent: 'Play video' }),
       ]) : null,
-      el('div', { class: 'msg-actions' }, [
+      isTyping ? null : el('div', { class: 'msg-actions' }, [
         m.role === 'assistant' ? el('button', {
           class: 'icon-btn',
           textContent: '🖼',
@@ -2422,6 +2485,7 @@ function render() {
   const messagesForRender = [...(state.showSystemMessages ? syntheticSystemMessage(selectedPersonaId) : []), ...state.messages];
 
   const composerBusy = state.isSending || state.isTranscribing || state.isSynthesizing;
+  const inputLocked = state.isTranscribing || state.isSynthesizing;
   const composer = el('div', { class: 'composer' }, [
     el('textarea', {
       id: 'chatInput',
@@ -2429,7 +2493,7 @@ function render() {
       class: 'composer-input',
       value: state.draftMessage,
       placeholder: 'Ask anything… (Shift+Enter for new line)',
-      disabled: composerBusy,
+      disabled: inputLocked,
       oninput: (e) => { state.draftMessage = e.target.value; autoResizeComposer(e.target); },
       onkeydown: (e) => {
         if (e.key === 'Enter' && !e.shiftKey) {
@@ -2610,7 +2674,7 @@ document.addEventListener('change', (e) => {
   clientLog('ui.change', 'input changed', { field: String(field).slice(0, 80), tag });
 });
 
-refresh().then(async () => {
+refresh({ openMostRecent: true }).then(async () => {
   await clientLog('app.ready', 'application ready', { userId: state.user?.id || '' });
   ensureWizard();
 });
