@@ -1007,18 +1007,17 @@ async function createChatWithPersona(personaId) {
     setUiError('Pick a persona before starting a new chat.');
     return;
   }
-  const c = await api('/api/chats', {
-    method: 'POST',
-    body: JSON.stringify({
-      title: 'New chat',
-      personaId,
-      memoryMode: state.settings?.default_memory_mode || 'auto',
-    }),
-  });
+  state.currentChat = null;
+  state.messages = [];
+  state.selectedPersonaId = personaId;
+  state.selectedModel = state.settings?.global_default_model || state.models[0] || null;
+  state.selectedMemoryMode = state.settings?.default_memory_mode || 'auto';
+  state.stickMessagesToBottom = true;
+  state.showJumpBottom = false;
   state.newChatPersonaId = null;
   state.showNewChatPersonaModal = false;
-  await openChat(c);
-  refresh();
+  setUiError('');
+  render();
 }
 
 
@@ -1246,7 +1245,7 @@ function autoResizeComposer(target) {
 async function sendChat(text) {
   if (state.isSending) return;
   if (!text?.trim()) return;
-  if (!state.currentChat?.id) {
+  if (!state.currentChat?.id && !state.selectedPersonaId) {
     state.showNewChatPersonaModal = true;
     state.newChatPersonaId = state.newChatPersonaId || state.personas[0]?.id || null;
     setUiError('Start a chat by selecting a persona first.');
@@ -1269,13 +1268,23 @@ async function sendChat(text) {
     const model = state.selectedModel || state.currentChat?.model_override || null;
     const memoryMode = state.selectedMemoryMode || state.currentChat?.memory_mode || 'auto';
     const modelSettings = modelSettingsFor(model);
-    const r = await api('/api/chat', { method: 'POST', body: JSON.stringify({ text: trimmed, chatId: state.currentChat?.id, personaId, model, memoryMode, modelSettings }) });
+    const r = await api('/api/chat', {
+      method: 'POST',
+      body: JSON.stringify({
+        text: trimmed,
+        chatId: state.currentChat?.id || null,
+        personaId,
+        model,
+        memoryMode,
+        modelSettings,
+      }),
+    });
     state.currentChat = { ...(state.currentChat || {}), id: r.chatId, persona_id: personaId, model_override: model, memory_mode: memoryMode };
-    const detail = await api(`/api/chats/${r.chatId}`);
-    state.messages = detail.messages;
-    state.selectedPersonaId = detail.chat?.persona_id || state.selectedPersonaId;
-    state.selectedModel = detail.chat?.model_override || state.selectedModel;
-    state.selectedMemoryMode = detail.chat?.memory_mode || state.selectedMemoryMode;
+    await refresh();
+    const createdChat = state.chats.find((c) => c.id === r.chatId) || state.currentChat;
+    if (createdChat?.id) {
+      await openChat(createdChat, { closeDrawer: true });
+    }
     if (r.imageOffer?.prompt) {
       const accepted = await confirmModal({ title: 'Receive image?', message: 'Your assistant wants to send an image for this reply.', confirmText: 'Receive image' });
       if (accepted) {
@@ -1320,7 +1329,6 @@ async function sendChat(text) {
       state.status = 'Idle';
     }
 
-    refresh();
   } catch (e) {
     state.messages = state.messages.filter((m) => m.id !== pendingMessage.id && !m.isTyping);
     state.status = 'Idle';
