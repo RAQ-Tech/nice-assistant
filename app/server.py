@@ -75,6 +75,16 @@ OPENAI_IMAGE_TERM_REPLACEMENTS = {
     "graphic violence": "intense action",
 }
 
+CHAT_TITLE_MAX_LENGTH = 48
+CHAT_TITLE_MIN_LENGTH = 8
+CHAT_TITLE_FALLBACK_LENGTH = 40
+CHAT_TITLE_OPENER_PATTERN = re.compile(
+    r"^(?:hey|hi|hello|yo|good\s+(?:morning|afternoon|evening)|"
+    r"can\s+you|could\s+you|would\s+you|please|i\s+need\s+help\s+with|"
+    r"i\s+need\s+to|help\s+me\s+with)\b[\s,:-]*",
+    re.IGNORECASE,
+)
+
 
 def ensure_dirs():
     for p in [DATA_DIR, AUDIO_DIR, IMAGE_DIR, VIDEO_DIR, LOG_DIR, STT_RECORDINGS_DIR, ARCHIVE_DIR, ARCHIVE_DIR / "audio", ARCHIVE_DIR / "logs", ARCHIVE_DIR / "db_backups"]:
@@ -88,6 +98,29 @@ def setup_file_logger():
     handler = RotatingFileHandler(log_path, maxBytes=2_000_000, backupCount=8, encoding="utf-8")
     handler.setFormatter(logging.Formatter("%(asctime)s %(levelname)s [%(threadName)s] %(message)s"))
     logger.addHandler(handler)
+
+
+def generate_chat_title(text):
+    source = "" if text is None else str(text)
+    normalized = re.sub(r"\s+", " ", source).strip()
+    if not normalized:
+        return source[:CHAT_TITLE_FALLBACK_LENGTH]
+
+    candidate = normalized
+    while True:
+        trimmed = CHAT_TITLE_OPENER_PATTERN.sub("", candidate, count=1).strip()
+        if trimmed == candidate:
+            break
+        candidate = trimmed
+
+    clause = re.split(r"[.!?;:\n]", candidate, maxsplit=1)[0].strip()
+    if clause:
+        candidate = clause
+
+    candidate = candidate[:CHAT_TITLE_MAX_LENGTH].strip().rstrip(".,!?;:-")
+    if len(candidate) < CHAT_TITLE_MIN_LENGTH:
+        return normalized[:CHAT_TITLE_FALLBACK_LENGTH]
+    return candidate
 
 
 def db_conn():
@@ -1630,7 +1663,7 @@ class Handler(BaseHTTPRequestHandler):
                 chat = None
             if not chat:
                 chat_id = secrets.token_hex(8)
-                conn.execute("INSERT INTO chats(id,user_id,persona_id,model_override,memory_mode,title,hidden_in_ui,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?)", (chat_id,uid,b.get("personaId"),b.get("model"),b.get("memoryMode","auto"),text[:40],0,t,t))
+                conn.execute("INSERT INTO chats(id,user_id,persona_id,model_override,memory_mode,title,hidden_in_ui,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?)", (chat_id,uid,b.get("personaId"),b.get("model"),b.get("memoryMode","auto"),generate_chat_title(text),0,t,t))
                 chat = conn.execute("SELECT * FROM chats WHERE id=?", (chat_id,)).fetchone()
             mem_mode = b.get("memoryMode") or chat["memory_mode"] or "auto"
             persona_id = b.get("personaId") or chat["persona_id"]
