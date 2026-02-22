@@ -74,6 +74,7 @@ OPENAI_IMAGE_TERM_REPLACEMENTS = {
     "gore": "dramatic",
     "graphic violence": "intense action",
 }
+CHAT_TITLE_PLACEHOLDERS = {"new chat", "untitled chat"}
 
 CHAT_TITLE_MAX_LENGTH = 48
 CHAT_TITLE_MIN_LENGTH = 8
@@ -304,6 +305,20 @@ def verify_password(password: str, stored: str) -> bool:
 
 def now_ts():
     return int(time.time())
+
+
+def generate_chat_title_from_first_user_message(text: str, max_len: int = 40) -> str:
+    normalized = re.sub(r"\s+", " ", (text or "").strip())
+    if not normalized:
+        return ""
+    return normalized[:max_len]
+
+
+def chat_title_needs_autogeneration(title: str | None) -> bool:
+    normalized = (title or "").strip()
+    if not normalized:
+        return True
+    return normalized.lower() in CHAT_TITLE_PLACEHOLDERS
 
 
 def read_json(path: Path, default):
@@ -1687,6 +1702,13 @@ class Handler(BaseHTTPRequestHandler):
             )
 
             conn.execute("INSERT INTO messages(id,chat_id,role,text,created_at) VALUES(?,?,?,?,?)", (secrets.token_hex(8),chat_id,"user",text,t))
+            current_title_row = conn.execute("SELECT title FROM chats WHERE id=?", (chat_id,)).fetchone()
+            current_title = current_title_row["title"] if current_title_row else None
+            if chat_title_needs_autogeneration(current_title):
+                generated_title = generate_chat_title_from_first_user_message(text)
+                conn.execute("UPDATE chats SET title=?, updated_at=? WHERE id=?", (generated_title, now_ts(), chat_id))
+            else:
+                conn.execute("UPDATE chats SET updated_at=? WHERE id=?", (now_ts(), chat_id))
 
             try:
                 prefs = json.loads(settings["preferences_json"] or "{}") if settings else {}
