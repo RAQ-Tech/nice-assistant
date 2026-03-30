@@ -25,6 +25,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
 from app.job_queue import JobQueue, new_job
+from app.memory_guard import MemoryBackpressureError, MemoryGuard
 from model_residency import ResidencyPolicy, build_default_residency_manager
 
 PORT = int(os.getenv("PORT", "3000"))
@@ -63,6 +64,7 @@ logging.basicConfig(
 logger = logging.getLogger("nice-assistant")
 CLIENT_EVENT_LOG = "client-events"
 
+MEMORY_GUARD = MemoryGuard(logger=logger)
 MODEL_RESIDENCY = build_default_residency_manager(
     MODEL_VRAM_BUDGET_MB,
     policy=ResidencyPolicy(
@@ -72,6 +74,7 @@ MODEL_RESIDENCY = build_default_residency_manager(
         max_model_swaps_per_minute=MAX_MODEL_SWAPS_PER_MINUTE,
         queue_affinity_window_ms=QUEUE_AFFINITY_WINDOW_MS,
     ),
+    memory_guard=MEMORY_GUARD,
 )
 JOB_QUEUE = JobQueue()
 
@@ -1406,6 +1409,14 @@ def generate_image_reply(prompt, uid, chat_id, settings_row, prefs, context_hint
         image_url = f"/api/images/{urllib.parse.quote(image_name)}"
         return f"Here is your generated image.\n\n![Generated image]({image_url})", image_url
     except Exception as exc:
+        if isinstance(exc, MemoryBackpressureError):
+            logger.info(
+                "image generation backpressure user_id=%s chat_id=%s detail=%s",
+                uid,
+                chat_id,
+                json.dumps(exc.details, sort_keys=True),
+            )
+            return exc.user_message, ""
         logger.exception("image generation failed user_id=%s chat_id=%s", uid, chat_id)
         resolved_provider = image_provider
         if image_provider == "local":
@@ -1810,9 +1821,18 @@ class Handler(BaseHTTPRequestHandler):
             )
             if image_provider_pref in {"local", "local/automatic1111", "local/comfyui"}:
                 def _run_local_image_job():
-                    MODEL_RESIDENCY.update_policy(**parse_residency_policy_preferences(prefs))
-                    MODEL_RESIDENCY.ensure_loaded("image_local", IMAGE_ESTIMATED_VRAM_MB)
-                    return generate_image_reply(prompt, uid, chat_id, settings, prefs, context_hint=context_hint)
+                    try:
+                        MODEL_RESIDENCY.update_policy(**parse_residency_policy_preferences(prefs))
+                        MODEL_RESIDENCY.ensure_loaded("image_local", IMAGE_ESTIMATED_VRAM_MB)
+                        return generate_image_reply(prompt, uid, chat_id, settings, prefs, context_hint=context_hint)
+                    except MemoryBackpressureError as exc:
+                        logger.info(
+                            "image endpoint backpressure user_id=%s chat_id=%s detail=%s",
+                            uid,
+                            chat_id,
+                            json.dumps(exc.details, sort_keys=True),
+                        )
+                        return exc.user_message, ""
 
                 image_job.execute = _run_local_image_job
             reply, image_url = JOB_QUEUE.submit(image_job).wait()
@@ -2045,8 +2065,18 @@ class Handler(BaseHTTPRequestHandler):
                     elif image_provider == "local":
                         model_image_prompt = adjust_prompt_for_local_sd(model_image_prompt, bool((prefs or {}).get("image_local_allow_nsfw", False)))
             except Exception as e:
-                logger.exception("model call failed user_id=%s chat_id=%s model=%s", uid, chat_id, model)
-                reply = f"Model call failed: {e}"
+                if isinstance(e, MemoryBackpressureError):
+                    reply = e.user_message
+                    logger.info(
+                        "chat backpressure user_id=%s chat_id=%s model=%s detail=%s",
+                        uid,
+                        chat_id,
+                        model,
+                        json.dumps(e.details, sort_keys=True),
+                    )
+                else:
+                    logger.exception("model call failed user_id=%s chat_id=%s model=%s", uid, chat_id, model)
+                    reply = f"Model call failed: {e}"
             conn.execute("INSERT INTO messages(id,chat_id,role,text,created_at) VALUES(?,?,?,?,?)", (secrets.token_hex(8),chat_id,"assistant",reply,now_ts()))
             conn.execute("UPDATE chats SET updated_at=?, memory_mode=?, persona_id=?, workspace_id=?, model_override=? WHERE id=?", (now_ts(), mem_mode, persona_id, workspace_id, b.get("model") or chat["model_override"], chat_id))
             if mem_mode == "auto":
@@ -2339,6 +2369,7 @@ class Handler(BaseHTTPRequestHandler):
 
 def main():
     ensure_dirs(); setup_file_logger(); init_db(); rotate_logs(); backup_db_if_needed()
+    MEMORY_GUARD.start()
     server = GracefulThreadingHTTPServer(("0.0.0.0", PORT), Handler)
     shutdown_requested = threading.Event()
 
@@ -2358,6 +2389,7 @@ def main():
     try:
         server.serve_forever(poll_interval=0.2)
     finally:
+        MEMORY_GUARD.stop()
         server.server_close()
         logger.info("http server closed uptime_seconds=%.2f", time.monotonic() - started)
 
