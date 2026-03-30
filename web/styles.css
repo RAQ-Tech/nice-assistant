@@ -302,8 +302,15 @@ button, input, select, textarea {
 }
 
 .typing-indicator {
+  border: none;
+  background: transparent;
+  padding: 0;
   font-style: italic;
   color: var(--text-dim);
+}
+.typing-indicator.clickable {
+  cursor: pointer;
+  text-decoration: underline dotted;
 }
 
 .msg-video-label {
@@ -391,6 +398,12 @@ button, input, select, textarea {
 
 .viz-btn.active {
   box-shadow: 0 0 26px rgba(157, 123, 255, 0.45), 0 0 14px rgba(102, 225, 255, 0.35), inset 0 0 14px rgba(255, 255, 255, 0.26);
+}
+.viz-overlay-btn {
+  position: fixed;
+  top: 1rem;
+  right: 1rem;
+  z-index: 8;
 }
 
 
@@ -630,7 +643,7 @@ button, input, select, textarea {
   inset: 0;
   pointer-events: none;
   display: none;
-  z-index: 2;
+  z-index: 6;
   opacity: .88;
   filter: saturate(1.2) contrast(1.08);
   transition: opacity .32s ease;
