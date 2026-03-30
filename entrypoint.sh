@@ -14,4 +14,4 @@ else
 fi
 
 cd "${PROJECT_ROOT}"
-exec python -u app/server.py
+exec python -u -m app.server
