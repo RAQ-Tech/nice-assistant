@@ -113,6 +113,7 @@ const SETTINGS_DEFAULTS = {
   video_size: '720x1280',
   video_duration: '4',
   image_local_allow_nsfw: false,
+  image_local_backend: 'automatic1111',
   image_local_base_url: '',
   image_local_api_auth: '',
   image_local_model: '',
@@ -308,7 +309,7 @@ const SETTINGS_SECTION_KEYS = {
   General: ['general_theme', 'general_show_system_messages', 'general_show_thinking', 'general_auto_logout', 'global_default_model'],
   TTS: ['tts_provider', 'tts_format', 'tts_voice_openai', 'tts_model_openai', 'tts_speed_openai', 'tts_voice_local', 'tts_model_local', 'tts_speed_local', 'tts_local_base_url', 'tts_voice_filter_regions', 'tts_voice_filter_genders', 'tts_voice_filter_query'],
   STT: ['stt_provider', 'stt_language', 'stt_store_recordings'],
-  'Image Generation': ['image_provider', 'image_size', 'image_quality', 'image_prompt_generation', 'image_local_base_url', 'image_local_api_auth', 'image_local_model', 'image_local_steps', 'image_local_sampler_name', 'image_local_scheduler', 'image_local_cfg_scale', 'image_local_seed', 'image_local_additional_parameters'],
+  'Image Generation': ['image_provider', 'image_size', 'image_quality', 'image_prompt_generation', 'image_local_backend', 'image_local_base_url', 'image_local_api_auth', 'image_local_model', 'image_local_steps', 'image_local_sampler_name', 'image_local_scheduler', 'image_local_cfg_scale', 'image_local_seed', 'image_local_additional_parameters'],
   'Video Generation': ['video_provider', 'video_model', 'video_size', 'video_duration'],
   Memory: ['default_memory_mode', 'memory_auto_save_user_facts'],
   User: ['user_display_name', 'user_timezone'],
@@ -330,6 +331,12 @@ function normalizeSettings(raw = {}) {
   normalized.image_size = normalizeImageSize(normalized.image_size);
   normalized.image_local_base_url = (normalized.image_local_base_url || '').trim();
   normalized.image_provider = normalized.image_provider === 'local/automatic1111' ? 'local' : normalized.image_provider;
+  if (normalized.image_provider === 'local/comfyui') normalized.image_provider = 'local';
+  if ((raw.image_provider || '').toLowerCase() === 'local/comfyui') normalized.image_local_backend = 'comfyui';
+  if ((raw.image_provider || '').toLowerCase() === 'local/automatic1111') normalized.image_local_backend = 'automatic1111';
+  normalized.image_local_backend = ['automatic1111', 'comfyui'].includes(String(normalized.image_local_backend || '').toLowerCase())
+    ? String(normalized.image_local_backend).toLowerCase()
+    : SETTINGS_DEFAULTS.image_local_backend;
   normalized.video_model = normalizeVideoModel(normalized.video_model);
   normalized.video_duration = normalizeVideoDuration(normalized.video_duration);
   normalized.video_size = normalizeVideoSize(normalized.video_model, normalized.video_size);
@@ -384,6 +391,7 @@ function settingsPayload(nextSettings) {
     video_size: normalizeVideoSize(nextSettings.video_model, nextSettings.video_size),
     video_duration: normalizeVideoDuration(nextSettings.video_duration),
     image_local_allow_nsfw: Boolean(nextSettings.image_local_allow_nsfw),
+    image_local_backend: ['automatic1111', 'comfyui'].includes(String(nextSettings.image_local_backend || '').toLowerCase()) ? String(nextSettings.image_local_backend).toLowerCase() : 'automatic1111',
     image_local_base_url: (nextSettings.image_local_base_url || '').trim(),
     image_local_api_auth: (nextSettings.image_local_api_auth || '').trim(),
     image_local_model: (nextSettings.image_local_model || '').trim(),
@@ -1114,6 +1122,19 @@ function providerPromptTemplate(provider, fields) {
     ].join('\n');
   }
   if (provider === 'local') {
+    const backend = (state.settings?.image_local_backend || 'automatic1111').toLowerCase();
+    if (backend === 'comfyui') {
+      return [
+        'ComfyUI optimized prompt:',
+        `subject, ${fields.subject}`,
+        `environment, ${fields.environment}`,
+        `composition, ${fields.composition}`,
+        `lighting, ${fields.lighting}`,
+        `style, ${fields.style}, highly detailed, masterpiece, best quality`,
+        `must-keep details, ${fields.constraints}`,
+        'negative prompt: blurry, lowres, bad anatomy, deformed hands, watermark, text, logo',
+      ].join('\n');
+    }
     return [
       'Automatic1111 optimized prompt:',
       `subject, ${fields.subject}`,
@@ -1202,9 +1223,10 @@ async function verifyLocalImagePrompt(prompt) {
   const usingLocal = state.settings?.image_provider === 'local';
   const nsfwAllowed = Boolean(state.settings?.image_local_allow_nsfw);
   if (!usingLocal || nsfwAllowed || !LOCAL_IMAGE_NSFW_GUARD_PATTERN.test(prompt || '')) return true;
+  const backend = (state.settings?.image_local_backend || 'automatic1111') === 'comfyui' ? 'ComfyUI' : 'Automatic1111';
   return confirmModal({
     title: 'Potential NSFW prompt detected',
-    message: 'NSFW mode is disabled for local image generation. This prompt includes terms that may be NSFW. Continue anyway?',
+    message: `NSFW mode is disabled for local image generation (${backend}). This prompt includes terms that may be NSFW. Continue anyway?`,
     confirmText: 'Continue',
   });
 }
@@ -2135,22 +2157,31 @@ function settingsPanel() {
         'Enable model-assisted image prompt generation',
       ]),
       ...(state.settings.image_provider === 'local' ? [
-        el('label', { textContent: 'Automatic1111 URL' }),
+        el('label', { textContent: 'Local backend' }),
+        el('select', {
+          class: 'chip-select',
+          onchange: (e) => setVal('image_local_backend', ['automatic1111', 'comfyui'].includes(e.target.value) ? e.target.value : 'automatic1111'),
+        }, ['automatic1111', 'comfyui'].map((x) => el('option', {
+          value: x,
+          textContent: x,
+          selected: x === (state.settings.image_local_backend || 'automatic1111'),
+        }))),
+        el('label', { textContent: (state.settings.image_local_backend || 'automatic1111') === 'comfyui' ? 'ComfyUI URL' : 'Automatic1111 URL' }),
         el('input', {
           class: 'search-input',
           value: state.settings.image_local_base_url || '',
-          placeholder: 'http://automatic1111:7860',
+          placeholder: (state.settings.image_local_backend || 'automatic1111') === 'comfyui' ? 'http://comfyui:8188' : 'http://automatic1111:7860',
           oninput: (e) => setVal('image_local_base_url', e.target.value),
         }),
-        el('div', { class: 'meta', textContent: 'Leave blank to use the server default AUTOMATIC1111_BASE_URL.' }),
-        el('label', { textContent: 'AUTOMATIC1111 API Auth String' }),
+        el('div', { class: 'meta', textContent: (state.settings.image_local_backend || 'automatic1111') === 'comfyui' ? 'Leave blank to use the server default COMFYUI_BASE_URL.' : 'Leave blank to use the server default AUTOMATIC1111_BASE_URL.' }),
+        el('label', { textContent: (state.settings.image_local_backend || 'automatic1111') === 'comfyui' ? 'ComfyUI API Auth String' : 'AUTOMATIC1111 API Auth String' }),
         el('input', {
           class: 'search-input',
           value: state.settings.image_local_api_auth || '',
           placeholder: 'username:password',
           oninput: (e) => setVal('image_local_api_auth', e.target.value),
         }),
-        el('div', { class: 'meta', textContent: 'Optional. Use when webui runs with --api-auth username:password.' }),
+        el('div', { class: 'meta', textContent: (state.settings.image_local_backend || 'automatic1111') === 'comfyui' ? 'Optional. Provide if your ComfyUI reverse proxy requires basic auth.' : 'Optional. Use when webui runs with --api-auth username:password.' }),
         el('label', { textContent: 'Model checkpoint' }),
         el('input', { class: 'search-input', value: state.settings.image_local_model || '', placeholder: 'checkpoint filename or title', oninput: (e) => setVal('image_local_model', e.target.value) }),
         el('label', { textContent: 'Sampling method' }),
@@ -2169,7 +2200,7 @@ function settingsPanel() {
           el('input', { type: 'checkbox', checked: Boolean(state.settings.image_local_allow_nsfw), onchange: (e) => setVal('image_local_allow_nsfw', e.target.checked) }),
           'Allow NSFW prompts (off by default)',
         ]),
-        el('div', { class: 'meta', textContent: 'Stable Diffusion WebUI must be started with --api (and --api-auth if auth is required).' }),
+        el('div', { class: 'meta', textContent: (state.settings.image_local_backend || 'automatic1111') === 'comfyui' ? 'ComfyUI must expose /prompt, /history/{prompt_id}, and /view routes.' : 'Stable Diffusion WebUI must be started with --api (and --api-auth if auth is required).' }),
       ] : []),
       el('label', { textContent: 'Size (WIDTHxHEIGHT or auto)' }),
       el('input', {
