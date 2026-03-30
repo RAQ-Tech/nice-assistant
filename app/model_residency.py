@@ -5,6 +5,8 @@ from collections import deque
 from dataclasses import dataclass
 from typing import Deque, Dict, Optional
 
+from app.memory_guard import MemoryBackpressureError
+
 
 logger = logging.getLogger("nice-assistant")
 
@@ -58,9 +60,10 @@ class LocalImageBackendAdapter(ResidencyAdapter):
 
 
 class ModelResidencyManager:
-    def __init__(self, vram_budget_mb: int = 0, policy: Optional[ResidencyPolicy] = None):
+    def __init__(self, vram_budget_mb: int = 0, policy: Optional[ResidencyPolicy] = None, memory_guard=None):
         self.vram_budget_mb = max(0, int(vram_budget_mb or 0))
         self.policy = policy or ResidencyPolicy()
+        self.memory_guard = memory_guard
         self._lock = threading.RLock()
         self._adapters: Dict[str, ResidencyAdapter] = {}
         self._records: Dict[str, ModelResidencyRecord] = {}
@@ -83,7 +86,22 @@ class ModelResidencyManager:
         now = time.monotonic()
         with self._lock:
             self._record_request(task_type, now)
+            if self.memory_guard:
+                self.memory_guard.preflight_load_or_raise(
+                    task_type=task_type,
+                    model_id=model_key,
+                    estimated_vram_mb=estimated_vram_mb,
+                    residency_manager=self,
+                )
             self.maybe_evict_for(task_type, estimated_vram_mb, now_monotonic=now)
+            if self.memory_guard and not self.memory_guard.can_admit(
+                {"task_type": task_type, "model_id": model_key, "estimated_vram_mb": estimated_vram_mb},
+                self,
+            ):
+                raise MemoryBackpressureError(
+                    "I’m still waiting for enough GPU memory to become available. Please retry in a moment.",
+                    details={"task_type": task_type, "model_id": model_key, "estimated_vram_mb": estimated_vram_mb},
+                )
             adapter = self._adapters.get(task_type)
             record = self._records.setdefault(model_key, ModelResidencyRecord(model_id=model_key))
             was_loaded = record.state == STATE_LOADED_ON_GPU
@@ -130,6 +148,11 @@ class ModelResidencyManager:
             record = self._records.get(model_id)
             if not record:
                 return STATE_UNLOADED
+            if self.memory_guard:
+                target = self.memory_guard.preflight_offload_target_or_raise(
+                    model_id=model_id,
+                    target_memory_mb=record.estimated_vram_mb,
+                )
             record.state = STATE_EVICTING
             task_type = model_id.split(":", 1)[0]
             adapter = self._adapters.get(task_type)
@@ -227,9 +250,29 @@ class ModelResidencyManager:
         suffix = (model_id or "default").strip() or "default"
         return f"{task_type}:{suffix}"
 
+    def loaded_gpu_models(self):
+        with self._lock:
+            return [
+                {
+                    "model_id": model_id,
+                    "estimated_vram_mb": rec.estimated_vram_mb,
+                    "last_request_at_monotonic": rec.last_request_at_monotonic,
+                }
+                for model_id, rec in self._records.items()
+                if rec.state == STATE_LOADED_ON_GPU
+            ]
 
-def build_default_residency_manager(vram_budget_mb: int = 0, policy: Optional[ResidencyPolicy] = None) -> ModelResidencyManager:
-    manager = ModelResidencyManager(vram_budget_mb=vram_budget_mb, policy=policy)
+    def estimated_gpu_used_mb(self) -> int:
+        with self._lock:
+            return sum(rec.estimated_vram_mb for rec in self._records.values() if rec.state == STATE_LOADED_ON_GPU)
+
+
+def build_default_residency_manager(
+    vram_budget_mb: int = 0,
+    policy: Optional[ResidencyPolicy] = None,
+    memory_guard=None,
+) -> ModelResidencyManager:
+    manager = ModelResidencyManager(vram_budget_mb=vram_budget_mb, policy=policy, memory_guard=memory_guard)
     manager.register_adapter("llm", LLMBackendAdapter("ollama_or_local"))
     manager.register_adapter("image_local", LocalImageBackendAdapter("automatic1111_or_comfyui"))
     logger.info("model residency manager initialized vram_budget_mb=%s", manager.vram_budget_mb)
