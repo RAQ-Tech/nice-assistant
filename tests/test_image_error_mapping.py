@@ -23,6 +23,7 @@ from app.server import (
     openai_video,
     parse_additional_parameters,
     parse_image_size,
+    parse_residency_policy_preferences,
     user_safe_image_error,
     user_safe_video_error,
     looks_like_video_request,
@@ -297,6 +298,29 @@ class VideoRequestAndErrorTests(unittest.TestCase):
         self.assertIn("temporary outage", detail)
 
 
+class ResidencyPolicyPreferenceParsingTests(unittest.TestCase):
+    def test_parses_known_policy_keys(self):
+        parsed = parse_residency_policy_preferences(
+            {
+                "gpu_idle_hold_seconds_llm": "12.5",
+                "gpu_idle_hold_seconds_image": 4,
+                "max_model_swaps_per_minute": "7",
+                "queue_affinity_window_ms": "2500",
+            }
+        )
+        self.assertEqual(parsed["gpu_idle_hold_seconds_llm"], 12.5)
+        self.assertEqual(parsed["gpu_idle_hold_seconds_image"], 4.0)
+        self.assertEqual(parsed["max_model_swaps_per_minute"], 7)
+        self.assertEqual(parsed["queue_affinity_window_ms"], 2500)
+
+    def test_ignores_invalid_values(self):
+        parsed = parse_residency_policy_preferences(
+            {"gpu_idle_hold_seconds_llm": "bad", "queue_affinity_window_ms": -20}
+        )
+        self.assertNotIn("gpu_idle_hold_seconds_llm", parsed)
+        self.assertEqual(parsed["queue_affinity_window_ms"], 0)
+
+
 class NormalizeVideoSettingsTests(unittest.TestCase):
     def test_video_model_normalization(self):
         self.assertEqual(normalize_video_model("sora-2"), "sora-2")
@@ -487,3 +511,26 @@ class VideoRequestAndErrorTests(unittest.TestCase):
         self.assertIn("OpenAI", message)
         self.assertNotIn("Automatic1111", message)
         self.assertIn("temporary outage", detail)
+
+
+class ResidencyPolicyPreferenceParsingTests(unittest.TestCase):
+    def test_parses_known_policy_keys(self):
+        parsed = parse_residency_policy_preferences(
+            {
+                "gpu_idle_hold_seconds_llm": "12.5",
+                "gpu_idle_hold_seconds_image": 4,
+                "max_model_swaps_per_minute": "7",
+                "queue_affinity_window_ms": "2500",
+            }
+        )
+        self.assertEqual(parsed["gpu_idle_hold_seconds_llm"], 12.5)
+        self.assertEqual(parsed["gpu_idle_hold_seconds_image"], 4.0)
+        self.assertEqual(parsed["max_model_swaps_per_minute"], 7)
+        self.assertEqual(parsed["queue_affinity_window_ms"], 2500)
+
+    def test_ignores_invalid_values(self):
+        parsed = parse_residency_policy_preferences(
+            {"gpu_idle_hold_seconds_llm": "bad", "queue_affinity_window_ms": -20}
+        )
+        self.assertNotIn("gpu_idle_hold_seconds_llm", parsed)
+        self.assertEqual(parsed["queue_affinity_window_ms"], 0)

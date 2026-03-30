@@ -25,7 +25,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
 from app.job_queue import JobQueue, new_job
-from model_residency import build_default_residency_manager
+from model_residency import ResidencyPolicy, build_default_residency_manager
 
 PORT = int(os.getenv("PORT", "3000"))
 OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://192.168.18.200:11434")
@@ -41,6 +41,11 @@ LLM_ESTIMATED_VRAM_MB = int(os.getenv("LLM_ESTIMATED_VRAM_MB", "8192"))
 IMAGE_ESTIMATED_VRAM_MB = int(os.getenv("IMAGE_ESTIMATED_VRAM_MB", "6144"))
 VIDEO_ESTIMATED_VRAM_MB = int(os.getenv("VIDEO_ESTIMATED_VRAM_MB", "10240"))
 MODEL_VRAM_BUDGET_MB = int(os.getenv("MODEL_VRAM_BUDGET_MB", "0"))
+GPU_IDLE_HOLD_SECONDS_LLM = float(os.getenv("GPU_IDLE_HOLD_SECONDS_LLM", "0"))
+GPU_IDLE_HOLD_SECONDS_IMAGE = float(os.getenv("GPU_IDLE_HOLD_SECONDS_IMAGE", "0"))
+GPU_MIN_RESIDENCY_SECONDS = float(os.getenv("GPU_MIN_RESIDENCY_SECONDS", "0"))
+MAX_MODEL_SWAPS_PER_MINUTE = int(os.getenv("MAX_MODEL_SWAPS_PER_MINUTE", "60"))
+QUEUE_AFFINITY_WINDOW_MS = int(os.getenv("QUEUE_AFFINITY_WINDOW_MS", "0"))
 
 AUDIO_DIR = DATA_DIR / "audio"
 IMAGE_DIR = DATA_DIR / "images"
@@ -58,7 +63,16 @@ logging.basicConfig(
 logger = logging.getLogger("nice-assistant")
 CLIENT_EVENT_LOG = "client-events"
 
-MODEL_RESIDENCY = build_default_residency_manager(MODEL_VRAM_BUDGET_MB)
+MODEL_RESIDENCY = build_default_residency_manager(
+    MODEL_VRAM_BUDGET_MB,
+    policy=ResidencyPolicy(
+        gpu_idle_hold_seconds_llm=GPU_IDLE_HOLD_SECONDS_LLM,
+        gpu_idle_hold_seconds_image=GPU_IDLE_HOLD_SECONDS_IMAGE,
+        gpu_min_residency_seconds=GPU_MIN_RESIDENCY_SECONDS,
+        max_model_swaps_per_minute=MAX_MODEL_SWAPS_PER_MINUTE,
+        queue_affinity_window_ms=QUEUE_AFFINITY_WINDOW_MS,
+    ),
+)
 JOB_QUEUE = JobQueue()
 
 
@@ -394,7 +408,8 @@ def call_ollama(model, messages, options=None):
         logger.info("ollama request complete model=%s duration_ms=%d message_count=%d", model, int(elapsed * 1000), len(messages))
 
 
-def execute_chat_model_job(model, messages, model_options):
+def execute_chat_model_job(model, messages, model_options, prefs=None):
+    MODEL_RESIDENCY.update_policy(**parse_residency_policy_preferences(prefs or {}))
     MODEL_RESIDENCY.ensure_loaded("llm", LLM_ESTIMATED_VRAM_MB, model_id=model)
     return call_ollama(model, messages, model_options)
 
@@ -1368,6 +1383,7 @@ def generate_image_reply(prompt, uid, chat_id, settings_row, prefs, context_hint
             image_size = normalize_image_size(image_size)
             image_bytes = openai_image(effective_prompt, image_size, image_quality, key)
         elif image_provider == "local":
+            MODEL_RESIDENCY.update_policy(**parse_residency_policy_preferences(prefs))
             local_settings = {
                 "steps": (prefs or {}).get("image_local_steps"),
                 "cfg_scale": (prefs or {}).get("image_local_cfg_scale"),
@@ -1441,6 +1457,32 @@ def parse_preferences_json(raw_value):
         return parsed if isinstance(parsed, dict) else {}
     except (TypeError, ValueError):
         return {}
+
+
+def parse_residency_policy_preferences(prefs):
+    policy = {}
+    if not isinstance(prefs, dict):
+        return policy
+    mapping = {
+        "gpu_idle_hold_seconds_llm": float,
+        "gpu_idle_hold_seconds_image": float,
+        "gpu_min_residency_seconds": float,
+        "max_model_swaps_per_minute": int,
+        "queue_affinity_window_ms": int,
+    }
+    for key, caster in mapping.items():
+        value = prefs.get(key)
+        if value is None or value == "":
+            continue
+        try:
+            converted = caster(value)
+        except (TypeError, ValueError):
+            continue
+        if caster is float:
+            policy[key] = max(0.0, converted)
+        else:
+            policy[key] = max(0, converted)
+    return policy
 
 
 def setting_bool(settings_row, key, default=False):
@@ -1768,6 +1810,7 @@ class Handler(BaseHTTPRequestHandler):
             )
             if image_provider_pref in {"local", "local/automatic1111", "local/comfyui"}:
                 def _run_local_image_job():
+                    MODEL_RESIDENCY.update_policy(**parse_residency_policy_preferences(prefs))
                     MODEL_RESIDENCY.ensure_loaded("image_local", IMAGE_ESTIMATED_VRAM_MB)
                     return generate_image_reply(prompt, uid, chat_id, settings, prefs, context_hint=context_hint)
 
@@ -1992,7 +2035,7 @@ class Handler(BaseHTTPRequestHandler):
                     latency_class="interactive",
                     model_key=f"chat:{model}",
                     metadata={"endpoint": "/api/chat"},
-                    execute=lambda: execute_chat_model_job(model, messages, model_options),
+                    execute=lambda: execute_chat_model_job(model, messages, model_options, prefs=prefs),
                 )
                 reply = JOB_QUEUE.submit(llm_job).wait()
                 reply, model_image_prompt = extract_model_image_prompt(reply)
