@@ -79,6 +79,15 @@ MODEL_RESIDENCY = build_default_residency_manager(
 JOB_QUEUE = JobQueue()
 
 
+def log_generation_request(kind, provider, endpoint, payload=None):
+    safe_payload = payload if isinstance(payload, dict) else {"value": str(payload or "")}
+    try:
+        serialized = json.dumps(safe_payload, sort_keys=True, default=str)
+    except Exception:
+        serialized = str(safe_payload)
+    logger.info("generation request kind=%s provider=%s endpoint=%s payload=%s", kind, provider, endpoint, serialized)
+
+
 IMAGE_QUALITY_ALIASES = {
     "standard": "medium",
     "hd": "high",
@@ -527,6 +536,18 @@ def normalize_tts_speed(speed):
 
 
 def openai_speech(text, voice, fmt, api_key, model="gpt-4o-mini-tts", speed="1"):
+    log_generation_request(
+        "audio",
+        "openai",
+        "https://api.openai.com/v1/audio/speech",
+        {
+            "model": model or "gpt-4o-mini-tts",
+            "voice": voice or "alloy",
+            "format": fmt,
+            "speed": normalize_tts_speed(speed),
+            "input_preview": str(text or "")[:300],
+        },
+    )
     payload = json.dumps({
         "model": model or "gpt-4o-mini-tts",
         "input": text,
@@ -552,6 +573,19 @@ def _normalized_tts_local_base_url(raw_url):
 
 
 def kokoro_speech(text, voice, fmt, base_url, model="kokoro", speed="1"):
+    local_base_url = _normalized_tts_local_base_url(base_url)
+    log_generation_request(
+        "audio",
+        "local/kokoro",
+        f"{local_base_url}/v1/audio/speech",
+        {
+            "model": model or "kokoro",
+            "voice": voice or "af_heart",
+            "response_format": fmt,
+            "speed": normalize_tts_speed(speed),
+            "input_preview": str(text or "")[:300],
+        },
+    )
     payload = json.dumps({
         "model": model or "kokoro",
         "input": text,
@@ -561,7 +595,7 @@ def kokoro_speech(text, voice, fmt, base_url, model="kokoro", speed="1"):
         "stream": False,
     }).encode()
     req = urllib.request.Request(
-        f"{_normalized_tts_local_base_url(base_url)}/v1/audio/speech",
+        f"{local_base_url}/v1/audio/speech",
         data=payload,
         headers={"Content-Type": "application/json", "x-raw-response": "true"},
         method="POST",
@@ -577,7 +611,7 @@ def kokoro_speech(text, voice, fmt, base_url, model="kokoro", speed="1"):
         raise ValueError(f"Unexpected Kokoro response ({content_type or 'unknown'}).") from exc
     download_url = (parsed.get("download_url") or parsed.get("url") or "").strip()
     if download_url:
-        req = urllib.request.Request(urllib.parse.urljoin(f"{_normalized_tts_local_base_url(base_url)}/", download_url.lstrip("/")), method="GET")
+        req = urllib.request.Request(urllib.parse.urljoin(f"{local_base_url}/", download_url.lstrip("/")), method="GET")
         with urllib.request.urlopen(req, timeout=120) as audio_resp:
             return audio_resp.read()
     audio_b64 = parsed.get("audio_base64") or parsed.get("audio")
@@ -602,6 +636,12 @@ def kokoro_list_voices(base_url):
 
 
 def openai_stt(filepath, api_key, language="auto"):
+    log_generation_request(
+        "audio_transcription",
+        "openai",
+        "https://api.openai.com/v1/audio/transcriptions",
+        {"language": language or "auto", "filename": Path(filepath).name},
+    )
     boundary = "----NiceAssistantBoundary" + secrets.token_hex(8)
     with open(filepath, "rb") as f:
         audio = f.read()
@@ -634,6 +674,17 @@ def openai_stt(filepath, api_key, language="auto"):
 def openai_image(prompt, size, quality, api_key):
     safe_prompt = adjust_prompt_for_openai_image(prompt)
     normalized_quality = normalize_openai_image_quality(quality)
+    log_generation_request(
+        "image",
+        "openai",
+        "https://api.openai.com/v1/images/generations",
+        {
+            "model": "gpt-image-1",
+            "size": size or "1024x1024",
+            "quality": normalized_quality,
+            "prompt_preview": safe_prompt[:300],
+        },
+    )
     payload = json.dumps({
         "model": "gpt-image-1",
         "prompt": safe_prompt,
@@ -727,6 +778,18 @@ def openai_video(prompt, size, seconds, api_key, model="sora-2", input_reference
     last_exc = None
     for payload in payload_attempts:
         try:
+            log_generation_request(
+                "video",
+                "openai",
+                "https://api.openai.com/v1/videos",
+                {
+                    "model": payload.get("model"),
+                    "seconds": payload.get("seconds"),
+                    "size": payload.get("size"),
+                    "prompt_preview": str(payload.get("prompt") or "")[:300],
+                    "input_reference": bool(input_reference),
+                },
+            )
             if input_reference:
                 field_values = {k: str(v) for k, v in payload.items()}
                 data = _openai_auth_multipart_request(
@@ -913,6 +976,22 @@ def automatic1111_image(prompt, size, quality, allow_nsfw, base_url=None, local_
         payload["override_settings"] = {"sd_model_checkpoint": model_checkpoint}
     payload.update(parse_additional_parameters(local_settings.get("additional_parameters")))
     request_base_url = normalize_local_image_base_url(base_url)
+    log_generation_request(
+        "image",
+        "local/automatic1111",
+        f"{request_base_url}/sdapi/v1/txt2img",
+        {
+            "width": payload.get("width"),
+            "height": payload.get("height"),
+            "steps": payload.get("steps"),
+            "cfg_scale": payload.get("cfg_scale"),
+            "sampler_name": payload.get("sampler_name"),
+            "scheduler": payload.get("scheduler", ""),
+            "seed": payload.get("seed"),
+            "prompt_preview": str(payload.get("prompt") or "")[:300],
+            "negative_prompt_preview": str(payload.get("negative_prompt") or "")[:200],
+        },
+    )
     req = urllib.request.Request(
         f"{request_base_url}/sdapi/v1/txt2img",
         data=json.dumps(payload).encode(),
@@ -951,6 +1030,24 @@ def comfyui_image(prompt, size, quality, allow_nsfw, base_url=None, local_settin
     }
     workflow.update(parse_additional_parameters(local_settings.get("additional_parameters")))
     payload = {"prompt": workflow, "client_id": f"nice-assistant-{secrets.token_hex(8)}"}
+    log_generation_request(
+        "image",
+        "local/comfyui",
+        f"{request_base_url}/prompt",
+        {
+            "width": width,
+            "height": height,
+            "steps": max(1, steps),
+            "cfg_scale": max(1.0, cfg_scale),
+            "sampler_name": sampler_name,
+            "scheduler": scheduler,
+            "seed": seed,
+            "model": model_checkpoint,
+            "prompt_preview": tuned_prompt[:300],
+            "negative_prompt_preview": negative_prompt[:200],
+            "client_id": payload["client_id"],
+        },
+    )
 
     req = urllib.request.Request(
         f"{request_base_url}/prompt",

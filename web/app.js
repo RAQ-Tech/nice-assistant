@@ -63,6 +63,8 @@ const state = {
   messageAudioById: {},
   currentAudioMessageId: '',
   workspaceSectionExpanded: {},
+  pendingChatRequest: null,
+  chatTimeoutPromptOpen: false,
   ttsVoices: [],
   ttsVoicesLoading: false,
   ttsVoicesError: '',
@@ -161,6 +163,7 @@ const STT_LANGUAGES = [
 ];
 const OPENAI_TTS_MODELS = ['gpt-4o-mini-tts', 'gpt-4o-audio-preview'];
 const OPENAI_TTS_VOICES = ['alloy', 'ash', 'ballad', 'coral', 'echo', 'fable', 'nova', 'onyx', 'sage', 'shimmer'];
+const CHAT_REQUEST_TIMEOUT_MS = 45000;
 
 function providerSettingKey(baseKey, provider) {
   const activeProvider = provider || state.settings?.tts_provider || 'disabled';
@@ -1208,6 +1211,47 @@ function contextualImagePromptFromMessage(message) {
   return providerPromptTemplate(provider, fields);
 }
 
+function appendImageRetryMessage(errorMessage, prompt, chatId) {
+  const trimmedPrompt = String(prompt || '').trim();
+  if (!trimmedPrompt) return;
+  const text = `Image generation failed: ${errorMessage || 'Unknown error.'}`;
+  state.messages = [...state.messages, {
+    id: `__image_retry__${Date.now()}`,
+    role: 'assistant',
+    text,
+    retryImagePrompt: trimmedPrompt,
+    retryChatId: chatId || state.currentChat?.id || null,
+  }];
+  state.stickMessagesToBottom = true;
+  state.showJumpBottom = false;
+}
+
+async function retryImageGeneration(prompt, chatId) {
+  const effectivePrompt = String(prompt || '').trim();
+  if (!effectivePrompt) return;
+  try {
+    const shouldContinue = await verifyLocalImagePrompt(effectivePrompt);
+    if (!shouldContinue) return;
+    setUiError('');
+    state.status = 'Thinking';
+    render();
+    await api('/api/images/generate', { method: 'POST', body: JSON.stringify({ prompt: effectivePrompt, chatId: chatId || state.currentChat?.id, useContextHint: false }) });
+    const withImage = await api(`/api/chats/${chatId || state.currentChat?.id}`);
+    state.messages = withImage.messages;
+    state.status = 'Idle';
+    state.stickMessagesToBottom = true;
+    state.showJumpBottom = false;
+    render();
+    scrollMessagesToBottom();
+  } catch (e) {
+    state.status = 'Idle';
+    setUiError(e?.message || 'Image generation failed.');
+    appendImageRetryMessage(e?.message || 'Image generation failed.', effectivePrompt, chatId || state.currentChat?.id);
+    render();
+    scrollMessagesToBottom();
+  }
+}
+
 async function generateImageFromAssistantMessage(message) {
   if (!state.currentChat?.id) return;
   if (!message || message.role !== 'assistant') return;
@@ -1220,19 +1264,7 @@ async function generateImageFromAssistantMessage(message) {
   });
   if (!prompt?.trim()) return;
   try {
-    const shouldContinue = await verifyLocalImagePrompt(prompt.trim());
-    if (!shouldContinue) return;
-    setUiError('');
-    state.status = 'Thinking';
-    render();
-    await api('/api/images/generate', { method: 'POST', body: JSON.stringify({ prompt: prompt.trim(), chatId: state.currentChat.id, useContextHint: false }) });
-    const withImage = await api(`/api/chats/${state.currentChat.id}`);
-    state.messages = withImage.messages;
-    state.status = 'Idle';
-    state.stickMessagesToBottom = true;
-    state.showJumpBottom = false;
-    render();
-    scrollMessagesToBottom();
+    await retryImageGeneration(prompt.trim(), state.currentChat.id);
   } catch (e) {
     state.status = 'Idle';
     setUiError(e?.message || 'Image generation failed.');
@@ -1285,6 +1317,47 @@ function autoResizeComposer(target) {
   target.style.height = `${Math.min(target.scrollHeight, 180)}px`;
 }
 
+function clearPendingChatRequest() {
+  state.pendingChatRequest = null;
+  state.chatTimeoutPromptOpen = false;
+}
+
+async function promptChatWaitDecision() {
+  if (!state.pendingChatRequest) return 'cancel';
+  state.chatTimeoutPromptOpen = true;
+  render();
+  const shouldContinue = await new Promise((resolve) => {
+    openModal({
+      title: 'Still working on your response',
+      message: 'This request is taking longer than usual. You can keep waiting, or cancel now.',
+      actions: [
+        { label: 'Cancel request', className: 'pill-btn', onClick: () => { closeModal(); resolve(false); } },
+        { label: 'Continue waiting', className: 'send-btn', onClick: () => { closeModal(); resolve(true); } },
+      ],
+    });
+  });
+  state.chatTimeoutPromptOpen = false;
+  render();
+  return shouldContinue ? 'continue' : 'cancel';
+}
+
+async function waitForChatResponseWithDecision(promise, controller) {
+  while (true) {
+    const result = await Promise.race([
+      promise.then((value) => ({ done: true, value })).catch((error) => ({ done: true, error })),
+      new Promise((resolve) => setTimeout(() => resolve({ timeout: true }), CHAT_REQUEST_TIMEOUT_MS)),
+    ]);
+    if (result.done) {
+      if (result.error) throw result.error;
+      return result.value;
+    }
+    const decision = await promptChatWaitDecision();
+    if (decision === 'continue') continue;
+    controller.abort();
+    throw new Error('Request cancelled.');
+  }
+}
+
 async function sendChat(text) {
   if (state.isSending) return;
   if (!text?.trim()) return;
@@ -1312,7 +1385,16 @@ async function sendChat(text) {
     const model = state.selectedModel || state.currentChat?.model_override || null;
     const memoryMode = state.selectedMemoryMode || state.currentChat?.memory_mode || 'auto';
     const modelSettings = modelSettingsFor(model);
-    const r = await api('/api/chat', {
+    const controller = new AbortController();
+    state.pendingChatRequest = {
+      promptAgain: async () => {
+        if (state.chatTimeoutPromptOpen) return;
+        if (!state.pendingChatRequest) return;
+        const decision = await promptChatWaitDecision();
+        if (decision === 'cancel') controller.abort();
+      },
+    };
+    const fetchPromise = api('/api/chat', {
       method: 'POST',
       body: JSON.stringify({
         text: trimmed,
@@ -1322,7 +1404,10 @@ async function sendChat(text) {
         memoryMode,
         modelSettings,
       }),
+      signal: controller.signal,
     });
+    const r = await waitForChatResponseWithDecision(fetchPromise, controller);
+    clearPendingChatRequest();
     state.currentChat = { ...(state.currentChat || {}), id: r.chatId, persona_id: personaId, model_override: model, memory_mode: memoryMode };
     await refresh();
     const createdChat = state.chats.find((c) => c.id === r.chatId) || state.currentChat;
@@ -1343,6 +1428,7 @@ async function sendChat(text) {
           state.messages = withImage.messages;
         } catch (imageErr) {
           setUiError(imageErr?.message || 'Image generation failed.');
+          appendImageRetryMessage(imageErr?.message || 'Image generation failed.', r.imageOffer.prompt || '', r.chatId);
         }
       }
     }
@@ -1374,10 +1460,12 @@ async function sendChat(text) {
     }
 
   } catch (e) {
+    clearPendingChatRequest();
     state.messages = state.messages.filter((m) => m.id !== pendingMessage.id && !m.isTyping);
     state.status = 'Idle';
     setUiError(e.message || 'Failed to send message.');
   } finally {
+    clearPendingChatRequest();
     state.isSending = false;
     state.isSynthesizing = false;
     render();
@@ -2422,6 +2510,13 @@ function messageItem(m, personaId) {
   const isTyping = Boolean(m.isTyping);
   const rawMessageText = visibleText || m.text || '';
   const imageUrl = extractImageUrl(rawMessageText);
+  const imageFailureWithoutPrompt = !m.retryImagePrompt && /^image generation failed/i.test(rawMessageText.trim());
+  const fallbackRetryPrompt = imageFailureWithoutPrompt
+    ? [...state.messages]
+      .slice(0, Math.max(0, state.messages.findIndex((x) => x.id === m.id)))
+      .reverse()
+      .find((x) => x.role === 'user' && String(x.text || '').trim())?.text
+    : '';
   const videoUrl = extractVideoUrl(rawMessageText);
   const displayText = videoUrl ? stripVideoLinks(rawMessageText) : rawMessageText;
   const audioUrl = state.messageAudioById[m.id];
@@ -2432,7 +2527,13 @@ function messageItem(m, personaId) {
     !isUser && m.role === 'assistant' ? el('img', { class: 'msg-avatar', src: personaAvatar, alt: `${personaName} avatar`, onclick: () => { state.personaAvatarPreview = personaAvatar; render(); } }) : null,
     el('article', { class: `msg ${isUser ? 'user' : 'assistant'}` }, [
       el('small', { textContent: roleLabel }),
-      isTyping ? el('div', { class: 'typing-indicator', textContent: 'typing…' }) : null,
+      isTyping ? el('button', {
+        class: `typing-indicator ${state.pendingChatRequest ? 'clickable' : ''}`,
+        textContent: 'typing…',
+        title: state.pendingChatRequest ? 'Request is still running. Click for wait/cancel options.' : 'Assistant is typing',
+        disabled: !state.pendingChatRequest,
+        onclick: () => state.pendingChatRequest?.promptAgain?.(),
+      }) : null,
       hasThinking && showThinking ? el('details', { class: 'think-block', open: true }, [
         el('summary', { textContent: 'Model thinking' }),
         el('div', { class: 'think-content', html: md(thinking) }),
@@ -2476,6 +2577,12 @@ function messageItem(m, personaId) {
         }) : null,
         el('button', { class: 'icon-btn', textContent: '⧉', title: 'Copy', onclick: async () => { try { await copyTextToClipboard(visibleText || m.text || ''); } catch { } } }),
         imageUrl ? el('button', { class: 'icon-btn', textContent: '⬇', title: 'Save image', onclick: () => downloadImage(imageUrl, `nice-assistant-image-${Date.now()}.png`) }) : null,
+        (m.retryImagePrompt || fallbackRetryPrompt) ? el('button', {
+          class: 'icon-btn',
+          textContent: '↻',
+          title: 'Retry image generation',
+          onclick: async () => { await retryImageGeneration(m.retryImagePrompt || fallbackRetryPrompt, m.retryChatId || state.currentChat?.id); },
+        }) : null,
         videoUrl ? el('button', { class: 'icon-btn', textContent: '⬇', title: 'Save video', onclick: () => downloadVideo(videoUrl, `nice-assistant-video-${Date.now()}.mp4`) }) : null,
         audioUrl ? el('button', { class: 'icon-btn', textContent: '⟲', title: 'Replay response audio', onclick: async () => {
           try {
@@ -2645,6 +2752,13 @@ function render() {
   const scrim = el('div', { class: `scrim ${state.drawerOpen && window.innerWidth < 900 ? 'show' : ''}`, onclick: () => { state.drawerOpen = false; render(); } });
   const jumpBtn = el('button', { id: 'jumpBtn', class: `jump-btn icon-btn ${state.showJumpBottom ? 'show' : ''}`, textContent: '↓ Latest', onclick: () => { state.stickMessagesToBottom = true; state.showJumpBottom = false; scrollMessagesToBottom(); } });
   const viz = el('div', { class: `viz-wrap ${state.showViz ? 'show' : ''}` }, [vizCanvas()]);
+  const vizOverlayBtn = state.showViz ? el('button', {
+    class: 'viz-btn active viz-overlay-btn',
+    textContent: '✦ Visualizer On',
+    title: 'Hide visualizer',
+    ariaLabel: 'Toggle visualizer',
+    onclick: () => setVizVisible(false),
+  }) : null;
   const newChatPersonaModal = state.showNewChatPersonaModal ? el('div', { class: 'modal-backdrop', onclick: (e) => { if (e.target === e.currentTarget) { state.showNewChatPersonaModal = false; render(); } } }, [
     el('div', { class: 'modal-card glass' }, [
       el('h3', { textContent: 'Choose a persona to start this chat' }),
@@ -2717,7 +2831,7 @@ function render() {
   ]) : null;
   const shellChildren = state.showSettings
     ? [settingsPanel(), avatarPreviewModal, chatImagePreviewModal, chatVideoPreviewModal, genericModal]
-    : [scrim, drawer, main, jumpBtn, viz, newChatPersonaModal, avatarPreviewModal, chatImagePreviewModal, chatVideoPreviewModal, genericModal];
+    : [scrim, drawer, main, jumpBtn, viz, vizOverlayBtn, newChatPersonaModal, avatarPreviewModal, chatImagePreviewModal, chatVideoPreviewModal, genericModal];
   app.append(el('div', { class: 'app-shell' }, shellChildren));
   requestAnimationFrame(() => {
     restoreMessagePaneScroll();
