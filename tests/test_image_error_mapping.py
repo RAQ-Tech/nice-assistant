@@ -7,8 +7,10 @@ import urllib.error
 from app.server import (
     adjust_prompt_for_local_sd,
     adjust_prompt_for_openai_image,
+    clean_user_image_prompt,
     extract_model_image_prompt,
     image_prompt_is_detailed,
+    local_seed_for_backend,
     local_negative_prompt,
     model_image_instruction_for_provider,
     normalize_image_quality,
@@ -116,6 +118,9 @@ class NormalizeImageQualityTests(unittest.TestCase):
         self.assertEqual(normalize_image_quality("ultra"), "auto")
         self.assertEqual(normalize_image_quality(None), "auto")
 
+    def test_none_quality_is_supported(self):
+        self.assertEqual(normalize_image_quality("none"), "none")
+
 
 class NormalizeImageSizeTests(unittest.TestCase):
     def test_invalid_values_fall_back_to_supported_default(self):
@@ -180,6 +185,28 @@ class AdjustPromptTests(unittest.TestCase):
     def test_local_negative_prompt_varies_with_nsfw_toggle(self):
         self.assertIn("nudity", local_negative_prompt(False))
         self.assertNotIn("nudity", local_negative_prompt(True))
+
+    def test_none_quality_disables_local_prompt_enhancements(self):
+        adjusted = adjust_prompt_for_local_sd("the following prompt: dog running", allow_nsfw=False, quality="none")
+        self.assertEqual(adjusted.lower(), "dog running")
+        self.assertEqual(local_negative_prompt(False, quality="none"), "")
+
+    def test_clean_user_prompt_strips_prompt_wrappers(self):
+        cleaned = clean_user_image_prompt("please generate an image with the following prompt: dog running")
+        self.assertEqual(cleaned.lower(), "dog running")
+
+
+class LocalSeedTests(unittest.TestCase):
+    def test_comfyui_seed_randomizes_with_empty_or_negative_one(self):
+        seed_blank = local_seed_for_backend("", "comfyui")
+        seed_negative = local_seed_for_backend("-1", "comfyui")
+        self.assertIsInstance(seed_blank, int)
+        self.assertIsInstance(seed_negative, int)
+        self.assertGreater(seed_blank, 0)
+        self.assertGreater(seed_negative, 0)
+
+    def test_automatic1111_keeps_negative_one_seed(self):
+        self.assertEqual(local_seed_for_backend("-1", "automatic1111"), -1)
 
 
 class ModelImagePromptPolicyTests(unittest.TestCase):

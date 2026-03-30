@@ -106,7 +106,7 @@ const SETTINGS_DEFAULTS = {
   stt_store_recordings: false,
   image_provider: 'disabled',
   image_size: '1024x1024',
-  image_quality: 'auto',
+  image_quality: 'none',
   image_prompt_generation: true,
   video_provider: 'disabled',
   video_model: 'sora-2',
@@ -121,7 +121,7 @@ const SETTINGS_DEFAULTS = {
   image_local_sampler_name: 'DPM++ 2M Karras',
   image_local_scheduler: '',
   image_local_cfg_scale: '7',
-  image_local_seed: '-1',
+  image_local_seed: '',
   image_local_additional_parameters: '',
   memory_auto_save_user_facts: true,
   user_display_name: '',
@@ -143,7 +143,7 @@ const IMAGE_QUALITY_ALIASES = {
   hd: 'high',
 };
 
-const IMAGE_QUALITY_VALUES = ['low', 'medium', 'high', 'auto'];
+const IMAGE_QUALITY_VALUES = ['none', 'low', 'medium', 'high', 'auto'];
 const SUPPORTED_IMAGE_SIZES = ['1024x1024', '1024x1536', '1536x1024', 'auto'];
 const VIDEO_MODEL_VALUES = ['sora-2', 'sora-2-pro'];
 const VIDEO_SECONDS_VALUES = ['4', '8', '12'];
@@ -284,6 +284,27 @@ function normalizeImageQuality(value) {
   return IMAGE_QUALITY_VALUES.includes(normalized) ? normalized : SETTINGS_DEFAULTS.image_quality;
 }
 
+function setSettingValue(key, value, shouldRender = true) {
+  if (!state.settings) return;
+  state.settings[key] = value;
+  state.settingsSavedAt = 0;
+  schedulePreferenceSave();
+  if (shouldRender) render();
+}
+
+async function flushPendingPreferenceSave() {
+  if (!state.settings) return;
+  if (!state.preferencesSaveTimer) return;
+  clearTimeout(state.preferencesSaveTimer);
+  state.preferencesSaveTimer = 0;
+  try {
+    await api('/api/settings', { method: 'POST', body: JSON.stringify(settingsPayload(state.settings)) });
+    state.settingsSavedAt = Date.now();
+  } catch (e) {
+    state.settingsError = e.message || 'Unable to save preferences.';
+  }
+}
+
 function normalizeVideoModel(value) {
   const candidate = String(value || '').trim().toLowerCase();
   return VIDEO_MODEL_VALUES.includes(candidate) ? candidate : SETTINGS_DEFAULTS.video_model;
@@ -399,7 +420,7 @@ function settingsPayload(nextSettings) {
     image_local_sampler_name: (nextSettings.image_local_sampler_name || '').trim(),
     image_local_scheduler: (nextSettings.image_local_scheduler || '').trim(),
     image_local_cfg_scale: String(nextSettings.image_local_cfg_scale || ''),
-    image_local_seed: String(nextSettings.image_local_seed || ''),
+    image_local_seed: String(nextSettings.image_local_seed ?? ''),
     image_local_additional_parameters: nextSettings.image_local_additional_parameters || '',
     memory_auto_save_user_facts: Boolean(nextSettings.memory_auto_save_user_facts),
     user_display_name: nextSettings.user_display_name,
@@ -1274,6 +1295,7 @@ async function sendChat(text) {
     return;
   }
   setUiError('');
+  await flushPendingPreferenceSave();
   const trimmed = text.trim();
   state.draftMessage = '';
   state.status = 'Thinking';
@@ -2192,8 +2214,13 @@ function settingsPanel() {
         el('input', { class: 'search-input', value: state.settings.image_local_steps || '', oninput: (e) => setVal('image_local_steps', e.target.value) }),
         el('label', { textContent: 'CFG Scale' }),
         el('input', { class: 'search-input', value: state.settings.image_local_cfg_scale || '', oninput: (e) => setVal('image_local_cfg_scale', e.target.value) }),
-        el('label', { textContent: 'Seed' }),
-        el('input', { class: 'search-input', value: state.settings.image_local_seed || '', oninput: (e) => setVal('image_local_seed', e.target.value) }),
+      el('label', { textContent: 'Seed' }),
+      el('input', {
+        class: 'search-input',
+        value: state.settings.image_local_seed ?? '',
+        placeholder: (state.settings.image_local_backend || 'automatic1111') === 'comfyui' ? 'Leave blank for randomize' : '-1 for random',
+        oninput: (e) => setVal('image_local_seed', e.target.value),
+      }),
         el('label', { textContent: 'Additional Parameters (JSON object)' }),
         el('textarea', { class: 'search-input', rows: 4, value: state.settings.image_local_additional_parameters || '', placeholder: '{"enable_hr":true}', oninput: (e) => setVal('image_local_additional_parameters', e.target.value) }),
         el('label', { class: 'checkbox-row' }, [
@@ -2210,7 +2237,11 @@ function settingsPanel() {
         oninput: (e) => setVal('image_size', e.target.value),
       }),
       el('label', { textContent: 'Quality' }),
-      el('select', { class: 'chip-select', onchange: (e) => setVal('image_quality', e.target.value) }, IMAGE_QUALITY_VALUES.map((x) => el('option', { value: x, textContent: x, selected: x === state.settings.image_quality }))),
+      el('select', { class: 'chip-select', onchange: (e) => setVal('image_quality', e.target.value) }, IMAGE_QUALITY_VALUES.map((x) => el('option', {
+        value: x,
+        textContent: x === 'none' ? 'No Enhancements' : x,
+        selected: x === state.settings.image_quality,
+      }))),
     ],
     'Video Generation': [
       el('label', { textContent: 'Provider' }),
@@ -2568,6 +2599,23 @@ function render() {
     el('button', { class: 'pill-btn', textContent: state.showThinkingByDefault ? 'Hide thinking' : 'Show thinking', onclick: () => setShowThinkingByDefault(!state.showThinkingByDefault) }),
     el('button', { class: 'pill-btn', textContent: state.voiceResponsesEnabled ? 'Voice replies: On' : 'Voice replies: Off', onclick: () => setVoiceResponsesEnabled(!state.voiceResponsesEnabled) }),
     state.currentAudioMessageId ? el('button', { class: 'pill-btn', textContent: 'Stop audio', onclick: () => { audio.pause(); audio.currentTime = 0; state.currentAudioMessageId = ''; state.status = 'Idle'; render(); } }) : null,
+    el('hr', { class: 'chat-controls-divider' }),
+    el('label', { textContent: 'Image controls' }),
+    el('label', { textContent: 'Resolution' }),
+    el('input', {
+      class: 'search-input',
+      value: state.settings?.image_size || SETTINGS_DEFAULTS.image_size,
+      placeholder: 'e.g. 1024x1024',
+      oninput: (e) => setSettingValue('image_size', e.target.value),
+    }),
+    el('label', { textContent: 'Seed' }),
+    el('input', {
+      class: 'search-input',
+      value: state.settings?.image_local_seed ?? '',
+      placeholder: (state.settings?.image_local_backend || 'automatic1111') === 'comfyui' ? 'Leave blank for randomize' : '-1 for random',
+      oninput: (e) => setSettingValue('image_local_seed', e.target.value),
+    }),
+    el('div', { class: 'meta', textContent: (state.settings?.image_local_backend || 'automatic1111') === 'comfyui' ? 'ComfyUI: blank or -1 randomizes seed per generation.' : 'Automatic1111: use -1 for random seed.' }),
   ]) : null;
 
   const topbar = el('div', { class: 'topbar' }, [

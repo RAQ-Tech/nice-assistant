@@ -54,7 +54,7 @@ IMAGE_QUALITY_ALIASES = {
     "standard": "medium",
     "hd": "high",
 }
-IMAGE_QUALITY_VALUES = {"low", "medium", "high", "auto"}
+IMAGE_QUALITY_VALUES = {"low", "medium", "high", "auto", "none"}
 SUPPORTED_IMAGE_SIZES = {"1024x1024", "1024x1536", "1536x1024", "auto"}
 SUPPORTED_VIDEO_MODELS = {"sora-2", "sora-2-pro"}
 SUPPORTED_VIDEO_SECONDS = {"4", "8", "12"}
@@ -599,7 +599,7 @@ def openai_stt(filepath, api_key, language="auto"):
 
 def openai_image(prompt, size, quality, api_key):
     safe_prompt = adjust_prompt_for_openai_image(prompt)
-    normalized_quality = normalize_image_quality(quality)
+    normalized_quality = normalize_openai_image_quality(quality)
     payload = json.dumps({
         "model": "gpt-image-1",
         "prompt": safe_prompt,
@@ -856,7 +856,7 @@ def _auth_headers_from_string(auth_string):
 def automatic1111_image(prompt, size, quality, allow_nsfw, base_url=None, local_settings=None):
     local_settings = local_settings or {}
     width, height = parse_image_size(size, allow_custom=True)
-    tuned_prompt = adjust_prompt_for_local_sd(prompt, allow_nsfw)
+    tuned_prompt = adjust_prompt_for_local_sd(prompt, allow_nsfw, quality)
     steps = int(_coerce_number(local_settings.get("steps"), local_steps_from_quality(quality), int))
     cfg_scale = _coerce_number(local_settings.get("cfg_scale"), 7.0, float)
     seed = int(_coerce_number(local_settings.get("seed"), -1, int))
@@ -865,7 +865,7 @@ def automatic1111_image(prompt, size, quality, allow_nsfw, base_url=None, local_
     model_checkpoint = (local_settings.get("model") or "").strip()
     payload = {
         "prompt": tuned_prompt,
-        "negative_prompt": local_negative_prompt(allow_nsfw),
+        "negative_prompt": local_negative_prompt(allow_nsfw, quality),
         "width": width,
         "height": height,
         "steps": max(1, steps),
@@ -896,14 +896,14 @@ def automatic1111_image(prompt, size, quality, allow_nsfw, base_url=None, local_
 def comfyui_image(prompt, size, quality, allow_nsfw, base_url=None, local_settings=None):
     local_settings = local_settings or {}
     width, height = parse_image_size(size, allow_custom=True)
-    tuned_prompt = adjust_prompt_for_local_sd(prompt, allow_nsfw)
+    tuned_prompt = adjust_prompt_for_local_sd(prompt, allow_nsfw, quality)
     steps = int(_coerce_number(local_settings.get("steps"), local_steps_from_quality(quality), int))
     cfg_scale = _coerce_number(local_settings.get("cfg_scale"), 7.0, float)
-    seed = int(_coerce_number(local_settings.get("seed"), -1, int))
+    seed = local_seed_for_backend(local_settings.get("seed"), "comfyui")
     sampler_name = (local_settings.get("sampler_name") or "euler").strip()
     scheduler = (local_settings.get("scheduler") or "normal").strip()
     model_checkpoint = (local_settings.get("model") or "v1-5-pruned-emaonly.safetensors").strip()
-    negative_prompt = local_negative_prompt(allow_nsfw)
+    negative_prompt = local_negative_prompt(allow_nsfw, quality)
     request_base_url = normalize_local_image_base_url((base_url or "").strip() or COMFYUI_BASE_URL)
 
     workflow = {
@@ -979,6 +979,13 @@ def normalize_image_quality(quality):
     return "auto"
 
 
+def normalize_openai_image_quality(quality):
+    normalized = normalize_image_quality(quality)
+    if normalized == "none":
+        return "auto"
+    return normalized
+
+
 def normalize_image_size(size):
     if size in SUPPORTED_IMAGE_SIZES:
         return size
@@ -1013,6 +1020,8 @@ def clean_user_image_prompt(prompt):
     for pattern in prefixes:
         cleaned = re.sub(pattern, "", cleaned, flags=re.IGNORECASE).strip(" ,.:;-")
     cleaned = re.sub(r"^an?\s+image\s+of\s+", "", cleaned, flags=re.IGNORECASE).strip(" ,.:;-")
+    cleaned = re.sub(r"^(the\s+following\s+prompt\s*:?\s*)", "", cleaned, flags=re.IGNORECASE).strip(" ,.:;-")
+    cleaned = re.sub(r"^(prompt\s*:?\s*)", "", cleaned, flags=re.IGNORECASE).strip(" ,.:;-")
     return cleaned or text
 
 
@@ -1039,21 +1048,35 @@ def local_steps_from_quality(quality):
     return 28
 
 
-def local_negative_prompt(allow_nsfw):
+def local_negative_prompt(allow_nsfw, quality="auto"):
+    if normalize_image_quality(quality) == "none":
+        return ""
     base = "blurry, lowres, jpeg artifacts, extra limbs, deformed hands, bad anatomy, watermark, text, logo"
     if allow_nsfw:
         return base
     return f"{base}, nude, nudity, explicit sexual content, fetish, porn, graphic violence, gore"
 
 
-def adjust_prompt_for_local_sd(prompt, allow_nsfw):
+def adjust_prompt_for_local_sd(prompt, allow_nsfw, quality="auto"):
     text = clean_user_image_prompt(prompt)
     if not text:
         text = "cinematic portrait of a friendly assistant in a modern workspace, detailed lighting, highly detailed"
     if not allow_nsfw:
         for term, replacement in OPENAI_IMAGE_TERM_REPLACEMENTS.items():
             text = re.sub(rf"\b{re.escape(term)}\b", replacement, text, flags=re.IGNORECASE)
+    if normalize_image_quality(quality) == "none":
+        return text
     return f"masterpiece, best quality, highly detailed, {text}"
+
+
+def local_seed_for_backend(seed_value, backend):
+    normalized_backend = normalize_local_image_backend(backend)
+    if normalized_backend == "comfyui":
+        seed_raw = str(seed_value or "").strip()
+        if seed_raw in {"", "-1"}:
+            return secrets.randbelow(2**63 - 1) + 1
+        return int(_coerce_number(seed_value, secrets.randbelow(2**63 - 1) + 1, int))
+    return int(_coerce_number(seed_value, -1, int))
 
 
 def image_prompt_is_detailed(prompt):
