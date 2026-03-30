@@ -24,6 +24,7 @@ from http.cookies import SimpleCookie
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
+from app.job_queue import JobQueue, new_job
 from model_residency import build_default_residency_manager
 
 PORT = int(os.getenv("PORT", "3000"))
@@ -38,6 +39,7 @@ SESSION_TTL_SECONDS = int(os.getenv("SESSION_TTL_SECONDS", "1800"))
 
 LLM_ESTIMATED_VRAM_MB = int(os.getenv("LLM_ESTIMATED_VRAM_MB", "8192"))
 IMAGE_ESTIMATED_VRAM_MB = int(os.getenv("IMAGE_ESTIMATED_VRAM_MB", "6144"))
+VIDEO_ESTIMATED_VRAM_MB = int(os.getenv("VIDEO_ESTIMATED_VRAM_MB", "10240"))
 MODEL_VRAM_BUDGET_MB = int(os.getenv("MODEL_VRAM_BUDGET_MB", "0"))
 
 AUDIO_DIR = DATA_DIR / "audio"
@@ -57,6 +59,7 @@ logger = logging.getLogger("nice-assistant")
 CLIENT_EVENT_LOG = "client-events"
 
 MODEL_RESIDENCY = build_default_residency_manager(MODEL_VRAM_BUDGET_MB)
+JOB_QUEUE = JobQueue()
 
 
 IMAGE_QUALITY_ALIASES = {
@@ -390,6 +393,10 @@ def call_ollama(model, messages, options=None):
         elapsed = time.monotonic() - started
         logger.info("ollama request complete model=%s duration_ms=%d message_count=%d", model, int(elapsed * 1000), len(messages))
 
+
+def execute_chat_model_job(model, messages, model_options):
+    MODEL_RESIDENCY.ensure_loaded("llm", LLM_ESTIMATED_VRAM_MB, model_id=model)
+    return call_ollama(model, messages, model_options)
 
 
 def parse_model_options(payload_settings):
@@ -1749,9 +1756,23 @@ class Handler(BaseHTTPRequestHandler):
                         persona_id = chat["persona_id"]
                 context_hint = visual_identity_context(conn, uid, chat_id, persona_row, workspace_id=workspace_id, persona_id=persona_id)
             image_provider_pref = ((prefs or {}).get("image_provider") or "disabled").strip().lower()
+            image_job = new_job(
+                job_type="image",
+                user_id=uid,
+                chat_id=chat_id,
+                estimated_vram_mb=IMAGE_ESTIMATED_VRAM_MB,
+                latency_class="standard",
+                model_key=f"image:{image_provider_pref}",
+                metadata={"endpoint": "/api/images/generate"},
+                execute=lambda: generate_image_reply(prompt, uid, chat_id, settings, prefs, context_hint=context_hint),
+            )
             if image_provider_pref in {"local", "local/automatic1111", "local/comfyui"}:
-                MODEL_RESIDENCY.ensure_loaded("image_local", IMAGE_ESTIMATED_VRAM_MB)
-            reply, image_url = generate_image_reply(prompt, uid, chat_id, settings, prefs, context_hint=context_hint)
+                def _run_local_image_job():
+                    MODEL_RESIDENCY.ensure_loaded("image_local", IMAGE_ESTIMATED_VRAM_MB)
+                    return generate_image_reply(prompt, uid, chat_id, settings, prefs, context_hint=context_hint)
+
+                image_job.execute = _run_local_image_job
+            reply, image_url = JOB_QUEUE.submit(image_job).wait()
             if image_url and chat_id:
                 owns = conn.execute("SELECT id FROM chats WHERE id=? AND user_id=?", (chat_id, uid)).fetchone()
                 if owns:
@@ -1787,7 +1808,17 @@ class Handler(BaseHTTPRequestHandler):
             conn = db_conn()
             settings = conn.execute("SELECT * FROM app_settings WHERE user_id=?", (uid,)).fetchone()
             prefs = parse_preferences_json(settings["preferences_json"] if settings else "{}")
-            reply, video_url = generate_video_reply(prompt, uid, chat_id, settings, prefs, input_reference=input_reference)
+            video_job = new_job(
+                job_type="video",
+                user_id=uid,
+                chat_id=chat_id,
+                estimated_vram_mb=VIDEO_ESTIMATED_VRAM_MB,
+                latency_class="bulk",
+                model_key=f"video:{(prefs or {}).get('video_model', '')}",
+                metadata={"endpoint": "/api/videos/generate"},
+                execute=lambda: generate_video_reply(prompt, uid, chat_id, settings, prefs, input_reference=input_reference),
+            )
+            reply, video_url = JOB_QUEUE.submit(video_job).wait()
             if video_url and chat_id:
                 owns = conn.execute("SELECT id FROM chats WHERE id=? AND user_id=?", (chat_id, uid)).fetchone()
                 if owns:
@@ -1868,7 +1899,17 @@ class Handler(BaseHTTPRequestHandler):
             except (TypeError, ValueError):
                 prefs = {}
             if looks_like_video_request(text):
-                reply, _ = generate_video_reply(text, uid, chat_id, settings, prefs)
+                video_job = new_job(
+                    job_type="video",
+                    user_id=uid,
+                    chat_id=chat_id,
+                    estimated_vram_mb=VIDEO_ESTIMATED_VRAM_MB,
+                    latency_class="bulk",
+                    model_key=f"video:{(prefs or {}).get('video_model', '')}",
+                    metadata={"endpoint": "/api/chat"},
+                    execute=lambda: generate_video_reply(text, uid, chat_id, settings, prefs),
+                )
+                reply, _ = JOB_QUEUE.submit(video_job).wait()
                 conn.execute("INSERT INTO messages(id,chat_id,role,text,created_at) VALUES(?,?,?,?,?)", (secrets.token_hex(8),chat_id,"assistant",reply,now_ts()))
                 conn.execute("UPDATE chats SET updated_at=?, memory_mode=?, persona_id=?, workspace_id=?, model_override=? WHERE id=?", (now_ts(), mem_mode, persona_id, workspace_id, b.get("model") or chat["model_override"], chat_id))
                 if mem_mode == "auto":
@@ -1877,7 +1918,32 @@ class Handler(BaseHTTPRequestHandler):
                 return self._json({"text": reply, "chatId": chat_id})
 
             if looks_like_image_request(text):
-                reply, _ = generate_image_reply(text, uid, chat_id, settings, prefs, context_hint="")
+                grouped_jobs = JOB_QUEUE.submit_group([
+                    new_job(
+                        job_type="text",
+                        user_id=uid,
+                        chat_id=chat_id,
+                        estimated_vram_mb=LLM_ESTIMATED_VRAM_MB // 8,
+                        latency_class="interactive",
+                        model_key=f"text:{model}",
+                        metadata={"endpoint": "/api/chat", "kind": "grouped_text"},
+                        execute=lambda: "Generating your image now.",
+                    ),
+                    new_job(
+                        job_type="image",
+                        user_id=uid,
+                        chat_id=chat_id,
+                        estimated_vram_mb=IMAGE_ESTIMATED_VRAM_MB,
+                        latency_class="standard",
+                        model_key=f"image:{(prefs or {}).get('image_provider', 'disabled')}",
+                        metadata={"endpoint": "/api/chat", "kind": "grouped_image"},
+                        execute=lambda: generate_image_reply(text, uid, chat_id, settings, prefs, context_hint=""),
+                    ),
+                ])
+                text_preface = grouped_jobs[0].wait()
+                reply, _ = grouped_jobs[1].wait()
+                if text_preface:
+                    reply = f"{text_preface}\n\n{reply}"
                 conn.execute("INSERT INTO messages(id,chat_id,role,text,created_at) VALUES(?,?,?,?,?)", (secrets.token_hex(8),chat_id,"assistant",reply,now_ts()))
                 conn.execute("UPDATE chats SET updated_at=?, memory_mode=?, persona_id=?, workspace_id=?, model_override=? WHERE id=?", (now_ts(), mem_mode, persona_id, workspace_id, b.get("model") or chat["model_override"], chat_id))
                 if mem_mode == "auto":
@@ -1918,8 +1984,17 @@ class Handler(BaseHTTPRequestHandler):
             messages.append({"role":"user","content":text})
             model_image_prompt = ""
             try:
-                MODEL_RESIDENCY.ensure_loaded("llm", LLM_ESTIMATED_VRAM_MB, model_id=model)
-                reply = call_ollama(model, messages, model_options)
+                llm_job = new_job(
+                    job_type="chat",
+                    user_id=uid,
+                    chat_id=chat_id,
+                    estimated_vram_mb=LLM_ESTIMATED_VRAM_MB,
+                    latency_class="interactive",
+                    model_key=f"chat:{model}",
+                    metadata={"endpoint": "/api/chat"},
+                    execute=lambda: execute_chat_model_job(model, messages, model_options),
+                )
+                reply = JOB_QUEUE.submit(llm_job).wait()
                 reply, model_image_prompt = extract_model_image_prompt(reply)
                 if image_prompt_generation and model_image_prompt and not image_prompt_is_detailed(model_image_prompt):
                     if image_provider == "openai":
