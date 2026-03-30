@@ -12,6 +12,7 @@ from app.server import (
     local_negative_prompt,
     model_image_instruction_for_provider,
     normalize_image_quality,
+    normalize_local_image_backend,
     normalize_local_image_base_url,
     normalize_image_size,
     normalize_video_model,
@@ -96,6 +97,16 @@ class LocalImageBaseUrlTests(unittest.TestCase):
             normalize_local_image_base_url('automatic1111:7860')
 
 
+class LocalImageBackendTests(unittest.TestCase):
+    def test_backend_defaults_to_automatic1111(self):
+        self.assertEqual(normalize_local_image_backend(""), "automatic1111")
+        self.assertEqual(normalize_local_image_backend("unknown"), "automatic1111")
+
+    def test_known_backends_are_supported(self):
+        self.assertEqual(normalize_local_image_backend("automatic1111"), "automatic1111")
+        self.assertEqual(normalize_local_image_backend("ComfyUI"), "comfyui")
+
+
 class NormalizeImageQualityTests(unittest.TestCase):
     def test_legacy_values_are_mapped(self):
         self.assertEqual(normalize_image_quality("standard"), "medium")
@@ -140,6 +151,18 @@ class LocalProviderErrorMappingTests(unittest.TestCase):
         self.assertIn("authentication", message.lower())
         self.assertIn("Not authenticated", detail)
 
+    def test_comfyui_not_found_mentions_routes(self):
+        exc = urllib.error.HTTPError(
+            url="http://localhost:8188/prompt",
+            code=404,
+            msg="Not Found",
+            hdrs=None,
+            fp=io.BytesIO(b'{"error":"route missing"}'),
+        )
+        message, detail, _ = user_safe_image_error(exc, provider="local/comfyui")
+        self.assertIn("ComfyUI route not found", message)
+        self.assertIn("route missing", detail)
+
 class AdjustPromptTests(unittest.TestCase):
     def test_openai_prompt_produces_natural_language_safe_instruction(self):
         adjusted = adjust_prompt_for_openai_image("nsfw nude editorial portrait")
@@ -179,6 +202,7 @@ class ModelImagePromptPolicyTests(unittest.TestCase):
     def test_provider_instruction_mentions_target_style(self):
         self.assertIn("OpenAI image generation", model_image_instruction_for_provider("openai"))
         self.assertIn("Automatic1111", model_image_instruction_for_provider("local"))
+        self.assertIn("ComfyUI", model_image_instruction_for_provider("local", "comfyui"))
 
     def test_provider_instruction_mentions_visual_continuity(self):
         self.assertIn("visual continuity", model_image_instruction_for_provider("openai").lower())

@@ -27,6 +27,7 @@ from pathlib import Path
 PORT = int(os.getenv("PORT", "3000"))
 OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://192.168.18.200:11434")
 AUTOMATIC1111_BASE_URL = os.getenv("AUTOMATIC1111_BASE_URL", "http://127.0.0.1:7860")
+COMFYUI_BASE_URL = os.getenv("COMFYUI_BASE_URL", "http://127.0.0.1:8188")
 DATA_DIR = Path(os.getenv("DATA_DIR", "/data"))
 ARCHIVE_DIR = Path(os.getenv("ARCHIVE_DIR", "/archives"))
 AUDIO_HOT_LIMIT = int(os.getenv("AUDIO_HOT_LIMIT", "200"))
@@ -817,6 +818,13 @@ def normalize_local_image_base_url(base_url):
     return candidate.rstrip("/")
 
 
+def normalize_local_image_backend(value):
+    candidate = (value or "").strip().lower()
+    if candidate in {"automatic1111", "comfyui"}:
+        return candidate
+    return "automatic1111"
+
+
 def _coerce_number(value, default, cast_type=float):
     try:
         return cast_type(value)
@@ -883,6 +891,85 @@ def automatic1111_image(prompt, size, quality, allow_nsfw, base_url=None, local_
     if not images:
         raise ValueError("Automatic1111 image response did not include data")
     return base64.b64decode(images[0])
+
+
+def comfyui_image(prompt, size, quality, allow_nsfw, base_url=None, local_settings=None):
+    local_settings = local_settings or {}
+    width, height = parse_image_size(size, allow_custom=True)
+    tuned_prompt = adjust_prompt_for_local_sd(prompt, allow_nsfw)
+    steps = int(_coerce_number(local_settings.get("steps"), local_steps_from_quality(quality), int))
+    cfg_scale = _coerce_number(local_settings.get("cfg_scale"), 7.0, float)
+    seed = int(_coerce_number(local_settings.get("seed"), -1, int))
+    sampler_name = (local_settings.get("sampler_name") or "euler").strip()
+    scheduler = (local_settings.get("scheduler") or "normal").strip()
+    model_checkpoint = (local_settings.get("model") or "v1-5-pruned-emaonly.safetensors").strip()
+    negative_prompt = local_negative_prompt(allow_nsfw)
+    request_base_url = normalize_local_image_base_url((base_url or "").strip() or COMFYUI_BASE_URL)
+
+    workflow = {
+        "3": {"class_type": "KSampler", "inputs": {"seed": seed, "steps": max(1, steps), "cfg": max(1.0, cfg_scale), "sampler_name": sampler_name, "scheduler": scheduler, "denoise": 1, "model": ["4", 0], "positive": ["6", 0], "negative": ["7", 0], "latent_image": ["5", 0]}},
+        "4": {"class_type": "CheckpointLoaderSimple", "inputs": {"ckpt_name": model_checkpoint}},
+        "5": {"class_type": "EmptyLatentImage", "inputs": {"width": width, "height": height, "batch_size": 1}},
+        "6": {"class_type": "CLIPTextEncode", "inputs": {"text": tuned_prompt, "clip": ["4", 1]}},
+        "7": {"class_type": "CLIPTextEncode", "inputs": {"text": negative_prompt, "clip": ["4", 1]}},
+        "8": {"class_type": "VAEDecode", "inputs": {"samples": ["3", 0], "vae": ["4", 2]}},
+        "9": {"class_type": "SaveImage", "inputs": {"filename_prefix": "nice-assistant", "images": ["8", 0]}},
+    }
+    workflow.update(parse_additional_parameters(local_settings.get("additional_parameters")))
+    payload = {"prompt": workflow, "client_id": f"nice-assistant-{secrets.token_hex(8)}"}
+
+    req = urllib.request.Request(
+        f"{request_base_url}/prompt",
+        data=json.dumps(payload).encode(),
+        headers={"Content-Type": "application/json", **_auth_headers_from_string(local_settings.get("api_auth"))},
+        method="POST",
+    )
+    with urllib.request.urlopen(req, timeout=120) as r:
+        data = json.loads(r.read().decode())
+    prompt_id = (data or {}).get("prompt_id")
+    if not prompt_id:
+        raise ValueError("ComfyUI did not return a prompt_id")
+
+    history = None
+    for _ in range(120):
+        hist_req = urllib.request.Request(
+            f"{request_base_url}/history/{urllib.parse.quote(str(prompt_id))}",
+            headers=_auth_headers_from_string(local_settings.get("api_auth")),
+            method="GET",
+        )
+        with urllib.request.urlopen(hist_req, timeout=30) as r:
+            history_data = json.loads(r.read().decode())
+        if history_data:
+            history = history_data
+            break
+        time.sleep(1)
+    if not history:
+        raise TimeoutError("ComfyUI history polling timed out")
+
+    node_outputs = ((history.get(str(prompt_id)) or {}).get("outputs") or {})
+    image_item = None
+    for output in node_outputs.values():
+        images = output.get("images") or []
+        if images:
+            image_item = images[0]
+            break
+    if not image_item:
+        raise ValueError("ComfyUI completed without returning image output")
+
+    query = urllib.parse.urlencode(
+        {
+            "filename": image_item.get("filename", ""),
+            "subfolder": image_item.get("subfolder", ""),
+            "type": image_item.get("type", "output"),
+        }
+    )
+    view_req = urllib.request.Request(
+        f"{request_base_url}/view?{query}",
+        headers=_auth_headers_from_string(local_settings.get("api_auth")),
+        method="GET",
+    )
+    with urllib.request.urlopen(view_req, timeout=120) as r:
+        return r.read()
 
 
 def normalize_image_quality(quality):
@@ -981,7 +1068,7 @@ def image_prompt_is_detailed(prompt):
     return sum(bool(c) for c in checks) >= 1
 
 
-def model_image_instruction_for_provider(provider):
+def model_image_instruction_for_provider(provider, local_backend="automatic1111"):
     provider = (provider or "disabled").lower().strip()
     base = (
         "When a user clearly asks for an image, include exactly one XML tag like "
@@ -997,6 +1084,12 @@ def model_image_instruction_for_provider(provider):
             "minimal comma-stuffing, and no tool-specific weight syntax."
         )
     if provider == "local":
+        backend = normalize_local_image_backend(local_backend)
+        if backend == "comfyui":
+            return (
+                f"{base} Tailor prompt style for ComfyUI/Stable Diffusion pipelines: concise keyword-rich descriptors, "
+                "clear art direction tokens, and maintain compatibility with a separate negative prompt/workflow nodes."
+            )
         return (
             f"{base} Tailor prompt style for Stable Diffusion/Automatic1111: concise keyword-rich descriptors, "
             "art direction tokens, and include details that pair well with a separate negative prompt."
@@ -1130,7 +1223,7 @@ def user_safe_image_error(exc, provider="openai"):
         return "That image size is not supported by OpenAI. Please choose 1024x1024, 1024x1536, 1536x1024, or auto.", detail, req_id
     if isinstance(exc, urllib.error.HTTPError):
         status = exc.code
-        if provider == "local":
+        if provider in {"local", "local/automatic1111"}:
             if status in (401, 403):
                 return "Image generation failed: Automatic1111 rejected authentication. Check the API auth string and --api-auth setup.", detail, req_id
             if status == 404:
@@ -1140,6 +1233,16 @@ def user_safe_image_error(exc, provider="openai"):
             if 500 <= status <= 599:
                 return "Automatic1111 failed while generating the image. Please retry after the server is ready.", detail, req_id
             return f"Image generation failed with Automatic1111 HTTP {status}.", detail, req_id
+        if provider == "local/comfyui":
+            if status in (401, 403):
+                return "Image generation failed: ComfyUI rejected authentication. Check your API auth settings.", detail, req_id
+            if status == 404:
+                return "ComfyUI route not found. Verify the ComfyUI server URL and that the server is running.", detail, req_id
+            if status == 422:
+                return "ComfyUI rejected one or more workflow parameters. Check model, sampler/scheduler, and additional JSON.", detail, req_id
+            if 500 <= status <= 599:
+                return "ComfyUI failed while generating the image. Please retry after the server is ready.", detail, req_id
+            return f"Image generation failed with ComfyUI HTTP {status}.", detail, req_id
         if status in (401, 403):
             return "Image generation failed: OpenAI rejected the request (check API key and image model access).", detail, req_id
         if status == 429:
@@ -1150,8 +1253,10 @@ def user_safe_image_error(exc, provider="openai"):
             return "Image generation is temporarily unavailable from OpenAI. Please try again shortly.", detail, req_id
         return f"Image generation failed with OpenAI error HTTP {status}.", detail, req_id
     if isinstance(exc, urllib.error.URLError):
-        if provider == "local":
+        if provider in {"local", "local/automatic1111"}:
             return "Image generation is currently unavailable because Automatic1111 could not be reached. Check URL and that webui is running with --api.", detail, req_id
+        if provider == "local/comfyui":
+            return "Image generation is currently unavailable because ComfyUI could not be reached. Check URL and that the ComfyUI server is running.", detail, req_id
         return "Image generation is currently unavailable because the image provider could not be reached. Please try again in a moment.", detail, req_id
     if isinstance(exc, TimeoutError):
         return "Image generation timed out. Please try again with a shorter prompt or retry shortly.", detail, req_id
@@ -1198,14 +1303,19 @@ def extract_model_image_prompt(reply_text):
 
 def generate_image_reply(prompt, uid, chat_id, settings_row, prefs, context_hint=""):
     image_provider = (prefs or {}).get("image_provider", "disabled")
+    image_local_backend_override = None
     if image_provider == "local/automatic1111":
         image_provider = "local"
+    if image_provider == "local/comfyui":
+        image_provider = "local"
+        image_local_backend_override = "comfyui"
     if image_provider == "disabled":
         return "I can generate images, but image generation is currently disabled. Enable an image provider in Settings and try again.", ""
     image_size = (prefs or {}).get("image_size") or "1024x1024"
     image_quality = (prefs or {}).get("image_quality") or "standard"
     image_local_allow_nsfw = bool((prefs or {}).get("image_local_allow_nsfw", False))
     image_local_base_url = (prefs or {}).get("image_local_base_url")
+    image_local_backend = normalize_local_image_backend(image_local_backend_override or (prefs or {}).get("image_local_backend"))
     image_id = secrets.token_hex(12)
     image_ext = "png"
     image_name = f"{uid}_{image_id}.{image_ext}"
@@ -1229,7 +1339,10 @@ def generate_image_reply(prompt, uid, chat_id, settings_row, prefs, context_hint
                 "api_auth": (prefs or {}).get("image_local_api_auth"),
                 "additional_parameters": (prefs or {}).get("image_local_additional_parameters"),
             }
-            image_bytes = automatic1111_image(effective_prompt, image_size, image_quality, image_local_allow_nsfw, image_local_base_url, local_settings=local_settings)
+            if image_local_backend == "comfyui":
+                image_bytes = comfyui_image(effective_prompt, image_size, image_quality, image_local_allow_nsfw, image_local_base_url, local_settings=local_settings)
+            else:
+                image_bytes = automatic1111_image(effective_prompt, image_size, image_quality, image_local_allow_nsfw, image_local_base_url, local_settings=local_settings)
         else:
             return f"Image provider '{image_provider}' is not recognized by the server. Choose 'openai' or 'local'.", ""
         image_path.write_bytes(image_bytes)
@@ -1237,7 +1350,10 @@ def generate_image_reply(prompt, uid, chat_id, settings_row, prefs, context_hint
         return f"Here is your generated image.\n\n![Generated image]({image_url})", image_url
     except Exception as exc:
         logger.exception("image generation failed user_id=%s chat_id=%s", uid, chat_id)
-        message, detail, req_id = user_safe_image_error(exc, provider=image_provider)
+        resolved_provider = image_provider
+        if image_provider == "local":
+            resolved_provider = f"local/{image_local_backend}"
+        message, detail, req_id = user_safe_image_error(exc, provider=resolved_provider)
         if detail:
             log_image_error(uid, chat_id, f"request_id={req_id or 'n/a'} {detail}")
         return message, ""
@@ -1748,11 +1864,16 @@ class Handler(BaseHTTPRequestHandler):
             if persona_prompt:
                 sys_msgs.append(persona_prompt)
             image_provider = (prefs or {}).get("image_provider", "disabled")
+            image_local_backend_override = None
             if image_provider == "local/automatic1111":
                 image_provider = "local"
+            if image_provider == "local/comfyui":
+                image_provider = "local"
+                image_local_backend_override = "comfyui"
+            image_local_backend = normalize_local_image_backend(image_local_backend_override or (prefs or {}).get("image_local_backend"))
             image_prompt_generation = bool((prefs or {}).get("image_prompt_generation", True))
             if image_prompt_generation:
-                sys_msgs.append(model_image_instruction_for_provider(image_provider))
+                sys_msgs.append(model_image_instruction_for_provider(image_provider, image_local_backend))
             sys_msgs.append("The app will ask the user for consent before generating the image.")
             messages = [{"role":"system","content":"\n".join(sys_msgs)}] if sys_msgs else []
             hist = conn.execute("SELECT role,text FROM messages WHERE chat_id=? ORDER BY created_at DESC LIMIT 20", (chat_id,)).fetchall()
