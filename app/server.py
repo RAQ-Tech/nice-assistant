@@ -24,6 +24,8 @@ from http.cookies import SimpleCookie
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
+from model_residency import build_default_residency_manager
+
 PORT = int(os.getenv("PORT", "3000"))
 OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://192.168.18.200:11434")
 AUTOMATIC1111_BASE_URL = os.getenv("AUTOMATIC1111_BASE_URL", "http://127.0.0.1:7860")
@@ -33,6 +35,10 @@ ARCHIVE_DIR = Path(os.getenv("ARCHIVE_DIR", "/archives"))
 AUDIO_HOT_LIMIT = int(os.getenv("AUDIO_HOT_LIMIT", "200"))
 SESSION_COOKIE = "nice_assistant_session"
 SESSION_TTL_SECONDS = int(os.getenv("SESSION_TTL_SECONDS", "1800"))
+
+LLM_ESTIMATED_VRAM_MB = int(os.getenv("LLM_ESTIMATED_VRAM_MB", "8192"))
+IMAGE_ESTIMATED_VRAM_MB = int(os.getenv("IMAGE_ESTIMATED_VRAM_MB", "6144"))
+MODEL_VRAM_BUDGET_MB = int(os.getenv("MODEL_VRAM_BUDGET_MB", "0"))
 
 AUDIO_DIR = DATA_DIR / "audio"
 IMAGE_DIR = DATA_DIR / "images"
@@ -49,6 +55,9 @@ logging.basicConfig(
 )
 logger = logging.getLogger("nice-assistant")
 CLIENT_EVENT_LOG = "client-events"
+
+MODEL_RESIDENCY = build_default_residency_manager(MODEL_VRAM_BUDGET_MB)
+
 
 IMAGE_QUALITY_ALIASES = {
     "standard": "medium",
@@ -1362,6 +1371,8 @@ def generate_image_reply(prompt, uid, chat_id, settings_row, prefs, context_hint
                 "api_auth": (prefs or {}).get("image_local_api_auth"),
                 "additional_parameters": (prefs or {}).get("image_local_additional_parameters"),
             }
+            local_model_id = str(local_settings.get("model") or image_local_backend)
+            MODEL_RESIDENCY.ensure_loaded("image_local", IMAGE_ESTIMATED_VRAM_MB, model_id=local_model_id)
             if image_local_backend == "comfyui":
                 image_bytes = comfyui_image(effective_prompt, image_size, image_quality, image_local_allow_nsfw, image_local_base_url, local_settings=local_settings)
             else:
@@ -1737,6 +1748,9 @@ class Handler(BaseHTTPRequestHandler):
                         workspace_id = chat["workspace_id"]
                         persona_id = chat["persona_id"]
                 context_hint = visual_identity_context(conn, uid, chat_id, persona_row, workspace_id=workspace_id, persona_id=persona_id)
+            image_provider_pref = ((prefs or {}).get("image_provider") or "disabled").strip().lower()
+            if image_provider_pref in {"local", "local/automatic1111", "local/comfyui"}:
+                MODEL_RESIDENCY.ensure_loaded("image_local", IMAGE_ESTIMATED_VRAM_MB)
             reply, image_url = generate_image_reply(prompt, uid, chat_id, settings, prefs, context_hint=context_hint)
             if image_url and chat_id:
                 owns = conn.execute("SELECT id FROM chats WHERE id=? AND user_id=?", (chat_id, uid)).fetchone()
@@ -1904,6 +1918,7 @@ class Handler(BaseHTTPRequestHandler):
             messages.append({"role":"user","content":text})
             model_image_prompt = ""
             try:
+                MODEL_RESIDENCY.ensure_loaded("llm", LLM_ESTIMATED_VRAM_MB, model_id=model)
                 reply = call_ollama(model, messages, model_options)
                 reply, model_image_prompt = extract_model_image_prompt(reply)
                 if image_prompt_generation and model_image_prompt and not image_prompt_is_detailed(model_image_prompt):
