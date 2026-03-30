@@ -371,6 +371,13 @@ button, input, select, textarea {
   min-width: 180px;
 }
 
+.chat-controls-divider {
+  width: 100%;
+  border: 0;
+  border-top: 1px solid var(--border);
+  margin: .2rem 0;
+}
+
 .viz-btn {
   border: 1px solid rgba(138, 214, 255, 0.75);
   background: radial-gradient(circle at 18% 20%, rgba(102, 244, 255, 0.4), rgba(25, 48, 80, 0.8) 45%),
