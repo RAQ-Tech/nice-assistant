@@ -276,7 +276,50 @@ def init_db():
             created_at INTEGER NOT NULL
         );
         CREATE INDEX IF NOT EXISTS idx_media_files_kind_filename ON media_files(kind, filename);
+        CREATE TABLE IF NOT EXISTS async_jobs (
+            id TEXT PRIMARY KEY,
+            user_id TEXT NOT NULL,
+            chat_id TEXT,
+            kind TEXT NOT NULL,
+            status TEXT NOT NULL,
+            cancel_requested INTEGER DEFAULT 0,
+            created_at INTEGER NOT NULL,
+            started_at INTEGER,
+            updated_at INTEGER NOT NULL,
+            completed_at INTEGER,
+            progress TEXT,
+            result_json TEXT,
+            error TEXT
+        );
+        CREATE INDEX IF NOT EXISTS idx_async_jobs_user_status ON async_jobs(user_id, status, created_at);
         """
+    )
+    conn.commit()
+    job_cols = {r[1] for r in conn.execute("PRAGMA table_info(async_jobs)").fetchall()}
+    async_job_migrations = {
+        "cancel_requested": "ALTER TABLE async_jobs ADD COLUMN cancel_requested INTEGER DEFAULT 0",
+        "started_at": "ALTER TABLE async_jobs ADD COLUMN started_at INTEGER",
+        "updated_at": "ALTER TABLE async_jobs ADD COLUMN updated_at INTEGER",
+        "completed_at": "ALTER TABLE async_jobs ADD COLUMN completed_at INTEGER",
+        "progress": "ALTER TABLE async_jobs ADD COLUMN progress TEXT",
+        "result_json": "ALTER TABLE async_jobs ADD COLUMN result_json TEXT",
+        "error": "ALTER TABLE async_jobs ADD COLUMN error TEXT",
+    }
+    for col, statement in async_job_migrations.items():
+        if col not in job_cols:
+            conn.execute(statement)
+            conn.commit()
+    interrupted_at = now_ts()
+    conn.execute(
+        """
+        UPDATE async_jobs
+        SET status='failed',
+            error='interrupted by server restart',
+            completed_at=?,
+            updated_at=?
+        WHERE status IN ('queued', 'running')
+        """,
+        (interrupted_at, interrupted_at),
     )
     conn.commit()
     user_cols = {r[1] for r in conn.execute("PRAGMA table_info(users)").fetchall()}
@@ -450,6 +493,194 @@ def media_file_allowed(uid, kind, filename):
     if row:
         return row["user_id"] == uid
     return safe_filename.startswith(f"{uid}_")
+
+
+def truthy(value):
+    if isinstance(value, bool):
+        return value
+    if value is None:
+        return False
+    if isinstance(value, (int, float)):
+        return value != 0
+    return str(value).strip().lower() in {"1", "true", "yes", "on"}
+
+
+def create_async_job(uid, chat_id, kind, progress="Queued"):
+    job_id = secrets.token_hex(12)
+    ts = now_ts()
+    conn = db_conn()
+    conn.execute(
+        """
+        INSERT INTO async_jobs(
+            id,user_id,chat_id,kind,status,cancel_requested,created_at,updated_at,progress
+        ) VALUES(?,?,?,?,?,?,?,?,?)
+        """,
+        (job_id, uid, chat_id, kind, "queued", 0, ts, ts, progress),
+    )
+    conn.commit()
+    conn.close()
+    return job_id
+
+
+def get_async_job(uid, job_id):
+    if not uid or not job_id:
+        return None
+    conn = db_conn()
+    row = conn.execute("SELECT * FROM async_jobs WHERE id=? AND user_id=?", (job_id, uid)).fetchone()
+    conn.close()
+    return row
+
+
+def update_async_job(job_id, **fields):
+    allowed = {
+        "status",
+        "cancel_requested",
+        "started_at",
+        "updated_at",
+        "completed_at",
+        "progress",
+        "result_json",
+        "error",
+    }
+    updates = {key: value for key, value in fields.items() if key in allowed}
+    if not updates:
+        return
+    updates["updated_at"] = updates.get("updated_at", now_ts())
+    assignments = ", ".join([f"{key}=?" for key in updates])
+    conn = db_conn()
+    conn.execute(f"UPDATE async_jobs SET {assignments} WHERE id=?", [*updates.values(), job_id])
+    conn.commit()
+    conn.close()
+
+
+def async_job_cancel_requested(job_id):
+    conn = db_conn()
+    row = conn.execute("SELECT status, cancel_requested FROM async_jobs WHERE id=?", (job_id,)).fetchone()
+    conn.close()
+    if not row:
+        return True
+    return bool(row["cancel_requested"]) or row["status"] == "cancelled"
+
+
+def queue_position_for_async_job(job_id):
+    return JOB_QUEUE.queue_position_for_metadata("async_job_id", job_id)
+
+
+def async_job_response(row):
+    result = None
+    if row["result_json"]:
+        try:
+            result = json.loads(row["result_json"])
+        except (TypeError, ValueError):
+            result = None
+    queue_position = queue_position_for_async_job(row["id"]) if row["status"] == "queued" else None
+    return {
+        "id": row["id"],
+        "kind": row["kind"],
+        "status": row["status"],
+        "chatId": row["chat_id"],
+        "progress": row["progress"] or "",
+        "queuePosition": queue_position,
+        "result": result,
+        "error": row["error"] or "",
+        "cancelRequested": bool(row["cancel_requested"]),
+    }
+
+
+def cancel_async_job(uid, job_id):
+    row = get_async_job(uid, job_id)
+    if not row:
+        return None
+    if row["status"] in {"completed", "failed", "cancelled"}:
+        return row
+    ts = now_ts()
+    update_async_job(
+        job_id,
+        status="cancelled",
+        cancel_requested=1,
+        completed_at=ts,
+        progress="Cancelled",
+    )
+    return get_async_job(uid, job_id)
+
+
+def safe_async_job_error(exc):
+    message = str(exc).strip() or exc.__class__.__name__
+    return redact_sensitive_text(message)[:1000]
+
+
+def submit_async_generation_job(
+    *,
+    async_job_id,
+    uid,
+    chat_id,
+    kind,
+    job_type,
+    estimated_vram_mb,
+    latency_class,
+    execute,
+    model_key=None,
+    metadata=None,
+):
+    def _run_async_job():
+        if async_job_cancel_requested(async_job_id):
+            update_async_job(
+                async_job_id,
+                status="cancelled",
+                cancel_requested=1,
+                completed_at=now_ts(),
+                progress="Cancelled",
+            )
+            return None
+        update_async_job(
+            async_job_id,
+            status="running",
+            started_at=now_ts(),
+            progress="Running",
+        )
+        try:
+            result = execute(lambda: async_job_cancel_requested(async_job_id))
+            if async_job_cancel_requested(async_job_id):
+                update_async_job(
+                    async_job_id,
+                    status="cancelled",
+                    cancel_requested=1,
+                    completed_at=now_ts(),
+                    progress="Cancelled",
+                )
+                return None
+            update_async_job(
+                async_job_id,
+                status="completed",
+                completed_at=now_ts(),
+                progress="Completed",
+                result_json=json.dumps(result or {}, default=str),
+                error=None,
+            )
+            return result
+        except Exception as exc:  # noqa: BLE001 - expose a safe polling error
+            logger.exception("async job failed id=%s kind=%s user_id=%s", async_job_id, kind, uid)
+            update_async_job(
+                async_job_id,
+                status="failed",
+                completed_at=now_ts(),
+                progress="Failed",
+                error=safe_async_job_error(exc),
+            )
+            return None
+
+    queue_job = new_job(
+        job_type=job_type,
+        user_id=uid,
+        chat_id=chat_id,
+        estimated_vram_mb=estimated_vram_mb,
+        latency_class=latency_class,
+        model_key=model_key,
+        metadata={**(metadata or {}), "async_job_id": async_job_id, "async_kind": kind},
+        execute=_run_async_job,
+    )
+    JOB_QUEUE.submit(queue_job)
+    return queue_job
 
 
 def generate_chat_title_from_first_user_message(text: str, max_len: int = 40) -> str:
@@ -1725,6 +1956,445 @@ def safe_name(name, fallback):
     return candidate or fallback
 
 
+def load_user_settings_and_prefs(uid):
+    conn = db_conn()
+    settings = conn.execute("SELECT * FROM app_settings WHERE user_id=?", (uid,)).fetchone()
+    conn.close()
+    return settings, parse_preferences_json(settings["preferences_json"] if settings else "{}")
+
+
+def execute_image_generation_request(uid, payload, cancel_requested=None):
+    b = dict(payload or {})
+    prompt = str(b.get("prompt") or "").strip()
+    chat_id = b.get("chatId")
+    if not prompt:
+        raise ValueError("prompt required")
+
+    conn = db_conn()
+    settings = conn.execute("SELECT * FROM app_settings WHERE user_id=?", (uid,)).fetchone()
+    prefs = parse_preferences_json(settings["preferences_json"] if settings else "{}")
+    persona_row = None
+    if chat_id:
+        chat = conn.execute("SELECT workspace_id, persona_id FROM chats WHERE id=? AND user_id=?", (chat_id, uid)).fetchone()
+        if chat and chat["persona_id"]:
+            persona_row = conn.execute("SELECT * FROM personas WHERE id=?", (chat["persona_id"],)).fetchone()
+    use_context_hint = bool(b.get("useContextHint", False))
+    context_hint = ""
+    if use_context_hint:
+        workspace_id = None
+        persona_id = None
+        if chat_id:
+            chat = conn.execute("SELECT workspace_id, persona_id FROM chats WHERE id=? AND user_id=?", (chat_id, uid)).fetchone()
+            if chat:
+                workspace_id = chat["workspace_id"]
+                persona_id = chat["persona_id"]
+        context_hint = visual_identity_context(conn, uid, chat_id, persona_row, workspace_id=workspace_id, persona_id=persona_id)
+    conn.close()
+
+    if cancel_requested and cancel_requested():
+        return {"ok": False, "text": "Request cancelled.", "chatId": chat_id}
+
+    reply, image_url = generate_image_reply(prompt, uid, chat_id, settings, prefs, context_hint=context_hint)
+
+    if cancel_requested and cancel_requested():
+        return {"ok": False, "text": "Request cancelled.", "chatId": chat_id}
+
+    if image_url and chat_id:
+        conn = db_conn()
+        owns = conn.execute("SELECT id FROM chats WHERE id=? AND user_id=?", (chat_id, uid)).fetchone()
+        if owns:
+            conn.execute(
+                "INSERT INTO messages(id,chat_id,role,text,created_at) VALUES(?,?,?,?,?)",
+                (secrets.token_hex(8), chat_id, "assistant", reply, now_ts()),
+            )
+            conn.execute("UPDATE chats SET updated_at=? WHERE id=?", (now_ts(), chat_id))
+            conn.commit()
+        conn.close()
+    if image_url:
+        return {"ok": True, "text": reply, "imageUrl": image_url, "chatId": chat_id}
+    return {"ok": False, "text": reply, "chatId": chat_id}
+
+
+def execute_video_generation_request(uid, prompt, chat_id, input_reference=None, cancel_requested=None):
+    prompt = str(prompt or "").strip()
+    if not prompt:
+        raise ValueError("prompt required")
+    settings, prefs = load_user_settings_and_prefs(uid)
+
+    if cancel_requested and cancel_requested():
+        return {"ok": False, "text": "Request cancelled.", "chatId": chat_id}
+
+    reply, video_url = generate_video_reply(prompt, uid, chat_id, settings, prefs, input_reference=input_reference)
+
+    if cancel_requested and cancel_requested():
+        return {"ok": False, "text": "Request cancelled.", "chatId": chat_id}
+
+    if video_url and chat_id:
+        conn = db_conn()
+        owns = conn.execute("SELECT id FROM chats WHERE id=? AND user_id=?", (chat_id, uid)).fetchone()
+        if owns:
+            conn.execute(
+                "INSERT INTO messages(id,chat_id,role,text,created_at) VALUES(?,?,?,?,?)",
+                (secrets.token_hex(8), chat_id, "assistant", reply, now_ts()),
+            )
+            conn.execute("UPDATE chats SET updated_at=? WHERE id=?", (now_ts(), chat_id))
+            conn.commit()
+        conn.close()
+    if video_url:
+        return {"ok": True, "text": reply, "videoUrl": video_url, "chatId": chat_id}
+    return {"ok": False, "text": reply, "chatId": chat_id}
+
+
+def prepare_chat_generation_request(uid, payload, text):
+    b = dict(payload or {})
+    chat_id = b.get("chatId")
+    conn = db_conn()
+    chat = conn.execute("SELECT * FROM chats WHERE id=? AND user_id=?", (chat_id, uid)).fetchone() if chat_id else None
+    if not chat:
+        chat_id = secrets.token_hex(8)
+        t = now_ts()
+        conn.execute(
+            "INSERT INTO chats(id,user_id,persona_id,model_override,memory_mode,title,hidden_in_ui,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?)",
+            (
+                chat_id,
+                uid,
+                b.get("personaId"),
+                b.get("model"),
+                b.get("memoryMode", "auto"),
+                generate_chat_title(text),
+                0,
+                t,
+                t,
+            ),
+        )
+        conn.commit()
+    conn.close()
+    return chat_id
+
+
+def persist_chat_assistant_result(uid, chat_id, reply, mem_mode, persona_id, workspace_id, model_override, user_text, remember_short_facts=False):
+    conn = db_conn()
+    conn.execute(
+        "INSERT INTO messages(id,chat_id,role,text,created_at) VALUES(?,?,?,?,?)",
+        (secrets.token_hex(8), chat_id, "assistant", reply, now_ts()),
+    )
+    conn.execute(
+        "UPDATE chats SET updated_at=?, memory_mode=?, persona_id=?, workspace_id=?, model_override=? WHERE id=?",
+        (now_ts(), mem_mode, persona_id, workspace_id, model_override, chat_id),
+    )
+    if mem_mode == "auto":
+        if remember_short_facts and len(user_text) < 280 and any(k in user_text.lower() for k in ["my ", "i like", "remember", "name is"]):
+            conn.execute(
+                "INSERT INTO memories(id,user_id,tier,tier_ref_id,content,created_at) VALUES(?,?,?,?,?,?)",
+                (secrets.token_hex(8), uid, "persona" if persona_id else "global", persona_id, user_text, now_ts()),
+            )
+        conn.execute(
+            "INSERT INTO memories(id,user_id,tier,tier_ref_id,content,created_at) VALUES(?,?,?,?,?,?)",
+            (secrets.token_hex(8), uid, "chat", chat_id, user_text, now_ts()),
+        )
+    conn.commit()
+    conn.close()
+    backup_db_if_needed()
+
+
+def run_chat_video_generation(text, uid, chat_id, settings, prefs, queue_provider):
+    if not queue_provider:
+        return generate_video_reply(text, uid, chat_id, settings, prefs)
+    video_job = new_job(
+        job_type="video",
+        user_id=uid,
+        chat_id=chat_id,
+        estimated_vram_mb=VIDEO_ESTIMATED_VRAM_MB,
+        latency_class="bulk",
+        model_key=f"video:{(prefs or {}).get('video_model', '')}",
+        metadata={"endpoint": "/api/chat"},
+        execute=lambda: generate_video_reply(text, uid, chat_id, settings, prefs),
+    )
+    return JOB_QUEUE.submit(video_job).wait()
+
+
+def run_chat_image_generation(text, uid, chat_id, settings, prefs, model, queue_provider):
+    if not queue_provider:
+        reply, image_url = generate_image_reply(text, uid, chat_id, settings, prefs, context_hint="")
+        return "Generating your image now.", reply, image_url
+    grouped_jobs = JOB_QUEUE.submit_group([
+        new_job(
+            job_type="text",
+            user_id=uid,
+            chat_id=chat_id,
+            estimated_vram_mb=LLM_ESTIMATED_VRAM_MB // 8,
+            latency_class="interactive",
+            model_key=f"text:{model}",
+            metadata={"endpoint": "/api/chat", "kind": "grouped_text"},
+            execute=lambda: "Generating your image now.",
+        ),
+        new_job(
+            job_type="image",
+            user_id=uid,
+            chat_id=chat_id,
+            estimated_vram_mb=IMAGE_ESTIMATED_VRAM_MB,
+            latency_class="standard",
+            model_key=f"image:{(prefs or {}).get('image_provider', 'disabled')}",
+            metadata={"endpoint": "/api/chat", "kind": "grouped_image"},
+            execute=lambda: generate_image_reply(text, uid, chat_id, settings, prefs, context_hint=""),
+        ),
+    ])
+    text_preface = grouped_jobs[0].wait()
+    reply, image_url = grouped_jobs[1].wait()
+    return text_preface, reply, image_url
+
+
+def run_chat_model_generation(model, messages, model_options, prefs, uid, chat_id, queue_provider):
+    if not queue_provider:
+        return execute_chat_model_job(model, messages, model_options, prefs=prefs)
+    llm_job = new_job(
+        job_type="chat",
+        user_id=uid,
+        chat_id=chat_id,
+        estimated_vram_mb=LLM_ESTIMATED_VRAM_MB,
+        latency_class="interactive",
+        model_key=f"chat:{model}",
+        metadata={"endpoint": "/api/chat"},
+        execute=lambda: execute_chat_model_job(model, messages, model_options, prefs=prefs),
+    )
+    return JOB_QUEUE.submit(llm_job).wait()
+
+
+def execute_chat_generation_request(uid, payload, chat_id, queue_provider=True, cancel_requested=None):
+    b = dict(payload or {})
+    text = str(b.get("text") or "").strip()
+    if not text:
+        raise ValueError("text required")
+
+    conn = db_conn()
+    t = now_ts()
+    chat = conn.execute("SELECT * FROM chats WHERE id=? AND user_id=?", (chat_id, uid)).fetchone()
+    if not chat:
+        conn.close()
+        raise ValueError("chat not found")
+    mem_mode = b.get("memoryMode") or chat["memory_mode"] or "auto"
+    persona_id = b.get("personaId") or chat["persona_id"]
+    persona = conn.execute("SELECT * FROM personas WHERE id=?", (persona_id,)).fetchone() if persona_id else None
+    workspace_id = chat["workspace_id"] or b.get("workspaceId") or (persona["workspace_id"] if persona else None)
+    model = b.get("model") or chat["model_override"]
+    settings = conn.execute("SELECT * FROM app_settings WHERE user_id=?", (uid,)).fetchone()
+    if not model and persona_id:
+        p = conn.execute("SELECT default_model FROM personas WHERE id=?", (persona_id,)).fetchone()
+        model = p["default_model"] if p else None
+    model = model or (settings["global_default_model"] if settings else None) or (ollama_models()[0] if ollama_models() else "llama3")
+    model_options = parse_model_options(b.get("modelSettings") or {})
+    logger.info(
+        "chat request user_id=%s chat_id=%s model=%s memory_mode=%s persona_id=%s options=%s",
+        uid,
+        chat_id,
+        model,
+        mem_mode,
+        persona_id,
+        json.dumps(model_options, sort_keys=True),
+    )
+
+    conn.execute(
+        "INSERT INTO messages(id,chat_id,role,text,created_at) VALUES(?,?,?,?,?)",
+        (secrets.token_hex(8), chat_id, "user", text, t),
+    )
+    current_title_row = conn.execute("SELECT title FROM chats WHERE id=?", (chat_id,)).fetchone()
+    current_title = current_title_row["title"] if current_title_row else None
+    if chat_title_needs_autogeneration(current_title):
+        generated_title = generate_chat_title_from_first_user_message(text)
+        conn.execute("UPDATE chats SET title=?, updated_at=? WHERE id=?", (generated_title, now_ts(), chat_id))
+    else:
+        conn.execute("UPDATE chats SET updated_at=? WHERE id=?", (now_ts(), chat_id))
+    prefs = parse_preferences_json(settings["preferences_json"] if settings else "{}")
+
+    if looks_like_video_request(text):
+        conn.commit()
+        conn.close()
+        if cancel_requested and cancel_requested():
+            return {"text": "Request cancelled.", "chatId": chat_id}
+        reply, _video_url = run_chat_video_generation(text, uid, chat_id, settings, prefs, queue_provider)
+        if cancel_requested and cancel_requested():
+            return {"text": "Request cancelled.", "chatId": chat_id}
+        persist_chat_assistant_result(uid, chat_id, reply, mem_mode, persona_id, workspace_id, b.get("model") or chat["model_override"], text)
+        return {"text": reply, "chatId": chat_id}
+
+    if looks_like_image_request(text):
+        conn.commit()
+        conn.close()
+        if cancel_requested and cancel_requested():
+            return {"text": "Request cancelled.", "chatId": chat_id}
+        text_preface, reply, _image_url = run_chat_image_generation(text, uid, chat_id, settings, prefs, model, queue_provider)
+        if text_preface:
+            reply = f"{text_preface}\n\n{reply}"
+        if cancel_requested and cancel_requested():
+            return {"text": "Request cancelled.", "chatId": chat_id}
+        persist_chat_assistant_result(uid, chat_id, reply, mem_mode, persona_id, workspace_id, b.get("model") or chat["model_override"], text)
+        return {"text": reply, "chatId": chat_id}
+
+    sys_msgs = []
+    if mem_mode != "off":
+        gm = [r[0] for r in conn.execute("SELECT content FROM memories WHERE user_id=? AND tier='global'", (uid,)).fetchall()]
+        sys_msgs += gm
+        if workspace_id:
+            wm = [r[0] for r in conn.execute("SELECT content FROM memories WHERE user_id=? AND tier='workspace' AND tier_ref_id=?", (uid, workspace_id))]
+            sys_msgs += wm
+        if persona_id:
+            pm = [r[0] for r in conn.execute("SELECT content FROM memories WHERE user_id=? AND tier='persona' AND tier_ref_id=?", (uid, persona_id))]
+            sys_msgs += pm
+        cm = [r[0] for r in conn.execute("SELECT content FROM memories WHERE user_id=? AND tier='chat' AND tier_ref_id=? ORDER BY created_at DESC LIMIT 30", (uid, chat_id)).fetchall()]
+        sys_msgs += list(reversed(cm))
+    persona_prompt = persona_instruction_block(persona)
+    if persona_prompt:
+        sys_msgs.append(persona_prompt)
+    image_provider = (prefs or {}).get("image_provider", "disabled")
+    image_local_backend_override = None
+    if image_provider == "local/automatic1111":
+        image_provider = "local"
+    if image_provider == "local/comfyui":
+        image_provider = "local"
+        image_local_backend_override = "comfyui"
+    image_local_backend = normalize_local_image_backend(image_local_backend_override or (prefs or {}).get("image_local_backend"))
+    image_prompt_generation = bool((prefs or {}).get("image_prompt_generation", True))
+    if image_prompt_generation:
+        sys_msgs.append(model_image_instruction_for_provider(image_provider, image_local_backend))
+    sys_msgs.append("The app will ask the user for consent before generating the image.")
+    messages = [{"role": "system", "content": "\n".join(sys_msgs)}] if sys_msgs else []
+    hist = conn.execute("SELECT role,text FROM messages WHERE chat_id=? ORDER BY created_at DESC LIMIT 20", (chat_id,)).fetchall()
+    for r in reversed(hist):
+        messages.append({"role": r[0], "content": r[1]})
+    messages.append({"role": "user", "content": text})
+    conn.commit()
+    conn.close()
+
+    if cancel_requested and cancel_requested():
+        return {"text": "Request cancelled.", "chatId": chat_id}
+
+    model_image_prompt = ""
+    try:
+        reply = run_chat_model_generation(model, messages, model_options, prefs, uid, chat_id, queue_provider)
+        reply, model_image_prompt = extract_model_image_prompt(reply)
+        if image_prompt_generation and model_image_prompt and not image_prompt_is_detailed(model_image_prompt):
+            if image_provider == "openai":
+                model_image_prompt = adjust_prompt_for_openai_image(model_image_prompt)
+            elif image_provider == "local":
+                model_image_prompt = adjust_prompt_for_local_sd(model_image_prompt, bool((prefs or {}).get("image_local_allow_nsfw", False)))
+    except Exception as e:
+        if isinstance(e, MemoryBackpressureError):
+            reply = e.user_message
+            logger.info(
+                "chat backpressure user_id=%s chat_id=%s model=%s detail=%s",
+                uid,
+                chat_id,
+                model,
+                json.dumps(e.details, sort_keys=True),
+            )
+        else:
+            logger.exception("model call failed user_id=%s chat_id=%s model=%s", uid, chat_id, model)
+            reply = f"Model call failed: {e}"
+
+    if cancel_requested and cancel_requested():
+        return {"text": "Request cancelled.", "chatId": chat_id}
+
+    persist_chat_assistant_result(
+        uid,
+        chat_id,
+        reply,
+        mem_mode,
+        persona_id,
+        workspace_id,
+        b.get("model") or chat["model_override"],
+        text,
+        remember_short_facts=True,
+    )
+    image_offer = {"prompt": model_image_prompt, "message": "Receive image?"} if image_prompt_generation and model_image_prompt else None
+    return {"text": reply, "chatId": chat_id, "imageOffer": image_offer}
+
+
+def chat_queue_shape(uid, payload, chat_id, text):
+    settings, prefs = load_user_settings_and_prefs(uid)
+    if looks_like_video_request(text):
+        return "video", VIDEO_ESTIMATED_VRAM_MB, "bulk", f"video:{(prefs or {}).get('video_model', '')}"
+    if looks_like_image_request(text):
+        return "image", IMAGE_ESTIMATED_VRAM_MB, "standard", f"image:{(prefs or {}).get('image_provider', 'disabled')}"
+    model = (payload or {}).get("model") or ""
+    if not model and chat_id:
+        conn = db_conn()
+        chat = conn.execute("SELECT model_override, persona_id FROM chats WHERE id=? AND user_id=?", (chat_id, uid)).fetchone()
+        if chat:
+            model = chat["model_override"] or ""
+            if not model and chat["persona_id"]:
+                persona = conn.execute("SELECT default_model FROM personas WHERE id=?", (chat["persona_id"],)).fetchone()
+                model = persona["default_model"] if persona else ""
+        conn.close()
+    model = model or (settings["global_default_model"] if settings else None) or "llama3"
+    return "chat", LLM_ESTIMATED_VRAM_MB, "interactive", f"chat:{model}"
+
+
+def start_async_chat_job(uid, payload):
+    text = str((payload or {}).get("text") or "").strip()
+    if not text:
+        raise ValueError("text required")
+    chat_id = prepare_chat_generation_request(uid, payload, text)
+    queue_type, estimated, latency, model_key = chat_queue_shape(uid, payload, chat_id, text)
+    async_job_id = create_async_job(uid, chat_id, "chat", progress="Queued")
+    submit_async_generation_job(
+        async_job_id=async_job_id,
+        uid=uid,
+        chat_id=chat_id,
+        kind="chat",
+        job_type=queue_type,
+        estimated_vram_mb=estimated,
+        latency_class=latency,
+        model_key=model_key,
+        metadata={"endpoint": "/api/chat"},
+        execute=lambda cancel: execute_chat_generation_request(uid, payload, chat_id, queue_provider=False, cancel_requested=cancel),
+    )
+    return async_job_id, chat_id
+
+
+def start_async_image_job(uid, payload):
+    prompt = str((payload or {}).get("prompt") or "").strip()
+    if not prompt:
+        raise ValueError("prompt required")
+    chat_id = (payload or {}).get("chatId")
+    _settings, prefs = load_user_settings_and_prefs(uid)
+    image_provider_pref = ((prefs or {}).get("image_provider") or "disabled").strip().lower()
+    async_job_id = create_async_job(uid, chat_id, "image", progress="Queued")
+    submit_async_generation_job(
+        async_job_id=async_job_id,
+        uid=uid,
+        chat_id=chat_id,
+        kind="image",
+        job_type="image",
+        estimated_vram_mb=IMAGE_ESTIMATED_VRAM_MB,
+        latency_class="standard",
+        model_key=f"image:{image_provider_pref}",
+        metadata={"endpoint": "/api/images/generate"},
+        execute=lambda cancel: execute_image_generation_request(uid, payload, cancel_requested=cancel),
+    )
+    return async_job_id, chat_id
+
+
+def start_async_video_job(uid, prompt, chat_id, input_reference=None):
+    prompt = str(prompt or "").strip()
+    if not prompt:
+        raise ValueError("prompt required")
+    _settings, prefs = load_user_settings_and_prefs(uid)
+    async_job_id = create_async_job(uid, chat_id, "video", progress="Queued")
+    submit_async_generation_job(
+        async_job_id=async_job_id,
+        uid=uid,
+        chat_id=chat_id,
+        kind="video",
+        job_type="video",
+        estimated_vram_mb=VIDEO_ESTIMATED_VRAM_MB,
+        latency_class="bulk",
+        model_key=f"video:{(prefs or {}).get('video_model', '')}",
+        metadata={"endpoint": "/api/videos/generate"},
+        execute=lambda cancel: execute_video_generation_request(uid, prompt, chat_id, input_reference=input_reference, cancel_requested=cancel),
+    )
+    return async_job_id, chat_id
+
+
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -1953,6 +2623,15 @@ class Handler(BaseHTTPRequestHandler):
             tok = self._cookies().get(SESSION_COOKIE)
             conn = db_conn(); row = conn.execute("SELECT expires_at FROM sessions WHERE token=? AND user_id=?", (tok.value, uid)).fetchone(); conn.close()
             return self._json({"expiresAt": row["expires_at"] if row else None, "ttlSeconds": SESSION_TTL_SECONDS, "now": now_ts()})
+        if self.path.startswith("/api/jobs/"):
+            uid = self._require_auth()
+            if not uid:
+                return
+            job_id = self.path.rsplit("/", 1)[-1]
+            row = get_async_job(uid, job_id)
+            if not row:
+                return self._json({"error": "not found"}, 404)
+            return self._json({"job": async_job_response(row)})
         # static
         rel = self.path if self.path != "/" else "/index.html"
         target = (WEB_DIR / rel.lstrip("/")).resolve()
@@ -2005,75 +2684,41 @@ class Handler(BaseHTTPRequestHandler):
         if self.path == "/api/images/generate":
             b = self._read_json() or {}
             prompt = str(b.get("prompt") or "").strip()
-            chat_id = b.get("chatId")
             if not prompt:
                 return self._json({"error": "prompt required"}, 400)
-            conn = db_conn()
-            settings = conn.execute("SELECT * FROM app_settings WHERE user_id=?", (uid,)).fetchone()
-            prefs = parse_preferences_json(settings["preferences_json"] if settings else "{}")
-            persona_row = None
-            if chat_id:
-                chat = conn.execute("SELECT persona_id FROM chats WHERE id=? AND user_id=?", (chat_id, uid)).fetchone()
-                if chat and chat["persona_id"]:
-                    persona_row = conn.execute("SELECT * FROM personas WHERE id=?", (chat["persona_id"],)).fetchone()
-            use_context_hint = bool(b.get("useContextHint", False))
-            context_hint = ""
-            if use_context_hint:
-                workspace_id = None
-                persona_id = None
-                if chat_id:
-                    chat = conn.execute("SELECT workspace_id, persona_id FROM chats WHERE id=? AND user_id=?", (chat_id, uid)).fetchone()
-                    if chat:
-                        workspace_id = chat["workspace_id"]
-                        persona_id = chat["persona_id"]
-                context_hint = visual_identity_context(conn, uid, chat_id, persona_row, workspace_id=workspace_id, persona_id=persona_id)
+            if truthy(b.get("async")):
+                try:
+                    job_id, chat_id = start_async_image_job(uid, b)
+                except ValueError as exc:
+                    return self._json({"error": str(exc)}, 400)
+                return self._json({"ok": True, "jobId": job_id, "chatId": chat_id, "status": "queued"}, 202)
+            _settings, prefs = load_user_settings_and_prefs(uid)
             image_provider_pref = ((prefs or {}).get("image_provider") or "disabled").strip().lower()
             image_job = new_job(
                 job_type="image",
                 user_id=uid,
-                chat_id=chat_id,
+                chat_id=b.get("chatId"),
                 estimated_vram_mb=IMAGE_ESTIMATED_VRAM_MB,
                 latency_class="standard",
                 model_key=f"image:{image_provider_pref}",
                 metadata={"endpoint": "/api/images/generate"},
-                execute=lambda: generate_image_reply(prompt, uid, chat_id, settings, prefs, context_hint=context_hint),
+                execute=lambda: execute_image_generation_request(uid, b),
             )
-            if image_provider_pref in {"local", "local/automatic1111", "local/comfyui"}:
-                def _run_local_image_job():
-                    try:
-                        MODEL_RESIDENCY.update_policy(**parse_residency_policy_preferences(prefs))
-                        MODEL_RESIDENCY.ensure_loaded("image_local", IMAGE_ESTIMATED_VRAM_MB)
-                        return generate_image_reply(prompt, uid, chat_id, settings, prefs, context_hint=context_hint)
-                    except MemoryBackpressureError as exc:
-                        logger.info(
-                            "image endpoint backpressure user_id=%s chat_id=%s detail=%s",
-                            uid,
-                            chat_id,
-                            json.dumps(exc.details, sort_keys=True),
-                        )
-                        return exc.user_message, ""
-
-                image_job.execute = _run_local_image_job
-            reply, image_url = JOB_QUEUE.submit(image_job).wait()
-            if image_url and chat_id:
-                owns = conn.execute("SELECT id FROM chats WHERE id=? AND user_id=?", (chat_id, uid)).fetchone()
-                if owns:
-                    conn.execute("INSERT INTO messages(id,chat_id,role,text,created_at) VALUES(?,?,?,?,?)", (secrets.token_hex(8), chat_id, "assistant", reply, now_ts()))
-                    conn.execute("UPDATE chats SET updated_at=? WHERE id=?", (now_ts(), chat_id))
-                    conn.commit()
-            conn.close()
-            if image_url:
-                return self._json({"ok": True, "text": reply, "imageUrl": image_url})
-            return self._json({"ok": False, "text": reply}, 400)
+            result = JOB_QUEUE.submit(image_job).wait()
+            if result.get("ok"):
+                return self._json({"ok": True, "text": result.get("text", ""), "imageUrl": result.get("imageUrl")})
+            return self._json({"ok": False, "text": result.get("text", "")}, 400)
         if self.path == "/api/videos/generate":
             content_type = self.headers.get("Content-Type", "")
             input_reference = None
+            async_requested = False
             if "multipart/form-data" in content_type:
                 content_length = int(self.headers.get("Content-Length", "0") or 0)
                 raw_body = self.rfile.read(content_length) if content_length else b""
                 fields = parse_multipart_form_data(content_type, raw_body)
                 prompt = (fields.get("prompt") or {}).get("value", b"").decode("utf-8", errors="replace").strip()
                 chat_id = (fields.get("chatId") or {}).get("value", b"").decode("utf-8", errors="replace").strip() or None
+                async_requested = truthy((fields.get("async") or {}).get("value", b"").decode("utf-8", errors="replace"))
                 file_item = fields.get("input_reference")
                 if file_item and file_item.get("value"):
                     input_reference = {
@@ -2085,11 +2730,16 @@ class Handler(BaseHTTPRequestHandler):
                 b = self._read_json() or {}
                 prompt = str(b.get("prompt") or "").strip()
                 chat_id = b.get("chatId")
+                async_requested = truthy(b.get("async"))
             if not prompt:
                 return self._json({"error": "prompt required"}, 400)
-            conn = db_conn()
-            settings = conn.execute("SELECT * FROM app_settings WHERE user_id=?", (uid,)).fetchone()
-            prefs = parse_preferences_json(settings["preferences_json"] if settings else "{}")
+            if async_requested:
+                try:
+                    job_id, chat_id = start_async_video_job(uid, prompt, chat_id, input_reference=input_reference)
+                except ValueError as exc:
+                    return self._json({"error": str(exc)}, 400)
+                return self._json({"ok": True, "jobId": job_id, "chatId": chat_id, "status": "queued"}, 202)
+            _settings, prefs = load_user_settings_and_prefs(uid)
             video_job = new_job(
                 job_type="video",
                 user_id=uid,
@@ -2098,19 +2748,12 @@ class Handler(BaseHTTPRequestHandler):
                 latency_class="bulk",
                 model_key=f"video:{(prefs or {}).get('video_model', '')}",
                 metadata={"endpoint": "/api/videos/generate"},
-                execute=lambda: generate_video_reply(prompt, uid, chat_id, settings, prefs, input_reference=input_reference),
+                execute=lambda: execute_video_generation_request(uid, prompt, chat_id, input_reference=input_reference),
             )
-            reply, video_url = JOB_QUEUE.submit(video_job).wait()
-            if video_url and chat_id:
-                owns = conn.execute("SELECT id FROM chats WHERE id=? AND user_id=?", (chat_id, uid)).fetchone()
-                if owns:
-                    conn.execute("INSERT INTO messages(id,chat_id,role,text,created_at) VALUES(?,?,?,?,?)", (secrets.token_hex(8), chat_id, "assistant", reply, now_ts()))
-                    conn.execute("UPDATE chats SET updated_at=? WHERE id=?", (now_ts(), chat_id))
-                    conn.commit()
-            conn.close()
-            if video_url:
-                return self._json({"ok": True, "text": reply, "videoUrl": video_url})
-            return self._json({"ok": False, "text": reply}, 400)
+            result = JOB_QUEUE.submit(video_job).wait()
+            if result.get("ok"):
+                return self._json({"ok": True, "text": result.get("text", ""), "videoUrl": result.get("videoUrl")})
+            return self._json({"ok": False, "text": result.get("text", "")}, 400)
         if self.path == "/api/workspaces":
             b = self._read_json(); wid = secrets.token_hex(8)
             conn = db_conn(); conn.execute("INSERT INTO workspaces(id,user_id,name,created_at) VALUES(?,?,?,?)", (wid, uid, b.get("name", "Workspace"), now_ts())); conn.commit(); conn.close()
@@ -2134,177 +2777,19 @@ class Handler(BaseHTTPRequestHandler):
             conn = db_conn(); conn.execute("INSERT INTO chats(id,user_id,workspace_id,persona_id,model_override,memory_mode,title,hidden_in_ui,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?)", (cid,uid,b.get("workspaceId"),b.get("personaId"),b.get("model"),b.get("memoryMode","auto"),b.get("title","New chat"),0,t,t)); conn.commit(); conn.close()
             return self._json({"id": cid})
         if self.path == "/api/chat":
-            b = self._read_json(); text = b.get("text", "").strip();
-            if not text: return self._json({"error": "text required"}, 400)
-            conn = db_conn(); t=now_ts()
-            chat_id = b.get("chatId")
-            if chat_id:
-                chat = conn.execute("SELECT * FROM chats WHERE id=? AND user_id=?", (chat_id, uid)).fetchone()
-            else:
-                chat = None
-            if not chat:
-                chat_id = secrets.token_hex(8)
-                conn.execute("INSERT INTO chats(id,user_id,persona_id,model_override,memory_mode,title,hidden_in_ui,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?)", (chat_id,uid,b.get("personaId"),b.get("model"),b.get("memoryMode","auto"),generate_chat_title(text),0,t,t))
-                chat = conn.execute("SELECT * FROM chats WHERE id=?", (chat_id,)).fetchone()
-            mem_mode = b.get("memoryMode") or chat["memory_mode"] or "auto"
-            persona_id = b.get("personaId") or chat["persona_id"]
-            persona = conn.execute("SELECT * FROM personas WHERE id=?", (persona_id,)).fetchone() if persona_id else None
-            workspace_id = chat["workspace_id"] or b.get("workspaceId") or (persona["workspace_id"] if persona else None)
-            model = b.get("model") or chat["model_override"]
-            settings = conn.execute("SELECT * FROM app_settings WHERE user_id=?", (uid,)).fetchone()
-            if not model and persona_id:
-                p = conn.execute("SELECT default_model FROM personas WHERE id=?", (persona_id,)).fetchone(); model = p["default_model"] if p else None
-            model = model or (settings["global_default_model"] if settings else None) or (ollama_models()[0] if ollama_models() else "llama3")
-
-            model_options = parse_model_options(b.get("modelSettings") or {})
-            logger.info(
-                "chat request user_id=%s chat_id=%s model=%s memory_mode=%s persona_id=%s options=%s",
-                uid,
-                chat_id,
-                model,
-                mem_mode,
-                persona_id,
-                json.dumps(model_options, sort_keys=True),
-            )
-
-            conn.execute("INSERT INTO messages(id,chat_id,role,text,created_at) VALUES(?,?,?,?,?)", (secrets.token_hex(8),chat_id,"user",text,t))
-            current_title_row = conn.execute("SELECT title FROM chats WHERE id=?", (chat_id,)).fetchone()
-            current_title = current_title_row["title"] if current_title_row else None
-            if chat_title_needs_autogeneration(current_title):
-                generated_title = generate_chat_title_from_first_user_message(text)
-                conn.execute("UPDATE chats SET title=?, updated_at=? WHERE id=?", (generated_title, now_ts(), chat_id))
-            else:
-                conn.execute("UPDATE chats SET updated_at=? WHERE id=?", (now_ts(), chat_id))
-
-            try:
-                prefs = json.loads(settings["preferences_json"] or "{}") if settings else {}
-            except (TypeError, ValueError):
-                prefs = {}
-            if looks_like_video_request(text):
-                video_job = new_job(
-                    job_type="video",
-                    user_id=uid,
-                    chat_id=chat_id,
-                    estimated_vram_mb=VIDEO_ESTIMATED_VRAM_MB,
-                    latency_class="bulk",
-                    model_key=f"video:{(prefs or {}).get('video_model', '')}",
-                    metadata={"endpoint": "/api/chat"},
-                    execute=lambda: generate_video_reply(text, uid, chat_id, settings, prefs),
-                )
-                reply, _ = JOB_QUEUE.submit(video_job).wait()
-                conn.execute("INSERT INTO messages(id,chat_id,role,text,created_at) VALUES(?,?,?,?,?)", (secrets.token_hex(8),chat_id,"assistant",reply,now_ts()))
-                conn.execute("UPDATE chats SET updated_at=?, memory_mode=?, persona_id=?, workspace_id=?, model_override=? WHERE id=?", (now_ts(), mem_mode, persona_id, workspace_id, b.get("model") or chat["model_override"], chat_id))
-                if mem_mode == "auto":
-                    conn.execute("INSERT INTO memories(id,user_id,tier,tier_ref_id,content,created_at) VALUES(?,?,?,?,?,?)", (secrets.token_hex(8), uid, "chat", chat_id, text, now_ts()))
-                conn.commit(); conn.close(); backup_db_if_needed()
-                return self._json({"text": reply, "chatId": chat_id})
-
-            if looks_like_image_request(text):
-                grouped_jobs = JOB_QUEUE.submit_group([
-                    new_job(
-                        job_type="text",
-                        user_id=uid,
-                        chat_id=chat_id,
-                        estimated_vram_mb=LLM_ESTIMATED_VRAM_MB // 8,
-                        latency_class="interactive",
-                        model_key=f"text:{model}",
-                        metadata={"endpoint": "/api/chat", "kind": "grouped_text"},
-                        execute=lambda: "Generating your image now.",
-                    ),
-                    new_job(
-                        job_type="image",
-                        user_id=uid,
-                        chat_id=chat_id,
-                        estimated_vram_mb=IMAGE_ESTIMATED_VRAM_MB,
-                        latency_class="standard",
-                        model_key=f"image:{(prefs or {}).get('image_provider', 'disabled')}",
-                        metadata={"endpoint": "/api/chat", "kind": "grouped_image"},
-                        execute=lambda: generate_image_reply(text, uid, chat_id, settings, prefs, context_hint=""),
-                    ),
-                ])
-                text_preface = grouped_jobs[0].wait()
-                reply, _ = grouped_jobs[1].wait()
-                if text_preface:
-                    reply = f"{text_preface}\n\n{reply}"
-                conn.execute("INSERT INTO messages(id,chat_id,role,text,created_at) VALUES(?,?,?,?,?)", (secrets.token_hex(8),chat_id,"assistant",reply,now_ts()))
-                conn.execute("UPDATE chats SET updated_at=?, memory_mode=?, persona_id=?, workspace_id=?, model_override=? WHERE id=?", (now_ts(), mem_mode, persona_id, workspace_id, b.get("model") or chat["model_override"], chat_id))
-                if mem_mode == "auto":
-                    conn.execute("INSERT INTO memories(id,user_id,tier,tier_ref_id,content,created_at) VALUES(?,?,?,?,?,?)", (secrets.token_hex(8), uid, "chat", chat_id, text, now_ts()))
-                conn.commit(); conn.close(); backup_db_if_needed()
-                return self._json({"text": reply, "chatId": chat_id})
-
-            sys_msgs = []
-            if mem_mode != "off":
-                gm = [r[0] for r in conn.execute("SELECT content FROM memories WHERE user_id=? AND tier='global'", (uid,)).fetchall()]
-                sys_msgs += gm
-                if workspace_id:
-                    wm = [r[0] for r in conn.execute("SELECT content FROM memories WHERE user_id=? AND tier='workspace' AND tier_ref_id=?", (uid, workspace_id))]
-                    sys_msgs += wm
-                if persona_id:
-                    pm = [r[0] for r in conn.execute("SELECT content FROM memories WHERE user_id=? AND tier='persona' AND tier_ref_id=?", (uid, persona_id))]
-                    sys_msgs += pm
-                cm = [r[0] for r in conn.execute("SELECT content FROM memories WHERE user_id=? AND tier='chat' AND tier_ref_id=? ORDER BY created_at DESC LIMIT 30", (uid, chat_id)).fetchall()]
-                sys_msgs += list(reversed(cm))
-            persona_prompt = persona_instruction_block(persona)
-            if persona_prompt:
-                sys_msgs.append(persona_prompt)
-            image_provider = (prefs or {}).get("image_provider", "disabled")
-            image_local_backend_override = None
-            if image_provider == "local/automatic1111":
-                image_provider = "local"
-            if image_provider == "local/comfyui":
-                image_provider = "local"
-                image_local_backend_override = "comfyui"
-            image_local_backend = normalize_local_image_backend(image_local_backend_override or (prefs or {}).get("image_local_backend"))
-            image_prompt_generation = bool((prefs or {}).get("image_prompt_generation", True))
-            if image_prompt_generation:
-                sys_msgs.append(model_image_instruction_for_provider(image_provider, image_local_backend))
-            sys_msgs.append("The app will ask the user for consent before generating the image.")
-            messages = [{"role":"system","content":"\n".join(sys_msgs)}] if sys_msgs else []
-            hist = conn.execute("SELECT role,text FROM messages WHERE chat_id=? ORDER BY created_at DESC LIMIT 20", (chat_id,)).fetchall()
-            for r in reversed(hist): messages.append({"role":r[0],"content":r[1]})
-            messages.append({"role":"user","content":text})
-            model_image_prompt = ""
-            try:
-                llm_job = new_job(
-                    job_type="chat",
-                    user_id=uid,
-                    chat_id=chat_id,
-                    estimated_vram_mb=LLM_ESTIMATED_VRAM_MB,
-                    latency_class="interactive",
-                    model_key=f"chat:{model}",
-                    metadata={"endpoint": "/api/chat"},
-                    execute=lambda: execute_chat_model_job(model, messages, model_options, prefs=prefs),
-                )
-                reply = JOB_QUEUE.submit(llm_job).wait()
-                reply, model_image_prompt = extract_model_image_prompt(reply)
-                if image_prompt_generation and model_image_prompt and not image_prompt_is_detailed(model_image_prompt):
-                    if image_provider == "openai":
-                        model_image_prompt = adjust_prompt_for_openai_image(model_image_prompt)
-                    elif image_provider == "local":
-                        model_image_prompt = adjust_prompt_for_local_sd(model_image_prompt, bool((prefs or {}).get("image_local_allow_nsfw", False)))
-            except Exception as e:
-                if isinstance(e, MemoryBackpressureError):
-                    reply = e.user_message
-                    logger.info(
-                        "chat backpressure user_id=%s chat_id=%s model=%s detail=%s",
-                        uid,
-                        chat_id,
-                        model,
-                        json.dumps(e.details, sort_keys=True),
-                    )
-                else:
-                    logger.exception("model call failed user_id=%s chat_id=%s model=%s", uid, chat_id, model)
-                    reply = f"Model call failed: {e}"
-            conn.execute("INSERT INTO messages(id,chat_id,role,text,created_at) VALUES(?,?,?,?,?)", (secrets.token_hex(8),chat_id,"assistant",reply,now_ts()))
-            conn.execute("UPDATE chats SET updated_at=?, memory_mode=?, persona_id=?, workspace_id=?, model_override=? WHERE id=?", (now_ts(), mem_mode, persona_id, workspace_id, b.get("model") or chat["model_override"], chat_id))
-            if mem_mode == "auto":
-                if len(text) < 280 and any(k in text.lower() for k in ["my ", "i like", "remember", "name is"]):
-                    conn.execute("INSERT INTO memories(id,user_id,tier,tier_ref_id,content,created_at) VALUES(?,?,?,?,?,?)", (secrets.token_hex(8), uid, "persona" if persona_id else "global", persona_id, text, now_ts()))
-                conn.execute("INSERT INTO memories(id,user_id,tier,tier_ref_id,content,created_at) VALUES(?,?,?,?,?,?)", (secrets.token_hex(8), uid, "chat", chat_id, text, now_ts()))
-            conn.commit(); conn.close(); backup_db_if_needed()
-            image_offer = {"prompt": model_image_prompt, "message": "Receive image?"} if image_prompt_generation and model_image_prompt else None
-            return self._json({"text": reply, "chatId": chat_id, "imageOffer": image_offer})
+            b = self._read_json() or {}
+            text = str(b.get("text") or "").strip()
+            if not text:
+                return self._json({"error": "text required"}, 400)
+            if truthy(b.get("async")):
+                try:
+                    job_id, chat_id = start_async_chat_job(uid, b)
+                except ValueError as exc:
+                    return self._json({"error": str(exc)}, 400)
+                return self._json({"ok": True, "jobId": job_id, "chatId": chat_id, "status": "queued"}, 202)
+            chat_id = prepare_chat_generation_request(uid, b, text)
+            result = execute_chat_generation_request(uid, b, chat_id, queue_provider=True)
+            return self._json(result)
         if self.path == "/api/settings":
             b = self._read_json()
             conn = db_conn()
@@ -2560,6 +3045,12 @@ class Handler(BaseHTTPRequestHandler):
     def do_DELETE(self):
         uid = self._require_auth();
         if not uid: return
+        if self.path.startswith("/api/jobs/"):
+            job_id = self.path.rsplit("/", 1)[-1]
+            row = cancel_async_job(uid, job_id)
+            if not row:
+                return self._json({"error": "not found"}, 404)
+            return self._json({"job": async_job_response(row)})
         if self.path.startswith("/api/memory/"):
             mid=self.path.rsplit("/",1)[-1]
             conn=db_conn(); conn.execute("DELETE FROM memories WHERE id=? AND user_id=?", (mid,uid)); conn.commit(); conn.close(); return self._json({"ok":True})

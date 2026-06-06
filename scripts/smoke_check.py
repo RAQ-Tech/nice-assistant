@@ -64,6 +64,20 @@ def assert_status(actual: int, expected: int, label: str):
         raise AssertionError(f"{label}: expected HTTP {expected}, got {actual}")
 
 
+def wait_for_job(base_url: str, job_id: str, cookie: str, timeout: float = 10.0) -> dict:
+    deadline = time.monotonic() + timeout
+    last_payload: dict | None = None
+    while time.monotonic() < deadline:
+        status, payload, _headers = json_request("GET", base_url, f"/api/jobs/{job_id}", cookie=cookie)
+        assert_status(status, 200, "job poll")
+        last_payload = payload
+        job = payload.get("job") or {}
+        if job.get("status") in {"completed", "failed", "cancelled"}:
+            return job
+        time.sleep(0.25)
+    raise TimeoutError(f"job did not finish: {last_payload}")
+
+
 def run_smoke_check() -> dict:
     repo_root = Path(__file__).resolve().parents[1]
     port = free_port()
@@ -155,6 +169,23 @@ def run_smoke_check() -> dict:
             if raw != b"smoke-image":
                 raise AssertionError("owner image access returned unexpected bytes")
 
+            status, payload, _headers = json_request(
+                "POST",
+                base_url,
+                "/api/images/generate",
+                {"prompt": "draw a smoke-test image", "async": True},
+                cookie=cookie,
+            )
+            assert_status(status, 202, "async image start")
+            job_id = payload.get("jobId")
+            if not job_id:
+                raise AssertionError("async image start did not return a job id")
+            image_job = wait_for_job(base_url, job_id, cookie)
+            if image_job.get("status") != "completed":
+                raise AssertionError(f"async image job did not complete: {image_job}")
+            if image_job.get("result", {}).get("ok") is not False:
+                raise AssertionError("disabled-provider async image job did not expose an ok=false result")
+
             return {
                 "health": "ok",
                 "index": "ok",
@@ -163,6 +194,7 @@ def run_smoke_check() -> dict:
                 "settings_mask": "ok",
                 "blocked_second_signup": "ok",
                 "protected_media": "ok",
+                "async_image_job": "ok",
             }
         finally:
             proc.terminate()

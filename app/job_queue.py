@@ -82,6 +82,13 @@ class JobQueue:
             self._cv.notify_all()
         return jobs
 
+    def queue_position_for_metadata(self, key: str, value: Any) -> Optional[int]:
+        with self._lock:
+            for idx, job in enumerate(self._pending):
+                if job.metadata.get(key) == value:
+                    return idx
+        return None
+
     def stop(self):
         with self._cv:
             self._stop = True

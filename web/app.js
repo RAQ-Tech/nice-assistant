@@ -163,7 +163,6 @@ const STT_LANGUAGES = [
 ];
 const OPENAI_TTS_MODELS = ['gpt-4o-mini-tts', 'gpt-4o-audio-preview'];
 const OPENAI_TTS_VOICES = ['alloy', 'ash', 'ballad', 'coral', 'echo', 'fable', 'nova', 'onyx', 'sage', 'shimmer'];
-const CHAT_REQUEST_TIMEOUT_MS = 45000;
 
 function providerSettingKey(baseKey, provider) {
   const activeProvider = provider || state.settings?.tts_provider || 'disabled';
@@ -1235,7 +1234,7 @@ async function retryImageGeneration(prompt, chatId) {
     setUiError('');
     state.status = 'Thinking';
     render();
-    await api('/api/images/generate', { method: 'POST', body: JSON.stringify({ prompt: effectivePrompt, chatId: chatId || state.currentChat?.id, useContextHint: false }) });
+    await runAsyncImageGeneration(effectivePrompt, chatId || state.currentChat?.id, false);
     const withImage = await api(`/api/chats/${chatId || state.currentChat?.id}`);
     state.messages = withImage.messages;
     state.status = 'Idle';
@@ -1322,39 +1321,68 @@ function clearPendingChatRequest() {
   state.chatTimeoutPromptOpen = false;
 }
 
-async function promptChatWaitDecision() {
-  if (!state.pendingChatRequest) return 'cancel';
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+async function promptChatCancelDecision() {
+  if (!state.pendingChatRequest?.jobId) return 'cancel';
   state.chatTimeoutPromptOpen = true;
   render();
-  const shouldContinue = await new Promise((resolve) => {
+  const shouldCancel = await new Promise((resolve) => {
     openModal({
-      title: 'Still working on your response',
-      message: 'This request is taking longer than usual. You can keep waiting, or cancel now.',
+      title: 'Generation in progress',
+      message: 'This job is still running. You can cancel it now or keep waiting.',
       actions: [
-        { label: 'Cancel request', className: 'pill-btn', onClick: () => { closeModal(); resolve(false); } },
-        { label: 'Continue waiting', className: 'send-btn', onClick: () => { closeModal(); resolve(true); } },
+        { label: 'Cancel request', className: 'pill-btn', onClick: () => { closeModal(); resolve(true); } },
+        { label: 'Keep waiting', className: 'send-btn', onClick: () => { closeModal(); resolve(false); } },
       ],
     });
   });
   state.chatTimeoutPromptOpen = false;
+  if (shouldCancel && state.pendingChatRequest?.jobId) {
+    await api(`/api/jobs/${state.pendingChatRequest.jobId}`, { method: 'DELETE' });
+  }
   render();
-  return shouldContinue ? 'continue' : 'cancel';
+  return shouldCancel ? 'cancel' : 'continue';
 }
 
-async function waitForChatResponseWithDecision(promise, controller) {
+function setPendingJob(jobId, label = 'typing…') {
+  state.pendingChatRequest = {
+    jobId,
+    progress: label,
+    promptAgain: promptChatCancelDecision,
+  };
+}
+
+async function pollJob(jobId, options = {}) {
   while (true) {
-    const result = await Promise.race([
-      promise.then((value) => ({ done: true, value })).catch((error) => ({ done: true, error })),
-      new Promise((resolve) => setTimeout(() => resolve({ timeout: true }), CHAT_REQUEST_TIMEOUT_MS)),
-    ]);
-    if (result.done) {
-      if (result.error) throw result.error;
-      return result.value;
+    const payload = await api(`/api/jobs/${jobId}`);
+    const job = payload.job;
+    if (state.pendingChatRequest?.jobId === jobId) {
+      state.pendingChatRequest.progress = job.progress || state.pendingChatRequest.progress || 'typing…';
     }
-    const decision = await promptChatWaitDecision();
-    if (decision === 'continue') continue;
-    controller.abort();
-    throw new Error('Request cancelled.');
+    if (typeof options.onUpdate === 'function') options.onUpdate(job);
+    if (job.status === 'completed') return job;
+    if (job.status === 'failed') throw new Error(job.error || 'Generation failed.');
+    if (job.status === 'cancelled') throw new Error('Request cancelled.');
+    await sleep(options.intervalMs || 1000);
+  }
+}
+
+async function runAsyncImageGeneration(prompt, chatId, useContextHint) {
+  const start = await api('/api/images/generate', {
+    method: 'POST',
+    body: JSON.stringify({ prompt, chatId, useContextHint, async: true }),
+  });
+  setPendingJob(start.jobId, 'Generating image…');
+  try {
+    const job = await pollJob(start.jobId);
+    const result = job.result || {};
+    if (!result.ok) {
+      throw new Error(result.text || 'Image generation failed.');
+    }
+    return result;
+  } finally {
+    clearPendingChatRequest();
   }
 }
 
@@ -1385,16 +1413,7 @@ async function sendChat(text) {
     const model = state.selectedModel || state.currentChat?.model_override || null;
     const memoryMode = state.selectedMemoryMode || state.currentChat?.memory_mode || 'auto';
     const modelSettings = modelSettingsFor(model);
-    const controller = new AbortController();
-    state.pendingChatRequest = {
-      promptAgain: async () => {
-        if (state.chatTimeoutPromptOpen) return;
-        if (!state.pendingChatRequest) return;
-        const decision = await promptChatWaitDecision();
-        if (decision === 'cancel') controller.abort();
-      },
-    };
-    const fetchPromise = api('/api/chat', {
+    const start = await api('/api/chat', {
       method: 'POST',
       body: JSON.stringify({
         text: trimmed,
@@ -1403,11 +1422,14 @@ async function sendChat(text) {
         model,
         memoryMode,
         modelSettings,
+        async: true,
       }),
-      signal: controller.signal,
     });
-    const r = await waitForChatResponseWithDecision(fetchPromise, controller);
+    state.currentChat = { ...(state.currentChat || {}), id: start.chatId, persona_id: personaId, model_override: model, memory_mode: memoryMode };
+    setPendingJob(start.jobId, 'typing…');
+    const completedJob = await pollJob(start.jobId);
     clearPendingChatRequest();
+    const r = completedJob.result || {};
     state.currentChat = { ...(state.currentChat || {}), id: r.chatId, persona_id: personaId, model_override: model, memory_mode: memoryMode };
     await refresh();
     const createdChat = state.chats.find((c) => c.id === r.chatId) || state.currentChat;
@@ -1422,7 +1444,9 @@ async function sendChat(text) {
           if (!shouldContinue) {
             setUiError('Skipped image generation because NSFW mode is disabled.');
           } else {
-            await api('/api/images/generate', { method: 'POST', body: JSON.stringify({ prompt: r.imageOffer.prompt, chatId: r.chatId, useContextHint: true }) });
+            state.status = 'Thinking';
+            render();
+            await runAsyncImageGeneration(r.imageOffer.prompt, r.chatId, true);
           }
           const withImage = await api(`/api/chats/${r.chatId}`);
           state.messages = withImage.messages;
@@ -2529,8 +2553,8 @@ function messageItem(m, personaId) {
       el('small', { textContent: roleLabel }),
       isTyping ? el('button', {
         class: `typing-indicator ${state.pendingChatRequest ? 'clickable' : ''}`,
-        textContent: 'typing…',
-        title: state.pendingChatRequest ? 'Request is still running. Click for wait/cancel options.' : 'Assistant is typing',
+        textContent: state.pendingChatRequest?.progress || 'typing…',
+        title: state.pendingChatRequest ? 'Request is still running. Click to cancel.' : 'Assistant is typing',
         disabled: !state.pendingChatRequest,
         onclick: () => state.pendingChatRequest?.promptAgain?.(),
       }) : null,
