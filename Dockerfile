@@ -17,4 +17,6 @@ COPY entrypoint.sh /entrypoint.sh
 RUN chmod +x /entrypoint.sh
 
 EXPOSE 3000
+HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
+  CMD python -c "import os,sys,urllib.request; url='http://127.0.0.1:%s/health' % os.environ.get('PORT','3000'); sys.exit(0 if urllib.request.urlopen(url, timeout=3).status == 200 else 1)"
 ENTRYPOINT ["/entrypoint.sh"]
