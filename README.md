@@ -29,6 +29,8 @@ When this repository gets new commits on `main`, the GitHub Actions workflow pub
 - `AUDIO_HOT_LIMIT=200`
 - `BACKUP_SNAPSHOT_LIMIT=10`
 - `PROVIDER_TEST_TIMEOUT_SECONDS=10`
+- `JOB_QUEUE_INTERACTIVE_WORKERS=1`
+- `JOB_QUEUE_MEDIA_WORKERS=1`
 - `PROJECT_ROOT=/data/project`
 - `SYNC_PROJECT_ON_START=1` (set to `0` to keep local edits and skip overwrite from image)
 - `AUTOMATIC1111_BASE_URL=http://127.0.0.1:7860` (default local image endpoint for `image_provider=local`)
@@ -55,6 +57,7 @@ When this repository gets new commits on `main`, the GitHub Actions workflow pub
 - ffmpeg included for audio conversion
 - Audio hot-cache rotation into archives (move, do not delete)
 - DB backup + log archival foundation
+- Isolated async queue lanes so slow media/provider jobs do not block normal chat work
 - Admin-only backup center for restorable ZIP snapshots
 - `/api/tts/stream` placeholder for future streaming migration
 

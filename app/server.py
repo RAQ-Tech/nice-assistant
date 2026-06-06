@@ -52,6 +52,8 @@ GPU_IDLE_HOLD_SECONDS_IMAGE = float(os.getenv("GPU_IDLE_HOLD_SECONDS_IMAGE", "0"
 GPU_MIN_RESIDENCY_SECONDS = float(os.getenv("GPU_MIN_RESIDENCY_SECONDS", "0"))
 MAX_MODEL_SWAPS_PER_MINUTE = int(os.getenv("MAX_MODEL_SWAPS_PER_MINUTE", "60"))
 QUEUE_AFFINITY_WINDOW_MS = int(os.getenv("QUEUE_AFFINITY_WINDOW_MS", "0"))
+JOB_QUEUE_INTERACTIVE_WORKERS = max(1, int(os.getenv("JOB_QUEUE_INTERACTIVE_WORKERS", "1")))
+JOB_QUEUE_MEDIA_WORKERS = max(1, int(os.getenv("JOB_QUEUE_MEDIA_WORKERS", "1")))
 
 AUDIO_DIR = DATA_DIR / "audio"
 IMAGE_DIR = DATA_DIR / "images"
@@ -82,7 +84,7 @@ MODEL_RESIDENCY = build_default_residency_manager(
     ),
     memory_guard=MEMORY_GUARD,
 )
-JOB_QUEUE = JobQueue()
+JOB_QUEUE = JobQueue(worker_counts={"interactive": JOB_QUEUE_INTERACTIVE_WORKERS, "media": JOB_QUEUE_MEDIA_WORKERS})
 
 
 def log_generation_request(kind, provider, endpoint, payload=None):

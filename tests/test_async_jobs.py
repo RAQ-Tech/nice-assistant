@@ -165,6 +165,53 @@ class AsyncJobsApiTests(unittest.TestCase):
         self.assertIn("reliable async tests", detail["messages"][0]["text"])
         self.assertEqual(detail["messages"][1]["text"], "Async chat test reply.")
 
+    def test_async_chat_completes_while_video_job_is_running(self):
+        cookie, _uid = self.create_logged_in_user()
+        video_started = threading.Event()
+        release_video = threading.Event()
+        video_payload = {}
+
+        def slow_video_reply(*_args, **_kwargs):
+            video_started.set()
+            release_video.wait(timeout=10)
+            return "Video provider finished.", ""
+
+        try:
+            with (
+                mock.patch("app.server.generate_video_reply", side_effect=slow_video_reply),
+                mock.patch("app.server.call_ollama", return_value="Chat finished while video was running."),
+            ):
+                status, video_payload, _headers = self.json_request(
+                    "POST",
+                    "/api/videos/generate",
+                    {"prompt": "make a deliberately slow video", "async": True},
+                    cookie=cookie,
+                )
+                self.assertEqual(status, 202, video_payload)
+                self.assertTrue(video_started.wait(timeout=2))
+
+                status, chat_payload, _headers = self.json_request(
+                    "POST",
+                    "/api/chat",
+                    {"text": "answer a normal chat while video runs", "model": "llama3", "async": True},
+                    cookie=cookie,
+                )
+                self.assertEqual(status, 202, chat_payload)
+                chat_job = self.wait_for_job(cookie, chat_payload["jobId"], timeout=5)
+                self.assertEqual(chat_job["status"], "completed")
+                self.assertEqual(chat_job["result"]["text"], "Chat finished while video was running.")
+
+                status, video_status, _headers = self.json_request("GET", f"/api/jobs/{video_payload['jobId']}", cookie=cookie)
+                self.assertEqual(status, 200, video_status)
+                self.assertEqual(video_status["job"]["status"], "running")
+        finally:
+            release_video.set()
+
+        video_job = self.wait_for_job(cookie, video_payload["jobId"], timeout=5)
+        self.assertEqual(video_job["status"], "completed")
+        self.assertFalse(video_job["result"]["ok"])
+        self.assertIn("Video provider finished", video_job["result"]["text"])
+
     def test_job_status_is_owner_scoped(self):
         self.create_user("owner")
         self.create_user("member")
