@@ -1,0 +1,183 @@
+#!/usr/bin/env python3
+"""Process-level smoke check for the Nice Assistant Python server."""
+
+from __future__ import annotations
+
+import json
+import os
+import socket
+import subprocess
+import sys
+import tempfile
+import time
+import urllib.error
+import urllib.request
+from pathlib import Path
+
+
+def free_port() -> int:
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+        sock.bind(("127.0.0.1", 0))
+        return int(sock.getsockname()[1])
+
+
+def request(method: str, base_url: str, path: str, body: dict | None = None, cookie: str | None = None):
+    data = None
+    headers = {}
+    if body is not None:
+        data = json.dumps(body).encode("utf-8")
+        headers["Content-Type"] = "application/json"
+    if cookie:
+        headers["Cookie"] = cookie
+    req = urllib.request.Request(f"{base_url}{path}", data=data, headers=headers, method=method)
+    try:
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            return resp.status, resp.read(), resp.headers
+    except urllib.error.HTTPError as exc:
+        return exc.code, exc.read(), exc.headers
+
+
+def json_request(method: str, base_url: str, path: str, body: dict | None = None, cookie: str | None = None):
+    status, raw, headers = request(method, base_url, path, body=body, cookie=cookie)
+    payload = json.loads(raw.decode("utf-8", errors="replace") or "{}")
+    return status, payload, headers
+
+
+def wait_for_server(base_url: str, proc: subprocess.Popen[bytes]):
+    deadline = time.monotonic() + 15
+    last_error = ""
+    while time.monotonic() < deadline:
+        if proc.poll() is not None:
+            raise RuntimeError(f"server exited before becoming healthy: {proc.returncode}")
+        try:
+            status, payload, _headers = json_request("GET", base_url, "/health")
+            if status == 200 and payload.get("ok") is True:
+                return
+        except Exception as exc:  # noqa: BLE001 - collect startup diagnostics
+            last_error = str(exc)
+        time.sleep(0.25)
+    raise TimeoutError(f"server did not become healthy: {last_error}")
+
+
+def assert_status(actual: int, expected: int, label: str):
+    if actual != expected:
+        raise AssertionError(f"{label}: expected HTTP {expected}, got {actual}")
+
+
+def run_smoke_check() -> dict:
+    repo_root = Path(__file__).resolve().parents[1]
+    port = free_port()
+    base_url = f"http://127.0.0.1:{port}"
+    with tempfile.TemporaryDirectory(prefix="nice-assistant-smoke-") as tmp:
+        tmp_path = Path(tmp)
+        data_dir = tmp_path / "data"
+        archive_dir = tmp_path / "archive"
+        stdout_path = tmp_path / "server.stdout.log"
+        stderr_path = tmp_path / "server.stderr.log"
+        env = os.environ.copy()
+        env.update(
+            {
+                "PORT": str(port),
+                "DATA_DIR": str(data_dir),
+                "ARCHIVE_DIR": str(archive_dir),
+                "OLLAMA_BASE_URL": "http://127.0.0.1:9",
+                "ALLOW_PUBLIC_SIGNUP": "0",
+            }
+        )
+        proc = subprocess.Popen(
+            [sys.executable, "-u", "-m", "app.server"],
+            cwd=repo_root,
+            env=env,
+            stdout=stdout_path.open("wb"),
+            stderr=stderr_path.open("wb"),
+        )
+        try:
+            wait_for_server(base_url, proc)
+
+            status, raw, _headers = request("GET", base_url, "/")
+            assert_status(status, 200, "GET /")
+            if b"/app.js" not in raw:
+                raise AssertionError("GET / did not return the browser app shell")
+
+            owner_body = {"username": "owner", "password": "pass1234"}
+            status, payload, _headers = json_request("POST", base_url, "/api/users", owner_body)
+            assert_status(status, 200, "first signup")
+            if not payload.get("ok"):
+                raise AssertionError("first signup did not return ok=true")
+
+            status, payload, headers = json_request("POST", base_url, "/api/login", owner_body)
+            assert_status(status, 200, "owner login")
+            cookie = (headers.get("Set-Cookie") or "").split(";", 1)[0]
+            user_id = payload.get("userId")
+            if not cookie or not user_id:
+                raise AssertionError("login did not return a session cookie and user id")
+
+            settings_payload = {
+                "global_default_model": "",
+                "default_memory_mode": "auto",
+                "stt_provider": "disabled",
+                "tts_provider": "disabled",
+                "tts_format": "wav",
+                "openai_api_key": "sk-smoke-hardening-1234",
+                "onboarding_done": 0,
+                "preferences_json": "{}",
+            }
+            status, _payload, _headers = json_request("POST", base_url, "/api/settings", settings_payload, cookie=cookie)
+            assert_status(status, 200, "settings save")
+            status, payload, _headers = json_request("GET", base_url, "/api/settings", cookie=cookie)
+            assert_status(status, 200, "settings read")
+            if payload.get("settings", {}).get("openai_api_key") != "********1234":
+                raise AssertionError("settings read did not mask the OpenAI API key")
+
+            status, payload, _headers = json_request(
+                "POST",
+                base_url,
+                "/api/users",
+                {"username": "second", "password": "pass1234"},
+            )
+            assert_status(status, 403, "second signup")
+            if payload.get("error") != "Account creation is disabled after setup.":
+                raise AssertionError("second signup did not return the setup-disabled message")
+
+            image_dir = data_dir / "images"
+            image_dir.mkdir(parents=True, exist_ok=True)
+            image_name = f"{user_id}_smoke.png"
+            image_path = image_dir / image_name
+            image_path.write_bytes(b"smoke-image")
+
+            status, payload, _headers = json_request("GET", base_url, f"/api/images/{image_name}")
+            assert_status(status, 401, "anonymous image access")
+            if payload.get("error") != "unauthorized":
+                raise AssertionError("anonymous image access did not return unauthorized")
+
+            status, raw, _headers = request("GET", base_url, f"/api/images/{image_name}", cookie=cookie)
+            assert_status(status, 200, "owner image access")
+            if raw != b"smoke-image":
+                raise AssertionError("owner image access returned unexpected bytes")
+
+            return {
+                "health": "ok",
+                "index": "ok",
+                "signup": "ok",
+                "login": "ok",
+                "settings_mask": "ok",
+                "blocked_second_signup": "ok",
+                "protected_media": "ok",
+            }
+        finally:
+            proc.terminate()
+            try:
+                proc.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                proc.kill()
+                proc.wait(timeout=5)
+
+
+def main() -> int:
+    result = run_smoke_check()
+    print(json.dumps({"ok": True, "checks": result}, indent=2, sort_keys=True))
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

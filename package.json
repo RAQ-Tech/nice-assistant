@@ -1,12 +1,13 @@
 {
   "name": "nice-assistant",
   "version": "0.1.0",
-  "description": "",
-  "main": "index.js",
+  "description": "Containerized browser-first assistant served by a Python backend.",
+  "main": "app/server.py",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1",
-    "start": "node server/index.js",
-    "dev": "node server/index.js"
+    "test": "python -m unittest discover -s tests -v",
+    "smoke": "python scripts/smoke_check.py",
+    "start": "python -u -m app.server",
+    "dev": "python -u -m app.server"
   },
   "keywords": [],
   "author": "",

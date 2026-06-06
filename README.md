@@ -65,6 +65,30 @@ docker run --name nice-assistant -p 3000:3000 \
   nice-assistant
 ```
 
+## Developer verification
+
+This project is served by the Python backend in `app/server.py`; Docker is the deployment runtime. The `package.json` scripts are convenience wrappers for Python commands, not a Node.js app.
+
+Run the full unit/API suite:
+
+```bash
+python -m unittest discover -s tests -v
+```
+
+Run the process-level smoke check:
+
+```bash
+python scripts/smoke_check.py
+```
+
+Equivalent npm convenience wrappers are also available where `python` is on PATH:
+
+```bash
+npm test
+npm run smoke
+npm start
+```
+
 ## Mobile microphone note
 
 For iPhone/Android browsers, microphone capture usually requires **HTTPS** (or localhost secure contexts). LAN HTTP works for desktop testing first.
