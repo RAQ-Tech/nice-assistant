@@ -461,6 +461,30 @@ function noteActivity() {
 
 document.documentElement.setAttribute('data-theme', state.theme);
 
+function viewportSize() {
+  const visualViewport = window.visualViewport;
+  return {
+    width: Math.max(1, Math.round(visualViewport?.width || window.innerWidth || document.documentElement.clientWidth || 1)),
+    height: Math.max(1, Math.round(visualViewport?.height || window.innerHeight || document.documentElement.clientHeight || 1)),
+  };
+}
+
+function syncVisualViewportHeight() {
+  const { height } = viewportSize();
+  document.documentElement.style.setProperty('--visual-viewport-height', `${height}px`);
+}
+
+syncVisualViewportHeight();
+window.addEventListener('resize', syncVisualViewportHeight, { passive: true });
+window.addEventListener('orientationchange', () => {
+  syncVisualViewportHeight();
+  setTimeout(syncVisualViewportHeight, 120);
+}, { passive: true });
+if (window.visualViewport) {
+  window.visualViewport.addEventListener('resize', syncVisualViewportHeight, { passive: true });
+  window.visualViewport.addEventListener('scroll', syncVisualViewportHeight, { passive: true });
+}
+
 const VIZ = {
   N: 168,
   bandWidth: 2,
@@ -691,10 +715,11 @@ function vizCanvas() {
 
   function resize() {
     const ratio = Math.min(2, Math.max(1, window.devicePixelRatio || 1));
-    c.width = Math.floor(innerWidth * ratio);
-    c.height = Math.floor(innerHeight * ratio);
-    c.style.width = `${innerWidth}px`;
-    c.style.height = `${innerHeight}px`;
+    const { width, height } = viewportSize();
+    c.width = Math.floor(width * ratio);
+    c.height = Math.floor(height * ratio);
+    c.style.width = `${width}px`;
+    c.style.height = `${height}px`;
     g.setTransform(ratio, 0, 0, ratio, 0, 0);
   }
 
@@ -730,8 +755,7 @@ function vizCanvas() {
     requestAnimationFrame(loop);
     if (!state.showViz) return;
 
-    const w = innerWidth;
-    const h = innerHeight;
+    const { width: w, height: h } = viewportSize();
     g.clearRect(0, 0, w, h);
 
     let energy = 0;
