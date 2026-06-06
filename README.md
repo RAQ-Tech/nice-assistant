@@ -27,6 +27,7 @@ When this repository gets new commits on `main`, the GitHub Actions workflow pub
 - `DATA_DIR=/data`
 - `ARCHIVE_DIR=/archives`
 - `AUDIO_HOT_LIMIT=200`
+- `BACKUP_SNAPSHOT_LIMIT=10`
 - `PROJECT_ROOT=/data/project`
 - `SYNC_PROJECT_ON_START=1` (set to `0` to keep local edits and skip overwrite from image)
 - `AUTOMATIC1111_BASE_URL=http://127.0.0.1:7860` (default local image endpoint for `image_provider=local`)
@@ -52,6 +53,7 @@ When this repository gets new commits on `main`, the GitHub Actions workflow pub
 - ffmpeg included for audio conversion
 - Audio hot-cache rotation into archives (move, do not delete)
 - DB backup + log archival foundation
+- Admin-only backup center for restorable ZIP snapshots
 - `/api/tts/stream` placeholder for future streaming migration
 
 ## Build/run
@@ -89,6 +91,24 @@ npm run smoke
 npm start
 ```
 
+## Admin backups and manual restore
+
+Admins can create backup snapshots from Settings -> Data. Snapshots are stored under `/archives/backups` as ZIP files named like `nice-assistant-snapshot-YYYYMMDD_HHMMSS-token.zip`.
+
+Every snapshot includes `manifest.json` and a consistent SQLite backup named `nice_assistant.db`, created with SQLite's online backup API. `settings.json` is included only when present. Logs are excluded; use the admin diagnostic log download when you need redacted logs.
+
+`Create backup` stores database/settings metadata only. `Create full backup` also includes regular files from `/data/audio`, `/data/images`, `/data/videos`, and `/data/stt_recordings`. Symlinks are skipped.
+
+To restore manually:
+
+1. Stop the container.
+2. Extract the snapshot ZIP somewhere safe.
+3. Copy `nice_assistant.db` back to `/data/nice_assistant.db`.
+4. If the snapshot includes media directories, copy those files back under the matching `/data` directories.
+5. Restart the container.
+
+Backup ZIPs can contain stored API keys and password hashes. Treat them as sensitive admin artifacts.
+
 ## Mobile microphone note
 
 For iPhone/Android browsers, microphone capture usually requires **HTTPS** (or localhost secure contexts). LAN HTTP works for desktop testing first.
@@ -98,6 +118,7 @@ For iPhone/Android browsers, microphone capture usually requires **HTTPS** (or l
 - `GET /health`
 - `GET /api/models`
 - `POST /api/users`, `POST /api/login`
+- `GET/POST /api/admin/backups`, `GET /api/admin/backups/:name/download`, `DELETE /api/admin/backups/:name`
 - `POST/GET /api/workspaces`, `POST/GET /api/personas`
 - `POST /api/chat`
 - `POST /api/stt` (multipart `file`)

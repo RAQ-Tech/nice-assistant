@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import io
 import json
 import os
 import socket
@@ -12,6 +13,7 @@ import tempfile
 import time
 import urllib.error
 import urllib.request
+import zipfile
 from pathlib import Path
 
 
@@ -172,6 +174,38 @@ def run_smoke_check() -> dict:
             status, payload, _headers = json_request(
                 "POST",
                 base_url,
+                "/api/admin/backups",
+                {"includeMedia": False},
+                cookie=cookie,
+            )
+            assert_status(status, 200, "admin backup create")
+            backup = payload.get("backup") or {}
+            backup_name = backup.get("name")
+            if not backup_name:
+                raise AssertionError("admin backup create did not return a backup name")
+
+            status, payload, _headers = json_request("GET", base_url, "/api/admin/backups", cookie=cookie)
+            assert_status(status, 200, "admin backup list")
+            if backup_name not in [item.get("name") for item in payload.get("items", [])]:
+                raise AssertionError("created admin backup was not visible in list")
+
+            status, raw, _headers = request("GET", base_url, f"/api/admin/backups/{backup_name}/download", cookie=cookie)
+            assert_status(status, 200, "admin backup download")
+            with zipfile.ZipFile(io.BytesIO(raw), "r") as zf:
+                names = set(zf.namelist())
+                if "manifest.json" not in names or "nice_assistant.db" not in names:
+                    raise AssertionError(f"admin backup missing core files: {sorted(names)}")
+                if f"data/images/{image_name}" in names:
+                    raise AssertionError("metadata-only backup unexpectedly included media")
+
+            status, payload, _headers = json_request("DELETE", base_url, f"/api/admin/backups/{backup_name}", cookie=cookie)
+            assert_status(status, 200, "admin backup delete")
+            if payload.get("ok") is not True:
+                raise AssertionError("admin backup delete did not return ok=true")
+
+            status, payload, _headers = json_request(
+                "POST",
+                base_url,
                 "/api/images/generate",
                 {"prompt": "draw a smoke-test image", "async": True},
                 cookie=cookie,
@@ -252,6 +286,7 @@ def run_smoke_check() -> dict:
                 "settings_mask": "ok",
                 "blocked_second_signup": "ok",
                 "protected_media": "ok",
+                "admin_backup": "ok",
                 "async_image_job": "ok",
                 "workspace_persona_setup": "ok",
                 "async_first_chat": "ok",

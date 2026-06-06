@@ -24,6 +24,8 @@ class AsyncJobsApiTests(unittest.TestCase):
             "LOG_DIR": server.LOG_DIR,
             "STT_RECORDINGS_DIR": server.STT_RECORDINGS_DIR,
             "DB_PATH": server.DB_PATH,
+            "SETTINGS_JSON": server.SETTINGS_JSON,
+            "BACKUP_DIR": server.BACKUP_DIR,
             "ALLOW_PUBLIC_SIGNUP": server.ALLOW_PUBLIC_SIGNUP,
         }
         server.DATA_DIR = base / "data"
@@ -34,6 +36,8 @@ class AsyncJobsApiTests(unittest.TestCase):
         server.LOG_DIR = server.DATA_DIR / "logs"
         server.STT_RECORDINGS_DIR = server.DATA_DIR / "stt_recordings"
         server.DB_PATH = server.DATA_DIR / "nice_assistant.db"
+        server.SETTINGS_JSON = server.DATA_DIR / "settings.json"
+        server.BACKUP_DIR = server.ARCHIVE_DIR / "backups"
         server.ALLOW_PUBLIC_SIGNUP = True
         server.ensure_dirs()
         server.init_db()

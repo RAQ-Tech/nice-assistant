@@ -9,6 +9,7 @@ import secrets
 import shutil
 import sqlite3
 import subprocess
+import tempfile
 import time
 import urllib.parse
 import urllib.request
@@ -16,6 +17,7 @@ import urllib.error
 import signal
 import threading
 import re
+import zipfile
 from datetime import datetime, timezone
 from email.parser import BytesParser
 from email.policy import default
@@ -35,6 +37,7 @@ COMFYUI_BASE_URL = os.getenv("COMFYUI_BASE_URL", "http://127.0.0.1:8188")
 DATA_DIR = Path(os.getenv("DATA_DIR", "/data"))
 ARCHIVE_DIR = Path(os.getenv("ARCHIVE_DIR", "/archives"))
 AUDIO_HOT_LIMIT = int(os.getenv("AUDIO_HOT_LIMIT", "200"))
+BACKUP_SNAPSHOT_LIMIT = int(os.getenv("BACKUP_SNAPSHOT_LIMIT", "10"))
 SESSION_COOKIE = "nice_assistant_session"
 SESSION_TTL_SECONDS = int(os.getenv("SESSION_TTL_SECONDS", "1800"))
 ALLOW_PUBLIC_SIGNUP = os.getenv("ALLOW_PUBLIC_SIGNUP", "0").strip().lower() in {"1", "true", "yes", "on"}
@@ -56,6 +59,7 @@ LOG_DIR = DATA_DIR / "logs"
 STT_RECORDINGS_DIR = DATA_DIR / "stt_recordings"
 DB_PATH = DATA_DIR / "nice_assistant.db"
 SETTINGS_JSON = DATA_DIR / "settings.json"
+BACKUP_DIR = ARCHIVE_DIR / "backups"
 WEB_DIR = Path(__file__).resolve().parent.parent / "web"
 
 logging.basicConfig(
@@ -128,7 +132,7 @@ CHAT_TITLE_OPENER_PATTERN = re.compile(
 
 
 def ensure_dirs():
-    for p in [DATA_DIR, AUDIO_DIR, IMAGE_DIR, VIDEO_DIR, LOG_DIR, STT_RECORDINGS_DIR, ARCHIVE_DIR, ARCHIVE_DIR / "audio", ARCHIVE_DIR / "logs", ARCHIVE_DIR / "db_backups"]:
+    for p in [DATA_DIR, AUDIO_DIR, IMAGE_DIR, VIDEO_DIR, LOG_DIR, STT_RECORDINGS_DIR, ARCHIVE_DIR, ARCHIVE_DIR / "audio", ARCHIVE_DIR / "logs", ARCHIVE_DIR / "db_backups", BACKUP_DIR]:
         p.mkdir(parents=True, exist_ok=True)
 
 
@@ -718,6 +722,179 @@ def backup_db_if_needed():
     target = ARCHIVE_DIR / "db_backups" / f"nice_assistant_{stamp}.db"
     if not target.exists() and DB_PATH.exists():
         shutil.copy2(DB_PATH, target)
+
+
+BACKUP_NAME_RE = re.compile(r"^nice-assistant-snapshot-\d{8}_\d{6}-[a-f0-9]{8}\.zip$")
+
+
+def backup_snapshot_filename():
+    stamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
+    return f"nice-assistant-snapshot-{stamp}-{secrets.token_hex(4)}.zip"
+
+
+def backup_path_for_name(name):
+    safe_name_value = os.path.basename(str(name or ""))
+    if safe_name_value != str(name or "") or not BACKUP_NAME_RE.match(safe_name_value):
+        return None
+    backup_root = BACKUP_DIR.resolve()
+    candidate = (BACKUP_DIR / safe_name_value).resolve()
+    if candidate.parent != backup_root:
+        return None
+    return candidate
+
+
+def backup_name_from_api_path(path, expect_download=False):
+    request_path = urllib.parse.urlparse(path).path
+    prefix = "/api/admin/backups/"
+    if not request_path.startswith(prefix):
+        return None
+    tail = request_path[len(prefix):]
+    if expect_download:
+        suffix = "/download"
+        if not tail.endswith(suffix):
+            return None
+        tail = tail[:-len(suffix)]
+    if not tail:
+        return None
+    return urllib.parse.unquote(tail)
+
+
+def sqlite_backup_to_path(target_path):
+    source = sqlite3.connect(DB_PATH)
+    dest = sqlite3.connect(target_path)
+    try:
+        source.backup(dest)
+    finally:
+        dest.close()
+        source.close()
+
+
+def backup_snapshot_metadata(path):
+    stat = path.stat()
+    created_at = int(stat.st_mtime)
+    include_media = None
+    try:
+        with zipfile.ZipFile(path, "r") as zf:
+            manifest = json.loads(zf.read("manifest.json").decode("utf-8"))
+            created_at = int(manifest.get("createdAt") or created_at)
+            include_media = bool(manifest.get("includeMedia"))
+    except Exception:
+        include_media = None
+    return {
+        "name": path.name,
+        "sizeBytes": stat.st_size,
+        "createdAt": created_at,
+        "createdAtIso": datetime.fromtimestamp(created_at, timezone.utc).isoformat(),
+        "includeMedia": include_media,
+        "downloadUrl": f"/api/admin/backups/{urllib.parse.quote(path.name)}/download",
+    }
+
+
+def list_backup_snapshots():
+    BACKUP_DIR.mkdir(parents=True, exist_ok=True)
+    items = []
+    for path in BACKUP_DIR.glob("*.zip"):
+        if not path.is_file() or not backup_path_for_name(path.name):
+            continue
+        try:
+            items.append(backup_snapshot_metadata(path))
+        except OSError:
+            continue
+    return sorted(items, key=lambda item: (item.get("createdAt") or 0, item.get("name") or ""), reverse=True)
+
+
+def iter_backup_media_files():
+    roots = [
+        ("audio", AUDIO_DIR),
+        ("images", IMAGE_DIR),
+        ("videos", VIDEO_DIR),
+        ("stt_recordings", STT_RECORDINGS_DIR),
+    ]
+    for label, root in roots:
+        if not root.exists():
+            continue
+        root_resolved = root.resolve()
+        for path in root.rglob("*"):
+            if path.is_symlink() or not path.is_file():
+                continue
+            try:
+                resolved = path.resolve()
+                resolved.relative_to(root_resolved)
+                rel = path.relative_to(root)
+            except (OSError, ValueError):
+                continue
+            archive_name = Path("data") / label / rel
+            yield path, archive_name.as_posix()
+
+
+def prune_backup_snapshots(limit=None):
+    limit = BACKUP_SNAPSHOT_LIMIT if limit is None else int(limit)
+    if limit <= 0:
+        return
+    paths = [
+        path for path in BACKUP_DIR.glob("*.zip")
+        if path.is_file() and backup_path_for_name(path.name)
+    ]
+    paths.sort(key=lambda p: (p.stat().st_mtime, p.name))
+    while len(paths) > limit:
+        oldest = paths.pop(0)
+        try:
+            oldest.unlink()
+            log_interaction("backup.prune", "old backup snapshot pruned", backup_name=oldest.name)
+        except OSError as exc:
+            logger.warning("failed to prune backup snapshot name=%s error=%s", oldest.name, exc)
+
+
+def create_backup_snapshot(include_media=False):
+    BACKUP_DIR.mkdir(parents=True, exist_ok=True)
+    name = backup_snapshot_filename()
+    final_path = backup_path_for_name(name)
+    if final_path is None:
+        raise ValueError("invalid generated backup name")
+
+    created_at = now_ts()
+    created_iso = datetime.fromtimestamp(created_at, timezone.utc).isoformat()
+    tmp_zip_handle = tempfile.NamedTemporaryFile(prefix=f".{name}.", suffix=".tmp", dir=BACKUP_DIR, delete=False)
+    tmp_zip_path = Path(tmp_zip_handle.name)
+    tmp_zip_handle.close()
+    try:
+        with tempfile.TemporaryDirectory(prefix=".snapshot-", dir=BACKUP_DIR) as tmp_dir:
+            db_backup_path = Path(tmp_dir) / "nice_assistant.db"
+            sqlite_backup_to_path(db_backup_path)
+            entry_count = 0
+            media_dirs = ["audio", "images", "videos", "stt_recordings"] if include_media else []
+            manifest = {
+                "formatVersion": 1,
+                "app": "nice-assistant",
+                "name": name,
+                "createdAt": created_at,
+                "createdAtIso": created_iso,
+                "includeMedia": bool(include_media),
+                "database": "nice_assistant.db",
+                "settings": "settings.json" if SETTINGS_JSON.exists() else None,
+                "mediaDirs": media_dirs,
+            }
+            with zipfile.ZipFile(tmp_zip_path, "w", compression=zipfile.ZIP_DEFLATED) as zf:
+                zf.write(db_backup_path, "nice_assistant.db")
+                entry_count += 1
+                if SETTINGS_JSON.exists() and SETTINGS_JSON.is_file() and not SETTINGS_JSON.is_symlink():
+                    zf.write(SETTINGS_JSON, "settings.json")
+                    entry_count += 1
+                if include_media:
+                    for file_path, archive_name in iter_backup_media_files():
+                        zf.write(file_path, archive_name)
+                        entry_count += 1
+                manifest["entryCount"] = entry_count + 1
+                zf.writestr("manifest.json", json.dumps(manifest, indent=2, sort_keys=True))
+        os.replace(tmp_zip_path, final_path)
+        prune_backup_snapshots()
+        return backup_snapshot_metadata(final_path)
+    except Exception:
+        try:
+            tmp_zip_path.unlink(missing_ok=True)
+        except OSError:
+            pass
+        raise
 
 
 def rotate_logs(limit=50):
@@ -2523,6 +2700,32 @@ class Handler(BaseHTTPRequestHandler):
             return self._json({"ok": True})
         if self.path == "/api/models":
             return self._json({"models": ollama_models()})
+        request_path = urllib.parse.urlparse(self.path).path
+        if request_path == "/api/admin/backups":
+            uid = self._require_auth()
+            if not uid:
+                return
+            if not require_admin(uid):
+                return self._json({"error": "admin access required"}, 403)
+            return self._json({"items": list_backup_snapshots()})
+        backup_download_name = backup_name_from_api_path(self.path, expect_download=True)
+        if backup_download_name:
+            uid = self._require_auth()
+            if not uid:
+                return
+            if not require_admin(uid):
+                return self._json({"error": "admin access required"}, 403)
+            backup_path = backup_path_for_name(backup_download_name)
+            if not backup_path or not backup_path.exists() or not backup_path.is_file():
+                return self._json({"error": "not found"}, 404)
+            self._set_headers(200, "application/zip")
+            self.send_header("Content-Disposition", f'attachment; filename="{backup_path.name}"')
+            self.send_header("Content-Length", str(backup_path.stat().st_size))
+            self.end_headers()
+            with backup_path.open("rb") as fh:
+                shutil.copyfileobj(fh, self.wfile)
+            log_interaction("backup.download", "admin downloaded backup snapshot", user_id=uid, backup_name=backup_path.name)
+            return
         if self.path.startswith("/api/tts/audio/"):
             uid = self._require_auth()
             if not uid:
@@ -2668,7 +2871,7 @@ class Handler(BaseHTTPRequestHandler):
             if not uid: return
             tok = self._cookies().get(SESSION_COOKIE)
             conn = db_conn(); row = conn.execute("SELECT expires_at FROM sessions WHERE token=? AND user_id=?", (tok.value, uid)).fetchone(); conn.close()
-            return self._json({"expiresAt": row["expires_at"] if row else None, "ttlSeconds": SESSION_TTL_SECONDS, "now": now_ts()})
+            return self._json({"expiresAt": row["expires_at"] if row else None, "ttlSeconds": SESSION_TTL_SECONDS, "now": now_ts(), "isAdmin": require_admin(uid)})
         if self.path.startswith("/api/jobs/"):
             uid = self._require_auth()
             if not uid:
@@ -2727,6 +2930,25 @@ class Handler(BaseHTTPRequestHandler):
             details = b.get("details") if isinstance(b.get("details"), dict) else {}
             log_interaction(event_type, message, user_id=uid, **details)
             return self._json({"ok": True})
+        if self.path == "/api/admin/backups":
+            if not require_admin(uid):
+                return self._json({"error": "admin access required"}, 403)
+            b = self._read_json() or {}
+            include_media = truthy(b.get("includeMedia"))
+            try:
+                backup = create_backup_snapshot(include_media=include_media)
+            except Exception as exc:
+                logger.exception("backup snapshot create failed")
+                return self._json({"error": f"backup failed: {exc}"}, 500)
+            log_interaction(
+                "backup.create",
+                "admin created backup snapshot",
+                user_id=uid,
+                backup_name=backup.get("name"),
+                include_media=include_media,
+                size_bytes=backup.get("sizeBytes"),
+            )
+            return self._json({"ok": True, "backup": backup})
         if self.path == "/api/images/generate":
             b = self._read_json() or {}
             prompt = str(b.get("prompt") or "").strip()
@@ -3103,6 +3325,16 @@ class Handler(BaseHTTPRequestHandler):
     def do_DELETE(self):
         uid = self._require_auth();
         if not uid: return
+        backup_name = backup_name_from_api_path(self.path, expect_download=False)
+        if backup_name:
+            if not require_admin(uid):
+                return self._json({"error": "admin access required"}, 403)
+            backup_path = backup_path_for_name(backup_name)
+            if not backup_path or not backup_path.exists() or not backup_path.is_file():
+                return self._json({"error": "not found"}, 404)
+            backup_path.unlink()
+            log_interaction("backup.delete", "admin deleted backup snapshot", user_id=uid, backup_name=backup_path.name)
+            return self._json({"ok": True})
         if self.path.startswith("/api/jobs/"):
             job_id = self.path.rsplit("/", 1)[-1]
             row = cancel_async_job(uid, job_id)

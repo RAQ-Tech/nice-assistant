@@ -3,6 +3,7 @@ const audio = document.getElementById('ttsAudio');
 
 const state = {
   user: null,
+  isAdmin: false,
   chats: [],
   currentChat: null,
   messages: [],
@@ -72,6 +73,10 @@ const state = {
   ttsVoicesLoading: false,
   ttsVoicesError: '',
   ttsVoicesLoadedKey: '',
+  backupItems: [],
+  backupsLoaded: false,
+  backupsLoading: false,
+  backupActionRunning: false,
   memorySectionExpanded: {
     active: false,
     pending: false,
@@ -342,6 +347,7 @@ const SETTINGS_SECTION_KEYS = {
   Personas: ['personas_default_system_prompt'],
   Workspaces: ['workspaces_default_workspace_id'],
   Models: ['global_default_model', 'models_temperature', 'models_top_p', 'models_num_predict', 'models_presence_penalty', 'models_frequency_penalty', 'model_overrides'],
+  Data: [],
 };
 
 function normalizeSettings(raw = {}) {
@@ -520,6 +526,68 @@ async function api(path, opts = {}) {
     throw new Error(j.error || t || r.status);
   }
   return j;
+}
+
+async function fetchAdminBackups(force = false) {
+  if (!state.isAdmin) {
+    state.backupItems = [];
+    state.backupsLoaded = false;
+    return;
+  }
+  if (state.backupsLoading) return;
+  if (!force && state.backupsLoaded) return;
+  state.backupsLoading = true;
+  state.settingsError = '';
+  render();
+  try {
+    const response = await api('/api/admin/backups');
+    state.backupItems = Array.isArray(response.items) ? response.items : [];
+    state.backupsLoaded = true;
+  } catch (e) {
+    state.settingsError = e.message || 'Unable to load backups.';
+  } finally {
+    state.backupsLoading = false;
+    render();
+  }
+}
+
+async function createAdminBackup(includeMedia = false) {
+  state.backupActionRunning = true;
+  state.settingsError = '';
+  render();
+  try {
+    await api('/api/admin/backups', { method: 'POST', body: JSON.stringify({ includeMedia }) });
+    state.backupsLoaded = false;
+    await fetchAdminBackups(true);
+  } catch (e) {
+    state.settingsError = e.message || 'Unable to create backup.';
+  } finally {
+    state.backupActionRunning = false;
+    render();
+  }
+}
+
+function downloadAdminBackup(name) {
+  clientLog('settings.download_backup', 'download backup clicked', { name });
+  window.open(`/api/admin/backups/${encodeURIComponent(name)}/download`, '_blank', 'noopener');
+}
+
+async function deleteAdminBackup(name) {
+  const ok = await confirmModal({ title: 'Delete backup', message: `Delete backup "${name}"?`, confirmText: 'Delete backup' });
+  if (!ok) return;
+  state.backupActionRunning = true;
+  state.settingsError = '';
+  render();
+  try {
+    await api(`/api/admin/backups/${encodeURIComponent(name)}`, { method: 'DELETE' });
+    state.backupsLoaded = false;
+    await fetchAdminBackups(true);
+  } catch (e) {
+    state.settingsError = e.message || 'Unable to delete backup.';
+  } finally {
+    state.backupActionRunning = false;
+    render();
+  }
 }
 
 const escapeHtml = (s) => s.replace(/[&<>"']/g, (m) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[m]));
@@ -735,6 +803,18 @@ function vizCanvas() {
 }
 
 const fmtDate = (ts) => !ts ? '' : new Date(ts * 1000).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+const formatBytes = (bytes = 0) => {
+  const n = Number(bytes || 0);
+  if (n < 1024) return `${n} B`;
+  const units = ['KB', 'MB', 'GB'];
+  let value = n / 1024;
+  let index = 0;
+  while (value >= 1024 && index < units.length - 1) {
+    value /= 1024;
+    index += 1;
+  }
+  return `${value.toFixed(value >= 10 ? 1 : 2)} ${units[index]}`;
+};
 
 function settingsSavedLabel(ts) {
   if (!ts) return '';
@@ -763,10 +843,18 @@ async function refresh(options = {}) {
     const sess = await api('/api/session');
     state.sessionExpiresAt = sess.expiresAt || null;
     state.sessionTtlSeconds = Number(sess.ttlSeconds || 1800);
+    state.isAdmin = Boolean(sess.isAdmin);
+    if (!state.isAdmin) {
+      state.backupItems = [];
+      state.backupsLoaded = false;
+    }
     state.lastActivityAt = Date.now();
     state.user = true;
   } catch {
     state.user = false;
+    state.isAdmin = false;
+    state.backupItems = [];
+    state.backupsLoaded = false;
     state.sessionExpiresAt = null;
     if (state.sessionTimer) {
       clearTimeout(state.sessionTimer);
@@ -797,6 +885,7 @@ function armSessionTimer() {
   const ms = Math.max(0, (state.lastActivityAt + ttlMs) - Date.now());
   state.sessionTimer = setTimeout(async () => {
     state.user = false;
+    state.isAdmin = false;
     state.sessionExpiresAt = null;
     render();
     try { await api('/api/logout', { method: 'POST' }); } catch {}
@@ -2070,7 +2159,7 @@ function personaEditorCard(persona) {
 function settingsPanel() {
   if (!state.showSettings) return null;
 
-  const sectionNames = Object.keys(SETTINGS_SECTION_KEYS);
+  const sectionNames = Object.keys(SETTINGS_SECTION_KEYS).filter((name) => name !== 'Data' || state.isAdmin);
   if (!sectionNames.includes(state.settingsSection)) state.settingsSection = sectionNames[0];
 
   const setVal = (key, value) => {
@@ -2215,6 +2304,9 @@ function settingsPanel() {
       fetchLocalTtsVoices();
     }
   }
+  if (state.isAdmin && state.settingsSection === 'Data' && !state.backupsLoaded && !state.backupsLoading) {
+    setTimeout(() => fetchAdminBackups(), 0);
+  }
 
   const filteredTtsVoices = (state.ttsVoices || []).filter((voiceId) => matchesTtsVoiceFilters(voiceId, state.settings));
 
@@ -2255,10 +2347,10 @@ function settingsPanel() {
         } }),
         'Auto logout after inactivity',
       ]),
-      el('button', { class: 'pill-btn', textContent: 'Download log', onclick: () => {
+      ...(state.isAdmin ? [el('button', { class: 'pill-btn', textContent: 'Download log', onclick: () => {
         clientLog('settings.download_log', 'download log clicked');
         window.open('/api/logs/download', '_blank', 'noopener');
-      } }),
+      } })] : []),
       el('button', { class: 'pill-btn', textContent: 'Logout', onclick: async () => {
         await api('/api/logout', { method: 'POST' });
         state.showSettings = false;
@@ -2560,6 +2652,28 @@ function settingsPanel() {
       el('input', { type: 'number', min: -2, max: 2, step: 0.1, class: 'search-input', disabled: !state.activeModelSettingsId, value: activeModelSettings.frequency_penalty, oninput: (e) => setModelSetting(state.activeModelSettingsId, 'frequency_penalty', e.target.value) }),
       el('div', { class: 'meta', textContent: 'Tune each model independently. Values apply when that model is selected for a chat.' }),
     ],
+    Data: state.isAdmin ? (() => {
+      const backupRows = (state.backupItems || []).map((item) => managerRow(
+        `${item.name} · ${formatBytes(item.sizeBytes)} · ${fmtDate(item.createdAt)}${item.includeMedia ? ' · full' : ''}`,
+        [
+          el('button', { class: 'icon-btn', textContent: 'Download', disabled: state.backupActionRunning, onclick: () => downloadAdminBackup(item.name) }),
+          el('button', { class: 'icon-btn', textContent: 'Delete', disabled: state.backupActionRunning, onclick: () => deleteAdminBackup(item.name) }),
+        ],
+      ));
+      return [
+        el('div', { class: 'chips' }, [
+          el('button', { class: 'pill-btn', textContent: state.backupActionRunning ? 'Working...' : 'Create backup', disabled: state.backupActionRunning, onclick: () => createAdminBackup(false) }),
+          el('button', { class: 'pill-btn', textContent: state.backupActionRunning ? 'Working...' : 'Create full backup', disabled: state.backupActionRunning, onclick: () => createAdminBackup(true) }),
+          el('button', { class: 'pill-btn', textContent: state.backupsLoading ? 'Refreshing...' : 'Refresh', disabled: state.backupsLoading, onclick: () => fetchAdminBackups(true) }),
+          el('button', { class: 'pill-btn', textContent: 'Download log', onclick: () => {
+            clientLog('settings.download_log', 'download log clicked');
+            window.open('/api/logs/download', '_blank', 'noopener');
+          } }),
+        ]),
+        el('div', { class: 'meta', textContent: state.backupsLoading ? 'Loading backups...' : `${(state.backupItems || []).length} backups` }),
+        ...(backupRows.length ? backupRows : [el('div', { class: 'meta', textContent: 'No backups yet.' })]),
+      ];
+    })() : [],
   };
 
   return el('div', { class: 'settings-screen' }, [
@@ -2581,7 +2695,7 @@ function settingsPanel() {
       el('section', { class: 'settings-detail glass' }, [
         el('div', { class: 'settings-section-head' }, [
           el('h3', { textContent: state.settingsSection }),
-          el('button', { class: 'pill-btn', textContent: 'Reset to Default', onclick: () => resetSection(state.settingsSection) }),
+          SETTINGS_SECTION_KEYS[state.settingsSection]?.length ? el('button', { class: 'pill-btn', textContent: 'Reset to Default', onclick: () => resetSection(state.settingsSection) }) : null,
         ]),
         ...sectionContent[state.settingsSection],
       ]),

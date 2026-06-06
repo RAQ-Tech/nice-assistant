@@ -1,9 +1,13 @@
+import io
 import json
+import os
+import sqlite3
 import tempfile
 import threading
 import unittest
 import urllib.error
 import urllib.request
+import zipfile
 from pathlib import Path
 from unittest import mock
 
@@ -14,6 +18,7 @@ class LanHardeningApiTests(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
         base = Path(self.tmp.name)
+        self.base_path = base
         self.old_globals = {
             "DATA_DIR": server.DATA_DIR,
             "ARCHIVE_DIR": server.ARCHIVE_DIR,
@@ -23,6 +28,9 @@ class LanHardeningApiTests(unittest.TestCase):
             "LOG_DIR": server.LOG_DIR,
             "STT_RECORDINGS_DIR": server.STT_RECORDINGS_DIR,
             "DB_PATH": server.DB_PATH,
+            "SETTINGS_JSON": server.SETTINGS_JSON,
+            "BACKUP_DIR": server.BACKUP_DIR,
+            "BACKUP_SNAPSHOT_LIMIT": server.BACKUP_SNAPSHOT_LIMIT,
             "ALLOW_PUBLIC_SIGNUP": server.ALLOW_PUBLIC_SIGNUP,
         }
         server.DATA_DIR = base / "data"
@@ -33,6 +41,9 @@ class LanHardeningApiTests(unittest.TestCase):
         server.LOG_DIR = server.DATA_DIR / "logs"
         server.STT_RECORDINGS_DIR = server.DATA_DIR / "stt_recordings"
         server.DB_PATH = server.DATA_DIR / "nice_assistant.db"
+        server.SETTINGS_JSON = server.DATA_DIR / "settings.json"
+        server.BACKUP_DIR = server.ARCHIVE_DIR / "backups"
+        server.BACKUP_SNAPSHOT_LIMIT = 10
         server.ALLOW_PUBLIC_SIGNUP = False
         server.ensure_dirs()
         server.init_db()
@@ -389,6 +400,130 @@ class LanHardeningApiTests(unittest.TestCase):
         status, payload, _headers = self.json_request("GET", f"/api/images/{legacy_image.name}", cookie=member_cookie)
         self.assertEqual(status, 404)
         self.assertEqual(payload["error"], "not found")
+
+    def test_admin_backup_create_list_download_delete(self):
+        server.ALLOW_PUBLIC_SIGNUP = True
+        self.create_user("owner")
+        self.create_user("member")
+        owner_cookie, _owner_id = self.login_cookie("owner")
+        member_cookie, _member_id = self.login_cookie("member")
+        server.SETTINGS_JSON.write_text('{"example": true}', encoding="utf-8")
+        (server.AUDIO_DIR / "clip.wav").write_bytes(b"audio")
+        (server.IMAGE_DIR / "picture.png").write_bytes(b"image")
+        (server.VIDEO_DIR / "movie.mp4").write_bytes(b"video")
+        (server.STT_RECORDINGS_DIR / "recording.webm").write_bytes(b"stt")
+        outside_path = self.base_path / "outside.txt"
+        outside_path.write_text("outside", encoding="utf-8")
+        symlink_path = server.IMAGE_DIR / "unsafe-link.txt"
+        symlink_created = False
+        try:
+            symlink_path.symlink_to(outside_path)
+            symlink_created = True
+        except OSError:
+            pass
+
+        status, payload, _headers = self.json_request("GET", "/api/admin/backups", cookie=member_cookie)
+        self.assertEqual(status, 403)
+        self.assertEqual(payload["error"], "admin access required")
+        status, payload, _headers = self.json_request("POST", "/api/admin/backups", {"includeMedia": False}, cookie=member_cookie)
+        self.assertEqual(status, 403)
+        self.assertEqual(payload["error"], "admin access required")
+
+        status, payload, _headers = self.json_request("POST", "/api/admin/backups", {"includeMedia": False}, cookie=owner_cookie)
+        self.assertEqual(status, 200, payload)
+        metadata_backup = payload["backup"]
+        self.assertFalse(metadata_backup["includeMedia"])
+        self.assertTrue(metadata_backup["name"].startswith("nice-assistant-snapshot-"))
+
+        status, payload, _headers = self.json_request("GET", "/api/admin/backups", cookie=owner_cookie)
+        self.assertEqual(status, 200, payload)
+        self.assertIn(metadata_backup["name"], [item["name"] for item in payload["items"]])
+
+        status, payload, _headers = self.json_request(
+            "GET",
+            f"/api/admin/backups/{metadata_backup['name']}/download",
+            cookie=member_cookie,
+        )
+        self.assertEqual(status, 403)
+
+        status, raw, headers = self.request("GET", metadata_backup["downloadUrl"], cookie=owner_cookie)
+        self.assertEqual(status, 200)
+        self.assertEqual(headers.get_content_type(), "application/zip")
+        with zipfile.ZipFile(io.BytesIO(raw), "r") as zf:
+            names = set(zf.namelist())
+            self.assertIn("manifest.json", names)
+            self.assertIn("nice_assistant.db", names)
+            self.assertIn("settings.json", names)
+            self.assertNotIn("data/audio/clip.wav", names)
+            self.assertNotIn("data/images/picture.png", names)
+            manifest = json.loads(zf.read("manifest.json").decode("utf-8"))
+            self.assertFalse(manifest["includeMedia"])
+            with tempfile.TemporaryDirectory() as db_tmp:
+                db_path = Path(db_tmp) / "nice_assistant.db"
+                db_path.write_bytes(zf.read("nice_assistant.db"))
+                conn = sqlite3.connect(db_path)
+                row = conn.execute("SELECT username FROM users WHERE username='owner'").fetchone()
+                conn.close()
+                self.assertEqual(row[0], "owner")
+
+        status, payload, _headers = self.json_request("POST", "/api/admin/backups", {"includeMedia": True}, cookie=owner_cookie)
+        self.assertEqual(status, 200, payload)
+        full_backup = payload["backup"]
+        self.assertTrue(full_backup["includeMedia"])
+        status, raw, _headers = self.request("GET", full_backup["downloadUrl"], cookie=owner_cookie)
+        self.assertEqual(status, 200)
+        with zipfile.ZipFile(io.BytesIO(raw), "r") as zf:
+            names = set(zf.namelist())
+            self.assertIn("data/audio/clip.wav", names)
+            self.assertIn("data/images/picture.png", names)
+            self.assertIn("data/videos/movie.mp4", names)
+            self.assertIn("data/stt_recordings/recording.webm", names)
+            if symlink_created:
+                self.assertNotIn("data/images/unsafe-link.txt", names)
+
+        status, payload, _headers = self.json_request("GET", "/api/admin/backups/..%2Fbad.zip/download", cookie=owner_cookie)
+        self.assertEqual(status, 404)
+        status, payload, _headers = self.json_request("DELETE", "/api/admin/backups/..%2Fbad.zip", cookie=owner_cookie)
+        self.assertEqual(status, 404)
+
+        status, payload, _headers = self.json_request(
+            "DELETE",
+            f"/api/admin/backups/{metadata_backup['name']}",
+            cookie=member_cookie,
+        )
+        self.assertEqual(status, 403)
+        status, payload, _headers = self.json_request(
+            "DELETE",
+            f"/api/admin/backups/{metadata_backup['name']}",
+            cookie=owner_cookie,
+        )
+        self.assertEqual(status, 200, payload)
+        self.assertTrue(payload["ok"])
+        status, payload, _headers = self.json_request("GET", "/api/admin/backups", cookie=owner_cookie)
+        self.assertEqual(status, 200, payload)
+        self.assertNotIn(metadata_backup["name"], [item["name"] for item in payload["items"]])
+
+    def test_backup_retention_prunes_oldest_snapshot(self):
+        server.BACKUP_SNAPSHOT_LIMIT = 2
+        self.create_user("owner")
+        owner_cookie, _owner_id = self.login_cookie("owner")
+        created_names = []
+        for index in range(3):
+            status, payload, _headers = self.json_request("POST", "/api/admin/backups", {"includeMedia": False}, cookie=owner_cookie)
+            self.assertEqual(status, 200, payload)
+            name = payload["backup"]["name"]
+            created_names.append(name)
+            if index < 2:
+                path = server.BACKUP_DIR / name
+                os.utime(path, (index + 1, index + 1))
+
+        status, payload, _headers = self.json_request("GET", "/api/admin/backups", cookie=owner_cookie)
+        self.assertEqual(status, 200, payload)
+        names = [item["name"] for item in payload["items"]]
+        self.assertEqual(len(names), 2)
+        self.assertNotIn(created_names[0], names)
+        self.assertIn(created_names[1], names)
+        self.assertIn(created_names[2], names)
 
     def test_generation_records_media_files(self):
         settings = {"openai_api_key": "sk-test-hardening-1234"}
