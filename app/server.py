@@ -1,5 +1,4 @@
 import base64
-import hashlib
 import json
 import logging
 from logging.handlers import RotatingFileHandler
@@ -9,15 +8,12 @@ import secrets
 import shutil
 import sqlite3
 import subprocess
-import tempfile
 import time
 import urllib.parse
 import urllib.request
 import urllib.error
 import signal
 import threading
-import re
-import zipfile
 from datetime import datetime, timezone
 from email.parser import BytesParser
 from email.policy import default
@@ -26,8 +22,58 @@ from http.cookies import SimpleCookie
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
+from app.auth import hash_password, is_masked_secret, redact_sensitive_text, verify_password
+from app.chat import (
+    chat_title_needs_autogeneration,
+    generate_chat_title,
+    generate_chat_title_from_first_user_message,
+    looks_like_image_request,
+    looks_like_video_request,
+    parse_model_options,
+    persona_instruction_block,
+)
 from app.job_queue import JobQueue, new_job
+from app.media import (
+    _coerce_number,
+    adjust_prompt_for_local_sd,
+    adjust_prompt_for_openai_image,
+    clean_user_image_prompt,
+    extract_model_image_prompt,
+    image_prompt_is_detailed,
+    local_negative_prompt,
+    local_seed_for_backend,
+    local_steps_from_quality,
+    model_image_instruction_for_provider,
+    normalize_image_quality,
+    normalize_image_size,
+    normalize_local_image_backend,
+    normalize_local_image_base_url as _normalize_local_image_base_url,
+    normalize_openai_image_quality,
+    normalize_video_model,
+    normalize_video_seconds,
+    normalize_video_size,
+    parse_additional_parameters,
+    parse_image_size,
+    user_safe_image_error,
+    user_safe_video_error,
+    visual_identity_context,
+)
 from app.memory_guard import MemoryBackpressureError, MemoryGuard
+from app.providers import (
+    normalize_provider_base_url,
+    provider_get_json as _provider_get_json,
+    provider_test_error_detail,
+    provider_test_response,
+    voice_ids_from_payload,
+)
+from app.settings import (
+    parse_preferences_json,
+    parse_residency_policy_preferences,
+    setting_bool,
+    settings_for_response,
+    truthy,
+)
+from app.storage import BackupStore, backup_name_from_api_path, read_json, safe_name
 from model_residency import ResidencyPolicy, build_default_residency_manager
 
 PORT = int(os.getenv("PORT", "3000"))
@@ -96,44 +142,6 @@ def log_generation_request(kind, provider, endpoint, payload=None):
     logger.info("generation request kind=%s provider=%s endpoint=%s payload=%s", kind, provider, endpoint, serialized)
 
 
-IMAGE_QUALITY_ALIASES = {
-    "standard": "medium",
-    "hd": "high",
-}
-IMAGE_QUALITY_VALUES = {"low", "medium", "high", "auto", "none"}
-SUPPORTED_IMAGE_SIZES = {"1024x1024", "1024x1536", "1536x1024", "auto"}
-SUPPORTED_VIDEO_MODELS = {"sora-2", "sora-2-pro"}
-SUPPORTED_VIDEO_SECONDS = {"4", "8", "12"}
-SUPPORTED_VIDEO_SIZES = {"720x1280", "1280x720", "1024x1792", "1792x1024"}
-SUPPORTED_VIDEO_SIZES_BY_MODEL = {
-    "sora-2": {"720x1280", "1280x720"},
-    "sora-2-pro": SUPPORTED_VIDEO_SIZES,
-}
-MODEL_IMAGE_TAG_PATTERN = re.compile(r"<generate_image>(.*?)</generate_image>", re.IGNORECASE | re.DOTALL)
-OPENAI_IMAGE_TERM_REPLACEMENTS = {
-    "nsfw": "safe-for-work",
-    "nude": "fully clothed",
-    "naked": "fully clothed",
-    "explicit sex": "romantic scene",
-    "sexual": "romantic",
-    "porn": "editorial",
-    "fetish": "fashion concept",
-    "gore": "dramatic",
-    "graphic violence": "intense action",
-}
-CHAT_TITLE_PLACEHOLDERS = {"new chat", "untitled chat"}
-
-CHAT_TITLE_MAX_LENGTH = 48
-CHAT_TITLE_MIN_LENGTH = 8
-CHAT_TITLE_FALLBACK_LENGTH = 40
-CHAT_TITLE_OPENER_PATTERN = re.compile(
-    r"^(?:hey|hi|hello|yo|good\s+(?:morning|afternoon|evening)|"
-    r"can\s+you|could\s+you|would\s+you|please|i\s+need\s+help\s+with|"
-    r"i\s+need\s+to|help\s+me\s+with)\b[\s,:-]*",
-    re.IGNORECASE,
-)
-
-
 def ensure_dirs():
     for p in [DATA_DIR, AUDIO_DIR, IMAGE_DIR, VIDEO_DIR, LOG_DIR, STT_RECORDINGS_DIR, ARCHIVE_DIR, ARCHIVE_DIR / "audio", ARCHIVE_DIR / "logs", ARCHIVE_DIR / "db_backups", BACKUP_DIR]:
         p.mkdir(parents=True, exist_ok=True)
@@ -146,29 +154,6 @@ def setup_file_logger():
     handler = RotatingFileHandler(log_path, maxBytes=2_000_000, backupCount=8, encoding="utf-8")
     handler.setFormatter(logging.Formatter("%(asctime)s %(levelname)s [%(threadName)s] %(message)s"))
     logger.addHandler(handler)
-
-
-def generate_chat_title(text):
-    source = "" if text is None else str(text)
-    normalized = re.sub(r"\s+", " ", source).strip()
-    if not normalized:
-        return source[:CHAT_TITLE_FALLBACK_LENGTH]
-
-    candidate = normalized
-    while True:
-        trimmed = CHAT_TITLE_OPENER_PATTERN.sub("", candidate, count=1).strip()
-        if trimmed == candidate:
-            break
-        candidate = trimmed
-
-    clause = re.split(r"[.!?;:\n]", candidate, maxsplit=1)[0].strip()
-    if clause:
-        candidate = clause
-
-    candidate = candidate[:CHAT_TITLE_MAX_LENGTH].strip().rstrip(".,!?;:-")
-    if len(candidate) < CHAT_TITLE_MIN_LENGTH:
-        return normalized[:CHAT_TITLE_FALLBACK_LENGTH]
-    return candidate
 
 
 def db_conn():
@@ -400,21 +385,6 @@ class GracefulThreadingHTTPServer(ThreadingHTTPServer):
     allow_reuse_address = True
 
 
-def hash_password(password: str) -> str:
-    salt = secrets.token_hex(16)
-    dk = hashlib.pbkdf2_hmac("sha256", password.encode(), salt.encode(), 120000)
-    return f"{salt}${base64.b64encode(dk).decode()}"
-
-
-def verify_password(password: str, stored: str) -> bool:
-    try:
-        salt, digest = stored.split("$", 1)
-        dk = hashlib.pbkdf2_hmac("sha256", password.encode(), salt.encode(), 120000)
-        return base64.b64encode(dk).decode() == digest
-    except Exception:
-        return False
-
-
 def now_ts():
     return int(time.time())
 
@@ -435,47 +405,6 @@ def is_admin(uid):
 
 def require_admin(uid):
     return is_admin(uid)
-
-
-def mask_secret(value):
-    raw = str(value or "")
-    if not raw:
-        return ""
-    return f"********{raw[-4:]}"
-
-
-def is_masked_secret(value):
-    raw = str(value or "")
-    return raw.startswith("********")
-
-
-def redact_sensitive_text(text):
-    redacted = str(text or "")
-    redacted = re.sub(r"sk-[A-Za-z0-9_-]{8,}", "sk-[REDACTED]", redacted)
-    redacted = re.sub(r"(?i)(bearer\s+)[A-Za-z0-9._~+/=-]{8,}", r"\1[REDACTED]", redacted)
-    redacted = re.sub(r"(?i)(basic\s+)[A-Za-z0-9+/=]{8,}", r"\1[REDACTED]", redacted)
-    redacted = re.sub(r"(?i)(https?://[^/\s:@]+:)[^@\s/]+@", r"\1[REDACTED]@", redacted)
-    labeled_secret_patterns = [
-        r"(?i)((?:\"?openai_api_key\"?|\"?image_local_api_auth\"?|\"?api_auth\"?|\"?authorization\"?)\s*[=:]\s*\"?)([^\"\s,;}]+)",
-    ]
-    for pattern in labeled_secret_patterns:
-        redacted = re.sub(pattern, r"\1[REDACTED]", redacted)
-    return redacted
-
-
-def settings_for_response(row):
-    if not row:
-        return {
-            "default_memory_mode": "auto",
-            "stt_provider": "disabled",
-            "tts_provider": "disabled",
-            "tts_format": "wav",
-            "openai_api_key": "",
-            "preferences_json": "{}",
-        }
-    data = dict(row)
-    data["openai_api_key"] = mask_secret(data.get("openai_api_key"))
-    return data
 
 
 def record_media_file(uid, chat_id, kind, filename, local_path):
@@ -501,16 +430,6 @@ def media_file_allowed(uid, kind, filename):
     if row:
         return row["user_id"] == uid
     return safe_filename.startswith(f"{uid}_")
-
-
-def truthy(value):
-    if isinstance(value, bool):
-        return value
-    if value is None:
-        return False
-    if isinstance(value, (int, float)):
-        return value != 0
-    return str(value).strip().lower() in {"1", "true", "yes", "on"}
 
 
 def create_async_job(uid, chat_id, kind, progress="Queued"):
@@ -691,29 +610,6 @@ def submit_async_generation_job(
     return queue_job
 
 
-def generate_chat_title_from_first_user_message(text: str, max_len: int = 40) -> str:
-    normalized = re.sub(r"\s+", " ", (text or "").strip())
-    if not normalized:
-        return ""
-    return normalized[:max_len]
-
-
-def chat_title_needs_autogeneration(title: str | None) -> bool:
-    normalized = (title or "").strip()
-    if not normalized:
-        return True
-    return normalized.lower() in CHAT_TITLE_PLACEHOLDERS
-
-
-def read_json(path: Path, default):
-    if not path.exists():
-        return default
-    try:
-        return json.loads(path.read_text())
-    except Exception:
-        return default
-
-
 def rotate_audio_cache():
     files = sorted([p for p in AUDIO_DIR.glob("*") if p.is_file()], key=lambda p: p.stat().st_mtime)
     while len(files) > AUDIO_HOT_LIMIT:
@@ -728,177 +624,54 @@ def backup_db_if_needed():
         shutil.copy2(DB_PATH, target)
 
 
-BACKUP_NAME_RE = re.compile(r"^nice-assistant-snapshot-\d{8}_\d{6}-[a-f0-9]{8}\.zip$")
+def _backup_store():
+    return BackupStore(
+        db_path=DB_PATH,
+        settings_json=SETTINGS_JSON,
+        backup_dir=BACKUP_DIR,
+        media_dirs=(
+            ("audio", AUDIO_DIR),
+            ("images", IMAGE_DIR),
+            ("videos", VIDEO_DIR),
+            ("stt_recordings", STT_RECORDINGS_DIR),
+        ),
+        snapshot_limit=BACKUP_SNAPSHOT_LIMIT,
+        now_ts=now_ts,
+        logger=logger,
+        log_event=log_interaction,
+    )
 
 
 def backup_snapshot_filename():
-    stamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
-    return f"nice-assistant-snapshot-{stamp}-{secrets.token_hex(4)}.zip"
+    return _backup_store().backup_snapshot_filename()
 
 
 def backup_path_for_name(name):
-    safe_name_value = os.path.basename(str(name or ""))
-    if safe_name_value != str(name or "") or not BACKUP_NAME_RE.match(safe_name_value):
-        return None
-    backup_root = BACKUP_DIR.resolve()
-    candidate = (BACKUP_DIR / safe_name_value).resolve()
-    if candidate.parent != backup_root:
-        return None
-    return candidate
-
-
-def backup_name_from_api_path(path, expect_download=False):
-    request_path = urllib.parse.urlparse(path).path
-    prefix = "/api/admin/backups/"
-    if not request_path.startswith(prefix):
-        return None
-    tail = request_path[len(prefix):]
-    if expect_download:
-        suffix = "/download"
-        if not tail.endswith(suffix):
-            return None
-        tail = tail[:-len(suffix)]
-    if not tail:
-        return None
-    return urllib.parse.unquote(tail)
+    return _backup_store().backup_path_for_name(name)
 
 
 def sqlite_backup_to_path(target_path):
-    source = sqlite3.connect(DB_PATH)
-    dest = sqlite3.connect(target_path)
-    try:
-        source.backup(dest)
-    finally:
-        dest.close()
-        source.close()
+    return _backup_store().sqlite_backup_to_path(target_path)
 
 
 def backup_snapshot_metadata(path):
-    stat = path.stat()
-    created_at = int(stat.st_mtime)
-    include_media = None
-    try:
-        with zipfile.ZipFile(path, "r") as zf:
-            manifest = json.loads(zf.read("manifest.json").decode("utf-8"))
-            created_at = int(manifest.get("createdAt") or created_at)
-            include_media = bool(manifest.get("includeMedia"))
-    except Exception:
-        include_media = None
-    return {
-        "name": path.name,
-        "sizeBytes": stat.st_size,
-        "createdAt": created_at,
-        "createdAtIso": datetime.fromtimestamp(created_at, timezone.utc).isoformat(),
-        "includeMedia": include_media,
-        "downloadUrl": f"/api/admin/backups/{urllib.parse.quote(path.name)}/download",
-    }
+    return _backup_store().backup_snapshot_metadata(path)
 
 
 def list_backup_snapshots():
-    BACKUP_DIR.mkdir(parents=True, exist_ok=True)
-    items = []
-    for path in BACKUP_DIR.glob("*.zip"):
-        if not path.is_file() or not backup_path_for_name(path.name):
-            continue
-        try:
-            items.append(backup_snapshot_metadata(path))
-        except OSError:
-            continue
-    return sorted(items, key=lambda item: (item.get("createdAt") or 0, item.get("name") or ""), reverse=True)
+    return _backup_store().list_backup_snapshots()
 
 
 def iter_backup_media_files():
-    roots = [
-        ("audio", AUDIO_DIR),
-        ("images", IMAGE_DIR),
-        ("videos", VIDEO_DIR),
-        ("stt_recordings", STT_RECORDINGS_DIR),
-    ]
-    for label, root in roots:
-        if not root.exists():
-            continue
-        root_resolved = root.resolve()
-        for path in root.rglob("*"):
-            if path.is_symlink() or not path.is_file():
-                continue
-            try:
-                resolved = path.resolve()
-                resolved.relative_to(root_resolved)
-                rel = path.relative_to(root)
-            except (OSError, ValueError):
-                continue
-            archive_name = Path("data") / label / rel
-            yield path, archive_name.as_posix()
+    return _backup_store().iter_backup_media_files()
 
 
 def prune_backup_snapshots(limit=None):
-    limit = BACKUP_SNAPSHOT_LIMIT if limit is None else int(limit)
-    if limit <= 0:
-        return
-    paths = [
-        path for path in BACKUP_DIR.glob("*.zip")
-        if path.is_file() and backup_path_for_name(path.name)
-    ]
-    paths.sort(key=lambda p: (p.stat().st_mtime, p.name))
-    while len(paths) > limit:
-        oldest = paths.pop(0)
-        try:
-            oldest.unlink()
-            log_interaction("backup.prune", "old backup snapshot pruned", backup_name=oldest.name)
-        except OSError as exc:
-            logger.warning("failed to prune backup snapshot name=%s error=%s", oldest.name, exc)
+    return _backup_store().prune_backup_snapshots(limit)
 
 
 def create_backup_snapshot(include_media=False):
-    BACKUP_DIR.mkdir(parents=True, exist_ok=True)
-    name = backup_snapshot_filename()
-    final_path = backup_path_for_name(name)
-    if final_path is None:
-        raise ValueError("invalid generated backup name")
-
-    created_at = now_ts()
-    created_iso = datetime.fromtimestamp(created_at, timezone.utc).isoformat()
-    tmp_zip_handle = tempfile.NamedTemporaryFile(prefix=f".{name}.", suffix=".tmp", dir=BACKUP_DIR, delete=False)
-    tmp_zip_path = Path(tmp_zip_handle.name)
-    tmp_zip_handle.close()
-    try:
-        with tempfile.TemporaryDirectory(prefix=".snapshot-", dir=BACKUP_DIR) as tmp_dir:
-            db_backup_path = Path(tmp_dir) / "nice_assistant.db"
-            sqlite_backup_to_path(db_backup_path)
-            entry_count = 0
-            media_dirs = ["audio", "images", "videos", "stt_recordings"] if include_media else []
-            manifest = {
-                "formatVersion": 1,
-                "app": "nice-assistant",
-                "name": name,
-                "createdAt": created_at,
-                "createdAtIso": created_iso,
-                "includeMedia": bool(include_media),
-                "database": "nice_assistant.db",
-                "settings": "settings.json" if SETTINGS_JSON.exists() else None,
-                "mediaDirs": media_dirs,
-            }
-            with zipfile.ZipFile(tmp_zip_path, "w", compression=zipfile.ZIP_DEFLATED) as zf:
-                zf.write(db_backup_path, "nice_assistant.db")
-                entry_count += 1
-                if SETTINGS_JSON.exists() and SETTINGS_JSON.is_file() and not SETTINGS_JSON.is_symlink():
-                    zf.write(SETTINGS_JSON, "settings.json")
-                    entry_count += 1
-                if include_media:
-                    for file_path, archive_name in iter_backup_media_files():
-                        zf.write(file_path, archive_name)
-                        entry_count += 1
-                manifest["entryCount"] = entry_count + 1
-                zf.writestr("manifest.json", json.dumps(manifest, indent=2, sort_keys=True))
-        os.replace(tmp_zip_path, final_path)
-        prune_backup_snapshots()
-        return backup_snapshot_metadata(final_path)
-    except Exception:
-        try:
-            tmp_zip_path.unlink(missing_ok=True)
-        except OSError:
-            pass
-        raise
+    return _backup_store().create_backup_snapshot(include_media=include_media)
 
 
 def rotate_logs(limit=50):
@@ -942,84 +715,6 @@ def execute_chat_model_job(model, messages, model_options, prefs=None):
     MODEL_RESIDENCY.update_policy(**parse_residency_policy_preferences(prefs or {}))
     MODEL_RESIDENCY.ensure_loaded("llm", LLM_ESTIMATED_VRAM_MB, model_id=model)
     return call_ollama(model, messages, model_options)
-
-
-def parse_model_options(payload_settings):
-    if not isinstance(payload_settings, dict):
-        return {}
-    schema = {
-        "temperature": float,
-        "top_p": float,
-        "num_predict": int,
-        "presence_penalty": float,
-        "frequency_penalty": float,
-    }
-    options = {}
-    for key, caster in schema.items():
-        val = payload_settings.get(key)
-        if val is None or val == "":
-            continue
-        try:
-            options[key] = caster(val)
-        except (TypeError, ValueError):
-            continue
-    return options
-
-
-def parse_traits(raw_traits):
-    if not raw_traits:
-        return {
-            "warmth": 50,
-            "creativity": 50,
-            "directness": 50,
-            "conversational": 50,
-            "casual": 50,
-            "gender": "unspecified",
-            "gender_other": "",
-            "age": "",
-        }
-    try:
-        parsed = json.loads(raw_traits) if isinstance(raw_traits, str) else dict(raw_traits)
-    except (TypeError, ValueError):
-        parsed = {}
-    return {
-        "warmth": int(parsed.get("warmth", 50)),
-        "creativity": int(parsed.get("creativity", 50)),
-        "directness": int(parsed.get("directness", 50)),
-        "conversational": int(parsed.get("conversational", 50)),
-        "casual": int(parsed.get("casual", 50)),
-        "gender": str(parsed.get("gender", "unspecified") or "unspecified"),
-        "gender_other": str(parsed.get("gender_other", "") or ""),
-        "age": str(parsed.get("age", "") or ""),
-    }
-
-
-def persona_instruction_block(persona_row):
-    if not persona_row:
-        return ""
-    traits = parse_traits(persona_row["traits_json"])
-    warmth = "high" if traits["warmth"] >= 67 else ("low" if traits["warmth"] <= 33 else "moderate")
-    creativity = "high" if traits["creativity"] >= 67 else ("low" if traits["creativity"] <= 33 else "moderate")
-    directness = "high" if traits["directness"] >= 67 else ("low" if traits["directness"] <= 33 else "moderate")
-    conversational = "conversational" if traits["conversational"] >= 60 else ("informational" if traits["conversational"] <= 40 else "balanced")
-    casual = "casual" if traits["casual"] >= 60 else ("professional" if traits["casual"] <= 40 else "balanced")
-
-    lines = [
-        f"You are the persona named '{persona_row['name']}'. If asked your name or identity in this chat, answer as this persona.",
-        f"Tone controls: warmth={warmth} ({traits['warmth']}/100), creativity={creativity} ({traits['creativity']}/100), directness={directness} ({traits['directness']}/100).",
-        f"Style controls: conversational_vs_informational={conversational} ({traits['conversational']}/100), casual_vs_professional={casual} ({traits['casual']}/100).",
-    ]
-    if traits["gender"] == "other" and traits["gender_other"]:
-        lines.append(f"Persona gender: {traits['gender_other']}")
-    elif traits["gender"] != "unspecified":
-        lines.append(f"Persona gender: {traits['gender']}")
-    if traits["age"]:
-        lines.append(f"Persona age: {traits['age']}")
-    if persona_row["personality_details"]:
-        lines.append(f"Persona details: {persona_row['personality_details']}")
-    if persona_row["system_prompt"]:
-        lines.append(persona_row["system_prompt"])
-    return "\n".join(lines)
 
 
 def parse_multipart_form_data(content_type, body):
@@ -1368,31 +1063,6 @@ def openai_video(prompt, size, seconds, api_key, model="sora-2", input_reference
     return data, ext
 
 
-def normalize_video_model(model):
-    candidate = (model or "").strip().lower()
-    if candidate in SUPPORTED_VIDEO_MODELS:
-        return candidate
-    return "sora-2"
-
-
-def normalize_video_seconds(seconds):
-    candidate = str(seconds or "").strip()
-    if candidate in SUPPORTED_VIDEO_SECONDS:
-        return candidate
-    return "4"
-
-
-def normalize_video_size(size, model="sora-2"):
-    candidate = (size or "").strip().lower()
-    normalized_model = normalize_video_model(model)
-    allowed_sizes = SUPPORTED_VIDEO_SIZES_BY_MODEL.get(normalized_model, SUPPORTED_VIDEO_SIZES_BY_MODEL["sora-2"])
-    if candidate in allowed_sizes:
-        return candidate
-    if normalized_model == "sora-2-pro":
-        return "1024x1792"
-    return "720x1280"
-
-
 def _openai_auth_multipart_request(url, fields, file_field, api_key, timeout=240):
     boundary = "----NiceAssistantBoundary" + secrets.token_hex(8)
     parts = []
@@ -1426,38 +1096,7 @@ def _openai_auth_multipart_request(url, fields, file_field, api_key, timeout=240
 
 
 def normalize_local_image_base_url(base_url):
-    candidate = (base_url or "").strip() or AUTOMATIC1111_BASE_URL
-    parsed = urllib.parse.urlparse(candidate)
-    if parsed.scheme not in {"http", "https"} or not parsed.netloc:
-        raise ValueError("Local image server URL must be a valid http(s) URL")
-    return candidate.rstrip("/")
-
-
-def normalize_local_image_backend(value):
-    candidate = (value or "").strip().lower()
-    if candidate in {"automatic1111", "comfyui"}:
-        return candidate
-    return "automatic1111"
-
-
-def _coerce_number(value, default, cast_type=float):
-    try:
-        return cast_type(value)
-    except (TypeError, ValueError):
-        return default
-
-
-def parse_additional_parameters(raw):
-    text = (raw or "").strip()
-    if not text:
-        return {}
-    try:
-        parsed = json.loads(text)
-    except (TypeError, ValueError):
-        raise ValueError("Additional Parameters must be valid JSON object text")
-    if not isinstance(parsed, dict):
-        raise ValueError("Additional Parameters must be a JSON object")
-    return parsed
+    return _normalize_local_image_base_url(base_url, AUTOMATIC1111_BASE_URL)
 
 
 def _auth_headers_from_string(auth_string):
@@ -1621,237 +1260,6 @@ def comfyui_image(prompt, size, quality, allow_nsfw, base_url=None, local_settin
         return r.read()
 
 
-def normalize_image_quality(quality):
-    normalized = IMAGE_QUALITY_ALIASES.get(quality, quality)
-    if normalized in IMAGE_QUALITY_VALUES:
-        return normalized
-    return "auto"
-
-
-def normalize_openai_image_quality(quality):
-    normalized = normalize_image_quality(quality)
-    if normalized == "none":
-        return "auto"
-    return normalized
-
-
-def normalize_image_size(size):
-    if size in SUPPORTED_IMAGE_SIZES:
-        return size
-    return "1024x1024"
-
-
-def parse_image_size(size, allow_custom=False):
-    raw = (size or "").strip().lower()
-    if allow_custom and raw:
-        custom_match = re.fullmatch(r"(\d{2,5})x(\d{2,5})", raw)
-        if custom_match:
-            return int(custom_match.group(1)), int(custom_match.group(2))
-    normalized = normalize_image_size(raw)
-    if normalized == "auto":
-        return 1024, 1024
-    try:
-        width, height = normalized.split("x", 1)
-        return int(width), int(height)
-    except Exception:
-        return 1024, 1024
-
-
-def clean_user_image_prompt(prompt):
-    text = " ".join((prompt or "").split()).strip()
-    if not text:
-        return ""
-    prefixes = [
-        r"^(please\s+)?(can you\s+)?(generate|create|make|draw|render|produce)\s+(me\s+)?(an?|the)?\s*(image|picture|photo|illustration|artwork)?\s*(of|with)?\s+",
-        r"^(please\s+)?(show|give)\s+me\s+(an?|the)?\s*(image|picture|photo|illustration)\s*(of|with)?\s+",
-    ]
-    cleaned = text
-    for pattern in prefixes:
-        cleaned = re.sub(pattern, "", cleaned, flags=re.IGNORECASE).strip(" ,.:;-")
-    cleaned = re.sub(r"^an?\s+image\s+of\s+", "", cleaned, flags=re.IGNORECASE).strip(" ,.:;-")
-    cleaned = re.sub(r"^(the\s+following\s+prompt\s*:?\s*)", "", cleaned, flags=re.IGNORECASE).strip(" ,.:;-")
-    cleaned = re.sub(r"^(prompt\s*:?\s*)", "", cleaned, flags=re.IGNORECASE).strip(" ,.:;-")
-    return cleaned or text
-
-
-def adjust_prompt_for_openai_image(prompt):
-    text = clean_user_image_prompt(prompt)
-    if not text:
-        return "Generate a polished, policy-compliant image suitable for general audiences."
-    adjusted = text
-    for term, replacement in OPENAI_IMAGE_TERM_REPLACEMENTS.items():
-        adjusted = re.sub(rf"\b{re.escape(term)}\b", replacement, adjusted, flags=re.IGNORECASE)
-    return (
-        "Generate a polished, coherent image with clear subject emphasis, intentional composition, and rich lighting detail. "
-        f"Scene request: {adjusted}. "
-        "Keep it policy-compliant and suitable for general audiences."
-    )
-
-
-def local_steps_from_quality(quality):
-    normalized = normalize_image_quality(quality)
-    if normalized == "high":
-        return 38
-    if normalized == "low":
-        return 20
-    return 28
-
-
-def local_negative_prompt(allow_nsfw, quality="auto"):
-    if normalize_image_quality(quality) == "none":
-        return ""
-    base = "blurry, lowres, jpeg artifacts, extra limbs, deformed hands, bad anatomy, watermark, text, logo"
-    if allow_nsfw:
-        return base
-    return f"{base}, nude, nudity, explicit sexual content, fetish, porn, graphic violence, gore"
-
-
-def adjust_prompt_for_local_sd(prompt, allow_nsfw, quality="auto"):
-    text = clean_user_image_prompt(prompt)
-    if not text:
-        text = "cinematic portrait of a friendly assistant in a modern workspace, detailed lighting, highly detailed"
-    if not allow_nsfw:
-        for term, replacement in OPENAI_IMAGE_TERM_REPLACEMENTS.items():
-            text = re.sub(rf"\b{re.escape(term)}\b", replacement, text, flags=re.IGNORECASE)
-    if normalize_image_quality(quality) == "none":
-        return text
-    return f"masterpiece, best quality, highly detailed, {text}"
-
-
-def local_seed_for_backend(seed_value, backend):
-    normalized_backend = normalize_local_image_backend(backend)
-    if normalized_backend == "comfyui":
-        seed_raw = str(seed_value or "").strip()
-        if seed_raw in {"", "-1"}:
-            return secrets.randbelow(2**63 - 1) + 1
-        return int(_coerce_number(seed_value, secrets.randbelow(2**63 - 1) + 1, int))
-    return int(_coerce_number(seed_value, -1, int))
-
-
-def image_prompt_is_detailed(prompt):
-    words = re.findall(r"[A-Za-z0-9']+", prompt or "")
-    if len(words) < 12:
-        return False
-    checks = [
-        re.search(r"\b(shot|close-up|wide|angle|composition|framing|portrait|landscape)\b", prompt, re.IGNORECASE),
-        re.search(r"\b(light|lighting|sunset|neon|moody|dramatic|soft light)\b", prompt, re.IGNORECASE),
-        re.search(r"\b(style|illustration|photo|cinematic|render|painting|anime|realistic)\b", prompt, re.IGNORECASE),
-    ]
-    return sum(bool(c) for c in checks) >= 1
-
-
-def model_image_instruction_for_provider(provider, local_backend="automatic1111"):
-    provider = (provider or "disabled").lower().strip()
-    base = (
-        "When a user clearly asks for an image, include exactly one XML tag like "
-        "<generate_image>...</generate_image> in your reply. "
-        "Inside the tag, provide a production-quality prompt with subject, environment, composition/camera, "
-        "lighting, style, and quality details. Keep it safe and policy-compliant. "
-        "If the image includes the user or assistant persona, preserve known visual continuity from chat memory/persona settings "
-        "(for example avatar cues, physical traits, and wardrobe style) and do not invent sensitive physical details that are unknown."
-    )
-    if provider == "openai":
-        return (
-            f"{base} Tailor prompt style for OpenAI image generation: natural-language scene direction, clear visual intent, "
-            "minimal comma-stuffing, and no tool-specific weight syntax."
-        )
-    if provider == "local":
-        backend = normalize_local_image_backend(local_backend)
-        if backend == "comfyui":
-            return (
-                f"{base} Tailor prompt style for ComfyUI/Stable Diffusion pipelines: concise keyword-rich descriptors, "
-                "clear art direction tokens, and maintain compatibility with a separate negative prompt/workflow nodes."
-            )
-        return (
-            f"{base} Tailor prompt style for Stable Diffusion/Automatic1111: concise keyword-rich descriptors, "
-            "art direction tokens, and include details that pair well with a separate negative prompt."
-        )
-    return base
-
-
-def visual_identity_context(conn, uid, chat_id, persona_row, workspace_id=None, persona_id=None):
-    cues = []
-    if persona_row:
-        traits = parse_traits(persona_row["traits_json"])
-        persona_bits = [f"assistant persona is '{persona_row['name']}'"]
-        if traits["gender"] == "other" and traits["gender_other"]:
-            persona_bits.append(f"gender: {traits['gender_other']}")
-        elif traits["gender"] != "unspecified":
-            persona_bits.append(f"gender: {traits['gender']}")
-        if traits["age"]:
-            persona_bits.append(f"age: {traits['age']}")
-        if persona_row["personality_details"]:
-            persona_bits.append(f"persona profile: {persona_row['personality_details'][:180]}")
-        cues.append("; ".join(persona_bits))
-
-    if conn and uid:
-        rows = []
-        if chat_id:
-            rows.extend(
-                conn.execute(
-                    "SELECT content FROM memories WHERE user_id=? AND tier='chat' AND tier_ref_id=? ORDER BY created_at DESC LIMIT 20",
-                    (uid, chat_id),
-                ).fetchall()
-            )
-        if persona_id:
-            rows.extend(
-                conn.execute(
-                    "SELECT content FROM memories WHERE user_id=? AND tier='persona' AND tier_ref_id=? ORDER BY created_at DESC LIMIT 20",
-                    (uid, persona_id),
-                ).fetchall()
-            )
-        if workspace_id:
-            rows.extend(
-                conn.execute(
-                    "SELECT content FROM memories WHERE user_id=? AND tier='workspace' AND tier_ref_id=? ORDER BY created_at DESC LIMIT 20",
-                    (uid, workspace_id),
-                ).fetchall()
-            )
-        if chat_id:
-            chat_rows = conn.execute(
-                "SELECT text AS content FROM messages WHERE chat_id=? ORDER BY created_at DESC LIMIT 20",
-                (chat_id,),
-            ).fetchall()
-            rows.extend(chat_rows)
-        pat = re.compile(r"\b(my|i am|i'm|look like|appearance|hair|eyes|face|skin|height|wear|wearing|outfit|avatar)\b", re.IGNORECASE)
-        seen = set()
-        for row in rows:
-            content = " ".join(str(row[0] or "").split())
-            if len(content) < 8 or not pat.search(content):
-                continue
-            lowered = content.lower()
-            if lowered in seen:
-                continue
-            seen.add(lowered)
-            cues.append(content[:180])
-            if len(cues) >= 6:
-                break
-
-    if not cues:
-        return ""
-    return (
-        "Visual continuity constraints: "
-        + " | ".join(cues)
-        + " If details are missing, keep identity descriptors neutral instead of guessing."
-    )
-
-
-def _extract_http_error_detail(exc):
-    if not isinstance(exc, urllib.error.HTTPError):
-        return ""
-    try:
-        body = exc.read().decode("utf-8", errors="replace")
-        if not body:
-            return ""
-        parsed = json.loads(body)
-        return ((parsed.get("error") or {}).get("message") or parsed.get("message") or body).strip()
-    except Exception:
-        try:
-            return body.strip()
-        except Exception:
-            return ""
-
-
 def log_image_error(uid, chat_id, detail):
     try:
         stamp = datetime.now(timezone.utc).strftime("%Y-%m-%d")
@@ -1860,117 +1268,6 @@ def log_image_error(uid, chat_id, detail):
             f.write(f"{datetime.now(timezone.utc).isoformat()} user={uid} chat={chat_id} detail={detail}\n")
     except Exception:
         logger.exception("failed to write image error log")
-
-
-def looks_like_image_request(text):
-    if not text:
-        return False
-    lowered = " ".join(text.lower().split())
-    verbs = ("generate", "create", "make", "draw", "render")
-    nouns = ("image", "picture", "photo", "illustration", "art")
-    has_verb = any(v in lowered for v in verbs)
-    has_noun = any(n in lowered for n in nouns)
-    return has_verb and has_noun
-
-
-def looks_like_video_request(text):
-    if not text:
-        return False
-    lowered = " ".join(text.lower().split())
-    verbs = ("generate", "create", "make", "render", "produce")
-    nouns = ("video", "clip", "animation", "movie", "footage")
-    has_verb = any(v in lowered for v in verbs)
-    has_noun = any(n in lowered for n in nouns)
-    return has_verb and has_noun
-
-
-def user_safe_image_error(exc, provider="openai"):
-    provider = (provider or "openai").strip().lower()
-    detail = _extract_http_error_detail(exc)
-    req_match = re.search(r"(req_[a-zA-Z0-9]+)", detail or "")
-    req_id = req_match.group(1) if req_match else ""
-    if "safety" in (detail or "").lower() or "safety_violations" in (detail or "").lower():
-        return "I couldn't generate that image because the request was flagged by safety filters. Please try a safer rewording.", detail, req_id
-    if provider == "openai" and "Supported values are" in (detail or "") and "Invalid value" in (detail or ""):
-        return "That image size is not supported by OpenAI. Please choose 1024x1024, 1024x1536, 1536x1024, or auto.", detail, req_id
-    if isinstance(exc, urllib.error.HTTPError):
-        status = exc.code
-        if provider in {"local", "local/automatic1111"}:
-            if status in (401, 403):
-                return "Image generation failed: Automatic1111 rejected authentication. Check the API auth string and --api-auth setup.", detail, req_id
-            if status == 404:
-                return "Automatic1111 API endpoint not found. Ensure webui is running with the --api flag.", detail, req_id
-            if status == 422:
-                return "Automatic1111 rejected one or more generation parameters. Check image size/steps/sampler/scheduler values.", detail, req_id
-            if 500 <= status <= 599:
-                return "Automatic1111 failed while generating the image. Please retry after the server is ready.", detail, req_id
-            return f"Image generation failed with Automatic1111 HTTP {status}.", detail, req_id
-        if provider == "local/comfyui":
-            if status in (401, 403):
-                return "Image generation failed: ComfyUI rejected authentication. Check your API auth settings.", detail, req_id
-            if status == 404:
-                return "ComfyUI route not found. Verify the ComfyUI server URL and that the server is running.", detail, req_id
-            if status == 422:
-                return "ComfyUI rejected one or more workflow parameters. Check model, sampler/scheduler, and additional JSON.", detail, req_id
-            if 500 <= status <= 599:
-                return "ComfyUI failed while generating the image. Please retry after the server is ready.", detail, req_id
-            return f"Image generation failed with ComfyUI HTTP {status}.", detail, req_id
-        if status in (401, 403):
-            return "Image generation failed: OpenAI rejected the request (check API key and image model access).", detail, req_id
-        if status == 429:
-            return "Image generation is rate limited by OpenAI right now. Please retry in a moment.", detail, req_id
-        if status in (400, 404):
-            return "OpenAI couldn't generate that image from the current request. Please revise the prompt and try again.", detail, req_id
-        if 500 <= status <= 599:
-            return "Image generation is temporarily unavailable from OpenAI. Please try again shortly.", detail, req_id
-        return f"Image generation failed with OpenAI error HTTP {status}.", detail, req_id
-    if isinstance(exc, urllib.error.URLError):
-        if provider in {"local", "local/automatic1111"}:
-            return "Image generation is currently unavailable because Automatic1111 could not be reached. Check URL and that webui is running with --api.", detail, req_id
-        if provider == "local/comfyui":
-            return "Image generation is currently unavailable because ComfyUI could not be reached. Check URL and that the ComfyUI server is running.", detail, req_id
-        return "Image generation is currently unavailable because the image provider could not be reached. Please try again in a moment.", detail, req_id
-    if isinstance(exc, TimeoutError):
-        return "Image generation timed out. Please try again with a shorter prompt or retry shortly.", detail, req_id
-    return "Image generation failed unexpectedly. Please try again.", detail, req_id
-
-
-
-def user_safe_video_error(exc):
-    detail = _extract_http_error_detail(exc)
-    req_match = re.search(r"(req_[a-zA-Z0-9]+)", detail or "")
-    req_id = req_match.group(1) if req_match else ""
-    if isinstance(exc, urllib.error.HTTPError):
-        status = exc.code
-        if status in (401, 403):
-            return "Video generation failed: OpenAI rejected the request (check API key and video model access).", detail, req_id
-        if status == 429:
-            return "Video generation is rate limited by OpenAI right now. Please retry in a moment.", detail, req_id
-        if status in (400, 404, 422):
-            if detail:
-                return (
-                    "OpenAI rejected the video request settings or payload. "
-                    "Try video model 'sora-2' with 4 seconds and size 720x1280 or 1280x720, then retry."
-                ), detail, req_id
-            return "OpenAI couldn't generate that video from the current request. Please revise the prompt and try again.", detail, req_id
-        if 500 <= status <= 599:
-            return "Video generation is temporarily unavailable from OpenAI. Please try again shortly.", detail, req_id
-        return f"Video generation failed with OpenAI error HTTP {status}.", detail, req_id
-    if isinstance(exc, urllib.error.URLError):
-        return "Video generation is currently unavailable because the OpenAI provider could not be reached. Please try again in a moment.", detail, req_id
-    if isinstance(exc, TimeoutError):
-        return "Video generation timed out. Please try again with a shorter prompt or retry shortly.", detail, req_id
-    return "Video generation failed unexpectedly. Please try again.", detail, req_id
-
-def extract_model_image_prompt(reply_text):
-    if not reply_text:
-        return "", ""
-    match = MODEL_IMAGE_TAG_PATTERN.search(reply_text)
-    if not match:
-        return reply_text, ""
-    prompt = " ".join(match.group(1).split()).strip()
-    clean_reply = MODEL_IMAGE_TAG_PATTERN.sub("", reply_text).strip()
-    return clean_reply, prompt
 
 
 def generate_image_reply(prompt, uid, chat_id, settings_row, prefs, context_hint=""):
@@ -2077,64 +1374,12 @@ def generate_video_reply(prompt, uid, chat_id, settings_row, prefs, input_refere
             log_image_error(uid, chat_id, f"video request_id={req_id or 'n/a'} {detail}")
         return message, ""
 
-def parse_preferences_json(raw_value):
-    if not raw_value:
-        return {}
-    try:
-        parsed = json.loads(raw_value)
-        return parsed if isinstance(parsed, dict) else {}
-    except (TypeError, ValueError):
-        return {}
-
-
-def parse_residency_policy_preferences(prefs):
-    policy = {}
-    if not isinstance(prefs, dict):
-        return policy
-    mapping = {
-        "gpu_idle_hold_seconds_llm": float,
-        "gpu_idle_hold_seconds_image": float,
-        "gpu_min_residency_seconds": float,
-        "max_model_swaps_per_minute": int,
-        "queue_affinity_window_ms": int,
-    }
-    for key, caster in mapping.items():
-        value = prefs.get(key)
-        if value is None or value == "":
-            continue
-        try:
-            converted = caster(value)
-        except (TypeError, ValueError):
-            continue
-        if caster is float:
-            policy[key] = max(0.0, converted)
-        else:
-            policy[key] = max(0, converted)
-    return policy
-
-
-def setting_bool(settings_row, key, default=False):
-    prefs = parse_preferences_json(settings_row["preferences_json"] if settings_row else "{}")
-    val = prefs.get(key, default)
-    if isinstance(val, bool):
-        return val
-    if isinstance(val, str):
-        return val.strip().lower() in {"1", "true", "yes", "on"}
-    return bool(val)
-
-
 def log_interaction(event_type, message, **context):
     context_items = " ".join([f"{k}={json.dumps(v, ensure_ascii=False)}" for k, v in sorted(context.items()) if v is not None])
     payload = f"event={event_type} message={message}"
     if context_items:
         payload = f"{payload} {context_items}"
     logger.info(payload)
-
-
-def safe_name(name, fallback):
-    candidate = (name or "").strip().replace(" ", "_")
-    candidate = re.sub(r"[^a-zA-Z0-9_.-]", "", candidate)
-    return candidate or fallback
 
 
 def load_user_settings_and_prefs(uid):
@@ -2173,67 +1418,8 @@ def effective_provider_test_settings(uid, body):
     return effective
 
 
-def provider_test_response(provider, ok, status, message, detail=""):
-    return {
-        "ok": bool(ok),
-        "provider": provider,
-        "status": status,
-        "message": message,
-        "detail": redact_sensitive_text(detail or "")[:1000],
-        "checkedAt": now_ts(),
-    }
-
-
-def provider_test_error_detail(exc):
-    if isinstance(exc, urllib.error.HTTPError):
-        try:
-            body = exc.read().decode("utf-8", errors="replace")
-        except Exception:
-            body = ""
-        pieces = [f"HTTP {exc.code}"]
-        if exc.reason:
-            pieces.append(str(exc.reason))
-        if body:
-            pieces.append(body[:500])
-        return redact_sensitive_text(". ".join(pieces))
-    if isinstance(exc, urllib.error.URLError):
-        return redact_sensitive_text(f"Connection failed: {exc.reason}")
-    return redact_sensitive_text(str(exc) or exc.__class__.__name__)
-
-
-def normalize_provider_base_url(raw_url, default_url):
-    candidate = (raw_url or "").strip() or default_url
-    parsed = urllib.parse.urlparse(candidate)
-    if parsed.scheme not in {"http", "https"} or not parsed.netloc:
-        raise ValueError("Provider URL must be a valid http(s) URL")
-    return candidate.rstrip("/")
-
-
 def provider_get_json(url, headers=None, timeout=None):
-    req = urllib.request.Request(url, headers=headers or {}, method="GET")
-    with urllib.request.urlopen(req, timeout=timeout or PROVIDER_TEST_TIMEOUT_SECONDS) as resp:
-        raw = resp.read().decode("utf-8", errors="replace")
-    if not raw.strip():
-        return {}
-    return json.loads(raw)
-
-
-def voice_ids_from_payload(payload):
-    if isinstance(payload, list):
-        return sorted({str(v).strip() for v in payload if str(v).strip()})
-    if isinstance(payload, dict):
-        for key in ("voices", "data", "items"):
-            values = payload.get(key)
-            if not isinstance(values, list):
-                continue
-            voices = []
-            for value in values:
-                if isinstance(value, str):
-                    voices.append(value.strip())
-                elif isinstance(value, dict):
-                    voices.append(str(value.get("id") or value.get("name") or "").strip())
-            return sorted({voice for voice in voices if voice})
-    return []
+    return _provider_get_json(url, headers=headers, timeout=timeout or PROVIDER_TEST_TIMEOUT_SECONDS)
 
 
 def check_ollama_provider_readiness(_settings):
