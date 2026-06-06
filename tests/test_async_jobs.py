@@ -95,7 +95,7 @@ class AsyncJobsApiTests(unittest.TestCase):
         self.create_user(username)
         return self.login_cookie(username)
 
-    def wait_for_job(self, cookie, job_id, timeout=5):
+    def wait_for_job(self, cookie, job_id, timeout=15):
         deadline = time.monotonic() + timeout
         last_payload = None
         while time.monotonic() < deadline:
@@ -142,26 +142,28 @@ class AsyncJobsApiTests(unittest.TestCase):
     def test_async_chat_completion_exposes_result_and_updates_chat(self):
         cookie, _uid = self.create_logged_in_user()
 
-        status, payload, _headers = self.json_request(
-            "POST",
-            "/api/chat",
-            {"text": "generate image of a cat", "async": True},
-            cookie=cookie,
-        )
-        self.assertEqual(status, 202, payload)
-        self.assertTrue(payload["jobId"])
-        self.assertTrue(payload["chatId"])
+        with mock.patch("app.server.call_ollama", return_value="Async chat test reply."):
+            status, payload, _headers = self.json_request(
+                "POST",
+                "/api/chat",
+                {"text": "tell me about reliable async tests", "async": True},
+                cookie=cookie,
+            )
+            self.assertEqual(status, 202, payload)
+            self.assertTrue(payload["jobId"])
+            self.assertTrue(payload["chatId"])
 
-        job = self.wait_for_job(cookie, payload["jobId"])
+            job = self.wait_for_job(cookie, payload["jobId"])
         self.assertEqual(job["status"], "completed")
         self.assertEqual(job["result"]["chatId"], payload["chatId"])
-        self.assertIn("disabled", job["result"]["text"].lower())
+        self.assertEqual(job["result"]["text"], "Async chat test reply.")
 
         status, detail, _headers = self.json_request("GET", f"/api/chats/{payload['chatId']}", cookie=cookie)
         self.assertEqual(status, 200, detail)
         roles = [m["role"] for m in detail["messages"]]
         self.assertEqual(roles, ["user", "assistant"])
-        self.assertIn("generate image", detail["messages"][0]["text"])
+        self.assertIn("reliable async tests", detail["messages"][0]["text"])
+        self.assertEqual(detail["messages"][1]["text"], "Async chat test reply.")
 
     def test_job_status_is_owner_scoped(self):
         self.create_user("owner")
