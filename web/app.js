@@ -49,6 +49,9 @@ const state = {
   memoryItems: [],
   showNewChatPersonaModal: false,
   newChatPersonaId: null,
+  pendingFirstMessage: '',
+  onboardingDismissed: false,
+  onboardingRunning: false,
   personaSettingsExpanded: {},
   personaAvatarPreview: '',
   chatImagePreview: '',
@@ -942,17 +945,53 @@ function confirmModal({ title, message, confirmText = 'Delete' }) {
 }
 
 async function runOnboardingWizard() {
-  const workspaceName = await promptModal({ title: 'Welcome to Nice Assistant', message: 'Name your first workspace.', initialValue: 'Main Workspace', confirmText: 'Continue' });
-  if (!workspaceName.trim()) return;
-  const personaName = await promptModal({ title: 'Create first persona', message: 'Give your assistant a persona name.', initialValue: 'Assistant', confirmText: 'Continue' });
-  if (!personaName.trim()) return;
-  const systemPrompt = await promptModal({ title: 'Default personality', message: 'Optional system prompt.', initialValue: 'Be helpful and concise.', confirmText: 'Finish' });
-  const ws = await api('/api/workspaces', { method: 'POST', body: JSON.stringify({ name: workspaceName.trim() }) });
-  await api('/api/personas', { method: 'POST', body: JSON.stringify({ workspaceId: ws.id, name: personaName.trim(), systemPrompt: systemPrompt.trim(), defaultModel: state.models[0] || '' }) });
-  state.settings = state.settings || normalizeSettings();
-  state.settings.onboarding_done = 1;
-  await api('/api/settings', { method: 'POST', body: JSON.stringify(settingsPayload(state.settings)) });
-  await refresh();
+  if (state.onboardingRunning) return false;
+  state.onboardingRunning = true;
+  state.onboardingDismissed = false;
+  let createdPersonaId = '';
+  try {
+    let workspaceId = state.workspaces[0]?.id || '';
+    if (!workspaceId) {
+      const workspaceName = await promptModal({ title: 'Welcome to Nice Assistant', message: 'Name your first workspace.', initialValue: 'Main Workspace', confirmText: 'Continue' });
+      if (!workspaceName.trim()) {
+        state.onboardingDismissed = true;
+        return false;
+      }
+      const ws = await api('/api/workspaces', { method: 'POST', body: JSON.stringify({ name: workspaceName.trim() }) });
+      workspaceId = ws.id;
+    }
+    if (state.personas.length) {
+      state.settings = state.settings || normalizeSettings();
+      state.settings.onboarding_done = 1;
+      await api('/api/settings', { method: 'POST', body: JSON.stringify(settingsPayload(state.settings)) });
+      await refresh();
+      state.selectedPersonaId = state.selectedPersonaId || state.personas[0]?.id || null;
+      render();
+      return true;
+    }
+    const personaName = await promptModal({ title: 'Create first persona', message: 'Give your assistant a persona name.', initialValue: 'Assistant', confirmText: 'Continue' });
+    if (!personaName.trim()) {
+      state.onboardingDismissed = true;
+      return false;
+    }
+    const systemPrompt = await promptModal({ title: 'Default personality', message: 'Optional system prompt.', initialValue: 'Be helpful and concise.', confirmText: 'Finish' });
+    const persona = await api('/api/personas', { method: 'POST', body: JSON.stringify({ workspaceId, name: personaName.trim(), systemPrompt: systemPrompt.trim(), defaultModel: state.models[0] || '' }) });
+    createdPersonaId = persona.id;
+    state.settings = state.settings || normalizeSettings();
+    state.settings.onboarding_done = 1;
+    await api('/api/settings', { method: 'POST', body: JSON.stringify(settingsPayload(state.settings)) });
+    await refresh();
+    state.selectedPersonaId = createdPersonaId || state.personas[0]?.id || null;
+    state.newChatPersonaId = state.selectedPersonaId;
+    setUiError('');
+    render();
+    return true;
+  } catch (e) {
+    setUiError(e?.message || 'Unable to complete first-run setup.');
+    return false;
+  } finally {
+    state.onboardingRunning = false;
+  }
 }
 
 function activeOverlayVisible() {
@@ -1038,6 +1077,8 @@ async function createChatWithPersona(personaId) {
     setUiError('Pick a persona before starting a new chat.');
     return;
   }
+  const pendingMessage = state.pendingFirstMessage.trim();
+  state.pendingFirstMessage = '';
   state.currentChat = null;
   state.messages = [];
   state.selectedPersonaId = personaId;
@@ -1049,6 +1090,9 @@ async function createChatWithPersona(personaId) {
   state.showNewChatPersonaModal = false;
   setUiError('');
   render();
+  if (pendingMessage) {
+    await sendChat(pendingMessage);
+  }
 }
 
 
@@ -1390,9 +1434,13 @@ async function sendChat(text) {
   if (state.isSending) return;
   if (!text?.trim()) return;
   if (!state.currentChat?.id && !state.selectedPersonaId) {
+    const trimmed = text.trim();
+    state.pendingFirstMessage = trimmed;
+    state.draftMessage = trimmed;
     state.showNewChatPersonaModal = true;
     state.newChatPersonaId = state.newChatPersonaId || state.personas[0]?.id || null;
-    setUiError('Start a chat by selecting a persona first.');
+    setUiError(state.personas.length ? 'Start a chat by selecting a persona first.' : 'Set up a workspace and persona to start chatting.');
+    render();
     return;
   }
   setUiError('');
@@ -1653,6 +1701,7 @@ function authView() {
           try {
             await api('/api/login', { method: 'POST', body: JSON.stringify({ username, password }) });
             await refresh();
+            await ensureWizard();
           } catch (e) {
             state.authError = e.message || 'Wrong username and/or password.';
             render();
@@ -1665,8 +1714,17 @@ function authView() {
 
 async function ensureWizard() {
   if (!state.user) return;
-  if (state.workspaces.length) return;
-  if (state.settings?.onboarding_done) return;
+  if (state.onboardingDismissed || state.onboardingRunning) return;
+  if (state.workspaces.length && state.personas.length && state.settings?.onboarding_done) return;
+  if (state.workspaces.length && state.personas.length) {
+    state.settings = state.settings || normalizeSettings();
+    state.settings.onboarding_done = 1;
+    try { await api('/api/settings', { method: 'POST', body: JSON.stringify(settingsPayload(state.settings)) }); } catch {}
+    state.selectedPersonaId = state.selectedPersonaId || state.personas[0]?.id || null;
+    state.newChatPersonaId = state.newChatPersonaId || state.selectedPersonaId;
+    render();
+    return;
+  }
   await runOnboardingWizard();
 }
 
@@ -2452,9 +2510,12 @@ function settingsPanel() {
               defaultModel: state.settings.global_default_model || state.models[0] || '',
             }),
           });
+          state.settingsSection = 'Personas';
+          state.showSettings = true;
           await refresh();
           state.settingsSection = 'Personas';
           state.showSettings = true;
+          render();
         } catch (e) { state.settingsError = e.message; render(); }
       } }),
     ],
@@ -2466,7 +2527,15 @@ function settingsPanel() {
       el('button', { class: 'pill-btn', textContent: '+ Add workspace', onclick: async () => {
         const name = await promptModal({ title: 'Workspace name', initialValue: 'New workspace', confirmText: 'Add workspace' });
         if (!name?.trim()) return;
-        try { await api('/api/workspaces', { method: 'POST', body: JSON.stringify({ name: name.trim() }) }); await refresh(); }
+        try {
+          state.settingsSection = 'Workspaces';
+          state.showSettings = true;
+          await api('/api/workspaces', { method: 'POST', body: JSON.stringify({ name: name.trim() }) });
+          await refresh();
+          state.settingsSection = 'Workspaces';
+          state.showSettings = true;
+          render();
+        }
         catch (e) { state.settingsError = e.message; render(); }
       } }),
     ],
@@ -2648,11 +2717,12 @@ function render() {
   }
 
   const currentChatTitle = state.currentChat?.title || state.chats.find((c) => c.id === state.currentChat?.id)?.title || 'New conversation';
-  const activeWorkspace = state.workspaces.find((w) => w.id === state.currentChat?.workspace_id)?.name || 'Workspace';
   const selectedPersonaId = state.selectedPersonaId || state.currentChat?.persona_id || state.personas[0]?.id;
-  const selectedModel = state.selectedModel || state.currentChat?.model_override || state.settings?.global_default_model || state.models[0] || '';
-  const selectedMemoryMode = state.selectedMemoryMode || state.currentChat?.memory_mode || state.settings?.default_memory_mode || 'auto';
   const selectedPersona = state.personas.find((p) => p.id === selectedPersonaId);
+  const activeWorkspaceId = state.currentChat?.workspace_id || selectedPersona?.workspace_id || selectedPersona?.workspace_ids?.[0];
+  const activeWorkspace = state.workspaces.find((w) => w.id === activeWorkspaceId)?.name || 'Workspace';
+  const selectedModel = state.selectedModel || state.currentChat?.model_override || selectedPersona?.default_model || state.settings?.global_default_model || state.models[0] || '';
+  const selectedMemoryMode = state.selectedMemoryMode || state.currentChat?.memory_mode || state.settings?.default_memory_mode || 'auto';
   const personaName = selectedPersona?.name || 'Persona';
   const personaAvatar = selectedPersona?.avatar_url || DEFAULT_PERSONA_AVATAR;
 
@@ -2754,7 +2824,7 @@ function render() {
     el('div', { class: 'header-meta' }, [
       el('img', { class: 'topbar-avatar', src: personaAvatar, alt: `${personaName} avatar`, onclick: () => { state.personaAvatarPreview = personaAvatar; render(); } }),
       el('div', { class: 'header-title', textContent: currentChatTitle }),
-      el('div', { class: 'chips' }, [el('button', { class: 'chip', textContent: personaName }), el('button', { class: 'chip', textContent: activeWorkspace }), el('button', { class: 'chip', textContent: modelNickname(state.currentChat?.model_override || state.settings?.global_default_model || 'model') })]),
+      el('div', { class: 'chips' }, [el('button', { class: 'chip', textContent: personaName }), el('button', { class: 'chip', textContent: activeWorkspace }), el('button', { class: 'chip', textContent: modelNickname(selectedModel || 'model') })]),
     ]),
     el('div', { class: `status-pill ${statusClass()}`, textContent: state.status }),
     el('button', { class: 'icon-btn', textContent: '⋯', title: 'Chat controls', ariaLabel: 'Toggle chat controls menu', onclick: () => { state.showChatControlsMenu = !state.showChatControlsMenu; render(); } }),
@@ -2785,20 +2855,31 @@ function render() {
   }) : null;
   const newChatPersonaModal = state.showNewChatPersonaModal ? el('div', { class: 'modal-backdrop', onclick: (e) => { if (e.target === e.currentTarget) { state.showNewChatPersonaModal = false; render(); } } }, [
     el('div', { class: 'modal-card glass' }, [
-      el('h3', { textContent: 'Choose a persona to start this chat' }),
-      el('p', { class: 'meta', textContent: 'Each chat is locked to one persona once it starts.' }),
-      el('select', {
+      el('h3', { textContent: state.personas.length ? 'Choose a persona to start this chat' : 'Set up your first persona' }),
+      el('p', { class: 'meta', textContent: state.personas.length ? 'Each chat is locked to one persona once it starts.' : 'Create a workspace and persona once, then your first message will send automatically.' }),
+      state.personas.length ? el('select', {
         class: 'chip-select',
         value: state.newChatPersonaId || state.personas[0]?.id || '',
         onchange: (e) => { state.newChatPersonaId = e.target.value; },
-      }, state.personas.map((p) => el('option', { value: p.id, textContent: p.name, selected: p.id === (state.newChatPersonaId || state.personas[0]?.id) }))),
+      }, state.personas.map((p) => el('option', { value: p.id, textContent: p.name, selected: p.id === (state.newChatPersonaId || state.personas[0]?.id) }))) : null,
       el('div', { class: 'modal-actions' }, [
         el('button', { class: 'pill-btn', textContent: 'Cancel', onclick: () => { state.showNewChatPersonaModal = false; render(); } }),
-        el('button', {
+        state.personas.length ? el('button', {
           class: 'send-btn',
           textContent: 'Start chat',
-          disabled: !state.personas.length,
           onclick: () => createChatWithPersona(state.newChatPersonaId || state.personas[0]?.id),
+        }) : el('button', {
+          class: 'send-btn',
+          textContent: state.onboardingRunning ? 'Setting up…' : 'Run setup',
+          disabled: state.onboardingRunning,
+          onclick: async () => {
+            state.showNewChatPersonaModal = false;
+            render();
+            const ok = await runOnboardingWizard();
+            if (ok && state.pendingFirstMessage.trim() && state.selectedPersonaId) {
+              await createChatWithPersona(state.selectedPersonaId);
+            }
+          },
         }),
       ]),
     ]),

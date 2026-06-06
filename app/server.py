@@ -1963,6 +1963,49 @@ def load_user_settings_and_prefs(uid):
     return settings, parse_preferences_json(settings["preferences_json"] if settings else "{}")
 
 
+def user_workspace_row(conn, uid, workspace_id):
+    if not workspace_id:
+        return None
+    return conn.execute("SELECT * FROM workspaces WHERE id=? AND user_id=?", (workspace_id, uid)).fetchone()
+
+
+def user_persona_row(conn, uid, persona_id):
+    if not persona_id:
+        return None
+    return conn.execute(
+        """
+        SELECT p.*
+        FROM personas p
+        WHERE p.id=?
+          AND EXISTS (
+              SELECT 1
+              FROM persona_workspace_links l
+              JOIN workspaces w ON w.id=l.workspace_id
+              WHERE l.persona_id=p.id AND w.user_id=?
+          )
+        """,
+        (persona_id, uid),
+    ).fetchone()
+
+
+def validate_chat_scope(conn, uid, workspace_id=None, persona_id=None):
+    persona = user_persona_row(conn, uid, persona_id) if persona_id else None
+    if persona_id and not persona:
+        raise ValueError("persona not found")
+    if workspace_id and not user_workspace_row(conn, uid, workspace_id):
+        raise ValueError("workspace not found")
+    if workspace_id and persona:
+        linked = conn.execute(
+            "SELECT 1 FROM persona_workspace_links WHERE persona_id=? AND workspace_id=?",
+            (persona_id, workspace_id),
+        ).fetchone()
+        if not linked:
+            raise ValueError("persona not found")
+    if not workspace_id and persona:
+        workspace_id = persona["workspace_id"]
+    return workspace_id, persona
+
+
 def execute_image_generation_request(uid, payload, cancel_requested=None):
     b = dict(payload or {})
     prompt = str(b.get("prompt") or "").strip()
@@ -2053,11 +2096,13 @@ def prepare_chat_generation_request(uid, payload, text):
     if not chat:
         chat_id = secrets.token_hex(8)
         t = now_ts()
+        workspace_id, _persona = validate_chat_scope(conn, uid, b.get("workspaceId"), b.get("personaId"))
         conn.execute(
-            "INSERT INTO chats(id,user_id,persona_id,model_override,memory_mode,title,hidden_in_ui,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?)",
+            "INSERT INTO chats(id,user_id,workspace_id,persona_id,model_override,memory_mode,title,hidden_in_ui,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?)",
             (
                 chat_id,
                 uid,
+                workspace_id,
                 b.get("personaId"),
                 b.get("model"),
                 b.get("memoryMode", "auto"),
@@ -2174,8 +2219,9 @@ def execute_chat_generation_request(uid, payload, chat_id, queue_provider=True, 
         raise ValueError("chat not found")
     mem_mode = b.get("memoryMode") or chat["memory_mode"] or "auto"
     persona_id = b.get("personaId") or chat["persona_id"]
-    persona = conn.execute("SELECT * FROM personas WHERE id=?", (persona_id,)).fetchone() if persona_id else None
-    workspace_id = chat["workspace_id"] or b.get("workspaceId") or (persona["workspace_id"] if persona else None)
+    requested_workspace_id = b.get("workspaceId")
+    workspace_id, persona = validate_chat_scope(conn, uid, requested_workspace_id or chat["workspace_id"], persona_id)
+    workspace_id = workspace_id or (persona["workspace_id"] if persona else None)
     model = b.get("model") or chat["model_override"]
     settings = conn.execute("SELECT * FROM app_settings WHERE user_id=?", (uid,)).fetchone()
     if not model and persona_id:
@@ -2762,6 +2808,10 @@ class Handler(BaseHTTPRequestHandler):
             b = self._read_json(); pid = secrets.token_hex(8)
             workspace_id = b.get("workspaceId")
             conn = db_conn()
+            if not workspace_id:
+                conn.close(); return self._json({"error": "workspace required"}, 400)
+            if not user_workspace_row(conn, uid, workspace_id):
+                conn.close(); return self._json({"error": "workspace not found"}, 404)
             conn.execute("INSERT INTO personas(id,workspace_id,name,avatar_url,system_prompt,personality_details,traits_json,default_model,preferred_voice,preferred_tts_model,preferred_tts_speed,preferred_voice_openai,preferred_tts_model_openai,preferred_tts_speed_openai,preferred_voice_local,preferred_tts_model_local,preferred_tts_speed_local,created_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)", (
                 pid, workspace_id, b.get("name", "Persona"), b.get("avatarUrl"), b.get("systemPrompt"), b.get("personalityDetails"), json.dumps(b.get("traits") or {}), b.get("defaultModel"),
                 b.get("preferredVoice"), b.get("preferredTtsModel"), b.get("preferredTtsSpeed"),
@@ -2774,7 +2824,12 @@ class Handler(BaseHTTPRequestHandler):
             return self._json({"id": pid})
         if self.path == "/api/chats":
             b = self._read_json(); cid = secrets.token_hex(8); t=now_ts()
-            conn = db_conn(); conn.execute("INSERT INTO chats(id,user_id,workspace_id,persona_id,model_override,memory_mode,title,hidden_in_ui,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?)", (cid,uid,b.get("workspaceId"),b.get("personaId"),b.get("model"),b.get("memoryMode","auto"),b.get("title","New chat"),0,t,t)); conn.commit(); conn.close()
+            conn = db_conn()
+            try:
+                workspace_id, _persona = validate_chat_scope(conn, uid, b.get("workspaceId"), b.get("personaId"))
+            except ValueError as exc:
+                conn.close(); return self._json({"error": str(exc)}, 404)
+            conn.execute("INSERT INTO chats(id,user_id,workspace_id,persona_id,model_override,memory_mode,title,hidden_in_ui,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?)", (cid,uid,workspace_id,b.get("personaId"),b.get("model"),b.get("memoryMode","auto"),b.get("title","New chat"),0,t,t)); conn.commit(); conn.close()
             return self._json({"id": cid})
         if self.path == "/api/chat":
             b = self._read_json() or {}
@@ -2787,7 +2842,10 @@ class Handler(BaseHTTPRequestHandler):
                 except ValueError as exc:
                     return self._json({"error": str(exc)}, 400)
                 return self._json({"ok": True, "jobId": job_id, "chatId": chat_id, "status": "queued"}, 202)
-            chat_id = prepare_chat_generation_request(uid, b, text)
+            try:
+                chat_id = prepare_chat_generation_request(uid, b, text)
+            except ValueError as exc:
+                return self._json({"error": str(exc)}, 404)
             result = execute_chat_generation_request(uid, b, chat_id, queue_provider=True)
             return self._json(result)
         if self.path == "/api/settings":

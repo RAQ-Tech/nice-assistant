@@ -206,6 +206,110 @@ class LanHardeningApiTests(unittest.TestCase):
         self.assertEqual(status, 200, payload)
         self.assertEqual(self.stored_openai_key(user_id), replacement_key)
 
+    def test_workspace_persona_and_chat_creation_are_owner_scoped(self):
+        server.ALLOW_PUBLIC_SIGNUP = True
+        self.create_user("owner")
+        self.create_user("member")
+        owner_cookie, _owner_id = self.login_cookie("owner")
+        member_cookie, _member_id = self.login_cookie("member")
+
+        status, payload, _headers = self.json_request(
+            "POST",
+            "/api/workspaces",
+            {"name": "Owner Workspace"},
+            cookie=owner_cookie,
+        )
+        self.assertEqual(status, 200, payload)
+        workspace_id = payload["id"]
+
+        status, payload, _headers = self.json_request(
+            "POST",
+            "/api/personas",
+            {"name": "Owner Persona"},
+            cookie=owner_cookie,
+        )
+        self.assertEqual(status, 400, payload)
+        self.assertEqual(payload["error"], "workspace required")
+
+        status, payload, _headers = self.json_request(
+            "POST",
+            "/api/personas",
+            {"workspaceId": workspace_id, "name": "Member Persona"},
+            cookie=member_cookie,
+        )
+        self.assertEqual(status, 404, payload)
+        self.assertEqual(payload["error"], "workspace not found")
+
+        status, payload, _headers = self.json_request(
+            "POST",
+            "/api/personas",
+            {"workspaceId": workspace_id, "name": "Owner Persona"},
+            cookie=owner_cookie,
+        )
+        self.assertEqual(status, 200, payload)
+        persona_id = payload["id"]
+
+        status, payload, _headers = self.json_request(
+            "POST",
+            "/api/workspaces",
+            {"name": "Other Owner Workspace"},
+            cookie=owner_cookie,
+        )
+        self.assertEqual(status, 200, payload)
+        other_workspace_id = payload["id"]
+
+        status, payload, _headers = self.json_request(
+            "POST",
+            "/api/chats",
+            {"workspaceId": other_workspace_id, "personaId": persona_id, "title": "Mismatched Chat"},
+            cookie=owner_cookie,
+        )
+        self.assertEqual(status, 404, payload)
+        self.assertEqual(payload["error"], "persona not found")
+
+        status, payload, _headers = self.json_request(
+            "PUT",
+            f"/api/personas/{persona_id}",
+            {
+                "name": "Owner Persona",
+                "workspace_id": workspace_id,
+                "workspace_ids": [workspace_id, other_workspace_id],
+            },
+            cookie=owner_cookie,
+        )
+        self.assertEqual(status, 200, payload)
+
+        status, payload, _headers = self.json_request(
+            "POST",
+            "/api/chats",
+            {"workspaceId": other_workspace_id, "personaId": persona_id, "title": "Linked Workspace Chat"},
+            cookie=owner_cookie,
+        )
+        self.assertEqual(status, 200, payload)
+
+        status, payload, _headers = self.json_request(
+            "POST",
+            "/api/chats",
+            {"workspaceId": workspace_id, "personaId": persona_id, "title": "Owner Chat"},
+            cookie=member_cookie,
+        )
+        self.assertEqual(status, 404, payload)
+        self.assertIn(payload["error"], {"workspace not found", "persona not found"})
+
+        status, payload, _headers = self.json_request(
+            "POST",
+            "/api/chats",
+            {"workspaceId": workspace_id, "personaId": persona_id, "title": "Owner Chat"},
+            cookie=owner_cookie,
+        )
+        self.assertEqual(status, 200, payload)
+        chat_id = payload["id"]
+
+        status, detail, _headers = self.json_request("GET", f"/api/chats/{chat_id}", cookie=owner_cookie)
+        self.assertEqual(status, 200, detail)
+        self.assertEqual(detail["chat"]["workspace_id"], workspace_id)
+        self.assertEqual(detail["chat"]["persona_id"], persona_id)
+
     def test_tts_audio_download_requires_login_and_matching_owner(self):
         server.ALLOW_PUBLIC_SIGNUP = True
         self.create_user("owner")

@@ -186,6 +186,64 @@ def run_smoke_check() -> dict:
             if image_job.get("result", {}).get("ok") is not False:
                 raise AssertionError("disabled-provider async image job did not expose an ok=false result")
 
+            status, payload, _headers = json_request(
+                "POST",
+                base_url,
+                "/api/workspaces",
+                {"name": "Smoke Workspace"},
+                cookie=cookie,
+            )
+            assert_status(status, 200, "workspace create")
+            workspace_id = payload.get("id")
+            if not workspace_id:
+                raise AssertionError("workspace create did not return an id")
+
+            status, payload, _headers = json_request(
+                "POST",
+                base_url,
+                "/api/personas",
+                {"workspaceId": workspace_id, "name": "Smoke Persona", "systemPrompt": "Be concise."},
+                cookie=cookie,
+            )
+            assert_status(status, 200, "persona create")
+            persona_id = payload.get("id")
+            if not persona_id:
+                raise AssertionError("persona create did not return an id")
+
+            status, payload, _headers = json_request("GET", base_url, "/api/personas", cookie=cookie)
+            assert_status(status, 200, "persona list")
+            if persona_id not in [item.get("id") for item in payload.get("items", [])]:
+                raise AssertionError("created persona was not visible in persona list")
+
+            status, payload, _headers = json_request(
+                "POST",
+                base_url,
+                "/api/chat",
+                {
+                    "text": "generate image of a smoke-test cat",
+                    "workspaceId": workspace_id,
+                    "personaId": persona_id,
+                    "async": True,
+                },
+                cookie=cookie,
+            )
+            assert_status(status, 202, "async first chat start")
+            first_chat_job_id = payload.get("jobId")
+            if not first_chat_job_id:
+                raise AssertionError("async first chat start did not return a job id")
+            first_chat_job = wait_for_job(base_url, first_chat_job_id, cookie)
+            if first_chat_job.get("status") != "completed":
+                raise AssertionError(f"async first chat did not complete: {first_chat_job}")
+            chat_id = first_chat_job.get("result", {}).get("chatId")
+            if not chat_id:
+                raise AssertionError("async first chat did not return a chat id")
+            status, payload, _headers = json_request("GET", base_url, f"/api/chats/{chat_id}", cookie=cookie)
+            assert_status(status, 200, "first chat read")
+            messages = payload.get("messages", [])
+            roles = [message.get("role") for message in messages]
+            if roles != ["user", "assistant"]:
+                raise AssertionError(f"first chat did not persist user and assistant messages: {roles}")
+
             return {
                 "health": "ok",
                 "index": "ok",
@@ -195,6 +253,8 @@ def run_smoke_check() -> dict:
                 "blocked_second_signup": "ok",
                 "protected_media": "ok",
                 "async_image_job": "ok",
+                "workspace_persona_setup": "ok",
+                "async_first_chat": "ok",
             }
         finally:
             proc.terminate()
