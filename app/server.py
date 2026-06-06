@@ -37,6 +37,7 @@ ARCHIVE_DIR = Path(os.getenv("ARCHIVE_DIR", "/archives"))
 AUDIO_HOT_LIMIT = int(os.getenv("AUDIO_HOT_LIMIT", "200"))
 SESSION_COOKIE = "nice_assistant_session"
 SESSION_TTL_SECONDS = int(os.getenv("SESSION_TTL_SECONDS", "1800"))
+ALLOW_PUBLIC_SIGNUP = os.getenv("ALLOW_PUBLIC_SIGNUP", "0").strip().lower() in {"1", "true", "yes", "on"}
 
 LLM_ESTIMATED_VRAM_MB = int(os.getenv("LLM_ESTIMATED_VRAM_MB", "8192"))
 IMAGE_ESTIMATED_VRAM_MB = int(os.getenv("IMAGE_ESTIMATED_VRAM_MB", "6144"))
@@ -178,6 +179,7 @@ def init_db():
             id TEXT PRIMARY KEY,
             username TEXT UNIQUE NOT NULL,
             password_hash TEXT NOT NULL,
+            is_admin INTEGER DEFAULT 0,
             created_at INTEGER NOT NULL
         );
         CREATE TABLE IF NOT EXISTS sessions (
@@ -264,9 +266,30 @@ def init_db():
             local_path TEXT NOT NULL,
             created_at INTEGER NOT NULL
         );
+        CREATE TABLE IF NOT EXISTS media_files (
+            id TEXT PRIMARY KEY,
+            user_id TEXT NOT NULL,
+            chat_id TEXT,
+            kind TEXT NOT NULL,
+            filename TEXT NOT NULL,
+            local_path TEXT NOT NULL,
+            created_at INTEGER NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_media_files_kind_filename ON media_files(kind, filename);
         """
     )
     conn.commit()
+    user_cols = {r[1] for r in conn.execute("PRAGMA table_info(users)").fetchall()}
+    if "is_admin" not in user_cols:
+        conn.execute("ALTER TABLE users ADD COLUMN is_admin INTEGER DEFAULT 0")
+        conn.commit()
+    user_count = conn.execute("SELECT COUNT(*) AS c FROM users").fetchone()["c"]
+    admin_count = conn.execute("SELECT COUNT(*) AS c FROM users WHERE COALESCE(is_admin,0)=1").fetchone()["c"]
+    if user_count and not admin_count:
+        first_user = conn.execute("SELECT id FROM users ORDER BY created_at ASC LIMIT 1").fetchone()
+        if first_user:
+            conn.execute("UPDATE users SET is_admin=1 WHERE id=?", (first_user["id"],))
+            conn.commit()
     cols = {r[1] for r in conn.execute("PRAGMA table_info(sessions)").fetchall()}
     if "expires_at" not in cols:
         conn.execute("ALTER TABLE sessions ADD COLUMN expires_at INTEGER")
@@ -344,6 +367,89 @@ def verify_password(password: str, stored: str) -> bool:
 
 def now_ts():
     return int(time.time())
+
+
+def current_user_row(uid):
+    if not uid:
+        return None
+    conn = db_conn()
+    row = conn.execute("SELECT * FROM users WHERE id=?", (uid,)).fetchone()
+    conn.close()
+    return row
+
+
+def is_admin(uid):
+    row = current_user_row(uid)
+    return bool(row and row["is_admin"])
+
+
+def require_admin(uid):
+    return is_admin(uid)
+
+
+def mask_secret(value):
+    raw = str(value or "")
+    if not raw:
+        return ""
+    return f"********{raw[-4:]}"
+
+
+def is_masked_secret(value):
+    raw = str(value or "")
+    return raw.startswith("********")
+
+
+def redact_sensitive_text(text):
+    redacted = str(text or "")
+    redacted = re.sub(r"sk-[A-Za-z0-9_-]{8,}", "sk-[REDACTED]", redacted)
+    redacted = re.sub(r"(?i)(bearer\s+)[A-Za-z0-9._~+/=-]{8,}", r"\1[REDACTED]", redacted)
+    redacted = re.sub(r"(?i)(basic\s+)[A-Za-z0-9+/=]{8,}", r"\1[REDACTED]", redacted)
+    labeled_secret_patterns = [
+        r"(?i)((?:\"?openai_api_key\"?|\"?image_local_api_auth\"?|\"?api_auth\"?|\"?authorization\"?)\s*[=:]\s*\"?)([^\"\s,;}]+)",
+    ]
+    for pattern in labeled_secret_patterns:
+        redacted = re.sub(pattern, r"\1[REDACTED]", redacted)
+    return redacted
+
+
+def settings_for_response(row):
+    if not row:
+        return {
+            "default_memory_mode": "auto",
+            "stt_provider": "disabled",
+            "tts_provider": "disabled",
+            "tts_format": "wav",
+            "openai_api_key": "",
+            "preferences_json": "{}",
+        }
+    data = dict(row)
+    data["openai_api_key"] = mask_secret(data.get("openai_api_key"))
+    return data
+
+
+def record_media_file(uid, chat_id, kind, filename, local_path):
+    conn = db_conn()
+    conn.execute(
+        "INSERT INTO media_files(id,user_id,chat_id,kind,filename,local_path,created_at) VALUES(?,?,?,?,?,?,?)",
+        (secrets.token_hex(8), uid, chat_id, kind, filename, str(local_path), now_ts()),
+    )
+    conn.commit()
+    conn.close()
+
+
+def media_file_allowed(uid, kind, filename):
+    if not uid or not filename:
+        return False
+    safe_filename = os.path.basename(filename)
+    conn = db_conn()
+    row = conn.execute(
+        "SELECT user_id FROM media_files WHERE kind=? AND filename=? ORDER BY created_at DESC LIMIT 1",
+        (kind, safe_filename),
+    ).fetchone()
+    conn.close()
+    if row:
+        return row["user_id"] == uid
+    return safe_filename.startswith(f"{uid}_")
 
 
 def generate_chat_title_from_first_user_message(text: str, max_len: int = 40) -> str:
@@ -1503,6 +1609,7 @@ def generate_image_reply(prompt, uid, chat_id, settings_row, prefs, context_hint
         else:
             return f"Image provider '{image_provider}' is not recognized by the server. Choose 'openai' or 'local'.", ""
         image_path.write_bytes(image_bytes)
+        record_media_file(uid, chat_id, "image", image_name, image_path)
         image_url = f"/api/images/{urllib.parse.quote(image_name)}"
         return f"Here is your generated image.\n\n![Generated image]({image_url})", image_url
     except Exception as exc:
@@ -1548,6 +1655,7 @@ def generate_video_reply(prompt, uid, chat_id, settings_row, prefs, input_refere
         video_name = f"{uid}_{video_id}{safe_ext}"
         video_path = VIDEO_DIR / video_name
         video_path.write_bytes(video_bytes)
+        record_media_file(uid, chat_id, "video", video_name, video_path)
         video_url = f"/api/videos/{urllib.parse.quote(video_name)}"
         return f"Here is your generated video.\n\n[Download generated video]({video_url})", video_url
     except Exception as exc:
@@ -1700,9 +1808,12 @@ class Handler(BaseHTTPRequestHandler):
         if self.path == "/api/models":
             return self._json({"models": ollama_models()})
         if self.path.startswith("/api/tts/audio/"):
+            uid = self._require_auth()
+            if not uid:
+                return
             aid = self.path.rsplit("/", 1)[-1]
             conn = db_conn(); row = conn.execute("SELECT * FROM audio_files WHERE id=?", (aid,)).fetchone(); conn.close()
-            if not row:
+            if not row or row["user_id"] != uid:
                 return self._json({"error": "not found"}, 404)
             p = Path(row["local_path"])
             if not p.exists():
@@ -1716,8 +1827,10 @@ class Handler(BaseHTTPRequestHandler):
             if not uid:
                 return
             iid = self.path.rsplit("/", 1)[-1]
-            safe_name = os.path.basename(iid)
-            image_path = IMAGE_DIR / safe_name
+            safe_filename = os.path.basename(iid)
+            if not media_file_allowed(uid, "image", safe_filename):
+                return self._json({"error": "not found"}, 404)
+            image_path = IMAGE_DIR / safe_filename
             if not image_path.exists() or not image_path.is_file():
                 return self._json({"error": "not found"}, 404)
             self._set_headers(200, mimetypes.guess_type(str(image_path))[0] or "application/octet-stream")
@@ -1729,8 +1842,10 @@ class Handler(BaseHTTPRequestHandler):
             if not uid:
                 return
             vid = self.path.rsplit("/", 1)[-1]
-            safe_name = os.path.basename(vid)
-            video_path = VIDEO_DIR / safe_name
+            safe_filename = os.path.basename(vid)
+            if not media_file_allowed(uid, "video", safe_filename):
+                return self._json({"error": "not found"}, 404)
+            video_path = VIDEO_DIR / safe_filename
             if not video_path.exists() or not video_path.is_file():
                 return self._json({"error": "not found"}, 404)
             self._set_headers(200, mimetypes.guess_type(str(video_path))[0] or "application/octet-stream")
@@ -1793,6 +1908,8 @@ class Handler(BaseHTTPRequestHandler):
         if self.path == "/api/logs/download":
             uid = self._require_auth();
             if not uid: return
+            if not require_admin(uid):
+                return self._json({"error": "admin access required"}, 403)
             target = LOG_DIR / "events.log"
             if not target.exists():
                 return self._json({"error": "log file unavailable"}, 404)
@@ -1801,14 +1918,15 @@ class Handler(BaseHTTPRequestHandler):
             self._set_headers(200, "text/plain; charset=utf-8")
             self.send_header("Content-Disposition", f'attachment; filename="{filename}"')
             self.end_headers()
-            self.wfile.write(target.read_bytes())
+            raw_log = target.read_text(encoding="utf-8", errors="replace")
+            self.wfile.write(redact_sensitive_text(raw_log).encode("utf-8"))
             log_interaction("log.download", "user downloaded diagnostic log", user_id=uid)
             return
         if self.path == "/api/settings":
             uid = self._require_auth();
             if not uid: return
             conn = db_conn(); row = conn.execute("SELECT * FROM app_settings WHERE user_id=?", (uid,)).fetchone(); conn.close()
-            return self._json({"settings": dict(row) if row else {"default_memory_mode": "auto", "stt_provider": "disabled", "tts_provider": "disabled", "tts_format": "wav", "preferences_json": "{}"}})
+            return self._json({"settings": settings_for_response(row)})
         if self.path.startswith("/api/tts/voices"):
             uid = self._require_auth();
             if not uid: return
@@ -1849,9 +1967,13 @@ class Handler(BaseHTTPRequestHandler):
             body = self._read_json(); username = body.get("username", "").strip(); password = body.get("password", "")
             if not username or not password: return self._json({"error": "username/password required"}, 400)
             conn = db_conn()
+            user_count = conn.execute("SELECT COUNT(*) AS c FROM users").fetchone()["c"]
+            admin_count = conn.execute("SELECT COUNT(*) AS c FROM users WHERE COALESCE(is_admin,0)=1").fetchone()["c"]
+            if admin_count and not ALLOW_PUBLIC_SIGNUP:
+                conn.close(); return self._json({"error": "Account creation is disabled after setup."}, 403)
             try:
                 uid = secrets.token_hex(8)
-                conn.execute("INSERT INTO users(id,username,password_hash,created_at) VALUES (?,?,?,?)", (uid, username, hash_password(password), now_ts()))
+                conn.execute("INSERT INTO users(id,username,password_hash,is_admin,created_at) VALUES (?,?,?,?,?)", (uid, username, hash_password(password), 1 if user_count == 0 else 0, now_ts()))
                 conn.execute("INSERT INTO app_settings(user_id) VALUES (?)", (uid,))
                 conn.commit()
             except sqlite3.IntegrityError:
@@ -2187,8 +2309,15 @@ class Handler(BaseHTTPRequestHandler):
             b = self._read_json()
             conn = db_conn()
             conn.execute("INSERT INTO app_settings(user_id) VALUES(?) ON CONFLICT(user_id) DO NOTHING", (uid,))
+            existing = conn.execute("SELECT openai_api_key FROM app_settings WHERE user_id=?", (uid,)).fetchone()
+            existing_key = existing["openai_api_key"] if existing else None
+            submitted_key = b.get("openai_api_key")
+            if submitted_key is None or submitted_key == "" or is_masked_secret(submitted_key):
+                openai_api_key = existing_key
+            else:
+                openai_api_key = submitted_key
             conn.execute("UPDATE app_settings SET global_default_model=?, default_memory_mode=?, stt_provider=?, tts_provider=?, tts_format=?, openai_api_key=?, onboarding_done=?, preferences_json=? WHERE user_id=?", (
-                b.get("global_default_model"), b.get("default_memory_mode","auto"), b.get("stt_provider","disabled"), b.get("tts_provider","disabled"), b.get("tts_format","wav"), b.get("openai_api_key"), int(bool(b.get("onboarding_done"))), b.get("preferences_json", "{}"), uid
+                b.get("global_default_model"), b.get("default_memory_mode","auto"), b.get("stt_provider","disabled"), b.get("tts_provider","disabled"), b.get("tts_format","wav"), openai_api_key, int(bool(b.get("onboarding_done"))), b.get("preferences_json", "{}"), uid
             ))
             conn.commit(); conn.close(); return self._json({"ok": True})
         if self.path.startswith("/api/memory/"):

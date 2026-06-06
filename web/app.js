@@ -2402,7 +2402,7 @@ function settingsPanel() {
       el('label', { textContent: 'Timezone' }),
       el('select', { class: 'chip-select', onchange: (e) => setVal('user_timezone', e.target.value) }, ['local', 'UTC', 'America/New_York', 'America/Los_Angeles'].map((x) => el('option', { value: x, textContent: x, selected: x === state.settings.user_timezone }))),
       el('label', { textContent: 'OpenAI API key' }),
-      el('input', { class: 'search-input', placeholder: 'sk-...', value: state.settings.openai_api_key, oninput: (e) => setVal('openai_api_key', e.target.value) }),
+      el('input', { class: 'search-input', placeholder: 'sk-...', value: state.settings.openai_api_key, autocomplete: 'off', spellcheck: false, oninput: (e) => setVal('openai_api_key', e.target.value) }),
     ],
     Personas: [
       el('div', { class: 'persona-card personas-default-prompt' }, [
