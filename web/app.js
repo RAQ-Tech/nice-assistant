@@ -73,6 +73,8 @@ const state = {
   ttsVoicesLoading: false,
   ttsVoicesError: '',
   ttsVoicesLoadedKey: '',
+  providerChecks: {},
+  providerChecksRunning: {},
   backupItems: [],
   backupsLoaded: false,
   backupsLoading: false,
@@ -171,6 +173,21 @@ const STT_LANGUAGES = [
 ];
 const OPENAI_TTS_MODELS = ['gpt-4o-mini-tts', 'gpt-4o-audio-preview'];
 const OPENAI_TTS_VOICES = ['alloy', 'ash', 'ballad', 'coral', 'echo', 'fable', 'nova', 'onyx', 'sage', 'shimmer'];
+const PROVIDER_CHECKS = [
+  ['ollama', 'Ollama'],
+  ['openai', 'OpenAI'],
+  ['kokoro', 'Kokoro'],
+  ['automatic1111', 'Automatic1111'],
+  ['comfyui', 'ComfyUI'],
+];
+const PROVIDER_STATUS_LABELS = {
+  ready: 'Ready',
+  missing: 'Missing',
+  invalid: 'Invalid',
+  unreachable: 'Unreachable',
+  failed: 'Failed',
+  error: 'Error',
+};
 
 function providerSettingKey(baseKey, provider) {
   const activeProvider = provider || state.settings?.tts_provider || 'disabled';
@@ -550,6 +567,82 @@ async function api(path, opts = {}) {
     throw new Error(j.error || t || r.status);
   }
   return j;
+}
+
+function providerLabel(provider) {
+  return PROVIDER_CHECKS.find(([key]) => key === provider)?.[1] || provider;
+}
+
+function providerStatusLabel(check) {
+  if (!check) return 'Not checked';
+  return PROVIDER_STATUS_LABELS[check.status] || (check.ok ? 'Ready' : 'Error');
+}
+
+function providerStatusClass(provider) {
+  if (state.providerChecksRunning[provider]) return 'checking';
+  const check = state.providerChecks[provider];
+  if (!check) return 'idle';
+  return check.ok ? 'ok' : 'fail';
+}
+
+function providerStatusText(provider) {
+  if (state.providerChecksRunning[provider]) return 'Testing...';
+  return providerStatusLabel(state.providerChecks[provider]);
+}
+
+async function testProviderConnection(provider) {
+  if (!state.settings) return;
+  state.providerChecksRunning = { ...state.providerChecksRunning, [provider]: true };
+  render();
+  try {
+    const result = await api('/api/providers/test', {
+      method: 'POST',
+      body: JSON.stringify({ provider, settings: settingsPayload(state.settings) }),
+    });
+    state.providerChecks = { ...state.providerChecks, [provider]: result };
+  } catch (e) {
+    state.providerChecks = {
+      ...state.providerChecks,
+      [provider]: {
+        ok: false,
+        provider,
+        status: 'error',
+        message: e.message || `${providerLabel(provider)} test failed.`,
+        detail: '',
+        checkedAt: Math.floor(Date.now() / 1000),
+      },
+    };
+  } finally {
+    state.providerChecksRunning = { ...state.providerChecksRunning, [provider]: false };
+    render();
+  }
+}
+
+function providerCheckControl(provider, label = providerLabel(provider)) {
+  const check = state.providerChecks[provider];
+  const running = Boolean(state.providerChecksRunning[provider]);
+  const detail = [check?.message, check?.detail].filter(Boolean).join(' ');
+  return el('div', { class: 'provider-check-row' }, [
+    el('button', {
+      class: 'pill-btn provider-check-btn',
+      textContent: running ? `Testing ${label}...` : `Test ${label}`,
+      disabled: running,
+      onclick: () => testProviderConnection(provider),
+    }),
+    el('div', { class: 'provider-check-result' }, [
+      el('span', { class: `provider-status ${providerStatusClass(provider)}`, textContent: providerStatusText(provider) }),
+      detail ? el('span', { class: 'provider-check-message', textContent: detail }) : null,
+    ]),
+  ]);
+}
+
+function providerReadinessPanel(compact = false) {
+  return el('div', { class: `provider-readiness-panel persona-card ${compact ? 'compact' : ''}` }, [
+    el('div', { class: 'persona-card-header' }, [
+      el('strong', { textContent: 'Provider readiness' }),
+    ]),
+    ...PROVIDER_CHECKS.map(([provider, label]) => providerCheckControl(provider, label)),
+  ]);
 }
 
 async function fetchAdminBackups(force = false) {
@@ -2349,6 +2442,7 @@ function settingsPanel() {
       el('label', { textContent: 'Default model' }),
       el('select', { class: 'chip-select', onchange: (e) => setVal('global_default_model', e.target.value) },
         [el('option', { value: '', textContent: 'Auto' }), ...state.models.map((m) => el('option', { value: m, textContent: m, selected: m === state.settings.global_default_model }))]),
+      providerReadinessPanel(),
       el('label', { class: 'checkbox-row' }, [
         el('input', { type: 'checkbox', checked: Boolean(state.settings.general_show_system_messages), onchange: (e) => {
           setVal('general_show_system_messages', e.target.checked);
@@ -2397,6 +2491,7 @@ function settingsPanel() {
           oninput: (e) => setVal('tts_local_base_url', e.target.value),
         }),
         el('div', { class: 'meta', textContent: 'Leave blank to use server default KOKORO_BASE_URL (or http://127.0.0.1:8880).' }),
+        providerCheckControl('kokoro', 'Kokoro'),
         el('label', { textContent: 'Voice filters' }),
         el('div', { class: 'chips' }, [
           ...['american', 'british', 'other'].map((region) => el('label', { class: 'checkbox-row' }, [
@@ -2439,6 +2534,7 @@ function settingsPanel() {
         el('input', { type: 'number', min: 0.25, max: 4, step: 0.05, class: 'search-input', value: providerSettingValue('tts_speed', 'local'), oninput: (e) => setProviderSetting('tts_speed', e.target.value || '1', 'local') }),
       ] : []),
       ...(state.settings.tts_provider === 'openai' ? [
+        providerCheckControl('openai', 'OpenAI'),
         el('label', { textContent: 'Default voice' }),
         el('select', { class: 'chip-select', onchange: (e) => setProviderSetting('tts_voice', e.target.value, 'openai') }, OPENAI_TTS_VOICES.map((x) => el('option', { value: x, textContent: x, selected: x === providerSettingValue('tts_voice', 'openai') }))),
         el('label', { textContent: 'Default TTS model' }),
@@ -2450,6 +2546,7 @@ function settingsPanel() {
     STT: [
       el('label', { textContent: 'Provider' }),
       el('select', { class: 'chip-select', onchange: (e) => setVal('stt_provider', e.target.value) }, ['disabled', 'openai', 'local'].map((x) => el('option', { value: x, textContent: x, selected: x === state.settings.stt_provider }))),
+      ...(state.settings.stt_provider === 'openai' ? [providerCheckControl('openai', 'OpenAI')] : []),
       el('label', { textContent: 'Language' }),
       el('select', { class: 'chip-select', onchange: (e) => setVal('stt_language', e.target.value) }, STT_LANGUAGES.map((x) => el('option', { value: x.value, textContent: x.label, selected: x.value === state.settings.stt_language }))),
       el('label', { class: 'checkbox-row' }, [
@@ -2464,6 +2561,7 @@ function settingsPanel() {
         el('input', { type: 'checkbox', checked: Boolean(state.settings.image_prompt_generation), onchange: (e) => setVal('image_prompt_generation', e.target.checked) }),
         'Enable model-assisted image prompt generation',
       ]),
+      ...(state.settings.image_provider === 'openai' ? [providerCheckControl('openai', 'OpenAI')] : []),
       ...(state.settings.image_provider === 'local' ? [
         el('label', { textContent: 'Local backend' }),
         el('select', {
@@ -2490,6 +2588,10 @@ function settingsPanel() {
           oninput: (e) => setVal('image_local_api_auth', e.target.value),
         }),
         el('div', { class: 'meta', textContent: (state.settings.image_local_backend || 'automatic1111') === 'comfyui' ? 'Optional. Provide if your ComfyUI reverse proxy requires basic auth.' : 'Optional. Use when webui runs with --api-auth username:password.' }),
+        el('div', { class: 'provider-check-grid' }, [
+          providerCheckControl('automatic1111', 'Automatic1111'),
+          providerCheckControl('comfyui', 'ComfyUI'),
+        ]),
         el('label', { textContent: 'Model checkpoint' }),
         el('input', { class: 'search-input', value: state.settings.image_local_model || '', placeholder: 'checkpoint filename or title', oninput: (e) => setVal('image_local_model', e.target.value) }),
         el('label', { textContent: 'Sampling method' }),
@@ -2532,6 +2634,7 @@ function settingsPanel() {
     'Video Generation': [
       el('label', { textContent: 'Provider' }),
       el('select', { class: 'chip-select', onchange: (e) => setVal('video_provider', e.target.value) }, ['disabled', 'openai'].map((x) => el('option', { value: x, textContent: x, selected: x === state.settings.video_provider }))),
+      ...(state.settings.video_provider === 'openai' ? [providerCheckControl('openai', 'OpenAI')] : []),
       el('label', { textContent: 'Model' }),
       el('select', {
         class: 'chip-select',
@@ -2601,6 +2704,7 @@ function settingsPanel() {
       el('select', { class: 'chip-select', onchange: (e) => setVal('user_timezone', e.target.value) }, ['local', 'UTC', 'America/New_York', 'America/Los_Angeles'].map((x) => el('option', { value: x, textContent: x, selected: x === state.settings.user_timezone }))),
       el('label', { textContent: 'OpenAI API key' }),
       el('input', { class: 'search-input', placeholder: 'sk-...', value: state.settings.openai_api_key, autocomplete: 'off', spellcheck: false, oninput: (e) => setVal('openai_api_key', e.target.value) }),
+      providerCheckControl('openai', 'OpenAI'),
     ],
     Personas: [
       el('div', { class: 'persona-card personas-default-prompt' }, [
@@ -2659,6 +2763,7 @@ function settingsPanel() {
       el('label', { textContent: 'Default model' }),
       el('select', { class: 'chip-select', onchange: (e) => { setVal('global_default_model', e.target.value); if (!state.activeModelSettingsId) state.activeModelSettingsId = e.target.value; } },
         [el('option', { value: '', textContent: 'Auto' }), ...state.models.map((m) => el('option', { value: m, textContent: m, selected: m === state.settings.global_default_model }))]),
+      providerCheckControl('ollama', 'Ollama'),
       el('label', { textContent: 'Model-specific tuning' }),
       el('select', { class: 'chip-select', value: state.activeModelSettingsId, onchange: (e) => { state.activeModelSettingsId = e.target.value; render(); } },
         [el('option', { value: '', textContent: state.models.length ? 'Select model…' : 'No models found' }), ...state.models.map((m) => el('option', { value: m, textContent: m, selected: m === state.activeModelSettingsId }))]),
@@ -2995,6 +3100,7 @@ function render() {
     el('div', { class: 'modal-card glass' }, [
       el('h3', { textContent: state.personas.length ? 'Choose a persona to start this chat' : 'Set up your first persona' }),
       el('p', { class: 'meta', textContent: state.personas.length ? 'Each chat is locked to one persona once it starts.' : 'Create a workspace and persona once, then your first message will send automatically.' }),
+      (!state.personas.length && state.settings) ? providerReadinessPanel(true) : null,
       state.personas.length ? el('select', {
         class: 'chip-select',
         value: state.newChatPersonaId || state.personas[0]?.id || '',

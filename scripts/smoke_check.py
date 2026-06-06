@@ -97,6 +97,7 @@ def run_smoke_check() -> dict:
                 "DATA_DIR": str(data_dir),
                 "ARCHIVE_DIR": str(archive_dir),
                 "OLLAMA_BASE_URL": "http://127.0.0.1:9",
+                "PROVIDER_TEST_TIMEOUT_SECONDS": "1",
                 "ALLOW_PUBLIC_SIGNUP": "0",
             }
         )
@@ -144,6 +145,19 @@ def run_smoke_check() -> dict:
             assert_status(status, 200, "settings read")
             if payload.get("settings", {}).get("openai_api_key") != "********1234":
                 raise AssertionError("settings read did not mask the OpenAI API key")
+
+            status, payload, _headers = json_request(
+                "POST",
+                base_url,
+                "/api/providers/test",
+                {"provider": "ollama", "settings": settings_payload},
+                cookie=cookie,
+            )
+            assert_status(status, 200, "provider readiness test")
+            if payload.get("ok") is not False or payload.get("status") not in {"unreachable", "failed", "error"}:
+                raise AssertionError(f"provider readiness test did not return a safe unreachable result: {payload}")
+            if "ollama" not in (payload.get("provider") or "").lower():
+                raise AssertionError("provider readiness test did not identify the provider")
 
             status, payload, _headers = json_request(
                 "POST",
@@ -284,6 +298,7 @@ def run_smoke_check() -> dict:
                 "signup": "ok",
                 "login": "ok",
                 "settings_mask": "ok",
+                "provider_readiness": "ok",
                 "blocked_second_signup": "ok",
                 "protected_media": "ok",
                 "admin_backup": "ok",

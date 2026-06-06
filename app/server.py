@@ -38,6 +38,7 @@ DATA_DIR = Path(os.getenv("DATA_DIR", "/data"))
 ARCHIVE_DIR = Path(os.getenv("ARCHIVE_DIR", "/archives"))
 AUDIO_HOT_LIMIT = int(os.getenv("AUDIO_HOT_LIMIT", "200"))
 BACKUP_SNAPSHOT_LIMIT = int(os.getenv("BACKUP_SNAPSHOT_LIMIT", "10"))
+PROVIDER_TEST_TIMEOUT_SECONDS = float(os.getenv("PROVIDER_TEST_TIMEOUT_SECONDS", "10"))
 SESSION_COOKIE = "nice_assistant_session"
 SESSION_TTL_SECONDS = int(os.getenv("SESSION_TTL_SECONDS", "1800"))
 ALLOW_PUBLIC_SIGNUP = os.getenv("ALLOW_PUBLIC_SIGNUP", "0").strip().lower() in {"1", "true", "yes", "on"}
@@ -451,6 +452,7 @@ def redact_sensitive_text(text):
     redacted = re.sub(r"sk-[A-Za-z0-9_-]{8,}", "sk-[REDACTED]", redacted)
     redacted = re.sub(r"(?i)(bearer\s+)[A-Za-z0-9._~+/=-]{8,}", r"\1[REDACTED]", redacted)
     redacted = re.sub(r"(?i)(basic\s+)[A-Za-z0-9+/=]{8,}", r"\1[REDACTED]", redacted)
+    redacted = re.sub(r"(?i)(https?://[^/\s:@]+:)[^@\s/]+@", r"\1[REDACTED]@", redacted)
     labeled_secret_patterns = [
         r"(?i)((?:\"?openai_api_key\"?|\"?image_local_api_auth\"?|\"?api_auth\"?|\"?authorization\"?)\s*[=:]\s*\"?)([^\"\s,;}]+)",
     ]
@@ -2140,6 +2142,197 @@ def load_user_settings_and_prefs(uid):
     return settings, parse_preferences_json(settings["preferences_json"] if settings else "{}")
 
 
+def effective_provider_test_settings(uid, body):
+    settings_row, prefs = load_user_settings_and_prefs(uid)
+    effective = dict(settings_row) if settings_row else {}
+    effective.update(prefs or {})
+
+    incoming = body.get("settings") if isinstance(body, dict) else {}
+    if not isinstance(incoming, dict):
+        return effective
+
+    incoming_prefs = parse_preferences_json(incoming.get("preferences_json"))
+    for key in (
+        "global_default_model",
+        "default_memory_mode",
+        "stt_provider",
+        "tts_provider",
+        "tts_format",
+        "onboarding_done",
+    ):
+        if key in incoming:
+            effective[key] = incoming.get(key)
+
+    submitted_key = incoming.get("openai_api_key")
+    if submitted_key is not None and submitted_key != "" and not is_masked_secret(submitted_key):
+        effective["openai_api_key"] = submitted_key
+
+    effective.update(incoming_prefs)
+    return effective
+
+
+def provider_test_response(provider, ok, status, message, detail=""):
+    return {
+        "ok": bool(ok),
+        "provider": provider,
+        "status": status,
+        "message": message,
+        "detail": redact_sensitive_text(detail or "")[:1000],
+        "checkedAt": now_ts(),
+    }
+
+
+def provider_test_error_detail(exc):
+    if isinstance(exc, urllib.error.HTTPError):
+        try:
+            body = exc.read().decode("utf-8", errors="replace")
+        except Exception:
+            body = ""
+        pieces = [f"HTTP {exc.code}"]
+        if exc.reason:
+            pieces.append(str(exc.reason))
+        if body:
+            pieces.append(body[:500])
+        return redact_sensitive_text(". ".join(pieces))
+    if isinstance(exc, urllib.error.URLError):
+        return redact_sensitive_text(f"Connection failed: {exc.reason}")
+    return redact_sensitive_text(str(exc) or exc.__class__.__name__)
+
+
+def normalize_provider_base_url(raw_url, default_url):
+    candidate = (raw_url or "").strip() or default_url
+    parsed = urllib.parse.urlparse(candidate)
+    if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+        raise ValueError("Provider URL must be a valid http(s) URL")
+    return candidate.rstrip("/")
+
+
+def provider_get_json(url, headers=None, timeout=None):
+    req = urllib.request.Request(url, headers=headers or {}, method="GET")
+    with urllib.request.urlopen(req, timeout=timeout or PROVIDER_TEST_TIMEOUT_SECONDS) as resp:
+        raw = resp.read().decode("utf-8", errors="replace")
+    if not raw.strip():
+        return {}
+    return json.loads(raw)
+
+
+def voice_ids_from_payload(payload):
+    if isinstance(payload, list):
+        return sorted({str(v).strip() for v in payload if str(v).strip()})
+    if isinstance(payload, dict):
+        for key in ("voices", "data", "items"):
+            values = payload.get(key)
+            if not isinstance(values, list):
+                continue
+            voices = []
+            for value in values:
+                if isinstance(value, str):
+                    voices.append(value.strip())
+                elif isinstance(value, dict):
+                    voices.append(str(value.get("id") or value.get("name") or "").strip())
+            return sorted({voice for voice in voices if voice})
+    return []
+
+
+def check_ollama_provider_readiness(_settings):
+    base_url = normalize_provider_base_url(OLLAMA_BASE_URL, OLLAMA_BASE_URL)
+    data = provider_get_json(f"{base_url}/api/tags")
+    models = [m.get("name") for m in data.get("models", []) if isinstance(m, dict) and m.get("name")] if isinstance(data, dict) else []
+    detail = f"{len(models)} model(s) available." if models else "No models were returned."
+    return provider_test_response("ollama", True, "ready", "Ollama is reachable.", detail)
+
+
+def check_openai_provider_readiness(settings):
+    api_key = str(settings.get("openai_api_key") or "").strip()
+    if not api_key or is_masked_secret(api_key):
+        return provider_test_response("openai", False, "missing", "OpenAI API key is not configured.")
+    data = _openai_get_json("https://api.openai.com/v1/models", api_key, timeout=PROVIDER_TEST_TIMEOUT_SECONDS)
+    models = data.get("data", []) if isinstance(data, dict) else []
+    detail = f"{len(models)} model(s) visible." if isinstance(models, list) else "Models endpoint returned data."
+    return provider_test_response("openai", True, "ready", "OpenAI is reachable.", detail)
+
+
+def check_kokoro_provider_readiness(settings):
+    base_url = normalize_provider_base_url(settings.get("tts_local_base_url"), os.getenv("KOKORO_BASE_URL", "http://127.0.0.1:8880"))
+    payload = provider_get_json(f"{base_url}/v1/audio/voices")
+    voices = voice_ids_from_payload(payload)
+    detail = f"{len(voices)} voice(s) available." if voices else "Voices endpoint returned no voices."
+    return provider_test_response("kokoro", True, "ready", "Kokoro is reachable.", detail)
+
+
+def check_automatic1111_provider_readiness(settings):
+    base_url = normalize_provider_base_url(settings.get("image_local_base_url"), AUTOMATIC1111_BASE_URL)
+    provider_get_json(
+        f"{base_url}/sdapi/v1/options",
+        headers=_auth_headers_from_string(settings.get("image_local_api_auth")),
+    )
+    return provider_test_response(
+        "automatic1111",
+        True,
+        "ready",
+        "Automatic1111 is reachable.",
+        "Stable Diffusion WebUI API options endpoint responded.",
+    )
+
+
+def check_comfyui_provider_readiness(settings):
+    base_url = normalize_provider_base_url(settings.get("image_local_base_url"), COMFYUI_BASE_URL)
+    provider_get_json(
+        f"{base_url}/system_stats",
+        headers=_auth_headers_from_string(settings.get("image_local_api_auth")),
+    )
+    return provider_test_response("comfyui", True, "ready", "ComfyUI is reachable.", "System stats endpoint responded.")
+
+
+PROVIDER_READINESS_TESTS = {
+    "ollama": check_ollama_provider_readiness,
+    "openai": check_openai_provider_readiness,
+    "kokoro": check_kokoro_provider_readiness,
+    "automatic1111": check_automatic1111_provider_readiness,
+    "a1111": check_automatic1111_provider_readiness,
+    "comfyui": check_comfyui_provider_readiness,
+}
+
+
+PROVIDER_READINESS_LABELS = {
+    "ollama": "Ollama",
+    "openai": "OpenAI",
+    "kokoro": "Kokoro",
+    "automatic1111": "Automatic1111",
+    "a1111": "Automatic1111",
+    "comfyui": "ComfyUI",
+}
+
+
+def run_provider_readiness_test(uid, provider, body):
+    provider_key = str(provider or "").strip().lower()
+    tester = PROVIDER_READINESS_TESTS.get(provider_key)
+    if not tester:
+        return None
+    canonical_provider = "automatic1111" if provider_key == "a1111" else provider_key
+    label = PROVIDER_READINESS_LABELS.get(provider_key, canonical_provider)
+    settings = effective_provider_test_settings(uid, body if isinstance(body, dict) else {})
+    try:
+        result = tester(settings)
+    except ValueError as exc:
+        result = provider_test_response(canonical_provider, False, "invalid", f"{label} configuration is invalid.", str(exc))
+    except urllib.error.HTTPError as exc:
+        result = provider_test_response(canonical_provider, False, "failed", f"{label} responded with an error.", provider_test_error_detail(exc))
+    except urllib.error.URLError as exc:
+        result = provider_test_response(canonical_provider, False, "unreachable", f"{label} is not reachable.", provider_test_error_detail(exc))
+    except Exception as exc:  # noqa: BLE001 - return safe diagnostics for test connection UI
+        result = provider_test_response(canonical_provider, False, "error", f"{label} test failed.", provider_test_error_detail(exc))
+    log_interaction(
+        "provider.test",
+        "provider readiness checked",
+        user_id=uid,
+        provider=canonical_provider,
+        ok=result.get("ok"),
+        status=result.get("status"),
+    )
+    return result
+
+
 def user_workspace_row(conn, uid, workspace_id):
     if not workspace_id:
         return None
@@ -2930,6 +3123,13 @@ class Handler(BaseHTTPRequestHandler):
             details = b.get("details") if isinstance(b.get("details"), dict) else {}
             log_interaction(event_type, message, user_id=uid, **details)
             return self._json({"ok": True})
+        if self.path == "/api/providers/test":
+            b = self._read_json() or {}
+            provider = str(b.get("provider") or "").strip().lower()
+            result = run_provider_readiness_test(uid, provider, b)
+            if not result:
+                return self._json({"error": "unknown provider"}, 400)
+            return self._json(result)
         if self.path == "/api/admin/backups":
             if not require_admin(uid):
                 return self._json({"error": "admin access required"}, 403)

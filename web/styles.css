@@ -626,6 +626,84 @@ button, input, select, textarea {
   gap: .4rem;
 }
 
+.provider-readiness-panel {
+  gap: .55rem;
+}
+
+.provider-readiness-panel.compact {
+  padding: .6rem;
+  max-height: min(44vh, 360px);
+  overflow: auto;
+}
+
+.provider-check-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+  gap: .45rem;
+  min-width: 0;
+}
+
+.provider-check-row {
+  display: flex;
+  align-items: flex-start;
+  gap: .55rem;
+  flex-wrap: wrap;
+  min-width: 0;
+  padding: .45rem;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: rgba(20, 36, 52, 0.32);
+}
+
+.provider-check-btn {
+  flex: 0 0 auto;
+  min-width: 150px;
+}
+
+.provider-check-result {
+  flex: 1 1 220px;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: .25rem;
+}
+
+.provider-status {
+  width: fit-content;
+  max-width: 100%;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: .18rem .5rem;
+  font-size: .78rem;
+  line-height: 1.25;
+  color: var(--text-dim);
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.provider-status.ok {
+  border-color: rgba(117, 255, 201, 0.45);
+  color: #c6ffe8;
+  background: rgba(25, 94, 70, 0.28);
+}
+
+.provider-status.fail {
+  border-color: rgba(255, 121, 152, 0.45);
+  color: #ffd0dc;
+  background: rgba(104, 26, 49, 0.35);
+}
+
+.provider-status.checking {
+  border-color: rgba(66, 232, 255, 0.48);
+  color: var(--accent);
+  background: var(--accent-soft);
+}
+
+.provider-check-message {
+  color: var(--text-dim);
+  font-size: .84rem;
+  overflow-wrap: anywhere;
+}
+
 .persona-gender-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
@@ -1048,6 +1126,19 @@ button, input, select, textarea {
 
   .manager-row .chips > * {
     flex: 1 1 auto;
+  }
+
+  .provider-check-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .provider-check-btn {
+    width: 100%;
+    min-width: 0;
+  }
+
+  .provider-check-result {
+    flex: 1 1 100%;
   }
 
   .modal-backdrop {

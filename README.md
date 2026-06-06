@@ -28,6 +28,7 @@ When this repository gets new commits on `main`, the GitHub Actions workflow pub
 - `ARCHIVE_DIR=/archives`
 - `AUDIO_HOT_LIMIT=200`
 - `BACKUP_SNAPSHOT_LIMIT=10`
+- `PROVIDER_TEST_TIMEOUT_SECONDS=10`
 - `PROJECT_ROOT=/data/project`
 - `SYNC_PROJECT_ON_START=1` (set to `0` to keep local edits and skip overwrite from image)
 - `AUTOMATIC1111_BASE_URL=http://127.0.0.1:7860` (default local image endpoint for `image_provider=local`)
@@ -49,6 +50,7 @@ When this repository gets new commits on `main`, the GitHub Actions workflow pub
 - State indicator (`Listening`, `Thinking`, `Speaking`)
 - STT/TTS provider settings in UI (disabled by default)
 - OpenAI STT/TTS hooks (optional) + local provider placeholders
+- Provider readiness checks in Settings for Ollama, OpenAI, Kokoro, Automatic1111, and ComfyUI
 - Local image generation through Automatic1111 (`/sdapi/v1/txt2img`) or ComfyUI (`/prompt`, `/history/{prompt_id}`, `/view`) with per-user endpoint override in Settings
 - ffmpeg included for audio conversion
 - Audio hot-cache rotation into archives (move, do not delete)
@@ -117,6 +119,7 @@ For iPhone/Android browsers, microphone capture usually requires **HTTPS** (or l
 
 - `GET /health`
 - `GET /api/models`
+- `POST /api/providers/test`
 - `POST /api/users`, `POST /api/login`
 - `GET/POST /api/admin/backups`, `GET /api/admin/backups/:name/download`, `DELETE /api/admin/backups/:name`
 - `POST/GET /api/workspaces`, `POST/GET /api/personas`
