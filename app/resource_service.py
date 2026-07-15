@@ -241,6 +241,30 @@ class ResourceService:
             raise NotFoundError("missing file")
         return path
 
+    def list_media(self, user_id: str, *, kind: str | None = None, limit: int = 100) -> list[dict]:
+        with self._uow() as uow:
+            rows = uow.repo.media_items(user_id, kind=kind, limit=limit)
+            items = []
+            for row in rows:
+                path = Path(row.local_path)
+                try:
+                    available = path.is_file() and path.stat().st_size > 0
+                except OSError:
+                    available = False
+                if not available:
+                    continue
+                items.append(
+                    {
+                        "id": row.id,
+                        "chat_id": row.chat_id,
+                        "kind": row.kind,
+                        "filename": row.filename,
+                        "content_url": f"/api/v1/media/{row.id}",
+                        "created_at": row.created_at,
+                    }
+                )
+            return items
+
     def legacy_media_path(self, user_id: str, kind: str, filename: str) -> Path:
         safe = Path(filename).name
         if safe != filename:

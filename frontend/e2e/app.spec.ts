@@ -69,6 +69,14 @@ const baseMediaResource = {
   features: ['text_to_image'], estimated_vram_mb: 6500, estimated_load_seconds: 3,
   default_settings: { steps: 24 }, notes: '', compatible_model_ids: [], revision: 1, created_at: 100, updated_at: 100,
 };
+const visualIdentityProfile = {
+  id: 'identity-1', persona_id: persona.id, status: 'draft', consent_status: 'granted',
+  appearance_description: 'Silver hair and blue eyes.', acceptance_threshold: 0.78,
+  max_generation_attempts: 2, failure_policy: 'block_claim', revision: 1,
+  consent_granted_at: 100, consent_withdrawn_at: null, created_at: 100, updated_at: 100,
+  approved_reference_count: 0, generation_workflow_configured: false,
+  verification_configured: false, validation_ready: false, references: [],
+};
 
 test('login completes the first-run workspace and persona journey', async ({ page }) => {
   let authenticated = false;
@@ -209,6 +217,26 @@ test('form controls and native dropdown options stay legible in both themes', as
     unclassedInput: { color: 'rgb(21, 48, 73)', backgroundColor: 'rgb(247, 251, 255)' },
     option: { color: 'rgb(21, 48, 73)', backgroundColor: 'rgb(255, 255, 255)' },
   });
+});
+
+test('visual identity guides reference setup without exposing internal media IDs', async ({ page }) => {
+  await installAuthenticatedFixture(page);
+  await page.goto('/#/settings/Visual%20Identity');
+  await expect(page.getByRole('heading', { name: 'Visual Identity' })).toBeVisible();
+  await expect(page.getByText('Keep each persona visually recognizable')).toBeVisible();
+  await expect(page.getByText('Reference-aware generation', { exact: true })).toBeVisible();
+  await expect(page.getByText('add an identity-aware ComfyUI workflow in Media Catalog', { exact: false })).toBeVisible();
+  await expect(page.getByText('Protected media ID')).toHaveCount(0);
+  await expect(page.getByTestId('identity-advanced-settings')).not.toHaveAttribute('open', '');
+
+  await page.locator('.identity-attestation input').check();
+  await page.getByTestId('identity-reference-gallery-open').click();
+  await expect(page.getByTestId('identity-media-picker-reference')).toBeVisible();
+  await expect(page.getByAltText('Generated image available for selection')).toHaveAttribute(
+    'src',
+    '/api/v1/media/media-1',
+  );
+  await expect(page.getByRole('button', { name: 'Use as reference' })).toBeEnabled();
 });
 
 test('model media requests remain pending until the user approves them', async ({ page }) => {
@@ -374,6 +402,21 @@ async function installAuthenticatedFixture(page: Page, options: { holdMedia?: bo
         requirements: request.postDataJSON(), selected_resources: [mediaResource], estimated_vram_mb: 6500,
         explanation: { summary: 'Selected deterministically.', selected: [], warnings: [], rejected: [] },
         block: null, created_at: null,
+      });
+    } else if (path === '/api/v1/identity-validation/settings' && method === 'GET') {
+      await json(route, { provider: 'disabled', base_url: '', api_key: '', timeout_seconds: 15 });
+    } else if (path === '/api/v1/personas/persona-1/visual-identity' && method === 'GET') {
+      await json(route, visualIdentityProfile);
+    } else if (path === '/api/v1/personas/persona-1/visual-identity/validations' && method === 'GET') {
+      await json(route, { items: [] });
+    } else if (path === '/api/v1/personas/persona-1/visual-identity/history' && method === 'GET') {
+      await json(route, { items: [] });
+    } else if (path === '/api/v1/media' && method === 'GET') {
+      await json(route, {
+        items: [{
+          id: 'media-1', chat_id: 'chat-1', kind: 'image', filename: 'generated.png',
+          content_url: '/api/v1/media/media-1', created_at: 100,
+        }],
       });
     } else if (path === '/api/v1/memories' && method === 'GET') await json(route, { items: [memory] });
     else if (path === '/api/v1/capability-requests' && method === 'GET') await json(route, { items: [] });

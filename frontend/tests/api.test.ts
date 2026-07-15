@@ -77,6 +77,16 @@ describe('ApiClient', () => {
     expect(new Headers(init?.headers).has('Content-Type')).toBe(false);
   });
 
+  it('lists owner-protected media for visual pickers without exposing filesystem paths', async () => {
+    const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(new Response(JSON.stringify({ items: [] }), {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' },
+    }));
+    vi.stubGlobal('fetch', fetchMock);
+    await new ApiClient().mediaLibrary('image', 50);
+    expect(fetchMock.mock.calls[0]?.[0]).toBe('/api/v1/media?kind=image&limit=50');
+  });
+
   it('submits typed protected-media image edits', async () => {
     const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(new Response(JSON.stringify({ job_id: 'job-1' }), {
       status: 202,

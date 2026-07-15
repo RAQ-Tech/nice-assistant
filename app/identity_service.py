@@ -33,6 +33,22 @@ def _is_masked(value: str | None) -> bool:
     return not value or str(value).startswith(MASKED_SECRET)
 
 
+def _json_list(value: str | None) -> list:
+    try:
+        parsed = json.loads(value or "[]")
+    except (TypeError, ValueError):
+        return []
+    return parsed if isinstance(parsed, list) else []
+
+
+def _json_object(value: str | None) -> dict:
+    try:
+        parsed = json.loads(value or "{}")
+    except (TypeError, ValueError):
+        return {}
+    return parsed if isinstance(parsed, dict) else {}
+
+
 class IdentityService:
     def __init__(self, session_factory, secret_store, config, jobs, providers: dict, logger, provider_url_policy=None):
         self.session_factory = session_factory
@@ -111,7 +127,12 @@ class IdentityService:
         with self._uow() as uow:
             identity = self._identity(uow.repo, user_id, persona_id, create=False)
             if not identity:
-                return self._empty_profile(persona_id)
+                generation_configured, verification_configured = self._configuration_readiness(uow.repo, user_id)
+                return self._empty_profile(
+                    persona_id,
+                    generation_workflow_configured=generation_configured,
+                    verification_configured=verification_configured,
+                )
             return self._profile_response(uow.repo, identity)
 
     def save_profile(self, user_id: str, persona_id: str, values: dict) -> dict:
@@ -739,8 +760,8 @@ class IdentityService:
 
     def _profile_response(self, repo, identity) -> dict:
         references = repo.identity_references(identity.user_id, identity.id)
-        settings = repo.identity_settings(identity.user_id)
         approved = sum(row.review_status == "approved" for row in references)
+        generation_workflow_configured, verification_configured = self._configuration_readiness(repo, identity.user_id)
         return {
             "id": identity.id,
             "persona_id": identity.persona_id,
@@ -756,20 +777,52 @@ class IdentityService:
             "created_at": identity.created_at,
             "updated_at": identity.updated_at,
             "approved_reference_count": approved,
+            "generation_workflow_configured": generation_workflow_configured,
+            "verification_configured": verification_configured,
             "validation_ready": bool(
                 identity.status == "active"
                 and identity.consent_status == "granted"
                 and approved
-                and settings
-                and settings.provider != "disabled"
-                and settings.base_url
-                and settings.api_key_encrypted
+                and verification_configured
             ),
             "references": [self._reference_response(row) for row in references],
         }
 
     @staticmethod
-    def _empty_profile(persona_id: str) -> dict:
+    def _configuration_readiness(repo, user_id: str) -> tuple[bool, bool]:
+        settings = repo.identity_settings(user_id)
+        enabled_resources = repo.media_catalog_resources(user_id, enabled=True)
+        enabled_comfy_model_ids = {
+            row.id
+            for row in enabled_resources
+            if row.resource_type == "model"
+            and row.kind == "image"
+            and row.provider_key == "local-image"
+            and row.backend == "comfyui"
+        }
+        compatibility = repo.media_compatibility_map(user_id)
+        generation_workflow_configured = any(
+            row.resource_type == "workflow"
+            and row.kind == "image"
+            and row.provider_key == "local-image"
+            and row.backend == "comfyui"
+            and "identity_control" in _json_list(row.features_json)
+            and bool(_json_object(row.default_settings_json).get("identity_image_bindings"))
+            and bool(compatibility.get(row.id, set()) & enabled_comfy_model_ids)
+            for row in enabled_resources
+        )
+        verification_configured = bool(
+            settings and settings.provider != "disabled" and settings.base_url and settings.api_key_encrypted
+        )
+        return generation_workflow_configured, verification_configured
+
+    @staticmethod
+    def _empty_profile(
+        persona_id: str,
+        *,
+        generation_workflow_configured: bool = False,
+        verification_configured: bool = False,
+    ) -> dict:
         return {
             "id": None,
             "persona_id": persona_id,
@@ -785,6 +838,8 @@ class IdentityService:
             "created_at": None,
             "updated_at": None,
             "approved_reference_count": 0,
+            "generation_workflow_configured": generation_workflow_configured,
+            "verification_configured": verification_configured,
             "validation_ready": False,
             "references": [],
         }

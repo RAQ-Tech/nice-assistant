@@ -125,6 +125,15 @@ and platform foundation below.
     providers remain outside release control. Realtime voice, destructive
     rollback, and visual identity remain explicitly separate acceptance work.
 
+21. **Approachable settings experience — underway.** Step 21A is delivered for
+    Visual Identity: guided reference setup, truthful generation-versus-
+    verification readiness, owner-protected thumbnail pickers, fictional-persona
+    rights language, and progressive disclosure for verifier diagnostics and
+    destructive controls. Step 21B will apply the shared interaction rules to
+    everyday tabs. Step 21C will make the operator tabs understandable without
+    removing their advanced controls. See `docs/settings-experience.md` for the
+    implementation-sized split.
+
 Steps are delivered and reviewed independently. Step 11 cannot select providers
 until a future listening decision is approved. Any future deployment acceptance
 must use the intended LAN hardware and service topology.

@@ -108,6 +108,8 @@ class PersonaIdentityTests(unittest.TestCase):
             persona = self._persona(running)
             profile = running.client.get(f"/api/v1/personas/{persona['id']}/visual-identity").json()
             self.assertEqual(profile["consent_status"], "not_granted")
+            self.assertFalse(profile["generation_workflow_configured"])
+            self.assertFalse(profile["verification_configured"])
             self.assertFalse(profile["validation_ready"])
 
             blocked = running.client.post(
@@ -128,6 +130,7 @@ class PersonaIdentityTests(unittest.TestCase):
             self.assertEqual(running.client.get(reference["content_url"]).status_code, 200)
 
             ready = running.client.get(f"/api/v1/personas/{persona['id']}/visual-identity").json()
+            self.assertTrue(ready["verification_configured"])
             self.assertTrue(ready["validation_ready"])
             backup = running.client.post("/api/v1/admin/backups", json={"include_media": True})
             self.assertEqual(backup.status_code, 200, backup.text)

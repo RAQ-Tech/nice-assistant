@@ -1458,6 +1458,12 @@ class ApplicationRepository:
     def media(self, user_id: str, media_id: str):
         return self.session.scalar(select(MediaFile).where(MediaFile.id == media_id, MediaFile.user_id == user_id))
 
+    def media_items(self, user_id: str, *, kind: str | None = None, limit: int = 100):
+        query = select(MediaFile).where(MediaFile.user_id == user_id)
+        if kind is not None:
+            query = query.where(MediaFile.kind == kind)
+        return self.session.scalars(query.order_by(MediaFile.created_at.desc(), MediaFile.id.desc()).limit(limit)).all()
+
     def media_by_filename(self, user_id: str, kind: str, filename: str):
         return self.session.scalar(
             select(MediaFile)

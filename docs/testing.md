@@ -99,7 +99,10 @@ startup.
   markdown, capability approval/denial state, Task Model settings/audits, and
   media catalog planning, GPU coordination controls/status, and canonical
   multipart identity-reference transport, and memory selection/bulk-action
-  confirmation behavior.
+  confirmation behavior. Visual Identity coverage requires a plain-language
+  readiness view, closed-by-default advanced diagnostics, fictional-persona
+  rights wording, and owner-protected thumbnail selection without opaque media
+  ID entry.
   Direct-LAN client-ID coverage proves that chat does not require the
   secure-context-only `crypto.randomUUID`; Data settings coverage exercises the
   administrator backup verification action and visible restore-drill result.

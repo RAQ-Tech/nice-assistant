@@ -386,6 +386,19 @@ class MediaGenerationAttemptListResponse(BaseModel):
     items: list[MediaGenerationAttemptRepresentation]
 
 
+class MediaLibraryItemRepresentation(BaseModel):
+    id: str
+    chat_id: str | None = None
+    kind: Literal["image", "video"]
+    filename: str
+    content_url: str
+    created_at: int
+
+
+class MediaLibraryListResponse(BaseModel):
+    items: list[MediaLibraryItemRepresentation]
+
+
 class CapabilityDefinitionRepresentation(BaseModel):
     key: str
     tool_name: str
@@ -1366,6 +1379,16 @@ async def transcribe(
 ):
     content = await file.read()
     return services(request).speech.transcribe(context.user_id, file.filename or "audio.webm", content)
+
+
+@router.get("/media", response_model=MediaLibraryListResponse, tags=["media"])
+def media_library(
+    request: Request,
+    kind: Literal["image", "video"] | None = Query(default=None),
+    limit: int = Query(default=100, ge=1, le=200),
+    context: AuthContext = Depends(current_user),
+):
+    return {"items": services(request).resources.list_media(context.user_id, kind=kind, limit=limit)}
 
 
 @router.get("/media/{media_id}", tags=["media"])

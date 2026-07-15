@@ -407,7 +407,7 @@ class MediaCatalogTests(unittest.TestCase):
 
     def test_comfy_workflows_require_executable_inline_content(self):
         with tempfile.TemporaryDirectory() as tmp, TestApp(Path(tmp)) as running:
-            running.create_and_login()
+            user_id = running.create_and_login()
             running.services.providers.media_providers["local-image"] = FakeImageProvider()
             running.client.get("/api/v1/media-catalog")
             model = running.client.post(
@@ -434,6 +434,25 @@ class MediaCatalogTests(unittest.TestCase):
             }
             created = running.client.post("/api/v1/media-catalog/resources", json=workflow)
             self.assertEqual(created.status_code, 201, created.text)
+            self.assertIn(model["id"], created.json()["compatible_model_ids"])
+            self.assertEqual(created.json()["features"], ["identity_control"])
+            self.assertTrue(created.json()["default_settings"]["identity_image_bindings"])
+            workspace = running.client.post("/api/v1/workspaces", json={"name": "Identity readiness"}).json()
+            persona = running.client.post(
+                "/api/v1/personas",
+                json={"workspace_id": workspace["id"], "name": "Ready persona"},
+            ).json()
+            identity_profile = running.client.get(f"/api/v1/personas/{persona['id']}/visual-identity")
+            self.assertEqual(identity_profile.status_code, 200, identity_profile.text)
+            with UnitOfWork(running.services.runtime.session_factory, running.services.runtime.secret_store) as uow:
+                enabled_resources = uow.repo.media_catalog_resources(user_id, enabled=True)
+                self.assertIn(model["id"], [item.id for item in enabled_resources])
+                self.assertIn(created.json()["id"], [item.id for item in enabled_resources])
+                self.assertEqual(
+                    uow.repo.media_resource_compatible_model_ids(created.json()["id"]),
+                    [model["id"]],
+                )
+            self.assertTrue(identity_profile.json()["generation_workflow_configured"])
             plan = running.client.post(
                 "/api/v1/media-catalog/plan-previews",
                 json={

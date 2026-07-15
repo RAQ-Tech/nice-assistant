@@ -42,8 +42,12 @@ npm run frontend:e2e
   normalization, provider checks, Memory v2 review, per-role Task Model controls
   and content-free run diagnostics, media catalog policy/resources/plan preview,
   personas, workspaces, backup operations, and explicit memory bulk actions.
-- `identity_settings_view.ts`: focused verifier configuration, consent,
-  protected reference review/deletion, candidate validation, and audit history.
+- `settings_ui.ts`: shared introductions, progressive advanced disclosure,
+  readiness rows, and form helpers for approachable settings screens.
+- `identity_settings_view.ts`, `identity_settings_components.ts`, and
+  `identity_media_picker.ts`: guided persona reference setup, separate truthful
+  generation/verification readiness, owner-protected thumbnail selection,
+  optional verifier configuration, validation, and audit history.
 - `media.ts`, `recording.ts`, `playback.ts`, and `visualization.ts`: async media
   jobs, push-to-talk transcription, completed-file speech playback, and real
   playback-driven visualization. While a turn or direct media job is active,
@@ -84,7 +88,10 @@ metadata and previews semantic plans; it is not a persona-facing model lab.
 Visual identity remains operator reviewed. Browser state distinguishes profile,
 consent, reference, validation, and claim states; it never converts a provider
 error into a verified badge. Reference uploads use canonical authenticated
-multipart transport and protected image URLs.
+multipart transport and protected image URLs. User-facing selection uses an
+owner-scoped media listing and thumbnails instead of requiring internal media
+IDs. Advanced controls explain that verification evaluates a result but does not
+condition generation.
 
 ## Test boundary
 

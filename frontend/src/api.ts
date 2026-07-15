@@ -12,6 +12,7 @@ import type {
   MediaCatalog,
   MediaCatalogResource,
   MediaCatalogSettings,
+  MediaLibraryItem,
   MediaPlan,
   MediaPlanRequirements,
   IdentityEvent,
@@ -291,6 +292,10 @@ export class ApiClient {
 
   identityValidations(personaId: string): Promise<{ items: IdentityValidation[] }> {
     return this.request(`/personas/${encodeURIComponent(personaId)}/visual-identity/validations`);
+  }
+
+  mediaLibrary(kind: 'image' | 'video' = 'image', limit = 100): Promise<{ items: MediaLibraryItem[] }> {
+    return this.request(`/media?kind=${encodeURIComponent(kind)}&limit=${encodeURIComponent(String(limit))}`);
   }
 
   identityHistory(personaId: string): Promise<{ items: IdentityEvent[] }> {

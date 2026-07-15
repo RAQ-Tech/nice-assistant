@@ -303,7 +303,7 @@ For iPhone/Android browsers, microphone capture usually requires **HTTPS** (or l
 - `GET/PUT /api/v1/admin/resource-coordination`, `POST /api/v1/admin/resource-coordination/check`
 - `GET /api/v1/admin/resource-coordination/events`
 - `POST /api/v1/speech/syntheses`, `POST /api/v1/speech/transcriptions`
-- `GET /api/v1/audio/:id`, `GET /api/v1/media/:id`
+- `GET /api/v1/audio/:id`, `GET /api/v1/media?kind=image`, `GET /api/v1/media/:id`
 - Typed settings, workspace, persona, memory, backup, and diagnostic routes under `/api/v1`
 
 SSE disconnect does not cancel a turn. Turn and direct-job cancellation uses an

@@ -164,13 +164,22 @@ unauthorized. Measure post-job cleanup and restart recovery on the actual target
 hardware, but publish only generalized product outcomes unless a deployment
 owner deliberately approves the underlying details for release.
 
-Visual identity lives under Settings -> Visual Identity. Deploy CompreFace as a
-separate LAN service, create a verification API key there, then store its base
-URL and key in Nice Assistant. The adapter uses stateless two-image verification;
-do not create duplicate persona subjects for this integration. Keep the provider
-disabled until its readiness check succeeds. The default comparison threshold is
-an operator starting point, not a universal identity guarantee, and should be
-reviewed against representative persona references.
+Visual identity lives under Settings -> Visual Identity. Select a persona,
+enable private reference storage, add an uploaded or generated image, and approve
+it. This reference workflow does not require CompreFace. Configure an eligible
+identity-aware ComfyUI workflow in Media Catalog before expecting a reference to
+influence new images; the Visual Identity readiness card reports that boundary
+separately.
+
+CompreFace is an optional separate LAN comparison service. Deploy it only when
+automatic post-generation comparison, retry, or blocking is wanted, create a
+verification API key there, then store its base URL and key under Advanced
+identity settings. The adapter uses stateless two-image verification; do not
+create duplicate persona subjects for this integration. Keep comparison off
+until its readiness check succeeds. The default threshold is an operator
+starting point, not a universal identity guarantee, and should be reviewed
+against representative persona references. Verification cannot improve or
+condition generation.
 
 Identity reference uploads are normalized into `/data/identity_references`.
 Withdrawing consent removes those files and cancels active comparison jobs.

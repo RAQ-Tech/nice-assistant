@@ -77,12 +77,29 @@ class AsgiApiTests(unittest.TestCase):
             )
             media_id = media.id
         self.assertEqual(self.client.get(f"/api/v1/media/{media_id}").content, b"owned-media")
+        media_library = self.client.get("/api/v1/media", params={"kind": "image"})
+        self.assertEqual(media_library.status_code, 200, media_library.text)
+        library_items = media_library.json()["items"]
+        self.assertEqual(len(library_items), 1)
+        created_at = library_items[0].pop("created_at")
+        self.assertIsInstance(created_at, int)
+        self.assertEqual(
+            library_items[0],
+            {
+                "id": media_id,
+                "chat_id": chat["id"],
+                "kind": "image",
+                "filename": "owned.png",
+                "content_url": f"/api/v1/media/{media_id}",
+            },
+        )
 
         owner_cookie = self.client.cookies.get("nice_assistant_session")
         second_id = self.running.create_and_login("second")
         self.assertNotEqual(owner_id, second_id)
         self.assertEqual(self.client.get(f"/api/v1/chats/{chat['id']}").status_code, 404)
         self.assertEqual(self.client.get(f"/api/v1/media/{media_id}").status_code, 404)
+        self.assertEqual(self.client.get("/api/v1/media", params={"kind": "image"}).json(), {"items": []})
         self.client.cookies.set("nice_assistant_session", owner_cookie)
         self.assertEqual(self.client.delete(f"/api/v1/memories/{memory['id']}").status_code, 200)
 
@@ -92,6 +109,7 @@ class AsgiApiTests(unittest.TestCase):
         schema = self.client.get("/api/v1/openapi.json")
         document = schema.json()
         self.assertIn("/api/v1/chats/{chat_id}/turns", document["paths"])
+        self.assertIn("/api/v1/media", document["paths"])
         accepted_schema = document["paths"]["/api/v1/chats/{chat_id}/turns"]["post"]["responses"]["202"]["content"][
             "application/json"
         ]["schema"]

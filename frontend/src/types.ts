@@ -112,8 +112,19 @@ export interface VisualIdentityProfile {
   created_at: number | null;
   updated_at: number | null;
   approved_reference_count: number;
+  generation_workflow_configured: boolean;
+  verification_configured: boolean;
   validation_ready: boolean;
   references: IdentityReference[];
+}
+
+export interface MediaLibraryItem {
+  id: Id;
+  chat_id: Id | null;
+  kind: 'image' | 'video';
+  filename: string;
+  content_url: string;
+  created_at: number;
 }
 
 export interface IdentityValidation {

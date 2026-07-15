@@ -42,16 +42,23 @@ not proof of a real person's legal identity.
 
 Settings -> Visual Identity provides the review workflow:
 
-1. Configure or deliberately disable the separate LAN verifier and check its
-   readiness.
-2. Select a persona, record appearance guidance, and explicitly grant consent.
-3. Upload or copy a protected media image into pending references while attesting
-   the right to use it.
-4. Review and approve, reject, or delete each reference.
-5. Validate an existing protected media ID and inspect the durable result and
-   audit history.
-6. Copy a good generated image into pending references only through an explicit
-   operator action; it is never silently promoted.
+1. Select a persona and enable private visual-identity storage. For a fictional
+   persona this confirms only that the operator created the image or has the
+   right to use it; it does not imply that a real person is granting consent.
+2. Upload an image or choose one from the owner-protected generated-image
+   gallery. Raw database or protected-media IDs are not user-facing inputs.
+3. Review and explicitly approve, reject, or delete each pending reference.
+4. Record stable appearance guidance and configure an identity-aware ComfyUI
+   workflow if new generations should actually use the approved reference.
+5. Optionally configure the separate LAN verifier under Advanced settings when
+   automated comparison, retry, or blocking is wanted.
+6. Optionally choose a generated image from the thumbnail gallery for manual
+   comparison and inspect the durable result and audit history.
+
+The readiness card reports reference approval, reference-aware generation,
+optional comparison, and automatic blocking independently. CompreFace is only a
+stateless verifier: it can compare a result to an approved reference, but it
+cannot improve generation or make an image resemble that reference.
 
 The appearance description is snapshotted into identity-aware plans
 and added to the generation prompt. The approved primary reference is separately
@@ -68,6 +75,7 @@ unavailability is not evidence of a mismatch, so it does not trigger retries.
 
 ## APIs
 
+- `GET /api/v1/media?kind=image` (owner-scoped protected media picker)
 - `GET/PUT /api/v1/identity-validation/settings`
 - `POST /api/v1/identity-validation/check`
 - `GET/PUT /api/v1/personas/{id}/visual-identity`

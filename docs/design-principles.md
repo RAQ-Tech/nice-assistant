@@ -26,3 +26,6 @@
 12. **Identity requires evidence.** Persona appearance guidance and generation
     inputs are not proof of identity. Only consented, reviewed references and a
     real accepted comparison may support a persona identity claim.
+13. **Approachable control.** Settings lead with the operator's goal, show
+    truthful readiness and next actions, prefer recognizable choices over raw
+    IDs, and preserve expert controls through progressive disclosure.
