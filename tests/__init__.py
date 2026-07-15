@@ -1,0 +1,1 @@
+"""Nice Assistant test package."""

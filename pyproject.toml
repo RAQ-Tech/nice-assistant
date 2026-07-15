@@ -1,0 +1,48 @@
+[build-system]
+requires = ["setuptools>=80,<81"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "nice-assistant"
+version = "0.1.0"
+description = "Private-LAN, voice-first assistant"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+  "alembic==1.18.5",
+  "cryptography==49.0.0",
+  "fastapi==0.139.0",
+  "Pillow==11.3.0",
+  "python-multipart==0.0.22",
+  "SQLAlchemy==2.0.51",
+  "uvicorn==0.51.0",
+]
+
+[project.optional-dependencies]
+dev = [
+  "coverage==7.15.1",
+  "httpx==0.28.1",
+  "ruff==0.15.21",
+]
+
+[tool.setuptools.packages.find]
+include = ["app*", "migrations*", "web*"]
+
+[tool.setuptools.package-data]
+web = ["*.css", "*.html", "*.js", "*.svg"]
+
+[tool.ruff]
+target-version = "py311"
+line-length = 120
+
+[tool.ruff.lint]
+select = ["E9", "F63", "F7", "F82"]
+
+[tool.coverage.run]
+branch = true
+source = ["app"]
+
+[tool.coverage.report]
+fail_under = 70
+show_missing = true
+skip_covered = true

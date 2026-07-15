@@ -1,0 +1,32 @@
+{
+  "name": "nice-assistant",
+  "version": "0.1.0",
+  "description": "Private-LAN, voice-first assistant with a typed browser client.",
+  "private": true,
+  "scripts": {
+    "test": "npm run frontend:test && python -m unittest discover -s tests -v",
+    "verify": "python scripts/verify.py",
+    "verify:foundation": "python scripts/verify.py --repeat 3",
+    "smoke": "python scripts/smoke_check.py",
+    "start": "python -u -m app.asgi",
+    "backend:dev": "python -u -m app.asgi",
+    "dev": "vite --config vite.config.ts",
+    "frontend:build": "vite build --config vite.config.ts",
+    "frontend:typecheck": "tsc --noEmit -p tsconfig.json",
+    "frontend:test": "vitest run --config vite.config.ts",
+    "frontend:test:watch": "vitest --config vite.config.ts",
+    "frontend:e2e": "playwright test"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "module",
+  "devDependencies": {
+    "@playwright/test": "1.61.1",
+    "@types/node": "26.1.1",
+    "jsdom": "29.1.1",
+    "typescript": "7.0.2",
+    "vite": "8.1.4",
+    "vitest": "4.1.10"
+  }
+}
