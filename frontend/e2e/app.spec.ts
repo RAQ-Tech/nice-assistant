@@ -189,6 +189,28 @@ test('settings review memory and media use only canonical APIs', async ({ page }
   expect(fixture.requestedPaths.some((path) => path.startsWith('/api/') && !path.startsWith('/api/v1/'))).toBe(false);
 });
 
+test('form controls and native dropdown options stay legible in both themes', async ({ page }) => {
+  await installAuthenticatedFixture(page);
+  await page.goto('/#/settings/General');
+  await expect(page.getByRole('heading', { name: 'General' })).toBeVisible();
+
+  expect(await formControlTheme(page)).toEqual({
+    colorScheme: 'dark',
+    control: { color: 'rgb(231, 242, 255)', backgroundColor: 'rgb(16, 35, 51)' },
+    unclassedInput: { color: 'rgb(231, 242, 255)', backgroundColor: 'rgb(16, 35, 51)' },
+    option: { color: 'rgb(231, 242, 255)', backgroundColor: 'rgb(16, 35, 51)' },
+  });
+
+  await page.locator('.setting-row').filter({ hasText: 'Theme' }).locator('select').selectOption('light');
+  await expect(page.locator('html')).toHaveAttribute('data-theme', 'light');
+  expect(await formControlTheme(page)).toEqual({
+    colorScheme: 'light',
+    control: { color: 'rgb(21, 48, 73)', backgroundColor: 'rgb(247, 251, 255)' },
+    unclassedInput: { color: 'rgb(21, 48, 73)', backgroundColor: 'rgb(247, 251, 255)' },
+    option: { color: 'rgb(21, 48, 73)', backgroundColor: 'rgb(255, 255, 255)' },
+  });
+});
+
 test('model media requests remain pending until the user approves them', async ({ page }) => {
   const chat = {
     id: 'chat-1', workspace_id: workspace.id, persona_id: persona.id, model_override: 'demo', memory_mode: 'saved',
@@ -404,6 +426,32 @@ async function installAuthenticatedFixture(page: Page, options: { holdMedia?: bo
     else await json(route, { error: { code: 404, message: `Unhandled ${method} ${path}` } }, 404);
   });
   return result;
+}
+
+async function formControlTheme(page: Page): Promise<{
+  colorScheme: string;
+  control: { color: string; backgroundColor: string };
+  unclassedInput: { color: string; backgroundColor: string };
+  option: { color: string; backgroundColor: string };
+}> {
+  return page.evaluate(() => {
+    const control = document.querySelector<HTMLSelectElement>('.settings-detail select');
+    const option = control?.querySelector('option');
+    if (!control || !option) throw new Error('expected a settings dropdown with an option');
+    const unclassedInput = document.createElement('input');
+    document.body.append(unclassedInput);
+    const controlStyle = getComputedStyle(control);
+    const inputStyle = getComputedStyle(unclassedInput);
+    const optionStyle = getComputedStyle(option);
+    const result = {
+      colorScheme: getComputedStyle(document.documentElement).colorScheme,
+      control: { color: controlStyle.color, backgroundColor: controlStyle.backgroundColor },
+      unclassedInput: { color: inputStyle.color, backgroundColor: inputStyle.backgroundColor },
+      option: { color: optionStyle.color, backgroundColor: optionStyle.backgroundColor },
+    };
+    unclassedInput.remove();
+    return result;
+  });
 }
 
 interface CapturedTurnBody {

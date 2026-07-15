@@ -108,7 +108,9 @@ startup.
   Playwright waits for and inspects mutation requests rather than inferring a
   completed save from unrelated visible state. Playwright deterministically
   covers onboarding/login, streamed chat, settings, memory review, and media
-  while rejecting legacy API calls. A direct-media journey proves that active
+  while rejecting legacy API calls. It also checks computed input/select and
+  native option colors in both themes so browser-default light controls cannot
+  make dark-theme text unreadable. A direct-media journey proves that active
   work exposes an enabled cancellation control, calls the canonical job DELETE
   endpoint, returns to `idle`, and does not misreport acknowledged cancellation
   as an error.

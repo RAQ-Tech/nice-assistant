@@ -6,6 +6,10 @@ Browser source lives under `frontend/src`. Vite emits deterministic production
 assets into `web`, which is the only browser directory included in the Python
 package and final runtime image. `web/app.js` and `web/styles.css` are generated;
 changes begin in TypeScript/CSS source and are committed with the rebuilt files.
+Shared form-control tokens in `frontend/src/styles.css` own input, textarea,
+native-select, option, placeholder, and file-picker colors. Both themes declare
+their native `color-scheme`; individual settings screens must not depend on a
+browser-default white control or dropdown background.
 
 Use Node.js 24 and the pinned lockfile:
 
