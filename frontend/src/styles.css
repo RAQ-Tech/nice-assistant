@@ -809,12 +809,14 @@ input[type='file']::file-selector-button {
   justify-content: space-between;
 }
 
-.persona-editor {
+.persona-editor,
+.operator-editor {
   padding: 0;
   overflow: hidden;
 }
 
-.persona-editor > summary {
+.persona-editor > summary,
+.operator-editor > summary {
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -823,14 +825,54 @@ input[type='file']::file-selector-button {
   cursor: pointer;
 }
 
-.persona-editor[open] {
+.persona-editor[open],
+.operator-editor[open] {
   padding: 0 .75rem .75rem;
   overflow: visible;
 }
 
-.persona-editor[open] > summary {
+.persona-editor[open] > summary,
+.operator-editor[open] > summary {
   margin: 0 -.75rem .35rem;
   border-bottom: 1px solid var(--border);
+}
+
+.operator-editor-summary {
+  display: grid;
+  gap: .16rem;
+  min-width: 0;
+}
+
+.operator-editor-summary > * {
+  overflow-wrap: anywhere;
+}
+
+.operator-editor > summary .provider-status {
+  flex: 0 0 auto;
+}
+
+.operator-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: .5rem;
+  padding-top: .65rem;
+  border-top: 1px solid var(--border);
+}
+
+.operator-action-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+  gap: .55rem;
+}
+
+.settings-warning {
+  padding: .65rem .75rem;
+  border: 1px solid color-mix(in srgb, #ffc76a 48%, var(--border));
+  border-radius: 10px;
+  background: color-mix(in srgb, #ffc76a 10%, var(--panel));
+  color: var(--text);
+  line-height: 1.45;
 }
 
 .identity-profile-stack {
@@ -1122,6 +1164,16 @@ input[type='file']::file-selector-button {
   background: color-mix(in srgb, var(--panel) 82%, transparent);
 }
 
+.task-model-card.operator-editor,
+.media-resource-card.operator-editor {
+  padding: 0;
+}
+
+.task-model-card.operator-editor[open],
+.media-resource-card.operator-editor[open] {
+  padding: 0 .75rem .75rem;
+}
+
 .settings-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
@@ -1174,6 +1226,15 @@ input[type='file']::file-selector-button {
 }
 
 @media (max-width: 700px) {
+  .operator-editor > summary {
+    align-items: flex-start;
+    flex-wrap: wrap;
+  }
+
+  .operator-editor > summary .provider-status {
+    max-width: 100%;
+  }
+
   .task-model-head,
   .task-run-row {
     display: grid;

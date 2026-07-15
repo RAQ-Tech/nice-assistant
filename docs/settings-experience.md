@@ -62,14 +62,34 @@ and Workspaces now use the same approachable structure:
 
 This presentation change does not alter provider semantics or saved settings.
 
-### 21C — Operator settings — planned
+### 21C — Operator settings — delivered
 
-Rework Models, Task Models, Media Catalog, GPU Coordination, and Data. These
-tabs will keep their full operator power but add guided summaries, effective
-configuration and readiness views, safer empty states, named resource pickers,
-and clearer separation between configuration, diagnostics, and destructive
-administration.
+Models, Task Models, Media Catalog, GPU Coordination, and Data retain their
+operator controls behind a consistent guided structure:
 
-These chunks are intentionally separate. Visual Identity needed a new protected
-media-list contract and an interaction redesign; the everyday and operator tabs
-have different audiences and therefore use separate implementation passes.
+- Each tab leads with its actual purpose and separate readiness facts rather
+  than presenting configuration as proof of health.
+- Models shows the effective default, installed Ollama count, context window,
+  and saved per-model customization count. Sampling controls and the real
+  per-model override editor begin closed.
+- Task roles and media resources are collapsed named editors. Budgets, failure
+  policy, raw provider payloads, and content-free audit records remain
+  available under nested advanced disclosure.
+- Media compatibility is selected by named base model instead of requiring
+  operators to copy internal IDs. Catalog drafts, planning limits, and
+  deterministic plan previews remain explicit.
+- GPU Coordination separates measured capacity, adapter capability, and
+  operator authorization. Managed-mode consequences remain visible because
+  they affect external provider state.
+- Data separates backup creation from restore verification and destructive
+  archive deletion. Permanent deletion uses an explicit consequence warning.
+- Tabs with independent persistence no longer display a global save button
+  that cannot save their changes; each operation has a local action instead.
+
+The operator logic is split into focused typed modules so the settings shell no
+longer owns Task Model, media-catalog, coordination, or backup workflows.
+
+These chunks were intentionally separate. Visual Identity needed a new
+protected media-list contract and an interaction redesign; the everyday and
+operator tabs have different audiences and therefore use separate modules and
+interaction depth.

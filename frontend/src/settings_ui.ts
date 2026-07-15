@@ -28,6 +28,40 @@ export function settingsCard(children: Child[], className = ''): HTMLElement {
   return el('div', { class: `persona-card settings-card ${className}`.trim() }, children);
 }
 
+export function operatorEditor(
+  title: string,
+  subtitle: string,
+  status: string,
+  children: Child[],
+  options: {
+    open?: boolean;
+    onToggle?: (open: boolean) => void;
+    testId?: string;
+    className?: string;
+    statusClass?: string;
+    onInput?: () => void;
+    onChange?: () => void;
+  } = {},
+): HTMLDetailsElement {
+  return el('details', {
+    class: `persona-card operator-editor ${options.className ?? ''}`.trim(),
+    open: Boolean(options.open),
+    'data-testid': options.testId,
+    ontoggle: (event: Event) => options.onToggle?.((event.currentTarget as HTMLDetailsElement).open),
+    oninput: options.onInput,
+    onchange: options.onChange,
+  }, [
+    el('summary', {}, [
+      el('div', { class: 'operator-editor-summary' }, [
+        el('strong', { textContent: title }),
+        el('span', { class: 'meta', textContent: subtitle }),
+      ]),
+      el('span', { class: `provider-status ${options.statusClass ?? 'idle'}`, textContent: status }),
+    ]),
+    ...children,
+  ]) as HTMLDetailsElement;
+}
+
 export function settingsIntro(title: string, description: string): HTMLElement {
   return el('div', { class: 'settings-intro' }, [
     el('strong', { textContent: title }),

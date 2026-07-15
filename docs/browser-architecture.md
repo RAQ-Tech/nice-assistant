@@ -39,10 +39,20 @@ npm run frontend:e2e
 - `capabilities.ts`: durable model-request cards, explicit approval/denial,
   progress polling, cancellation, and protected result rendering.
 - `settings.ts` and `settings_view.ts`: canonical settings envelope,
-  normalization, Memory v2 review, operator settings, personas, workspaces,
-  backup operations, and explicit memory bulk actions.
+  normalization, Memory v2 review, personas, workspaces, explicit memory bulk
+  actions, and composition of focused settings views.
 - `everyday_settings_view.ts`: goal-oriented General, speech, media-default, and
   User screens without provider workflow ownership.
+- `model_settings_view.ts`: effective conversation-model state, common sampling
+  defaults, closed expert controls, and per-model runtime overrides.
+- `task_model_settings_view.ts` and `media_catalog_settings_view.ts`: durable
+  platform-role and media-resource editors, refresh conflict protection,
+  readiness checks, plan previews, and content-free audits.
+- `operations_settings_view.ts`: administrator-only GPU coordination and backup
+  operations, including explicit provider-control authorization and restore
+  verification.
+- `settings_contracts.ts`: the small dialog boundary shared by focused settings
+  views without coupling them back to the application shell.
 - `settings_controls.ts` and `settings_ui.ts`: accessible label/control wiring,
   common cards, closed advanced disclosure, truthful readiness rows, and
   information tips revealed by pointer hover or keyboard focus.
@@ -94,8 +104,11 @@ multipart transport and protected image URLs. User-facing selection uses an
 owner-scoped media listing and thumbnails instead of requiring internal media
 IDs. Advanced controls explain that verification evaluates a result but does not
 condition generation. The same information-tip component is used for Visual
-Identity and everyday settings; safety consequences and destructive-action
-warnings remain visible rather than being hidden in a tooltip.
+Identity, everyday, and operator settings; safety consequences and
+destructive-action warnings remain visible rather than being hidden in a
+tooltip. Operator resource editors are collapsed by default and use named
+summaries, while nested raw payloads, budgets, and content-free audits remain
+available to experienced operators.
 
 ## Test boundary
 

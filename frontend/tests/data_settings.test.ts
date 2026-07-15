@@ -35,7 +35,7 @@ describe('data settings', () => {
     const dialogs = { prompt: vi.fn(), confirm: vi.fn(), info: vi.fn() } as unknown as Dialogs;
     const view = new SettingsView(vi.fn(), vi.fn(), dialogs, appState, client);
 
-    const verify = [...view.node().querySelectorAll('button')].find((button) => button.textContent === 'Verify');
+    const verify = [...view.node().querySelectorAll('button')].find((button) => button.textContent === 'Verify restore');
     expect(verify).toBeDefined();
     verify!.click();
     await vi.waitFor(() => expect(client.verifyBackup).toHaveBeenCalledWith('snapshot.zip'));

@@ -25,6 +25,10 @@ change that alters them.
 - Goal-oriented everyday settings for General, speech, direct media defaults,
   Memory, User, Personas, and Workspaces, with accessible information tips and
   closed-by-default advanced provider controls.
+- Goal-oriented operator settings for Models, Task Models, Media Catalog, GPU
+  Coordination, and Data, with effective-state summaries, collapsed named
+  editors, real per-model overrides, explicit persistence, and visible safety
+  consequences. Focused typed views own each operator workflow.
 - Platform-planned image/video capabilities with durable owner-scoped permission
   requests, explicit approval/denial, audit history, idempotent direct actions,
   linked jobs/cancellation, protected results, and future-turn tool outcomes.
@@ -61,9 +65,6 @@ change that alters them.
 
 ## Scaffold
 
-- Models, Task Models, Media Catalog, GPU Coordination, and Data remain powerful
-  operator surfaces but need the Step 21C guided summaries, effective-state
-  views, and safer empty/destructive states described in the settings roadmap.
 - Some provider helper internals still use low-level HTTP/SQLite-shaped legacy
   inputs, but routes use SQLAlchemy repositories and unit-of-work boundaries.
 - Provider-specific settings embedded directly in persona and UI records.

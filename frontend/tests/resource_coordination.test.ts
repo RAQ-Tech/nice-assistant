@@ -77,7 +77,8 @@ describe('GPU coordination settings', () => {
     const node = view.node();
 
     expect(node.textContent).toContain('6144 MB free of 12288 MB');
-    expect(node.textContent).toContain('reclaiming the media provider after a local image job');
+    expect(node.textContent).toContain('release only endpoints you explicitly attest are exclusive');
+    expect(node.textContent).toContain('Unknown capacity is never presented as free VRAM');
     const toggles = node.querySelectorAll('input[type="checkbox"]');
     expect(toggles).toHaveLength(2);
     (toggles[1] as HTMLInputElement).click();

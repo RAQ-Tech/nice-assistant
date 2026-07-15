@@ -170,7 +170,9 @@ test('settings review memory and media use only canonical APIs', async ({ page }
   await page.getByTestId('settings-save').click();
   await expect(page.getByText('Settings saved')).toBeVisible();
   await page.getByTestId('settings-nav-task-models').click();
-  await page.locator('[data-testid="task-model-title_generation"] .setting-row').filter({ hasText: 'Primary model' }).locator('select').selectOption('demo');
+  const taskModelCard = page.getByTestId('task-model-title_generation');
+  await taskModelCard.locator(':scope > summary').click();
+  await taskModelCard.locator('.setting-row').filter({ hasText: 'Primary model' }).locator('select').selectOption('demo');
   const taskModelSaveRequest = page.waitForRequest((request) =>
     request.method() === 'PUT' && new URL(request.url()).pathname === '/api/v1/task-models/title_generation',
   );
@@ -179,6 +181,7 @@ test('settings review memory and media use only canonical APIs', async ({ page }
   await expect(page.getByText(/Ready: Task model is ready/)).toBeVisible();
   await page.getByTestId('settings-nav-media-catalog').click();
   const resourceCard = page.getByTestId('media-resource-media-model-1');
+  await resourceCard.locator(':scope > summary').click();
   await resourceCard.locator('.setting-row').filter({ hasText: 'Name' }).locator('input').first().fill('Fantasy portrait model');
   const mediaResourceSaveRequest = page.waitForRequest((request) =>
     request.method() === 'PUT' && new URL(request.url()).pathname === '/api/v1/media-catalog/resources/media-model-1',
@@ -241,6 +244,33 @@ test('everyday settings use progressive disclosure and accessible info tips', as
   await page.getByTestId('settings-nav-personas').click();
   await expect(page.getByText('Manage the people you talk with')).toBeVisible();
   await expect(page.locator('details.persona-editor')).not.toHaveAttribute('open', '');
+});
+
+test('operator settings lead with readiness and keep expert editors closed', async ({ page }) => {
+  await installAuthenticatedFixture(page);
+  await page.goto('/#/settings/Models');
+
+  await expect(page.getByText('Set the default conversation behavior')).toBeVisible();
+  await expect(page.getByText('1 reported by Ollama')).toBeVisible();
+  await expect(page.getByTestId('models-advanced-settings')).not.toHaveAttribute('open', '');
+  await expect(page.getByTestId('model-overrides-settings')).not.toHaveAttribute('open', '');
+
+  await page.getByTestId('settings-nav-task-models').click();
+  await expect(page.getByText('Configure background intelligence')).toBeVisible();
+  const taskModel = page.getByTestId('task-model-title_generation');
+  await expect(taskModel).not.toHaveAttribute('open', '');
+  await expect(page.getByTestId('settings-save')).toHaveCount(0);
+  await taskModel.locator(':scope > summary').click();
+  await expect(taskModel).toHaveAttribute('open', '');
+  await expect(page.getByTestId('task-model-advanced-title_generation')).not.toHaveAttribute('open', '');
+
+  await page.getByTestId('settings-nav-media-catalog').click();
+  await expect(page.getByText('Teach the media coordinator what to use')).toBeVisible();
+  const mediaResource = page.getByTestId('media-resource-media-model-1');
+  await expect(mediaResource).not.toHaveAttribute('open', '');
+  await mediaResource.locator(':scope > summary').click();
+  await expect(mediaResource).toHaveAttribute('open', '');
+  await expect(page.getByTestId('media-resource-advanced-media-model-1')).not.toHaveAttribute('open', '');
 });
 
 test('visual identity guides reference setup without exposing internal media IDs', async ({ page }) => {

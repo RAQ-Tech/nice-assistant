@@ -179,8 +179,10 @@ stream disconnect and cancellation remain distinct: SSE may reconnect/poll,
 while only an explicit job DELETE cancels durable work. See
 `docs/browser-architecture.md` and ADR 0006.
 Everyday settings are isolated from operator settings and use shared accessible
-controls, information tips, and closed advanced disclosure; provider workflows
-remain outside the view layer.
+controls, information tips, and closed advanced disclosure. Focused Models,
+Task Models, Media Catalog, and Operations views own their typed interaction and
+API workflows; the settings shell only composes them. Provider execution remains
+outside the view layer.
 The focused visual-identity settings module provides consent, reference review,
 provider readiness, validation, and correction history without moving biometric
 decisions into general browser state or persona prompts.

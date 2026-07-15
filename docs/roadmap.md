@@ -125,14 +125,15 @@ and platform foundation below.
     providers remain outside release control. Realtime voice, destructive
     rollback, and visual identity remain explicitly separate acceptance work.
 
-21. **Approachable settings experience — underway.** Steps 21A and 21B are
-    delivered. Visual Identity provides guided reference setup, truthful
-    generation-versus-verification readiness, and protected thumbnail pickers.
-    General, speech, media defaults, Memory, User, Personas, and Workspaces now
-    lead with common controls, use accessible information tips, and keep expert
-    details behind closed advanced disclosure. Step 21C will make Models, Task
-    Models, Media Catalog, GPU Coordination, and Data understandable without
-    removing their operator power. See `docs/settings-experience.md`.
+21. **Approachable settings experience — delivered.** Visual Identity provides
+    guided reference setup, truthful generation-versus-verification readiness,
+    and protected thumbnail pickers. Everyday tabs lead with common controls,
+    accessible information tips, and closed expert details. Models, Task Models,
+    Media Catalog, GPU Coordination, and Data now lead with effective-state and
+    readiness summaries, use collapsed named editors, keep warnings visible,
+    and separate independent save and destructive actions. The settings shell
+    delegates those workflows to focused typed modules. See
+    `docs/settings-experience.md`.
 
 Steps are delivered and reviewed independently. Step 11 cannot select providers
 until a future listening decision is approved. Any future deployment acceptance
