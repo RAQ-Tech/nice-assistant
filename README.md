@@ -86,7 +86,8 @@ server, proxy, bridge, and second listener have been removed.
 - Same-origin write-header/origin enforcement, bounded login lockout, strict
   cookies, optional HTTPS `Secure` cookies, and private-LAN provider URL policy
 - First-login onboarding wizard (workspace + persona + default model + default memory mode)
-- Chat list/new chat + transcript + per-chat model and memory mode
+- Chat list/new chat + transcript + per-chat model and memory mode, with
+  explicit individual and bulk hide/delete actions
 - Tiered memory CRUD APIs + basic UI controls:
   - global
   - workspace
@@ -98,7 +99,8 @@ server, proxy, bridge, and second listener have been removed.
 - Same-chat turns execute causally, independent chats may run concurrently, and
   prompts use explicit budgets with durable incremental summaries
 - `off`/`saved` memory modes with post-turn pending candidates, explicit approval,
-  provenance, revision history, forget/undo, and active-only scoped FTS retrieval
+  provenance, revision history, reversible forget/undo, permanent individual or
+  bulk delete, and active-only scoped FTS retrieval
 - Per-model context allocation is sent to Ollama as `num_ctx` and recorded with
   estimated/actual prompt usage on the turn
 - Authenticated turn events over SSE with snapshots and bounded in-process replay

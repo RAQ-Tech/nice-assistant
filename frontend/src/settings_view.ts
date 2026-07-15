@@ -46,6 +46,8 @@ export class SettingsView {
   private mediaCatalogSettingsVersion = 0;
   private readonly dirtyMediaResourceIds = new Set<string>();
   private readonly mediaResourceVersions = new Map<string, number>();
+  private readonly selectedMemoryIds = new Set<string>();
+  private memoryActionBusy = false;
   private mediaPreviewRequirements: MediaPlanRequirements = {
     kind: 'image',
     operation: 'generate',
@@ -251,10 +253,42 @@ export class SettingsView {
 
   private memory(settings: Settings): HTMLElement[] {
     const groups = groupMemories(this.appState.memories);
+    const selected = this.appState.memories.filter((memory) => this.selectedMemoryIds.has(memory.id));
+    const forgettable = selected.filter((memory) => ['pending', 'active'].includes(memory.status));
     return [
       selectField('Default memory mode', settings.default_memory_mode, ['saved', 'off'], (value) => this.set('default_memory_mode', value === 'off' ? 'off' : 'saved')),
-      el('div', { class: 'meta', textContent: 'Only active memories enter prompts. Conversation facts remain pending until you approve them; forget preserves an auditable, undoable history.' }),
-      el('button', { class: 'pill-btn', textContent: 'Refresh memory', onclick: () => void this.refreshMemories() }),
+      el('div', { class: 'meta', textContent: 'Only active memories enter prompts. Conversation facts remain pending until you approve them. Forget is reversible and keeps history; Delete permanently removes the memory and its history.' }),
+      el('div', { class: 'memory-bulk-bar persona-card', 'data-testid': 'memory-bulk-actions' }, [
+        el('strong', { textContent: `${selected.length} of ${this.appState.memories.length} selected` }),
+        el('div', { class: 'chips' }, [
+          el('button', {
+            class: 'pill-btn',
+            textContent: 'Select all',
+            disabled: this.memoryActionBusy || this.appState.memories.length === 0,
+            onclick: () => this.selectMemories(this.appState.memories, true),
+          }),
+          el('button', {
+            class: 'pill-btn',
+            textContent: 'Clear selection',
+            disabled: this.memoryActionBusy || selected.length === 0,
+            onclick: () => { this.selectedMemoryIds.clear(); this.renderApp(); },
+          }),
+          el('button', {
+            class: 'pill-btn',
+            textContent: `Forget eligible (${forgettable.length})`,
+            disabled: this.memoryActionBusy || forgettable.length === 0,
+            onclick: () => void this.bulkMemoryAction('forget', forgettable.map((memory) => memory.id)),
+          }),
+          el('button', {
+            class: 'pill-btn danger',
+            textContent: `Delete permanently (${selected.length})`,
+            disabled: this.memoryActionBusy || selected.length === 0,
+            'data-testid': 'memory-bulk-delete',
+            onclick: () => void this.bulkMemoryAction('delete', selected.map((memory) => memory.id)),
+          }),
+          el('button', { class: 'pill-btn', textContent: 'Refresh', disabled: this.memoryActionBusy, onclick: () => void this.refreshMemories() }),
+        ]),
+      ]),
       this.memoryGroup('Pending review', groups.pending, 'pending'),
       this.memoryGroup('Active', groups.active, 'active'),
       this.memoryGroup('History', groups.history, 'history'),
@@ -792,21 +826,43 @@ export class SettingsView {
 
   private memoryGroup(title: string, items: Memory[], key: string): HTMLElement {
     const expanded = Boolean(this.appState.memorySections[key]);
+    const selectedCount = items.filter((memory) => this.selectedMemoryIds.has(memory.id)).length;
     return el('div', { class: 'memory-section' }, [
-      el('button', {
-        class: 'memory-section-toggle',
-        textContent: `${expanded ? '▾' : '▸'} ${title} (${items.length})`,
-        onclick: () => {
-          this.appState.memorySections[key] = !expanded;
-          this.renderApp();
-        },
-      }),
+      el('div', { class: 'memory-section-head' }, [
+        el('button', {
+          class: 'memory-section-toggle',
+          textContent: `${expanded ? '▾' : '▸'} ${title} (${items.length})`,
+          onclick: () => {
+            this.appState.memorySections[key] = !expanded;
+            this.renderApp();
+          },
+        }),
+        el('button', {
+          class: 'pill-btn',
+          textContent: selectedCount === items.length && items.length ? 'Clear group' : `Select group (${items.length})`,
+          disabled: this.memoryActionBusy || items.length === 0,
+          onclick: () => this.selectMemories(items, !(selectedCount === items.length && items.length > 0)),
+        }),
+      ]),
       ...(expanded ? items.map((memory) => this.memoryRow(memory)) : []),
     ]);
   }
 
   private memoryRow(memory: Memory): HTMLElement {
     return el('div', { class: 'memory-row persona-card', 'data-testid': `memory-${memory.id}` }, [
+      el('label', { class: 'checkbox-row memory-select' }, [
+        el('input', {
+          type: 'checkbox',
+          checked: this.selectedMemoryIds.has(memory.id),
+          disabled: this.memoryActionBusy,
+          onchange: (event: Event) => {
+            if ((event.currentTarget as HTMLInputElement).checked) this.selectedMemoryIds.add(memory.id);
+            else this.selectedMemoryIds.delete(memory.id);
+            this.renderApp();
+          },
+        }),
+        'Select',
+      ]),
       textareaField('Memory', memory.content, (value) => { memory.content = value; }, false),
       el('div', { class: 'meta', textContent: `${memory.status} · ${memory.scope}${memory.confidence === null ? '' : ` · ${Math.round(memory.confidence * 100)}% confidence`} · ${memory.source_type}` }),
       el('div', { class: 'chips' }, [
@@ -816,6 +872,7 @@ export class SettingsView {
         !['superseded'].includes(memory.status) ? el('button', { class: 'pill-btn', textContent: 'Save edit', onclick: () => void this.saveMemory(memory) }) : null,
         memory.can_undo ? el('button', { class: 'pill-btn', textContent: 'Undo', onclick: () => void this.memoryAction(memory, 'undo') }) : null,
         el('button', { class: 'icon-btn', textContent: 'History', onclick: () => void this.memoryHistory(memory) }),
+        el('button', { class: 'icon-btn danger', textContent: 'Delete', onclick: () => void this.deleteMemory(memory) }),
       ]),
     ]);
   }
@@ -895,6 +952,8 @@ export class SettingsView {
   private async refreshMemories(): Promise<void> {
     try {
       this.appState.memories = (await this.client.memories()).items;
+      const currentIds = new Set(this.appState.memories.map((memory) => memory.id));
+      for (const id of this.selectedMemoryIds) if (!currentIds.has(id)) this.selectedMemoryIds.delete(id);
     } catch (error) {
       this.appState.settingsError = errorMessage(error, 'Unable to refresh memory.');
     }
@@ -1201,6 +1260,63 @@ export class SettingsView {
     if (action === 'forget' && !(await this.dialogs.confirm('Forget memory', 'Remove this memory from future context while retaining its history?', 'Forget'))) return;
     await this.client.memoryAction(memory.id, action);
     await this.refreshMemories();
+  }
+
+  private selectMemories(memories: Memory[], selected: boolean): void {
+    for (const memory of memories) {
+      if (selected) this.selectedMemoryIds.add(memory.id);
+      else this.selectedMemoryIds.delete(memory.id);
+    }
+    this.renderApp();
+  }
+
+  private async bulkMemoryAction(action: 'forget' | 'delete', ids: string[]): Promise<void> {
+    if (!ids.length) return;
+    const confirmed = action === 'delete'
+      ? await this.dialogs.confirm(
+          'Permanently delete memories',
+          `Permanently delete ${ids.length} selected ${ids.length === 1 ? 'memory' : 'memories'} and all associated history? This cannot be undone.`,
+          'Delete permanently',
+        )
+      : await this.dialogs.confirm(
+          'Forget memories',
+          `Forget ${ids.length} selected ${ids.length === 1 ? 'memory' : 'memories'}? They will stop entering prompts, but their history can still be restored.`,
+          'Forget',
+        );
+    if (!confirmed) return;
+    this.memoryActionBusy = true;
+    this.appState.settingsError = '';
+    this.renderApp();
+    try {
+      await this.client.bulkMemoryAction(action, ids);
+      ids.forEach((id) => this.selectedMemoryIds.delete(id));
+      await this.refreshMemories();
+    } catch (error) {
+      this.appState.settingsError = errorMessage(error, `Unable to ${action} the selected memories.`);
+    } finally {
+      this.memoryActionBusy = false;
+      this.renderApp();
+    }
+  }
+
+  private async deleteMemory(memory: Memory): Promise<void> {
+    if (!(await this.dialogs.confirm(
+      'Permanently delete memory',
+      'Permanently delete this memory and all associated history? This cannot be undone.',
+      'Delete permanently',
+    ))) return;
+    this.memoryActionBusy = true;
+    this.renderApp();
+    try {
+      await this.client.deleteMemory(memory.id);
+      this.selectedMemoryIds.delete(memory.id);
+      await this.refreshMemories();
+    } catch (error) {
+      this.appState.settingsError = errorMessage(error, 'Unable to permanently delete the memory.');
+    } finally {
+      this.memoryActionBusy = false;
+      this.renderApp();
+    }
   }
 
   private async memoryHistory(memory: Memory): Promise<void> {

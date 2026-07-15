@@ -49,7 +49,10 @@ cancellation, and `MediaService`, `SpeechService`, `ProviderService`, and
 `OperationsService` own their respective workflows. `ContextService` owns causal
 prompt planning, budgets, saved-memory selection, compaction, and accounting.
 `MemoryService` owns candidate extraction, review transitions, revision history,
-scope archival, and FTS retrieval policy.
+scope archival, explicit permanent deletion, atomic owner-scoped bulk actions,
+and FTS retrieval policy. `ConversationService` likewise separates chat hiding
+from permanent deletion and rejects destructive deletion while linked work is
+active. See ADR 0015.
 `CapabilityService` owns the registry, durable permission requests, approval,
 denial, idempotency, audit events, linked job submission, and terminal results.
 `TaskModelService` owns separately configured title, summary, memory-extraction,

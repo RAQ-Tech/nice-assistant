@@ -1,10 +1,11 @@
 import { api, ApiError } from './api';
 import { AuthView } from './auth_view';
 import { ChatController } from './chat';
+import { ChatDrawer } from './chat_drawer';
 import { ChatRenderer, modelNickname } from './chat_rendering';
 import { CapabilityController } from './capabilities';
 import { DEFAULT_PERSONA_AVATAR } from './constants';
-import { captureFocus, el, errorMessage, formatDate, restoreFocus } from './dom';
+import { captureFocus, el, errorMessage, restoreFocus } from './dom';
 import { MediaController } from './media';
 import { PlaybackController } from './playback';
 import { RecordingController } from './recording';
@@ -12,7 +13,7 @@ import { Router } from './routing';
 import { normalizeSettings, settingsWire } from './settings';
 import { SettingsView, type Dialogs } from './settings_view';
 import { machine, state } from './state';
-import type { Chat, ModalState, RouteState, Session } from './types';
+import type { ModalState, RouteState, Session } from './types';
 import { Visualizer } from './visualization';
 
 const root = requiredElement<HTMLElement>('app');
@@ -28,6 +29,16 @@ const settingsView = new SettingsView(render, closeSettings, dialogs);
 const authView = new AuthView(authenticated, render);
 const chatRenderer = new ChatRenderer(media, playback, render);
 const capabilities = new CapabilityController(render);
+const chatDrawer = new ChatDrawer(state, api, chat, dialogs, {
+  render,
+  openChat: (chatId) => router.chat(chatId),
+  openNewChat: () => {
+    state.showNewChatPersonaModal = true;
+    state.newChatPersonaId = state.selectedPersonaId ?? state.personas[0]?.id ?? null;
+    render();
+  },
+  goHome: () => router.home(true),
+});
 
 chat.configure({
   onChange: render,
@@ -233,7 +244,7 @@ function shell(): HTMLElement {
     [...messageNodes, ...unanchoredRequests],
   );
   return el('div', { class: 'app-shell' }, [
-    drawer(),
+    chatDrawer.node(),
     el('main', { class: 'main-pane glass' }, [
       topbar(persona?.name ?? 'Persona', persona?.avatar_url || DEFAULT_PERSONA_AVATAR, workspaceName, model),
       state.showChatControlsMenu ? chatControls(model, memoryMode) : null,
@@ -251,30 +262,6 @@ function shell(): HTMLElement {
       composer(),
     ]),
     el('div', { class: `viz-wrap ${state.showViz ? 'show' : ''}` }, visualizer.node()),
-  ]);
-}
-
-function drawer(): HTMLElement {
-  const rows = state.chats
-    .filter((item) => (item.title ?? '').toLowerCase().includes(state.chatSearch.toLowerCase()))
-    .map((item) =>
-      el('div', { class: `chat-row ${item.id === state.currentChat?.id ? 'active' : ''}`, onclick: () => { state.drawerOpen = false; router.chat(item.id); } }, [
-        el('div', { class: 'title', textContent: item.title || 'Untitled chat' }),
-        el('div', { class: 'meta', textContent: formatDate(item.updated_at || item.created_at) }),
-        el('div', { class: 'chat-actions' }, [
-          el('button', { class: 'icon-btn', textContent: '✎', title: 'Rename chat', onclick: (event: Event) => { event.stopPropagation(); void renameChat(item); } }),
-          el('button', { class: 'icon-btn', textContent: '🗑', title: 'Hide chat', onclick: (event: Event) => { event.stopPropagation(); void hideChat(item); } }),
-        ]),
-      ]),
-    );
-  return el('aside', { class: `drawer glass ${state.drawerOpen ? 'open' : ''}` }, [
-    el('div', { class: 'drawer-head' }, [
-      el('strong', { textContent: 'Chats' }),
-      el('button', { class: 'icon-btn', textContent: '✕', onclick: () => { state.drawerOpen = false; render(); } }),
-    ]),
-    el('button', { class: 'send-btn', textContent: '+ New Chat', 'data-testid': 'new-chat', onclick: () => { state.showNewChatPersonaModal = true; state.newChatPersonaId = state.selectedPersonaId ?? state.personas[0]?.id ?? null; render(); } }),
-    el('input', { class: 'search-input', placeholder: 'Search chats…', value: state.chatSearch, oninput: (event: Event) => { state.chatSearch = (event.currentTarget as HTMLInputElement).value; render(); } }),
-    el('div', { class: 'drawer-list' }, rows.length ? rows : el('div', { class: 'meta', textContent: 'No chats yet.' })),
   ]);
 }
 
@@ -425,17 +412,6 @@ function videoOverlay(url: string): HTMLElement {
   ]);
 }
 
-async function renameChat(item: Chat): Promise<void> {
-  const title = await dialogs.prompt('Rename chat', 'Choose a new title.', item.title ?? '');
-  if (title?.trim()) await chat.rename(item, title);
-}
-
-async function hideChat(item: Chat): Promise<void> {
-  if (!(await dialogs.confirm('Hide chat', `Hide ${item.title || 'this chat'}?`, 'Hide'))) return;
-  await chat.hide(item);
-  router.home(true);
-}
-
 function closeSettings(): void {
   state.showSettings = false;
   if (state.currentChat) router.chat(state.currentChat.id);
@@ -445,6 +421,7 @@ function closeSettings(): void {
 async function signedOut(message = ''): Promise<void> {
   playback.stop(false);
   recording.cancel();
+  chatDrawer.reset();
   state.session = null;
   state.currentChat = null;
   state.messages = [];

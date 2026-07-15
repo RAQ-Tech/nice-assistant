@@ -251,6 +251,59 @@ class MemoryService:
     def forget(self, user_id: str, memory_id: str) -> dict:
         return self._transition(user_id, memory_id, "forgotten", {"pending", "active"}, "forgotten")
 
+    def delete(self, user_id: str, memory_id: str) -> dict:
+        with self._uow() as uow:
+            row = uow.repo.memory(user_id, memory_id)
+            if not row:
+                raise NotFoundError("memory not found")
+            deleted_id = row.id
+            uow.repo.delete_memory(row)
+            return {"ok": True, "id": deleted_id, "deleted": True}
+
+    def bulk_action(self, user_id: str, action: str, memory_ids: list[str]) -> dict:
+        ids = list(dict.fromkeys(str(value).strip() for value in memory_ids if str(value).strip()))
+        if not ids:
+            raise RequestError("At least one item must be selected.", 400)
+        with self._uow() as uow:
+            rows = uow.repo.memories_by_ids(user_id, ids)
+            if len(rows) != len(ids):
+                raise NotFoundError("One or more memories were not found.")
+            if action == "delete":
+                for row in rows:
+                    uow.repo.delete_memory(row)
+                affected = len(rows)
+            elif action == "forget":
+                invalid = [row for row in rows if row.status not in {"pending", "active", "forgotten"}]
+                if invalid:
+                    raise ConflictError("Only pending or active memories can be forgotten.")
+                affected = 0
+                for row in rows:
+                    if row.status == "forgotten":
+                        continue
+                    previous = row.status
+                    snapshot = {"reviewed_at": row.reviewed_at, "forgotten_at": row.forgotten_at}
+                    stamp = now_ts()
+                    row.status = "forgotten"
+                    row.updated_at = stamp
+                    row.reviewed_at = stamp
+                    row.forgotten_at = stamp
+                    uow.repo.add_memory_event(
+                        row,
+                        "forgotten",
+                        from_status=previous,
+                        to_status="forgotten",
+                        snapshot=snapshot,
+                    )
+                    affected += 1
+            else:
+                raise RequestError("invalid memory bulk action", 400)
+            return {
+                "action": action,
+                "requested_count": len(ids),
+                "affected_count": affected,
+                "ids": ids,
+            }
+
     def _transition(self, user_id, memory_id, action, allowed, target) -> dict:
         try:
             with self._uow() as uow:

@@ -75,6 +75,23 @@ class MemoryUpdate(StrictModel):
     content: str | None = Field(default=None, min_length=1, max_length=8000)
 
 
+class MemoryBulkAction(StrictModel):
+    action: Literal["forget", "delete"]
+    ids: list[str] = Field(min_length=1, max_length=2000)
+
+
+class ChatBulkAction(StrictModel):
+    action: Literal["hide", "delete"]
+    ids: list[str] = Field(min_length=1, max_length=2000)
+
+
+class BulkActionRepresentation(BaseModel):
+    action: str
+    requested_count: int
+    affected_count: int
+    ids: list[str]
+
+
 class MemoryRepresentation(BaseModel):
     id: str
     scope: str
@@ -809,7 +826,12 @@ def update_memory(
 
 @router.delete("/memories/{memory_id}", tags=["memories"])
 def delete_memory(memory_id: str, request: Request, context: AuthContext = Depends(current_user)):
-    return {"ok": True, "memory": services(request).memory.forget(context.user_id, memory_id)}
+    return services(request).memory.delete(context.user_id, memory_id)
+
+
+@router.post("/memories/bulk-actions", tags=["memories"], response_model=BulkActionRepresentation)
+def bulk_memory_action(body: MemoryBulkAction, request: Request, context: AuthContext = Depends(current_user)):
+    return services(request).memory.bulk_action(context.user_id, body.action, body.ids)
 
 
 @router.post("/memories/{memory_id}/approve", tags=["memories"], response_model=MemoryRepresentation)
@@ -874,9 +896,21 @@ def update_chat(
 
 @router.delete("/chats/{chat_id}", tags=["chats"])
 def delete_chat(chat_id: str, request: Request, context: AuthContext = Depends(current_user)):
+    if not services(request).conversations.delete_chat(context.user_id, chat_id):
+        raise NotFoundError("chat not found")
+    return {"ok": True, "id": chat_id, "deleted": True}
+
+
+@router.post("/chats/{chat_id}/hide", tags=["chats"])
+def hide_chat(chat_id: str, request: Request, context: AuthContext = Depends(current_user)):
     if not services(request).conversations.hide_chat(context.user_id, chat_id):
         raise NotFoundError("chat not found")
-    return {"ok": True}
+    return {"ok": True, "id": chat_id, "hidden": True}
+
+
+@router.post("/chats/bulk-actions", tags=["chats"], response_model=BulkActionRepresentation)
+def bulk_chat_action(body: ChatBulkAction, request: Request, context: AuthContext = Depends(current_user)):
+    return services(request).conversations.bulk_chat_action(context.user_id, body.action, body.ids)
 
 
 @router.post(

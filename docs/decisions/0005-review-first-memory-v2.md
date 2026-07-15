@@ -31,12 +31,13 @@ context.
 
 ## Consequences
 
-Memory provenance, review, revisions, deletion history, and undo are inspectable.
+Memory provenance, review, revisions, lifecycle history, and undo are inspectable.
 The additional extraction call consumes provider time after eligible turns, but
 does not block chat completion and is lower priority than queued interactive
 turns. FTS5 is lexical rather than semantic; this is truthful and sufficient for
 the SQLite/private-LAN baseline. Rejected and forgotten records increase storage
-until a later retention policy is approved.
+until a later retention policy is approved or the owner explicitly and
+permanently deletes them under ADR 0015.
 
 ## Verification
 

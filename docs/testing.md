@@ -91,13 +91,15 @@ startup.
 - Memory tests cover legacy data migration, exact-duplicate supersession, FTS
   population/ranking, active-only scoped retrieval, nonblocking extraction,
   provenance, review transitions, superseding edits, forget/undo, extraction
-  failure, secret-like candidate rejection, canonical routes, and owner
-  isolation.
+  failure, secret-like candidate rejection, forget-versus-delete semantics,
+  permanent history/FTS removal, atomic bulk actions, canonical routes, and owner
+  isolation. Chat data-action tests distinguish bulk hide from permanent delete.
 - Vitest covers the phase machine, settings normalization, canonical API/error
   behavior, fragmented SSE parsing, protected media rendering, routing, and safe
   markdown, capability approval/denial state, Task Model settings/audits, and
   media catalog planning, GPU coordination controls/status, and canonical
-  multipart identity-reference transport.
+  multipart identity-reference transport, and memory selection/bulk-action
+  confirmation behavior.
   Direct-LAN client-ID coverage proves that chat does not require the
   secure-context-only `crypto.randomUUID`; Data settings coverage exercises the
   administrator backup verification action and visible restore-drill result.

@@ -1,6 +1,7 @@
 import type {
   BackupItem,
   BackupVerification,
+  BulkActionResult,
   CapabilityRequest,
   Chat,
   ChatDetail,
@@ -312,8 +313,19 @@ export class ApiClient {
     return this.request(`/chats/${encodeURIComponent(id)}`, { method: 'PUT', body: JSON.stringify(input) });
   }
 
-  deleteChat(id: string): Promise<{ ok: boolean }> {
+  hideChat(id: string): Promise<{ ok: boolean; id: string; hidden: boolean }> {
+    return this.request(`/chats/${encodeURIComponent(id)}/hide`, { method: 'POST' });
+  }
+
+  deleteChat(id: string): Promise<{ ok: boolean; id: string; deleted: boolean }> {
     return this.request(`/chats/${encodeURIComponent(id)}`, { method: 'DELETE' });
+  }
+
+  bulkChatAction(action: 'hide' | 'delete', ids: string[]): Promise<BulkActionResult> {
+    return this.request('/chats/bulk-actions', {
+      method: 'POST',
+      body: JSON.stringify({ action, ids }),
+    });
   }
 
   createTurn(chatId: string, input: TurnInput): Promise<TurnAccepted> {
@@ -454,6 +466,17 @@ export class ApiClient {
 
   memoryAction(id: string, action: 'approve' | 'reject' | 'forget' | 'undo'): Promise<Memory> {
     return this.request(`/memories/${encodeURIComponent(id)}/${action}`, { method: 'POST' });
+  }
+
+  deleteMemory(id: string): Promise<{ ok: boolean; id: string; deleted: boolean }> {
+    return this.request(`/memories/${encodeURIComponent(id)}`, { method: 'DELETE' });
+  }
+
+  bulkMemoryAction(action: 'forget' | 'delete', ids: string[]): Promise<BulkActionResult> {
+    return this.request('/memories/bulk-actions', {
+      method: 'POST',
+      body: JSON.stringify({ action, ids }),
+    });
   }
 
   memoryHistory(id: string): Promise<{ memory: Memory; events: MemoryEvent[] }> {

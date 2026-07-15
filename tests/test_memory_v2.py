@@ -80,9 +80,9 @@ class MemoryV2Tests(unittest.TestCase):
             self.assertEqual(undone.json()["id"], original["id"])
             self.assertEqual(undone.json()["status"], "active")
 
-            forgotten = running.client.delete(f"/api/v1/memories/{original['id']}")
+            forgotten = running.client.post(f"/api/v1/memories/{original['id']}/forget")
             self.assertEqual(forgotten.status_code, 200, forgotten.text)
-            self.assertEqual(forgotten.json()["memory"]["status"], "forgotten")
+            self.assertEqual(forgotten.json()["status"], "forgotten")
             restored = running.client.post(f"/api/v1/memories/{original['id']}/undo")
             self.assertEqual(restored.status_code, 200, restored.text)
             self.assertEqual(restored.json()["status"], "active")

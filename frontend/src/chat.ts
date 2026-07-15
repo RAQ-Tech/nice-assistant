@@ -176,7 +176,7 @@ export class ChatController {
   }
 
   async hide(chat: Chat): Promise<void> {
-    await this.client.deleteChat(chat.id);
+    await this.client.hideChat(chat.id);
     this.appState.chats = this.appState.chats.filter((item) => item.id !== chat.id);
     if (this.appState.currentChat?.id === chat.id) {
       this.appState.currentChat = null;

@@ -27,6 +27,8 @@ npm run frontend:e2e
   route ownership.
 - `chat.ts` and `chat_rendering.ts`: turn submission, delta rendering, terminal
   reconciliation, persisted transcript refresh, and message/media presentation.
+- `chat_drawer.ts`: chat search, selection, individual rename/hide, and atomic
+  bulk hide or permanent-delete workflows.
 - `client_id.ts`: transient optimistic-message identifiers. It uses
   `crypto.randomUUID` when available, `crypto.getRandomValues` on direct-LAN
   HTTP, and a non-security monotonic fallback only when Web Crypto is absent.
@@ -35,7 +37,7 @@ npm run frontend:e2e
 - `settings.ts` and `settings_view.ts`: canonical settings envelope,
   normalization, provider checks, Memory v2 review, per-role Task Model controls
   and content-free run diagnostics, media catalog policy/resources/plan preview,
-  personas, workspaces, and backup operations.
+  personas, workspaces, backup operations, and explicit memory bulk actions.
 - `identity_settings_view.ts`: focused verifier configuration, consent,
   protected reference review/deletion, candidate validation, and audit history.
 - `media.ts`, `recording.ts`, `playback.ts`, and `visualization.ts`: async media

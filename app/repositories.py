@@ -694,6 +694,25 @@ class ApplicationRepository:
             query = query.where(Chat.hidden_in_ui == 0)
         return self.session.scalars(query.order_by(Chat.updated_at.desc())).all()
 
+    def chats_by_ids(self, user_id: str, chat_ids: list[str]):
+        if not chat_ids:
+            return []
+        return self.session.scalars(select(Chat).where(Chat.user_id == user_id, Chat.id.in_(chat_ids))).all()
+
+    def active_jobs_for_chats(self, user_id: str, chat_ids: list[str]):
+        if not chat_ids:
+            return []
+        return self.session.scalars(
+            select(AsyncJob).where(
+                AsyncJob.user_id == user_id,
+                AsyncJob.chat_id.in_(chat_ids),
+                AsyncJob.status.in_({"queued", "running"}),
+            )
+        ).all()
+
+    def delete_chat(self, row: Chat) -> None:
+        self.session.delete(row)
+
     def create_chat(self, user_id: str, values: dict) -> Chat:
         workspace_id = values.get("workspace_id")
         persona_id = values.get("persona_id")
@@ -839,6 +858,14 @@ class ApplicationRepository:
 
     def memory(self, user_id: str, memory_id: str):
         return self.session.scalar(select(Memory).where(Memory.id == memory_id, Memory.user_id == user_id))
+
+    def memories_by_ids(self, user_id: str, memory_ids: list[str]):
+        if not memory_ids:
+            return []
+        return self.session.scalars(select(Memory).where(Memory.user_id == user_id, Memory.id.in_(memory_ids))).all()
+
+    def delete_memory(self, row: Memory) -> None:
+        self.session.delete(row)
 
     def validate_memory_scope(self, user_id: str, scope: str, scope_id: str | None):
         if scope == "global":

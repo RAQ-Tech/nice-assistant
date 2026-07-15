@@ -95,7 +95,7 @@ describe('ApiClient', () => {
   });
 
   it('uses the protected backup verification route', async () => {
-    const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(new Response(JSON.stringify({ ok: true }), {
+    const fetchMock = vi.fn<typeof fetch>().mockImplementation(async () => new Response(JSON.stringify({ ok: true }), {
       status: 200,
       headers: { 'Content-Type': 'application/json' },
     }));
@@ -104,5 +104,29 @@ describe('ApiClient', () => {
     const [url, init] = fetchMock.mock.calls[0] ?? [];
     expect(url).toBe('/api/v1/admin/backups/snapshot%201.zip/verify');
     expect(init?.method).toBe('POST');
+  });
+
+  it('keeps reversible and permanent chat and memory actions distinct', async () => {
+    const fetchMock = vi.fn<typeof fetch>().mockImplementation(async () => new Response(JSON.stringify({ ok: true }), {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' },
+    }));
+    vi.stubGlobal('fetch', fetchMock);
+    const client = new ApiClient();
+    await client.hideChat('chat 1');
+    await client.deleteChat('chat 1');
+    await client.bulkChatAction('hide', ['chat 1', 'chat 2']);
+    await client.memoryAction('memory 1', 'forget');
+    await client.deleteMemory('memory 1');
+    await client.bulkMemoryAction('delete', ['memory 1', 'memory 2']);
+
+    expect(fetchMock.mock.calls.map(([url, init]) => [url, init?.method])).toEqual([
+      ['/api/v1/chats/chat%201/hide', 'POST'],
+      ['/api/v1/chats/chat%201', 'DELETE'],
+      ['/api/v1/chats/bulk-actions', 'POST'],
+      ['/api/v1/memories/memory%201/forget', 'POST'],
+      ['/api/v1/memories/memory%201', 'DELETE'],
+      ['/api/v1/memories/bulk-actions', 'POST'],
+    ]);
   });
 });

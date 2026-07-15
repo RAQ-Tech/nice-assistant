@@ -217,6 +217,13 @@ extraction does not fail the source turn. Monitor failed `memory_extraction` job
 pending-review depth, and FTS integrity. Backups contain memory content, rejected
 and forgotten history, and source provenance and remain sensitive.
 
+Memory forget is reversible; memory delete is permanent and removes its history
+and FTS row. Chat hide and delete are also separate actions. Before a substantial
+permanent bulk deletion, create and verify a database backup. Bulk actions are
+owner scoped and atomic, and permanent chat deletion is rejected while linked
+jobs are queued or running. Generated media, audio, and completed job/audit
+records remain independently retained when a chat is deleted.
+
 ## Backup and migration recovery
 
 Database backups use SQLite's online backup API and are integrity-checked before

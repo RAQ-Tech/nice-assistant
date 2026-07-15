@@ -66,7 +66,9 @@ change that alters them.
 - Memory retrieval is lexical FTS plus recency; semantic retrieval remains an
   optional future interface rather than implied functionality.
 - Rejected/forgotten memory retention is durable but does not yet have an
-  administrator-approved expiry policy.
+  administrator-approved automatic expiry policy. Users can permanently delete
+  selected records, including their history, through explicit individual or
+  atomic bulk actions.
 - The first Task Model adapter is Ollama only. Cloud or additional LAN task
   providers must implement the same structured-output contract before being
   advertised.

@@ -19,6 +19,11 @@ action when doing so does not violate scope ownership or exact-deduplication
 constraints. Deleting a workspace or persona archives its live memories instead
 of hard-deleting them.
 
+Forget and delete are deliberately different. Forget is reversible and retains
+the row and audit history. Delete permanently removes the memory, all of its
+history events, and its local FTS entry; it is unavailable to prompt retrieval
+immediately and cannot be undone outside a backup.
+
 ## Provenance and extraction
 
 Every memory records its source type, source message/turn when applicable,
@@ -61,10 +66,12 @@ advertised by Memory v2.
 ## API and browser behavior
 
 Canonical memory APIs are under `/api/v1/memories`. They expose list/create,
-revision, approve, reject, forget, undo, and history contracts. The typed browser
-uses these contracts directly; the pre-Step-9 `/api/memory` adapters are removed.
+revision, approve, reject, forget, delete, undo, history, and atomic explicit-ID
+bulk-action contracts. The typed browser uses these contracts directly; the
+pre-Step-9 `/api/memory` adapters are removed.
 
 The Memory settings view groups rows by real lifecycle status and scope, shows
-provenance and confidence, and provides explicit review/history actions. A
-forgotten or rejected row remains visible in History until broader retention
-policy is implemented.
+provenance and confidence, and provides explicit review/history actions. It can
+select all memories or a complete status group for bulk forget or permanent
+delete. A forgotten or rejected row remains visible in History until explicitly
+deleted or a broader retention policy is implemented.

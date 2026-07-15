@@ -12,6 +12,7 @@ class BrowserArchitectureTests(unittest.TestCase):
             "api.ts",
             "app.ts",
             "chat.ts",
+            "chat_drawer.ts",
             "chat_rendering.ts",
             "capabilities.ts",
             "media.ts",

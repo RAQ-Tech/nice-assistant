@@ -16,7 +16,7 @@ from app.models import AsyncJob
 from app.provider_contracts import ChatRequest, ProviderError
 from app.provider_registry import ProviderRegistry
 from app.repositories import UnitOfWork, now_ts
-from app.service_errors import NotFoundError, RequestError
+from app.service_errors import ConflictError, NotFoundError, RequestError
 from app.task_contracts import (
     CAPABILITY_PLANNING,
     TITLE_GENERATION,
@@ -129,6 +129,52 @@ class ConversationService:
             chat.hidden_in_ui = 1
             chat.updated_at = now_ts()
             return True
+
+    def delete_chat(self, user_id: str, chat_id: str) -> bool:
+        with self._uow() as uow:
+            chat = uow.repo.chat(user_id, chat_id)
+            if not chat:
+                return False
+            if uow.repo.active_jobs_for_chats(user_id, [chat_id]):
+                raise ConflictError("Cancel active work before permanently deleting this chat.")
+            uow.repo.delete_chat(chat)
+            return True
+
+    def bulk_chat_action(self, user_id: str, action: str, chat_ids: list[str]) -> dict:
+        ids = self._bulk_ids(chat_ids)
+        with self._uow() as uow:
+            rows = uow.repo.chats_by_ids(user_id, ids)
+            if len(rows) != len(ids):
+                raise NotFoundError("One or more chats were not found.")
+            if action == "hide":
+                stamp = now_ts()
+                affected = 0
+                for row in rows:
+                    if not row.hidden_in_ui:
+                        row.hidden_in_ui = 1
+                        row.updated_at = stamp
+                        affected += 1
+            elif action == "delete":
+                if uow.repo.active_jobs_for_chats(user_id, ids):
+                    raise ConflictError("Cancel active work before permanently deleting the selected chats.")
+                for row in rows:
+                    uow.repo.delete_chat(row)
+                affected = len(rows)
+            else:
+                raise RequestError("invalid chat bulk action", 400)
+            return {
+                "action": action,
+                "requested_count": len(ids),
+                "affected_count": affected,
+                "ids": ids,
+            }
+
+    @staticmethod
+    def _bulk_ids(values: list[str]) -> list[str]:
+        ids = list(dict.fromkeys(str(value).strip() for value in values if str(value).strip()))
+        if not ids:
+            raise RequestError("At least one item must be selected.", 400)
+        return ids
 
     def create_turn(self, user_id: str, chat_id: str, values: dict) -> tuple[dict, dict]:
         text = str(values.get("text") or "").strip()

@@ -209,6 +209,13 @@ export interface MemoryEvent {
   undone_at: number | null;
 }
 
+export interface BulkActionResult {
+  action: string;
+  requested_count: number;
+  affected_count: number;
+  ids: Id[];
+}
+
 export interface ProviderCheckResult {
   provider: string;
   status: string;

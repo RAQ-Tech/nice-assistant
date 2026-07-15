@@ -160,11 +160,46 @@ button, input, select, textarea {
 .chat-row:hover, .chat-row.active { border-color: var(--border); background: var(--accent-soft); }
 .chat-row .title { font-size: .94rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .chat-row .meta { color: var(--text-dim); font-size: .78rem; }
+.chat-row.selecting {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  column-gap: .55rem;
+  align-items: center;
+}
+.chat-row.selecting .meta { grid-column: 2; }
 
 .chat-actions {
   display: flex;
   gap: .25rem;
   margin-top: .45rem;
+}
+
+.chat-bulk-bar,
+.memory-bulk-bar {
+  display: grid;
+  gap: .55rem;
+}
+
+.memory-section-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: .65rem;
+}
+
+.memory-section-toggle {
+  flex: 1;
+  text-align: left;
+}
+
+.memory-select {
+  justify-content: flex-start;
+}
+
+.pill-btn.danger,
+.icon-btn.danger {
+  color: var(--danger);
+  border-color: color-mix(in srgb, var(--danger) 50%, var(--border));
 }
 
 .selector-row {

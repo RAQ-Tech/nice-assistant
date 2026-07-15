@@ -33,6 +33,8 @@ summaries, context diagnostics, and truthful saved-memory behavior.
 Step 8 added reviewable post-turn candidates, provenance and confidence,
 auditable lifecycle/history, superseding edits, forget/undo, exact live-memory
 constraints, active-only scoped FTS retrieval, and browser review controls.
+Follow-up hardening separated reversible forget/hide from permanent deletion and
+added atomic owner-scoped bulk memory and chat actions under ADR 0015.
 
 Step 9 added a strict TypeScript/Vite browser with focused API, state, routing,
 settings, chat, media, recording, playback, and visualization modules; canonical
