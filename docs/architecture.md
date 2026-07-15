@@ -61,6 +61,10 @@ fallback, and content-free run audit records.
 `MediaCatalogService` owns resource metadata, compatibility, deterministic plan
 construction, immutable plan snapshots, and approval-time resource revalidation;
 the pure selection policy is isolated in `media_planner.py`.
+`ResourceService` delegates the narrow disabled-to-enabled media transition to
+`MediaCatalogService`: a starter model is created only when that catalog kind is
+empty. Existing operator resources remain authoritative and are never synced
+from direct-action settings. See ADR 0016.
 `IdentityService` owns consent-bound persona identity profiles, normalized
 reference storage, review/deletion audit, queued comparisons, and truthful media
 claim state. `IdentityVerificationProvider` is a separate stateless LAN-service
@@ -167,6 +171,8 @@ plans and artifacts.
 Migration `0014_media_correction_workflows` adds owner-scoped durable generation,
 validation, and correction attempt records without reconstructing existing
 conversation, plan, job, or media tables.
+Migration `0015_media_provider_bootstrap` repairs only missing starter catalog
+kinds for already-enabled providers and does not alter existing resources.
 
 ## Browser application
 

@@ -105,6 +105,11 @@ Existing settings remain available to the manual generation path during the
 transition.
 Migration `0014_media_correction_workflows` adds the owner-scoped attempt ledger
 without reconstructing existing plans or media.
+Migration `0015_media_provider_bootstrap` repairs accounts that enabled a media
+provider after the one-shot import had already completed, but only when the
+matching catalog kind is empty. Future disabled-to-enabled settings changes use
+the same missing-kind rule. Existing operator resources are never overwritten
+or recreated; see ADR 0016.
 
 Resource metadata and plans are owner-scoped. Prompts remain in their existing
 capability request; execution plans store semantic requirements and selected

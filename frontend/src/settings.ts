@@ -143,6 +143,14 @@ const VIDEO_SIZES: Record<string, readonly string[]> = {
 export function normalizeSettings(wire: SettingsWire): Settings {
   const preferences = { ...wire.preferences };
   delete preferences.image_prompt_generation;
+  const rawImageProvider = String(preferences.image_provider ?? '').trim().toLowerCase();
+  if (rawImageProvider === 'local/automatic1111') {
+    preferences.image_provider = 'local';
+    preferences.image_local_backend = 'automatic1111';
+  } else if (rawImageProvider === 'local/comfyui') {
+    preferences.image_provider = 'local';
+    preferences.image_local_backend = 'comfyui';
+  }
   const values = {
     ...SETTINGS_DEFAULTS,
     ...preferences,
@@ -156,8 +164,8 @@ export function normalizeSettings(wire: SettingsWire): Settings {
   } as Settings;
   values.image_quality = normalizeImageQuality(values.image_quality);
   values.image_size = normalizeImageSize(values.image_size);
-  values.image_local_backend = ['automatic1111', 'comfyui'].includes(values.image_local_backend)
-    ? values.image_local_backend
+  values.image_local_backend = ['automatic1111', 'comfyui'].includes(String(values.image_local_backend).toLowerCase())
+    ? String(values.image_local_backend).toLowerCase()
     : SETTINGS_DEFAULTS.image_local_backend;
   values.video_model = normalizeVideoModel(values.video_model);
   values.video_duration = normalizeVideoDuration(values.video_duration);

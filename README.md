@@ -141,6 +141,7 @@ server, proxy, bridge, and second listener have been removed.
 - OpenAI STT plus OpenAI and Kokoro-compatible request/response TTS
 - Provider readiness checks in Settings for Ollama, OpenAI, Kokoro, Automatic1111, and ComfyUI
 - Local image generation through Automatic1111 (`/sdapi/v1/txt2img`) or ComfyUI (`/upload/image`, `/prompt`, `/history/{prompt_id}`, `/view`) with per-user endpoint override in Settings
+- Enabling a media provider after initial setup bootstraps a missing starter catalog model without replacing operator-managed catalog resources
 - ffmpeg included for audio conversion
 - Audio hot-cache rotation into archives with durable replay-path updates and
   configurable age retention

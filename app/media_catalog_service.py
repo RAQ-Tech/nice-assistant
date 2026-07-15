@@ -185,6 +185,43 @@ class MediaCatalogService:
         )
         return preview["status"] == "ready"
 
+    def seed_newly_enabled_defaults(
+        self,
+        repo,
+        user_id: str,
+        previous_preferences: dict,
+        preferences: dict,
+    ) -> None:
+        """Bootstrap missing catalog kinds when an owner enables a provider.
+
+        Existing catalog resources are never rewritten or recreated. This keeps
+        the operator-owned catalog authoritative while making late provider
+        enablement behave like the original migration-time import.
+        """
+
+        transitions = {
+            "image": (
+                str(previous_preferences.get("image_provider") or "disabled").lower(),
+                str(preferences.get("image_provider") or "disabled").lower(),
+            ),
+            "video": (
+                str(previous_preferences.get("video_provider") or "disabled").lower(),
+                str(preferences.get("video_provider") or "disabled").lower(),
+            ),
+        }
+        existing_kinds = {row.kind for row in repo.media_catalog_resources(user_id)}
+        newly_enabled = {
+            kind
+            for kind, (previous, current) in transitions.items()
+            if previous == "disabled" and current != "disabled" and kind not in existing_kinds
+        }
+        if not newly_enabled:
+            return
+        for values in self._legacy_resource_values(preferences):
+            if values["kind"] in newly_enabled:
+                repo.add_media_catalog_resource(user_id, values)
+        repo.save_media_catalog_setting(user_id, {"legacy_imported": 1})
+
     def preview(self, user_id: str, requirements: dict) -> dict:
         normalized = self._normalize_requirements(requirements)
         with self._uow() as uow:

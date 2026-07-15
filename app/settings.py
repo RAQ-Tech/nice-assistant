@@ -38,6 +38,27 @@ def parse_preferences_json(raw_value):
         return {}
 
 
+def normalize_media_preferences(value):
+    """Canonicalize persisted media-provider aliases without adding defaults."""
+
+    preferences = dict(value or {}) if isinstance(value, dict) else {}
+    if "image_provider" in preferences:
+        provider = str(preferences.get("image_provider") or "disabled").strip().lower()
+        if provider == "local/automatic1111":
+            preferences["image_provider"] = "local"
+            preferences["image_local_backend"] = "automatic1111"
+        elif provider == "local/comfyui":
+            preferences["image_provider"] = "local"
+            preferences["image_local_backend"] = "comfyui"
+        elif provider in {"disabled", "local", "openai"}:
+            preferences["image_provider"] = provider
+    if "image_local_backend" in preferences:
+        backend = str(preferences.get("image_local_backend") or "").strip().lower()
+        if backend in {"automatic1111", "comfyui"}:
+            preferences["image_local_backend"] = backend
+    return preferences
+
+
 def setting_bool(settings_row, key, default=False):
     prefs = parse_preferences_json(settings_row["preferences_json"] if settings_row else "{}")
     val = prefs.get(key, default)

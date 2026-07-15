@@ -43,7 +43,7 @@ class DatabaseFoundationTests(unittest.TestCase):
             journal_mode = conn.execute("PRAGMA journal_mode").fetchone()[0]
             conn.close()
 
-            self.assertEqual(version, "0014_media_correction_workflows")
+            self.assertEqual(version, "0015_media_provider_bootstrap")
             self.assertIn("setting_values", tables)
             self.assertIn("conversation_turns", tables)
             self.assertIn("conversation_summaries", tables)
@@ -515,6 +515,61 @@ class DatabaseFoundationTests(unittest.TestCase):
                 )
             with self.assertRaises(sqlite3.IntegrityError):
                 conn.execute("UPDATE media_catalog_settings SET max_loras=99 WHERE user_id='u'")
+            conn.close()
+
+    def test_media_provider_bootstrap_repairs_late_enablement_without_overwriting_catalogs(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "late-image-provider.db"
+            config = Config()
+            config.set_main_option("script_location", str(Path(__file__).resolve().parents[1] / "migrations"))
+            config.set_main_option("sqlalchemy.url", database.sqlite_url(path))
+            engine = database.build_engine(path)
+            with engine.begin() as connection:
+                config.attributes["connection"] = connection
+                command.upgrade(config, "0014_media_correction_workflows")
+            engine.dispose()
+            conn = database.connect_sqlite(path)
+            conn.execute("INSERT INTO users(id,username,password_hash,is_admin,created_at) VALUES('u','owner','h',1,1)")
+            conn.execute(
+                "INSERT INTO app_settings(user_id,preferences_json) "
+                'VALUES(\'u\',\'{"image_provider":"local/comfyui","image_local_model":"late.safetensors"}\')'
+            )
+            conn.execute(
+                "INSERT INTO media_catalog_settings(user_id,vram_budget_mb,max_loras,legacy_imported,created_at,updated_at) "
+                "VALUES('u',10240,4,1,1,1)"
+            )
+            conn.execute(
+                "INSERT INTO users(id,username,password_hash,is_admin,created_at) VALUES('u2','curator','h',0,1)"
+            )
+            conn.execute(
+                "INSERT INTO app_settings(user_id,preferences_json) "
+                'VALUES(\'u2\',\'{"image_provider":"local/comfyui","image_local_model":"ignored.safetensors"}\')'
+            )
+            conn.execute(
+                "INSERT INTO media_catalog_settings(user_id,vram_budget_mb,max_loras,legacy_imported,created_at,updated_at) "
+                "VALUES('u2',10240,4,1,1,1)"
+            )
+            conn.execute(
+                "INSERT INTO media_catalog_resources("
+                "id,user_id,resource_type,kind,name,provider_key,backend,external_id,created_at,updated_at"
+                ") VALUES('curated','u2','model','image','Curated model','local-image','comfyui',"
+                "'curated.safetensors',1,1)"
+            )
+            conn.commit()
+            conn.close()
+
+            engine = database.build_engine(path)
+            with engine.begin() as connection:
+                config.attributes["connection"] = connection
+                command.upgrade(config, "head")
+            engine.dispose()
+            conn = database.connect_sqlite(path)
+            imported = conn.execute(
+                "SELECT provider_key,backend,external_id FROM media_catalog_resources WHERE user_id='u'"
+            ).fetchall()
+            self.assertEqual([tuple(row) for row in imported], [("local-image", "comfyui", "late.safetensors")])
+            curated = conn.execute("SELECT name,external_id FROM media_catalog_resources WHERE user_id='u2'").fetchall()
+            self.assertEqual([tuple(row) for row in curated], [("Curated model", "curated.safetensors")])
             conn.close()
 
     def test_persona_identity_migration_preserves_existing_persona_media_and_jobs(self):

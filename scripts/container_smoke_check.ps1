@@ -337,7 +337,7 @@ try {
   $schemaRaw = docker exec $name python -c "import sqlite3,json; c=sqlite3.connect('/data/nice_assistant.db'); print(json.dumps({'version':c.execute('SELECT version_num FROM alembic_version').fetchone()[0],'plan_columns':[r[1] for r in c.execute('PRAGMA table_info(media_execution_plans)')],'media_columns':[r[1] for r in c.execute('PRAGMA table_info(media_files)')],'attempt_columns':[r[1] for r in c.execute('PRAGMA table_info(media_generation_attempts)')]}))"
   if ($LASTEXITCODE -ne 0) { throw 'media correction schema inspection failed' }
   $schema = $schemaRaw | ConvertFrom-Json
-  if ($schema.version -ne '0014_media_correction_workflows' -or
+  if ($schema.version -ne '0015_media_provider_bootstrap' -or
       $schema.plan_columns -notcontains 'identity_conditioning_json' -or
       $schema.media_columns -notcontains 'generation_plan_id' -or
       $schema.attempt_columns -notcontains 'attempt_number') {

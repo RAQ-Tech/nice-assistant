@@ -134,6 +134,9 @@ and platform foundation below.
     and separate independent save and destructive actions. The settings shell
     delegates those workflows to focused typed modules. See
     `docs/settings-experience.md`.
+    The provider-bootstrap repair canonicalizes legacy local image aliases and
+    seeds a missing starter catalog model when media is enabled after initial
+    setup, while preserving operator-managed resources under ADR 0016.
 
 Steps are delivered and reviewed independently. Step 11 cannot select providers
 until a future listening decision is approved. Any future deployment acceptance

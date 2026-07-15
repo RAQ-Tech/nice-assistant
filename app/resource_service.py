@@ -5,6 +5,7 @@ from pathlib import Path
 
 from app.auth import hash_password, is_masked_secret, mask_secret, verify_password
 from app.repositories import UnitOfWork, now_ts
+from app.settings import normalize_media_preferences
 from app.service_errors import (
     AuthenticationError,
     AuthorizationError,
@@ -64,7 +65,7 @@ def settings_response(row: dict | None) -> dict:
         "tts_format": row.get("tts_format") or "wav",
         "openai_api_key": mask_secret(row.get("openai_api_key")),
         "onboarding_done": bool(row.get("onboarding_done")),
-        "preferences": row.get("preferences") or {},
+        "preferences": normalize_media_preferences(row.get("preferences") or {}),
     }
 
 
@@ -80,6 +81,7 @@ class ResourceService:
         password_verifier=verify_password,
         persona_delete_hook=None,
         provider_url_policy=None,
+        media_catalog=None,
     ):
         self.session_factory = session_factory
         self.secret_store = secret_store
@@ -89,6 +91,7 @@ class ResourceService:
         self.password_verifier = password_verifier
         self.persona_delete_hook = persona_delete_hook
         self.provider_url_policy = provider_url_policy
+        self.media_catalog = media_catalog
 
     def _uow(self):
         return UnitOfWork(self.session_factory, self.secret_store)
@@ -147,7 +150,7 @@ class ResourceService:
             return settings_response(uow.repo.settings(user_id))
 
     def save_settings(self, user_id: str, values: dict) -> dict:
-        preferences = dict(values.get("preferences") or {})
+        preferences = normalize_media_preferences(values.get("preferences") or {})
         for key, label in (
             ("tts_local_base_url", "Local speech service"),
             ("image_local_base_url", "Local image service"),
@@ -161,12 +164,20 @@ class ResourceService:
         values["preferences"] = preferences
         with self._uow() as uow:
             current = uow.repo.settings(user_id) or {}
+            previous_preferences = normalize_media_preferences(current.get("preferences") or {})
             submitted = values.get("openai_api_key")
             preserve = submitted is None or submitted == "" or is_masked_secret(submitted)
             if preserve:
                 values = dict(values)
                 values["openai_api_key"] = current.get("openai_api_key")
             saved = uow.repo.save_settings(user_id, values, preserve_secret=preserve)
+            if self.media_catalog:
+                self.media_catalog.seed_newly_enabled_defaults(
+                    uow.repo,
+                    user_id,
+                    previous_preferences,
+                    preferences,
+                )
             return settings_response(saved)
 
     def list_workspaces(self, user_id: str) -> list[dict]:

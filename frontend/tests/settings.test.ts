@@ -41,4 +41,25 @@ describe('typed settings', () => {
     expect(modelSettings(settings, 'demo')).toMatchObject({ temperature: 1.1, context_window_tokens: 8192 });
     expect(modelSettings(settings, 'demo').num_predict).toBe(512);
   });
+
+  it.each([
+    ['local/comfyui', 'comfyui'],
+    ['local/automatic1111', 'automatic1111'],
+  ])('restores legacy local provider alias %s', (provider, backend) => {
+    const settings = normalizeSettings({
+      global_default_model: null,
+      default_memory_mode: 'saved',
+      stt_provider: 'disabled',
+      tts_provider: 'disabled',
+      tts_format: 'wav',
+      openai_api_key: null,
+      onboarding_done: true,
+      preferences: { image_provider: provider },
+    });
+
+    expect(settings.image_provider).toBe('local');
+    expect(settings.image_local_backend).toBe(backend);
+    expect(settingsWire(settings).preferences.image_provider).toBe('local');
+    expect(settingsWire(settings).preferences.image_local_backend).toBe(backend);
+  });
 });

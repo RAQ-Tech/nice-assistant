@@ -59,8 +59,13 @@ and Workspaces now use the same approachable structure:
   explain their organizational scope.
 - Local image connection choices remain readily available while sampling,
   authentication, and raw JSON controls live under advanced disclosure.
+- Enabling an image provider seeds a starter Media Catalog model only when no
+  image resources exist, so conversational planning becomes available without
+  overwriting an operator-curated catalog. Legacy local-provider aliases are
+  shown and saved in their canonical `local` plus backend form.
 
-This presentation change does not alter provider semantics or saved settings.
+Provider tuning still controls direct actions. Media Catalog remains the
+operator source of truth for planned conversational generation.
 
 ### 21C — Operator settings — delivered
 

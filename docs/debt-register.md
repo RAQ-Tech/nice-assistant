@@ -38,6 +38,9 @@ change that alters them.
 - Owner-managed media model/LoRA/workflow metadata, explicit compatibility,
   deterministic explainable selection, immutable approval plans, operator
   VRAM/LoRA limits, and truthful manual-generation bypass records.
+- Late media-provider enablement now bootstraps only an empty catalog kind and
+  migration `0015` repairs affected accounts; provider settings do not overwrite
+  operator-curated resources.
 - Consent-bound persona visual identity profiles, normalized protected
   references, explicit review/deletion, stateless LAN comparison, durable
   validation history, and truthful verified/rejected/unverified media state.

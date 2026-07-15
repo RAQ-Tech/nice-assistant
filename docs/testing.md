@@ -40,7 +40,7 @@ startup.
   queue/storage metrics, configured retention, atomic disk-full writes, empty
   artifacts, and corrupt/valid backup restore drills.
 - API tests use isolated temporary databases and deterministic fake providers.
-- Migration tests upgrade pre-0004/0005/0007/0008/0009/0010/0011/0012/0013/0014 databases and prove
+- Migration tests upgrade pre-0004/0005/0007/0008/0009/0010/0011/0012/0013/0014/0015 databases and prove
   chats, messages, jobs, media, memories, turn ordering, stored artifact links,
   Task Model profiles, and imported catalog resources survive.
 - Persona identity tests cover explicit consent, safe image normalization,
@@ -74,7 +74,8 @@ startup.
 - Media catalog tests cover CRUD and owner isolation, relational compatibility,
   deterministic metadata selection despite misleading filenames, priority and
   VRAM policy, immutable revisions, blocked adapter operations, stale-plan
-  rejection, manual bypass disclosure, and selected settings/LoRA payloads.
+  rejection, manual bypass disclosure, late provider bootstrap, and selected
+  settings/LoRA payloads.
 - Resource-coordination tests cover real provider response parsing, unknown and
   unavailable telemetry, admin isolation, disabled/observe/managed policy,
   endpoint-fingerprint authorization, verified release, safe timeout,

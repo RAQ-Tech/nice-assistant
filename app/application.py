@@ -128,16 +128,6 @@ def build_services(
         runtime.logger,
         provider_url_policy=provider_url_policy,
     )
-    resources = ResourceService(
-        runtime.session_factory,
-        runtime.secret_store,
-        allow_public_signup=config.allow_public_signup,
-        session_ttl_seconds=config.session_ttl_seconds,
-        password_hasher=password_hasher,
-        password_verifier=password_verifier,
-        persona_delete_hook=identity.prepare_persona_deletion,
-        provider_url_policy=provider_url_policy,
-    )
     media = MediaService(
         runtime.session_factory,
         runtime.secret_store,
@@ -153,6 +143,17 @@ def build_services(
         runtime.secret_store,
         registry,
         runtime.logger,
+    )
+    resources = ResourceService(
+        runtime.session_factory,
+        runtime.secret_store,
+        allow_public_signup=config.allow_public_signup,
+        session_ttl_seconds=config.session_ttl_seconds,
+        password_hasher=password_hasher,
+        password_verifier=password_verifier,
+        persona_delete_hook=identity.prepare_persona_deletion,
+        provider_url_policy=provider_url_policy,
+        media_catalog=media_catalog,
     )
     capabilities = CapabilityService(
         runtime.session_factory,

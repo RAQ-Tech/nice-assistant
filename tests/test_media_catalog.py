@@ -814,6 +814,51 @@ class MediaCatalogTests(unittest.TestCase):
             self.assertEqual(stale.status_code, 409)
             self.assertIn("changed after", stale.text)
 
+    def test_enabling_image_provider_after_catalog_initialization_restores_planning(self):
+        with tempfile.TemporaryDirectory() as tmp, TestApp(Path(tmp)) as running:
+            running.create_and_login()
+            running.services.providers.media_providers["local-image"] = FakeImageProvider()
+            initial = running.client.get("/api/v1/media-catalog")
+            self.assertEqual(initial.status_code, 200, initial.text)
+            self.assertEqual(initial.json()["resources"], [])
+
+            saved = running.client.put(
+                "/api/v1/settings",
+                json={
+                    "preferences": {
+                        "image_provider": "local/comfyui",
+                        "image_local_model": "late-enable.safetensors",
+                    }
+                },
+            )
+            self.assertEqual(saved.status_code, 200, saved.text)
+            self.assertEqual(saved.json()["preferences"]["image_provider"], "local")
+            self.assertEqual(saved.json()["preferences"]["image_local_backend"], "comfyui")
+
+            catalog = running.client.get("/api/v1/media-catalog").json()
+            self.assertEqual(len(catalog["resources"]), 1)
+            self.assertEqual(catalog["resources"][0]["backend"], "comfyui")
+            self.assertEqual(catalog["resources"][0]["external_id"], "late-enable.safetensors")
+            definitions = running.client.get("/api/v1/capabilities").json()["items"]
+            image = next(item for item in definitions if item["key"] == "media.generate_image")
+            self.assertTrue(image["available"])
+
+    def test_enabling_image_provider_before_catalog_initialization_imports_once(self):
+        with tempfile.TemporaryDirectory() as tmp, TestApp(Path(tmp)) as running:
+            running.create_and_login()
+            saved = running.client.put(
+                "/api/v1/settings",
+                json={"preferences": {"image_provider": "local/comfyui"}},
+            )
+            self.assertEqual(saved.status_code, 200, saved.text)
+
+            first = running.client.get("/api/v1/media-catalog")
+            second = running.client.get("/api/v1/media-catalog")
+            self.assertEqual(first.status_code, 200, first.text)
+            self.assertEqual(second.status_code, 200, second.text)
+            self.assertEqual(len(first.json()["resources"]), 1)
+            self.assertEqual(first.json()["resources"], second.json()["resources"])
+
     def test_explicit_media_jobs_remain_a_truthfully_labeled_manual_fallback(self):
         image_provider = FakeImageProvider()
         with tempfile.TemporaryDirectory() as tmp, TestApp(Path(tmp)) as running:

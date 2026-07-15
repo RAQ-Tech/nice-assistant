@@ -255,6 +255,9 @@ the migration test proves existing artifacts and plans survive.
 Migration `0014_media_correction_workflows` adds the durable attempt ledger and
 does not reconstruct existing tables. Startup marks unfinished attempts as safe
 interrupted errors.
+Migration `0015_media_provider_bootstrap` adds no tables. It restores a missing
+starter media resource only for an enabled provider whose corresponding catalog
+kind is empty, leaving every existing operator resource unchanged.
 Schema migrations are
 forward-only. Rollback means
 stopping the service,
