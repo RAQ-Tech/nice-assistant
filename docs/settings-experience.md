@@ -8,6 +8,9 @@ what to do next without reading the source code.
 ## Interaction rules
 
 - Lead each tab with its purpose in plain language.
+- Keep the primary screen concise. Put short explanations behind a consistent
+  information icon that appears on hover and keyboard focus; keep warnings and
+  consequences that require a decision visible in the flow.
 - Put the common path first. Hide provider diagnostics, thresholds, raw
   workflow controls, and destructive actions under clearly labeled advanced
   sections.
@@ -40,13 +43,24 @@ what to do next without reading the source code.
 - Keep verifier settings, thresholds, manual validation, history, and deletion
   in an optional advanced section.
 
-### 21B — Everyday settings — planned
+### 21B — Everyday settings — delivered
 
-Apply the same structure to General, TTS, STT, Image Generation, Video
-Generation, Memory, User, Personas, and Workspaces. This chunk will add concise
-tab introductions, plain labels, saved-versus-runtime feedback, dependency
-readiness, useful defaults, and advanced disclosure without changing provider
-semantics.
+General, TTS, STT, Image Generation, Video Generation, Memory, User, Personas,
+and Workspaces now use the same approachable structure:
+
+- Common choices appear first in goal-oriented cards; diagnostics, credentials,
+  retention, tuning payloads, and new-persona defaults begin closed.
+- A shared accessible information icon reveals concise explanations on hover or
+  keyboard focus without filling the page with instructional copy.
+- Speech and transcription copy describes the completed-audio and push-to-talk
+  behavior that exists today; it does not imply streaming speech or local STT.
+- Memory distinguishes pending, forget, and permanent delete, including atomic
+  bulk actions. Persona editors remain collapsed until selected, and workspaces
+  explain their organizational scope.
+- Local image connection choices remain readily available while sampling,
+  authentication, and raw JSON controls live under advanced disclosure.
+
+This presentation change does not alter provider semantics or saved settings.
 
 ### 21C — Operator settings — planned
 
@@ -57,6 +71,5 @@ and clearer separation between configuration, diagnostics, and destructive
 administration.
 
 These chunks are intentionally separate. Visual Identity needed a new protected
-media-list contract and an interaction redesign; applying superficial copy
-changes to all fifteen tabs in the same change would leave the underlying
-confusion intact.
+media-list contract and an interaction redesign; the everyday and operator tabs
+have different audiences and therefore use separate implementation passes.

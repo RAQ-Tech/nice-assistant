@@ -25,6 +25,7 @@ export function identityReadinessCard(
         'Reference image',
         hasReference ? `${profile.approved_reference_count} approved` : 'Add and approve at least one image',
         hasReference ? 'ready' : 'attention',
+        'A reviewed image that defines how this persona should look. References remain private protected media.',
       ),
       readinessRow(
         'Reference-aware generation',
@@ -32,16 +33,19 @@ export function identityReadinessCard(
           ? 'An identity-capable ComfyUI workflow is configured'
           : 'Not configured; add an identity-aware ComfyUI workflow in Media Catalog',
         profile.generation_workflow_configured ? 'ready' : 'attention',
+        'Generation needs an enabled ComfyUI model and a compatible workflow with explicit identity-image bindings.',
       ),
       readinessRow(
         'Optional comparison',
         profile.verification_configured ? 'Verifier settings are configured' : 'Off; generated images will remain unverified',
         profile.verification_configured ? 'ready' : 'off',
+        'An optional verifier can compare a finished face with the reference. It cannot improve generation.',
       ),
       readinessRow(
         'Automatic blocking',
         blocksAutomatically ? 'Images that fail comparison are hidden' : 'Off',
         blocksAutomatically ? 'attention' : 'off',
+        'When enabled, a generated image that fails comparison is withheld instead of being presented as the persona.',
       ),
     ]),
   ]);

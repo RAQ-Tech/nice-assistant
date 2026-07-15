@@ -703,6 +703,136 @@ input[type='file']::file-selector-button {
   min-width: 0;
 }
 
+.settings-card,
+.workspace-card {
+  gap: .65rem;
+}
+
+.settings-heading-with-info,
+.setting-label-line,
+.settings-primary-actions {
+  display: flex;
+  align-items: center;
+  gap: .45rem;
+  min-width: 0;
+}
+
+.settings-heading-with-info h4,
+.settings-heading-with-info strong,
+.setting-label-line label {
+  margin: 0;
+  min-width: 0;
+}
+
+.setting-label-line label {
+  color: var(--text);
+}
+
+.setting-toggle-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: .6rem;
+}
+
+.info-tip {
+  position: relative;
+  display: inline-flex;
+  flex: 0 0 auto;
+}
+
+.info-tip-trigger {
+  width: 20px;
+  height: 20px;
+  min-width: 20px;
+  min-height: 20px;
+  padding: 0;
+  border: 1px solid color-mix(in srgb, var(--accent) 42%, var(--border));
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--accent-soft) 70%, var(--panel));
+  color: var(--accent);
+  font: 700 .72rem/1 system-ui, sans-serif;
+  text-align: center;
+  cursor: help;
+}
+
+.info-tip-content {
+  position: absolute;
+  left: 50%;
+  bottom: calc(100% + 8px);
+  z-index: 80;
+  width: max-content;
+  max-width: min(300px, calc(100vw - 48px));
+  padding: .55rem .65rem;
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  background: var(--panel-strong);
+  box-shadow: 0 12px 32px rgba(0, 0, 0, .32);
+  color: var(--text);
+  font-size: .82rem;
+  font-weight: 400;
+  line-height: 1.4;
+  text-align: left;
+  opacity: 0;
+  pointer-events: none;
+  transform: translate(-50%, 4px);
+  visibility: hidden;
+  transition: opacity .12s ease, transform .12s ease, visibility .12s ease;
+}
+
+.info-tip:hover .info-tip-content,
+.info-tip:focus-within .info-tip-content {
+  opacity: 1;
+  transform: translate(-50%, 0);
+  visibility: visible;
+}
+
+.settings-concept-strip {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: .5rem;
+}
+
+.settings-concept {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: .45rem;
+  padding: .55rem .65rem;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, .025);
+}
+
+.settings-primary-actions {
+  flex-wrap: wrap;
+  justify-content: space-between;
+}
+
+.persona-editor {
+  padding: 0;
+  overflow: hidden;
+}
+
+.persona-editor > summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: .75rem;
+  padding: .75rem;
+  cursor: pointer;
+}
+
+.persona-editor[open] {
+  padding: 0 .75rem .75rem;
+  overflow: visible;
+}
+
+.persona-editor[open] > summary {
+  margin: 0 -.75rem .35rem;
+  border-bottom: 1px solid var(--border);
+}
+
 .identity-profile-stack {
   display: grid;
   gap: 14px;
@@ -738,6 +868,7 @@ input[type='file']::file-selector-button {
 
 .settings-advanced[open] {
   padding: 0 .8rem .8rem;
+  overflow: visible;
 }
 
 .settings-advanced[open] > summary {
@@ -905,6 +1036,10 @@ input[type='file']::file-selector-button {
 
 @media (max-width: 700px) {
   .settings-readiness-list {
+    grid-template-columns: 1fr;
+  }
+
+  .settings-concept-strip {
     grid-template-columns: 1fr;
   }
 

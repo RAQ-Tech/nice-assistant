@@ -1,5 +1,33 @@
 import { el, type Child } from './dom';
 
+let infoTipSequence = 0;
+
+export function infoTip(text: string, label = 'More information'): HTMLElement {
+  infoTipSequence += 1;
+  const tooltipId = `settings-info-${infoTipSequence}`;
+  return el('span', { class: 'info-tip' }, [
+    el('button', {
+      class: 'info-tip-trigger',
+      type: 'button',
+      ariaLabel: label,
+      'aria-describedby': tooltipId,
+      textContent: 'i',
+    }),
+    el('span', { class: 'info-tip-content', id: tooltipId, role: 'tooltip', textContent: text }),
+  ]);
+}
+
+export function settingsHeading(title: string, help: string, level: 'h4' | 'strong' = 'h4'): HTMLElement {
+  return el('div', { class: 'settings-heading-with-info' }, [
+    el(level, { textContent: title }),
+    infoTip(help, `About ${title}`),
+  ]);
+}
+
+export function settingsCard(children: Child[], className = ''): HTMLElement {
+  return el('div', { class: `persona-card settings-card ${className}`.trim() }, children);
+}
+
 export function settingsIntro(title: string, description: string): HTMLElement {
   return el('div', { class: 'settings-intro' }, [
     el('strong', { textContent: title }),
@@ -29,22 +57,42 @@ export function advancedSettings(
   return details as HTMLDetailsElement;
 }
 
-export function readinessRow(label: string, message: string, state: 'ready' | 'attention' | 'off'): HTMLElement {
+export function readinessRow(
+  label: string,
+  message: string,
+  state: 'ready' | 'attention' | 'off',
+  help?: string,
+): HTMLElement {
   return el('div', { class: 'settings-readiness-row' }, [
     el('span', { class: `settings-readiness-dot ${state}`, ariaHidden: true }),
-    el('div', {}, [el('strong', { textContent: label }), el('span', { class: 'meta', textContent: message })]),
+    el('div', {}, [
+      help ? settingsHeading(label, help, 'strong') : el('strong', { textContent: label }),
+      el('span', { class: 'meta', textContent: message }),
+    ]),
   ]);
 }
 
-export function settingField(label: string, control: HTMLElement | null): HTMLElement {
-  return el('label', { class: 'setting-row' }, [el('span', { textContent: label }), control]);
+export function settingField(label: string, control: HTMLElement | null, help?: string): HTMLElement {
+  if (control && !control.id) control.id = `setting-control-${++infoTipSequence}`;
+  return el('div', { class: 'setting-row' }, [
+    el('div', { class: 'setting-label-line' }, [
+      el('label', { textContent: label, htmlFor: control?.id ?? '' }),
+      help ? infoTip(help, `About ${label}`) : null,
+    ]),
+    control,
+  ]);
 }
 
-export function textAreaSetting(label: string, value: string, change: (value: string) => void): HTMLElement {
+export function textAreaSetting(
+  label: string,
+  value: string,
+  change: (value: string) => void,
+  help?: string,
+): HTMLElement {
   return settingField(label, el('textarea', {
     value,
     onchange: (event: Event) => change((event.currentTarget as HTMLTextAreaElement).value),
-  }));
+  }), help);
 }
 
 export function textControl(value: string, change: (value: string) => void, type = 'text'): HTMLInputElement {

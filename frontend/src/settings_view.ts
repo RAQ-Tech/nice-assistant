@@ -1,14 +1,16 @@
 import { api, type ApiClient, type PersonaInput } from './api';
 import { el, errorMessage, formatBytes, formatDate } from './dom';
+import { EverydaySettingsView, type EverydaySettingsSection } from './everyday_settings_view';
 import { IdentitySettingsView } from './identity_settings_view';
 import {
-  availableVideoSizes,
   resetSettingsSection,
   SETTINGS_DEFAULTS,
   SETTINGS_SECTIONS,
   settingsWire,
   type SettingsSection,
 } from './settings';
+import { inputField, selectField, textareaField, toggleField } from './settings_controls';
+import { advancedSettings, infoTip, settingsCard, settingsHeading, settingsIntro } from './settings_ui';
 import { state } from './state';
 import type {
   AppState,
@@ -40,6 +42,7 @@ export interface Dialogs {
 
 export class SettingsView {
   private readonly identityView: IdentitySettingsView;
+  private readonly everydayView: EverydaySettingsView;
   private readonly dirtyTaskModelRoles = new Set<TaskModelRole>();
   private readonly taskModelVersions = new Map<TaskModelRole, number>();
   private mediaCatalogSettingsDirty = false;
@@ -64,6 +67,12 @@ export class SettingsView {
     private readonly client: ApiClient = api,
   ) {
     this.identityView = new IdentitySettingsView(renderApp, appState, client, dialogs);
+    this.everydayView = new EverydaySettingsView(
+      appState,
+      (key, value, shouldRender) => this.set(key, value, shouldRender),
+      (provider) => this.providerControl(provider),
+      () => this.providerPanel(),
+    );
   }
 
   node(): HTMLElement {
@@ -147,13 +156,10 @@ export class SettingsView {
   }
 
   private section(section: SettingsSection, settings: Settings): HTMLElement[] {
-    if (section === 'General') return this.general(settings);
-    if (section === 'TTS') return this.tts(settings);
-    if (section === 'STT') return this.stt(settings);
-    if (section === 'Image Generation') return this.image(settings);
-    if (section === 'Video Generation') return this.video(settings);
+    if (['General', 'TTS', 'STT', 'Image Generation', 'Video Generation', 'User'].includes(section)) {
+      return this.everydayView.nodes(section as EverydaySettingsSection, settings);
+    }
     if (section === 'Memory') return this.memory(settings);
-    if (section === 'User') return this.user(settings);
     if (section === 'Personas') return this.personas(settings);
     if (section === 'Workspaces') return this.workspaces(settings);
     if (section === 'Models') return this.models(settings);
@@ -164,102 +170,37 @@ export class SettingsView {
     return this.data();
   }
 
-  private general(settings: Settings): HTMLElement[] {
-    return [
-      selectField('Theme', settings.general_theme, ['dark', 'light'], (value) => this.set('general_theme', value)),
-      selectField('Default model', settings.global_default_model, ['', ...this.appState.models], (value) => this.set('global_default_model', value)),
-      toggleField('Show system and tool messages', settings.general_show_system_messages, (value) => this.set('general_show_system_messages', value)),
-      toggleField('Show model thinking by default', settings.general_show_thinking, (value) => this.set('general_show_thinking', value)),
-      toggleField('Automatically expire inactive sessions', settings.general_auto_logout, (value) => this.set('general_auto_logout', value)),
-      toggleField('Speak assistant replies', settings.general_voice_responses, (value) => this.set('general_voice_responses', value)),
-      toggleField('Visualizer enabled', settings.general_show_viz, (value) => this.set('general_show_viz', value)),
-      this.providerPanel(),
-    ];
-  }
-
-  private tts(settings: Settings): HTMLElement[] {
-    const rows: HTMLElement[] = [
-      selectField('Provider', settings.tts_provider, ['disabled', 'openai', 'local'], (value) => this.set('tts_provider', value), 'tts-provider'),
-      selectField('Completed audio format', settings.tts_format, ['wav', 'mp3', 'opus', 'aac', 'flac'], (value) => this.set('tts_format', value)),
-      el('div', { class: 'meta', textContent: 'Current speech is completed-file playback. Provider replacement, streaming, and interruption remain deferred; the working local speech path is unchanged.' }),
-    ];
-    if (settings.tts_provider === 'openai') {
-      rows.push(
-        inputField('OpenAI voice', settings.tts_voice_openai, (value) => this.set('tts_voice_openai', value)),
-        selectField('OpenAI model', settings.tts_model_openai, ['gpt-4o-mini-tts', 'tts-1', 'tts-1-hd'], (value) => this.set('tts_model_openai', value)),
-        inputField('Speed', settings.tts_speed_openai, (value) => this.set('tts_speed_openai', value), 'number'),
-        textareaField('Voice direction', settings.tts_instructions_openai, (value) => this.set('tts_instructions_openai', value)),
-      );
-    }
-    if (settings.tts_provider === 'local') {
-      rows.push(
-        inputField('Kokoro service URL', settings.tts_local_base_url, (value) => this.set('tts_local_base_url', value), 'url'),
-        inputField('Local voice', settings.tts_voice_local, (value) => this.set('tts_voice_local', value)),
-        inputField('Local model', settings.tts_model_local, (value) => this.set('tts_model_local', value)),
-        inputField('Speed', settings.tts_speed_local, (value) => this.set('tts_speed_local', value), 'number'),
-      );
-    }
-    rows.push(this.providerControl(settings.tts_provider === 'local' ? 'kokoro' : 'openai'));
-    return rows;
-  }
-
-  private stt(settings: Settings): HTMLElement[] {
-    return [
-      selectField('Provider', settings.stt_provider, ['disabled', 'openai'], (value) => this.set('stt_provider', value), 'stt-provider'),
-      selectField('Language', settings.stt_language, ['auto', 'en', 'es', 'fr', 'de'], (value) => this.set('stt_language', value)),
-      toggleField('Retain source recordings', settings.stt_store_recordings, (value) => this.set('stt_store_recordings', value)),
-      el('div', { class: 'meta', textContent: 'Local and streaming transcription remain unavailable until Step 12. Push-to-talk uses OpenAI only when configured.' }),
-    ];
-  }
-
-  private image(settings: Settings): HTMLElement[] {
-    const rows: HTMLElement[] = [
-      selectField('Provider', settings.image_provider, ['disabled', 'openai', 'local'], (value) => this.set('image_provider', value), 'image-provider'),
-      inputField('Resolution', settings.image_size, (value) => this.set('image_size', value)),
-      selectField('Quality', settings.image_quality, ['none', 'low', 'medium', 'high', 'auto'], (value) => this.set('image_quality', value)),
-    ];
-    if (settings.image_provider === 'local') {
-      rows.push(
-        selectField('Local backend', settings.image_local_backend, ['automatic1111', 'comfyui'], (value) => this.set('image_local_backend', value)),
-        inputField('Service URL', settings.image_local_base_url, (value) => this.set('image_local_base_url', value), 'url'),
-        inputField('Basic auth user:password', settings.image_local_api_auth, (value) => this.set('image_local_api_auth', value), 'password'),
-        inputField('Model/checkpoint', settings.image_local_model, (value) => this.set('image_local_model', value)),
-        inputField('Steps', settings.image_local_steps, (value) => this.set('image_local_steps', value), 'number'),
-        inputField('Sampler', settings.image_local_sampler_name, (value) => this.set('image_local_sampler_name', value)),
-        inputField('Scheduler', settings.image_local_scheduler, (value) => this.set('image_local_scheduler', value)),
-        inputField('CFG scale', settings.image_local_cfg_scale, (value) => this.set('image_local_cfg_scale', value), 'number'),
-        inputField('Seed', settings.image_local_seed, (value) => this.set('image_local_seed', value)),
-        textareaField('Additional JSON parameters', settings.image_local_additional_parameters, (value) => this.set('image_local_additional_parameters', value)),
-        toggleField('Allow explicit local prompts', settings.image_local_allow_nsfw, (value) => this.set('image_local_allow_nsfw', value)),
-        this.providerControl(settings.image_local_backend),
-      );
-    } else if (settings.image_provider === 'openai') rows.push(this.providerControl('openai'));
-    return rows;
-  }
-
-  private video(settings: Settings): HTMLElement[] {
-    return [
-      selectField('Provider', settings.video_provider, ['disabled', 'openai'], (value) => this.set('video_provider', value), 'video-provider'),
-      selectField('Model', settings.video_model, ['sora-2', 'sora-2-pro'], (value) => {
-        this.set('video_model', value, false);
-        settings.video_size = availableVideoSizes(value)[0] ?? SETTINGS_DEFAULTS.video_size;
-        this.renderApp();
-      }),
-      selectField('Size', settings.video_size, [...availableVideoSizes(settings.video_model)], (value) => this.set('video_size', value)),
-      selectField('Duration', settings.video_duration, ['4', '8', '12'], (value) => this.set('video_duration', value)),
-      this.providerControl('openai'),
-    ];
-  }
-
   private memory(settings: Settings): HTMLElement[] {
     const groups = groupMemories(this.appState.memories);
     const selected = this.appState.memories.filter((memory) => this.selectedMemoryIds.has(memory.id));
     const forgettable = selected.filter((memory) => ['pending', 'active'].includes(memory.status));
     return [
-      selectField('Default memory mode', settings.default_memory_mode, ['saved', 'off'], (value) => this.set('default_memory_mode', value === 'off' ? 'off' : 'saved')),
-      el('div', { class: 'meta', textContent: 'Only active memories enter prompts. Conversation facts remain pending until you approve them. Forget is reversible and keeps history; Delete permanently removes the memory and its history.' }),
+      settingsIntro(
+        'Control what carries between conversations',
+        'Only approved active memories enter prompts. Review, forget, or permanently delete them here.',
+      ),
+      settingsCard([
+        selectField(
+          'Default memory mode',
+          settings.default_memory_mode,
+          ['saved', 'off'],
+          (value) => this.set('default_memory_mode', value === 'off' ? 'off' : 'saved'),
+          undefined,
+          (value) => value === 'saved' ? 'Use approved memories' : 'Do not use saved memories',
+          true,
+          'Controls new chats by default. Individual chats can still choose a different memory mode.',
+        ),
+        el('div', { class: 'settings-concept-strip' }, [
+          conceptTip('Pending', 'A proposed memory that does not enter prompts until you approve it.'),
+          conceptTip('Forget', 'Stops using the memory while preserving history so the action can be undone.'),
+          conceptTip('Delete', 'Permanently removes the memory and its history. This cannot be undone.'),
+        ]),
+      ]),
       el('div', { class: 'memory-bulk-bar persona-card', 'data-testid': 'memory-bulk-actions' }, [
-        el('strong', { textContent: `${selected.length} of ${this.appState.memories.length} selected` }),
+        el('div', { class: 'settings-heading-with-info' }, [
+          el('strong', { textContent: `${selected.length} of ${this.appState.memories.length} selected` }),
+          infoTip('Bulk actions apply atomically to the selected memories. Permanent delete cannot be undone.', 'About memory bulk actions'),
+        ]),
         el('div', { class: 'chips' }, [
           el('button', {
             class: 'pill-btn',
@@ -293,7 +234,7 @@ export class SettingsView {
       this.memoryGroup('Active', groups.active, 'active'),
       this.memoryGroup('History', groups.history, 'history'),
       el('div', { class: 'persona-card' }, [
-        el('strong', { textContent: 'Add a manual memory' }),
+        settingsHeading('Add a manual memory', 'Manual memories are global, immediately active facts you intentionally want the assistant to remember.', 'strong'),
         el('button', {
           class: 'pill-btn',
           textContent: 'Add global memory',
@@ -304,28 +245,53 @@ export class SettingsView {
     ];
   }
 
-  private user(settings: Settings): HTMLElement[] {
-    return [
-      inputField('Display name', settings.user_display_name, (value) => this.set('user_display_name', value)),
-      inputField('Timezone', settings.user_timezone, (value) => this.set('user_timezone', value)),
-      inputField('OpenAI API key', settings.openai_api_key, (value) => this.set('openai_api_key', value), 'password'),
-    ];
-  }
-
   private personas(settings: Settings): HTMLElement[] {
     return [
-      textareaField('Default system prompt', settings.personas_default_system_prompt, (value) => this.set('personas_default_system_prompt', value)),
-      el('button', { class: 'pill-btn', textContent: '+ New persona', onclick: () => void this.addPersona() }),
+      settingsIntro(
+        'Manage the people you talk with',
+        'Create personas and open one only when you want to change its model, appearance source, or behavior.',
+      ),
+      el('div', { class: 'settings-primary-actions' }, [
+        el('button', { class: 'send-btn', textContent: '+ New persona', onclick: () => void this.addPersona() }),
+        el('span', { class: 'meta', textContent: `${this.appState.personas.length} ${this.appState.personas.length === 1 ? 'persona' : 'personas'}` }),
+      ]),
+      advancedSettings(
+        'New-persona default instructions',
+        'Applied only when a new persona is created; existing personas keep their own instructions.',
+        [textareaField(
+          'Default system prompt',
+          settings.personas_default_system_prompt,
+          (value) => this.set('personas_default_system_prompt', value),
+          true,
+          'Starting system instructions for newly created personas.',
+        )],
+        { testId: 'personas-advanced-settings' },
+      ),
       ...this.appState.personas.map((persona) => this.personaCard(persona)),
     ];
   }
 
   private workspaces(settings: Settings): HTMLElement[] {
     return [
-      selectField('Default workspace', settings.workspaces_default_workspace_id, ['', ...this.appState.workspaces.map((item) => item.id)], (value) => this.set('workspaces_default_workspace_id', value), undefined, (value) => this.appState.workspaces.find((item) => item.id === value)?.name ?? 'None'),
-      el('button', { class: 'pill-btn', textContent: '+ New workspace', onclick: () => void this.addWorkspace() }),
+      settingsIntro(
+        'Organize personas and conversations',
+        'Workspaces are private organizational groups. They do not create separate user accounts or provider environments.',
+      ),
+      settingsCard([
+        selectField(
+          'Default workspace',
+          settings.workspaces_default_workspace_id,
+          ['', ...this.appState.workspaces.map((item) => item.id)],
+          (value) => this.set('workspaces_default_workspace_id', value),
+          undefined,
+          (value) => this.appState.workspaces.find((item) => item.id === value)?.name ?? 'None',
+          true,
+          'Used as the initial workspace when a feature needs one and no more specific choice exists.',
+        ),
+        el('button', { class: 'send-btn', textContent: '+ New workspace', onclick: () => void this.addWorkspace() }),
+      ]),
       ...this.appState.workspaces.map((workspace) =>
-        el('div', { class: 'persona-card' }, [
+        el('div', { class: 'persona-card workspace-card' }, [
           el('strong', { textContent: workspace.name }),
           el('div', { class: 'chips' }, [
             el('button', { class: 'pill-btn', textContent: 'Rename', onclick: () => void this.renameWorkspace(workspace.id, workspace.name) }),
@@ -792,14 +758,31 @@ export class SettingsView {
 
   private personaCard(persona: Persona): HTMLElement {
     const workspaceIds = new Set(persona.workspace_ids.length ? persona.workspace_ids : [persona.workspace_id]);
-    return el('div', { class: 'persona-card', 'data-testid': `persona-${persona.id}` }, [
-      inputField('Name', persona.name, (value) => { persona.name = value; }, 'text', false),
-      inputField('Avatar URL', persona.avatar_url ?? '', (value) => { persona.avatar_url = value; }, 'url', false),
-      textareaField('Personality details', persona.personality_details ?? '', (value) => { persona.personality_details = value; }, false),
-      textareaField('System prompt', persona.system_prompt ?? '', (value) => { persona.system_prompt = value; }, false),
-      selectField('Default model', persona.default_model ?? '', ['', ...this.appState.models], (value) => { persona.default_model = value; }, undefined, undefined, false),
+    return el('details', { class: 'persona-card persona-editor', 'data-testid': `persona-${persona.id}` }, [
+      el('summary', {}, [
+        el('div', {}, [
+          el('strong', { textContent: persona.name }),
+          el('div', { class: 'meta', textContent: persona.default_model ? `Model: ${persona.default_model}` : 'Automatic model' }),
+        ]),
+        el('span', { class: 'meta', textContent: 'Edit' }),
+      ]),
+      inputField('Name', persona.name, (value) => { persona.name = value; }, 'text', false, 'The name shown in chat and persona selectors.'),
+      inputField('Avatar image URL', persona.avatar_url ?? '', (value) => { persona.avatar_url = value; }, 'url', false, 'A reachable image URL used as this persona’s avatar.'),
+      selectField(
+        'Default model',
+        persona.default_model ?? '',
+        ['', ...this.appState.models],
+        (value) => { persona.default_model = value; },
+        undefined,
+        (value) => value || 'Automatic',
+        false,
+        'Overrides the account default model for this persona.',
+      ),
       el('div', { class: 'setting-row' }, [
-        el('label', { textContent: 'Workspaces' }),
+        el('div', { class: 'setting-label-line' }, [
+          el('label', { textContent: 'Workspaces' }),
+          infoTip('Choose every workspace where this persona should be available.', 'About persona workspaces'),
+        ]),
         ...this.appState.workspaces.map((workspace) =>
           el('label', { class: 'checkbox-row' }, [
             el('input', {
@@ -817,6 +800,27 @@ export class SettingsView {
           ]),
         ),
       ]),
+      advancedSettings(
+        'Personality instructions',
+        'These instructions strongly influence persona behavior. Change them deliberately.',
+        [
+          textareaField(
+            'Personality details',
+            persona.personality_details ?? '',
+            (value) => { persona.personality_details = value; },
+            false,
+            'Descriptive traits and background used to support this persona’s behavior.',
+          ),
+          textareaField(
+            'System prompt',
+            persona.system_prompt ?? '',
+            (value) => { persona.system_prompt = value; },
+            false,
+            'Highest-priority persona instructions sent with each conversation turn.',
+          ),
+        ],
+        { testId: `persona-advanced-${persona.id}` },
+      ),
       el('div', { class: 'chips' }, [
         el('button', { class: 'send-btn', textContent: 'Save persona', onclick: () => void this.savePersona(persona) }),
         el('button', { class: 'icon-btn danger', textContent: 'Delete', onclick: () => void this.deletePersona(persona) }),
@@ -1483,72 +1487,6 @@ export class SettingsView {
   }
 }
 
-function inputField(
-  label: string,
-  value: string,
-  change: (value: string) => void,
-  type = 'text',
-  rerender = true,
-): HTMLElement {
-  return el('div', { class: 'setting-row' }, [
-    el('label', { textContent: label }),
-    el('input', {
-      class: 'search-input',
-      type,
-      value,
-      oninput: (event: Event) => change((event.currentTarget as HTMLInputElement).value),
-      onchange: rerender ? (event: Event) => change((event.currentTarget as HTMLInputElement).value) : undefined,
-    }),
-  ]);
-}
-
-function textareaField(label: string, value: string, change: (value: string) => void, rerender = true): HTMLElement {
-  return el('div', { class: 'setting-row' }, [
-    el('label', { textContent: label }),
-    el('textarea', {
-      class: 'search-input',
-      rows: 3,
-      value,
-      oninput: (event: Event) => change((event.currentTarget as HTMLTextAreaElement).value),
-      onchange: rerender ? (event: Event) => change((event.currentTarget as HTMLTextAreaElement).value) : undefined,
-    }),
-  ]);
-}
-
-function selectField(
-  label: string,
-  value: string,
-  values: readonly string[],
-  change: (value: string) => void,
-  testId?: string,
-  display: (value: string) => string = titleCase,
-  rerender = true,
-): HTMLElement {
-  return el('div', { class: 'setting-row' }, [
-    el('label', { textContent: label }),
-    el(
-      'select',
-      {
-        class: 'chip-select',
-        value,
-        'data-testid': testId,
-        onchange: (event: Event) => {
-          change((event.currentTarget as HTMLSelectElement).value);
-          if (!rerender) return;
-        },
-      },
-      values.map((item) => el('option', { value: item, selected: item === value, textContent: display(item) })),
-    ),
-  ]);
-}
-
-function toggleField(label: string, checked: boolean, change: (checked: boolean) => void): HTMLElement {
-  return el('label', { class: 'setting-row checkbox-row' }, [
-    el('input', { type: 'checkbox', checked, onchange: (event: Event) => change((event.currentTarget as HTMLInputElement).checked) }),
-    label,
-  ]);
-}
-
 function providerStatusClass(result: ProviderCheckResult | undefined, running: boolean): string {
   if (running) return 'checking';
   if (!result) return 'idle';
@@ -1608,6 +1546,13 @@ function titleCase(value: string): string {
 
 function slug(value: string): string {
   return value.toLowerCase().replace(/\s+/g, '-');
+}
+
+function conceptTip(label: string, help: string): HTMLElement {
+  return el('span', { class: 'settings-concept' }, [
+    el('span', { textContent: label }),
+    infoTip(help, `About ${label}`),
+  ]);
 }
 
 function tagList(value: string): string[] {

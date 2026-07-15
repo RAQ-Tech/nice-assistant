@@ -7,6 +7,7 @@ import {
   boundedNumber,
   selectControl as select,
   settingField as field,
+  settingsHeading,
   settingsIntro,
   textAreaSetting as textareaRow,
   textControl as input,
@@ -86,6 +87,7 @@ export class IdentitySettingsView {
         },
         (value) => this.personaName(value),
       ),
+      'Choose whose reference images, appearance guidance, and validation history you want to manage.',
     );
   }
 
@@ -119,11 +121,10 @@ export class IdentitySettingsView {
 
   private enablementCard(personaId: string, name: string): HTMLElement {
     return el('div', { class: 'persona-card settings-action-card' }, [
-      el('h4', { textContent: `Set up ${name}’s appearance` }),
-      el('p', {
-        class: 'meta',
-        textContent: `Nice Assistant will privately store reference images you choose for ${name}. For a fictional AI persona, this simply confirms that you created the image or have permission to use it.`,
-      }),
+      settingsHeading(
+        `Set up ${name}’s appearance`,
+        `Nice Assistant will privately store reference images you choose for ${name}. For a fictional AI persona, this confirms that you created the image or have permission to use it.`,
+      ),
       el('button', {
         class: 'send-btn',
         textContent: `Enable visual identity for ${name}`,
@@ -137,11 +138,10 @@ export class IdentitySettingsView {
   private referenceManager(profile: VisualIdentityProfile, name: string): HTMLElement {
     const references = profile.references.filter((reference) => reference.review_status !== 'deleted');
     return el('div', { class: 'persona-card', 'data-testid': 'identity-reference-manager' }, [
-      el('h4', { textContent: `${name}’s reference images` }),
-      el('p', {
-        class: 'meta',
-        textContent: 'Use a clear image that represents how this persona should look. New images stay pending until you approve them.',
-      }),
+      settingsHeading(
+        `${name}’s reference images`,
+        'Use a clear image that represents how this persona should look. New images stay pending until you approve them.',
+      ),
       el('label', { class: 'setting-row identity-file-row' }, [
         el('span', { textContent: 'Choose an image from this device' }),
         el('input', {
@@ -201,14 +201,13 @@ export class IdentitySettingsView {
 
   private appearanceCard(profile: VisualIdentityProfile, name: string): HTMLElement {
     return el('div', { class: 'persona-card' }, [
-      el('h4', { textContent: 'Appearance guidance' }),
-      el('p', {
-        class: 'meta',
-        textContent: `Describe stable details that should remain recognizable as ${name}: hair, eyes, facial features, body type, and other defining traits. This helps generation prompts but does not replace a reference-aware workflow.`,
-      }),
+      settingsHeading(
+        'Appearance guidance',
+        `Describe stable details that should remain recognizable as ${name}. This helps generation prompts but does not replace a reference-aware workflow.`,
+      ),
       textareaRow(`How ${name} should look`, profile.appearance_description, (value) => {
         profile.appearance_description = value;
-      }),
+      }, 'Include stable traits such as hair, eyes, facial features, body type, and other defining details.'),
       el('button', {
         class: 'send-btn',
         textContent: 'Save appearance guidance',
@@ -224,20 +223,19 @@ export class IdentitySettingsView {
       block_claim: 'Hide the image when comparison fails',
     };
     return el('div', { class: 'persona-card' }, [
-      el('h4', { textContent: 'Generation and comparison behavior' }),
+      settingsHeading(
+        'Generation and comparison behavior',
+        'These controls matter only when optional post-generation comparison is configured.',
+      ),
       field('Maximum generation attempts', input(String(profile.max_generation_attempts), (value) => {
         profile.max_generation_attempts = Math.round(boundedNumber(value, 1, 10, profile.max_generation_attempts));
-      }, 'number')),
+      }, 'number'), 'The maximum number of bounded generation or correction attempts for one request.'),
       field('When comparison fails', select(profile.failure_policy, ['show_unverified', 'block_claim'], (value) => {
         profile.failure_policy = value as VisualIdentityProfile['failure_policy'];
-      }, (value) => failureLabels[value] ?? value)),
+      }, (value) => failureLabels[value] ?? value), 'Choose whether a failed comparison is shown honestly or withheld.'),
       field('Comparison threshold', input(String(profile.acceptance_threshold), (value) => {
         profile.acceptance_threshold = boundedNumber(value, 0, 1, profile.acceptance_threshold);
-      }, 'number')),
-      el('p', {
-        class: 'meta',
-        textContent: 'Keep “show unverified” while tuning generation and the verifier. A higher threshold is stricter, but it must be calibrated with real examples.',
-      }),
+      }, 'number'), 'A higher score is stricter. Calibrate this with representative generated images before enabling blocking.'),
       el('button', {
         class: 'pill-btn',
         textContent: 'Save advanced controls',
@@ -251,20 +249,19 @@ export class IdentitySettingsView {
     if (!settings) return el('div', { class: 'persona-card', textContent: 'Verifier settings are unavailable.' });
     const enabled = settings.provider === 'compreface';
     return el('div', { class: 'persona-card identity-provider-card' }, [
-      el('h4', { textContent: 'Optional identity comparison service' }),
-      el('p', {
-        class: 'meta',
-        textContent: 'A verifier compares a finished image with the approved reference. It does not improve image generation. Leave this off until reference-aware generation is producing useful results.',
-      }),
+      settingsHeading(
+        'Optional identity comparison service',
+        'A verifier compares a finished image with the approved reference. It does not improve generation, so leave it off until reference-aware generation is useful.',
+      ),
       field('Comparison service', select(settings.provider, ['disabled', 'compreface'], (value) => {
         settings.provider = value as IdentityValidationSettings['provider'];
         this.renderApp();
-      }, (value) => value === 'disabled' ? 'Off' : 'CompreFace')),
-      enabled ? field('CompreFace service address', input(settings.base_url, (value) => { settings.base_url = value; }, 'url')) : null,
-      enabled ? field('CompreFace API key', input(settings.api_key, (value) => { settings.api_key = value; }, 'password')) : null,
+      }, (value) => value === 'disabled' ? 'Off' : 'CompreFace'), 'CompreFace is a separately deployed LAN service used only for face comparison.'),
+      enabled ? field('CompreFace service address', input(settings.base_url, (value) => { settings.base_url = value; }, 'url'), 'The private-LAN address of the CompreFace service.') : null,
+      enabled ? field('CompreFace API key', input(settings.api_key, (value) => { settings.api_key = value; }, 'password'), 'A verification API key created in CompreFace and encrypted by Nice Assistant.') : null,
       enabled ? field('Stop waiting after (seconds)', input(String(settings.timeout_seconds), (value) => {
         settings.timeout_seconds = boundedNumber(value, 1, 120, settings.timeout_seconds);
-      }, 'number')) : null,
+      }, 'number'), 'Bounds each comparison request so an unavailable verifier cannot hang generation indefinitely.') : null,
       el('div', { class: 'chips' }, [
         el('button', {
           class: 'send-btn',
@@ -290,7 +287,10 @@ export class IdentitySettingsView {
   ): HTMLElement {
     const name = this.personaName(profile.persona_id);
     return el('div', { class: 'persona-card' }, [
-      el('h4', { textContent: 'Manual comparison' }),
+      settingsHeading(
+        'Manual comparison',
+        'Choose one of your generated images and compare its face with the approved reference without changing the image.',
+      ),
       el('p', {
         class: 'meta',
         textContent: profile.validation_ready
@@ -366,7 +366,7 @@ export class IdentitySettingsView {
 
   private auditCard(events: AppState['identityEvents'][string]): HTMLElement {
     return el('div', { class: 'persona-card' }, [
-      el('h4', { textContent: 'Activity history' }),
+      settingsHeading('Activity history', 'An owner-scoped audit of reference, profile, and comparison changes.'),
       events.length
         ? el('div', { class: 'identity-audit-list' }, events.slice(0, 30).map((event) =>
             el('div', { class: 'manager-row' }, [

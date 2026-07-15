@@ -96,8 +96,11 @@ describe('Visual identity settings', () => {
     const { root } = setup();
     expect(root.textContent).toContain('Keep each persona visually recognizable');
     expect(root.textContent).toContain('add an identity-aware ComfyUI workflow in Media Catalog');
-    expect(root.textContent).toContain('Automatic blockingOff');
+    const blocking = [...root.querySelectorAll('.settings-readiness-row')]
+      .find((row) => row.textContent?.includes('Automatic blocking'));
+    expect(blocking?.textContent).toContain('Off');
     expect(root.textContent).not.toContain('Protected media ID');
+    expect(root.querySelectorAll('.info-tip-trigger').length).toBeGreaterThan(4);
     expect((root.querySelector('[data-testid="identity-advanced-settings"]') as HTMLDetailsElement).open).toBe(false);
   });
 

@@ -22,6 +22,9 @@ change that alters them.
 - Guided Visual Identity settings with separate truthful reference, generation,
   comparison, and blocking readiness; owner-protected thumbnail pickers; and
   optional advanced diagnostics instead of opaque media-ID inputs.
+- Goal-oriented everyday settings for General, speech, direct media defaults,
+  Memory, User, Personas, and Workspaces, with accessible information tips and
+  closed-by-default advanced provider controls.
 - Platform-planned image/video capabilities with durable owner-scoped permission
   requests, explicit approval/denial, audit history, idempotent direct actions,
   linked jobs/cancellation, protected results, and future-turn tool outcomes.
@@ -58,8 +61,6 @@ change that alters them.
 
 ## Scaffold
 
-- General and everyday settings still expose too much provider-shaped structure;
-  their Step 21B progressive-disclosure pass is planned.
 - Models, Task Models, Media Catalog, GPU Coordination, and Data remain powerful
   operator surfaces but need the Step 21C guided summaries, effective-state
   views, and safer empty/destructive states described in the settings roadmap.

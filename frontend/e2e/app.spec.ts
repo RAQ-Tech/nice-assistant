@@ -219,6 +219,30 @@ test('form controls and native dropdown options stay legible in both themes', as
   });
 });
 
+test('everyday settings use progressive disclosure and accessible info tips', async ({ page }) => {
+  await installAuthenticatedFixture(page);
+  await page.goto('/#/settings/General');
+
+  await expect(page.getByText('Choose the everyday experience')).toBeVisible();
+  await expect(page.getByTestId('general-advanced-settings')).not.toHaveAttribute('open', '');
+  const themeInfo = page.getByRole('button', { name: 'About Theme' });
+  const tooltipId = await themeInfo.getAttribute('aria-describedby');
+  expect(tooltipId).toBeTruthy();
+  await themeInfo.hover();
+  await expect(page.locator(`#${tooltipId}`)).toBeVisible();
+  await themeInfo.focus();
+  await expect(page.locator(`#${tooltipId}`)).toBeVisible();
+
+  await page.getByTestId('settings-nav-image-generation').click();
+  await expect(page.getByText('Choose the default image path')).toBeVisible();
+  await expect(page.getByText('Local image service', { exact: true })).toBeVisible();
+  await expect(page.getByTestId('image-advanced-settings')).not.toHaveAttribute('open', '');
+
+  await page.getByTestId('settings-nav-personas').click();
+  await expect(page.getByText('Manage the people you talk with')).toBeVisible();
+  await expect(page.locator('details.persona-editor')).not.toHaveAttribute('open', '');
+});
+
 test('visual identity guides reference setup without exposing internal media IDs', async ({ page }) => {
   await installAuthenticatedFixture(page);
   await page.goto('/#/settings/Visual%20Identity');

@@ -28,4 +28,6 @@
     real accepted comparison may support a persona identity claim.
 13. **Approachable control.** Settings lead with the operator's goal, show
     truthful readiness and next actions, prefer recognizable choices over raw
-    IDs, and preserve expert controls through progressive disclosure.
+    IDs, preserve expert controls through progressive disclosure, and reveal
+    concise supporting explanations through pointer- and keyboard-accessible
+    information tips without hiding safety consequences.

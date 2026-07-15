@@ -101,8 +101,10 @@ startup.
   multipart identity-reference transport, and memory selection/bulk-action
   confirmation behavior. Visual Identity coverage requires a plain-language
   readiness view, closed-by-default advanced diagnostics, fictional-persona
-  rights wording, and owner-protected thumbnail selection without opaque media
-  ID entry.
+  rights wording, owner-protected thumbnail selection without opaque media ID
+  entry, and accessible information-button to tooltip associations. Everyday
+  settings tests keep common controls visible while provider tuning and
+  credentials remain closed by default.
   Direct-LAN client-ID coverage proves that chat does not require the
   secure-context-only `crypto.randomUUID`; Data settings coverage exercises the
   administrator backup verification action and visible restore-drill result.
@@ -113,7 +115,9 @@ startup.
   covers onboarding/login, streamed chat, settings, memory review, and media
   while rejecting legacy API calls. It also checks computed input/select and
   native option colors in both themes so browser-default light controls cannot
-  make dark-theme text unreadable. A direct-media journey proves that active
+  make dark-theme text unreadable. It also verifies information tips on hover
+  and keyboard focus, closed advanced sections, and collapsed persona editors.
+  A direct-media journey proves that active
   work exposes an enabled cancellation control, calls the canonical job DELETE
   endpoint, returns to `idle`, and does not misreport acknowledged cancellation
   as an error.

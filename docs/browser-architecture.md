@@ -39,11 +39,13 @@ npm run frontend:e2e
 - `capabilities.ts`: durable model-request cards, explicit approval/denial,
   progress polling, cancellation, and protected result rendering.
 - `settings.ts` and `settings_view.ts`: canonical settings envelope,
-  normalization, provider checks, Memory v2 review, per-role Task Model controls
-  and content-free run diagnostics, media catalog policy/resources/plan preview,
-  personas, workspaces, backup operations, and explicit memory bulk actions.
-- `settings_ui.ts`: shared introductions, progressive advanced disclosure,
-  readiness rows, and form helpers for approachable settings screens.
+  normalization, Memory v2 review, operator settings, personas, workspaces,
+  backup operations, and explicit memory bulk actions.
+- `everyday_settings_view.ts`: goal-oriented General, speech, media-default, and
+  User screens without provider workflow ownership.
+- `settings_controls.ts` and `settings_ui.ts`: accessible label/control wiring,
+  common cards, closed advanced disclosure, truthful readiness rows, and
+  information tips revealed by pointer hover or keyboard focus.
 - `identity_settings_view.ts`, `identity_settings_components.ts`, and
   `identity_media_picker.ts`: guided persona reference setup, separate truthful
   generation/verification readiness, owner-protected thumbnail selection,
@@ -91,7 +93,9 @@ error into a verified badge. Reference uploads use canonical authenticated
 multipart transport and protected image URLs. User-facing selection uses an
 owner-scoped media listing and thumbnails instead of requiring internal media
 IDs. Advanced controls explain that verification evaluates a result but does not
-condition generation.
+condition generation. The same information-tip component is used for Visual
+Identity and everyday settings; safety consequences and destructive-action
+warnings remain visible rather than being hidden in a tooltip.
 
 ## Test boundary
 
