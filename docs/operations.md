@@ -12,6 +12,10 @@ access layer.
 
 ## Guarded production deployment
 
+The publish workflow derives its small tag set and required OCI provenance
+labels directly from the immutable GitHub ref and SHA. Release publication does
+not depend on a secondary repository-metadata API call before the image build.
+
 Routine production promotion uses the restricted scripts under
 `scripts/deployment`; it does not use a general-purpose remote shell. During one
 supervised root session, generate a dedicated laptop key, confirm the server SSH
