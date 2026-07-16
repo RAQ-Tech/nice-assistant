@@ -69,4 +69,25 @@ describe('PlaybackController', () => {
     await playing;
     expect(appState.phase).toBe('speaking');
   });
+
+  it('turns blocked autoplay into a compact replay hint without leaking browser errors', async () => {
+    const { appState, audio, visualizer } = readyPlayback();
+    vi.spyOn(audio, 'play').mockRejectedValue(
+      new DOMException(
+        "play() failed because the user didn't interact with the document first. https://example.test/internal",
+        'NotAllowedError',
+      ),
+    );
+    const client = {
+      synthesize: vi.fn().mockResolvedValue({ audio_url: '/api/v1/audio/ready.wav' }),
+    } as unknown as ApiClient;
+    const controller = new PlaybackController(audio, visualizer, appState, new ClientStateMachine(appState), client);
+
+    await expect(controller.synthesize('Hello', 'message-1', 'chat-1', 'persona-1')).resolves.toBeUndefined();
+
+    expect(appState.phase).toBe('idle');
+    expect(appState.currentAudioMessageId).toBeNull();
+    expect(appState.messageAudioById['message-1']).toBe('/api/v1/audio/ready.wav');
+    expect(appState.messageAudioErrors['message-1']).toBe('Audio is ready. Use replay to listen.');
+  });
 });

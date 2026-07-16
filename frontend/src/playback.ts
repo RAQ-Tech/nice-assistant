@@ -76,13 +76,13 @@ export class PlaybackController {
       }
       this.stateMachine.transition('speaking');
       this.onChange();
-    } catch (error) {
+    } catch {
       if (token !== this.sequence) return;
       this.activePlaybackToken = null;
       this.haltAudio();
       if (this.appState.phase === 'speaking') this.stateMachine.transition('idle');
+      this.appState.messageAudioErrors[messageId] = 'Audio is ready. Use replay to listen.';
       this.onChange();
-      throw error;
     }
   }
 

@@ -286,15 +286,16 @@ class ContextService:
             if not current or current.chat_id != chat_id:
                 return None, [], [], None
             current_turn = uow.repo.turn(user_id, turn_id)
-            prior_turns = [
+            all_prior_turns = [
                 row
                 for row in uow.repo.turns_for_chat(user_id, chat_id)
                 if current_turn and row.sequence_number < current_turn.sequence_number
             ]
+            prior_turns = [row for row in all_prior_turns if row.status == "completed"]
             base_rows = uow.repo.messages_before(chat_id, current.created_at)
             referenced_ids = {
                 message_id
-                for turn in prior_turns
+                for turn in all_prior_turns
                 for message_id in (turn.user_message_id, turn.assistant_message_id)
                 if message_id
             }

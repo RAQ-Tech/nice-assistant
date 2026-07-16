@@ -22,6 +22,12 @@ Prompt order is application policy, persona instructions, saved memory,
 conversation summary, recent chronological turns, and the current user message
 exactly once.
 
+Only completed prior turns enter a later model prompt. Failed and cancelled
+turns remain visible in the durable transcript and diagnostics, but their
+unanswered user text is not replayed as a second instruction on the next turn.
+This prevents a recovered provider from answering an abandoned request instead
+of the user's current message.
+
 A prior assistant tool call and its result remain one chronological turn group
 during budget selection. Pending, denied, failed, cancelled, and completed
 capabilities are represented truthfully so the model does not need to guess

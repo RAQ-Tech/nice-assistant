@@ -50,6 +50,19 @@ class SummaryFailureProvider(FakeChatProvider):
         yield ChatDelta("main reply", done=True)
 
 
+class FailFirstTurnProvider(FakeChatProvider):
+    def stream(self, request, cancellation):
+        self.requests.append(request)
+        if len(self.requests) == 1:
+            raise ProviderError(
+                provider="ollama",
+                code="temporary_failure",
+                user_message="The assistant was temporarily unavailable.",
+                retryable=True,
+            )
+        yield ChatDelta("reply to the current request", done=True)
+
+
 class ContextServiceTests(unittest.TestCase):
     def test_browser_exposes_truthful_saved_memory_and_context_controls(self):
         source_root = Path(__file__).resolve().parents[1] / "frontend" / "src"
@@ -102,6 +115,32 @@ class ContextServiceTests(unittest.TestCase):
                 [message for message in second_prompt if message["content"] == "second user turn"],
                 [{"role": "user", "content": "second user turn"}],
             )
+
+    def test_failed_turn_is_visible_in_transcript_but_not_replayed_as_the_next_instruction(self):
+        provider = FailFirstTurnProvider()
+        with tempfile.TemporaryDirectory() as tmp, TestApp(Path(tmp), chat_provider=provider) as running:
+            running.create_and_login()
+            chat = running.client.post("/api/v1/chats", json={"title": "Recovering"}).json()
+            failed = running.client.post(
+                f"/api/v1/chats/{chat['id']}/turns",
+                json={"text": "send a garden selfie"},
+            ).json()
+            self.assertEqual(running.wait_job(failed["job"]["id"])["status"], "failed")
+
+            recovered = running.client.post(
+                f"/api/v1/chats/{chat['id']}/turns",
+                json={"text": "tell me about the red teapot"},
+            ).json()
+            self.assertEqual(running.wait_job(recovered["job"]["id"])["status"], "completed")
+
+            prompt = provider.requests[-1].messages
+            self.assertNotIn("send a garden selfie", [message["content"] for message in prompt])
+            self.assertEqual(
+                [message for message in prompt if message["content"] == "tell me about the red teapot"],
+                [{"role": "user", "content": "tell me about the red teapot"}],
+            )
+            transcript = running.client.get(f"/api/v1/chats/{chat['id']}").json()["messages"]
+            self.assertIn("send a garden selfie", [message["text"] for message in transcript])
 
     def test_context_window_is_sent_and_accounted(self):
         provider = CausalProvider()

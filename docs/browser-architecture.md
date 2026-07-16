@@ -67,6 +67,8 @@ npm run frontend:e2e
   running, the composer replaces Send with Cancel wired to that durable job.
   Media attachments own separate cancellation and never replace the composer.
   Acknowledged media cancellation is not presented as generation failure.
+  Browser autoplay rejection keeps the completed audio available behind Replay
+  and renders a compact human hint rather than the browser's technical error.
 - `app.ts`: composition root, shell/onboarding/auth views, routing coordination,
   session expiry, and visible reporting of unexpected browser errors.
 
