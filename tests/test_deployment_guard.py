@@ -79,7 +79,7 @@ class DeploymentGuardContractTests(unittest.TestCase):
                         "Env": ["EXAMPLE=value"],
                         "Labels": {"keep": "yes", "org.opencontainers.image.revision": revision},
                     },
-                    "HostConfig": host_config,
+                    "HostConfig": dict(host_config),
                     "NetworkSettings": {
                         "Networks": {
                             "private": {
@@ -103,6 +103,8 @@ class DeploymentGuardContractTests(unittest.TestCase):
             "assigned-address-two",
             "assigned-mac-two",
         )
+        current[0]["HostConfig"]["OomKillDisable"] = None
+        replacement[0]["HostConfig"]["OomKillDisable"] = False
         payload = subprocess.run(
             [
                 jq,
