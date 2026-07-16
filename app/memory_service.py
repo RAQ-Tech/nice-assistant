@@ -169,6 +169,56 @@ class MemoryService:
         except IntegrityError as exc:
             raise ConflictError("An active or pending memory already contains this text in that scope.") from exc
 
+    def propose(self, user_id: str, values: dict) -> dict:
+        """Create an editable user proposal that requires review before context use."""
+
+        try:
+            with self._uow() as uow:
+                scope = str(values.get("scope") or "global")
+                scope_id = uow.repo.validate_memory_scope(user_id, scope, values.get("scope_id"))
+                source_message_id = str(values.get("source_message_id") or "").strip() or None
+                if source_message_id:
+                    source = uow.repo.message(source_message_id)
+                    source_chat = uow.repo.chat(user_id, source.chat_id) if source else None
+                    source_scope_matches = bool(
+                        source_chat
+                        and (
+                            scope == "global"
+                            or (scope == "chat" and source.chat_id == scope_id)
+                            or (scope == "workspace" and source_chat.workspace_id == scope_id)
+                            or (scope == "persona" and source_chat.persona_id == scope_id)
+                        )
+                    )
+                    if not source or not source_scope_matches:
+                        raise NotFoundError("source message not found")
+                content = self._content(values.get("content"))
+                normalized = normalize_memory_content(content)
+                if uow.repo.live_memory_duplicate(user_id, scope, scope_id, normalized):
+                    raise ConflictError("An active or pending memory already contains this text in that scope.")
+                row = uow.repo.create_memory(
+                    user_id=user_id,
+                    scope=scope,
+                    scope_id=scope_id,
+                    content=content,
+                    normalized_content=normalized,
+                    status="pending",
+                    source_type="manual",
+                    source_message_id=source_message_id,
+                )
+                uow.repo.add_memory_event(
+                    row,
+                    "candidate_created",
+                    from_status=None,
+                    to_status="pending",
+                )
+                return memory_response(row)
+        except LookupError as exc:
+            raise NotFoundError(str(exc)) from exc
+        except ValueError as exc:
+            raise RequestError(str(exc), 400) from exc
+        except IntegrityError as exc:
+            raise ConflictError("An active or pending memory already contains this text in that scope.") from exc
+
     def revise(self, user_id: str, memory_id: str, values: dict) -> dict:
         try:
             with self._uow() as uow:

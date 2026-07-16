@@ -59,6 +59,19 @@ _NON_ACTION_MEDIA_CONTEXT = re.compile(
     r")\b",
     re.IGNORECASE,
 )
+_PREMATURE_MEDIA_COMPLETION = re.compile(
+    r"(?:"
+    r"!\[[^\]]*\]\([^)]+\)|"
+    r"\bhere(?:'s|\s+is)\s+(?:(?:your|the|an?)\s+)?(?:image|picture|photo|selfie|portrait)\b|"
+    r"\b(?:i(?:'ve|\s+have)?|we(?:'ve|\s+have)?)\s+(?:already\s+)?"
+    r"(?:sent|attached|uploaded|made|generated|created|took|taken|verified|matched)\s+"
+    r"(?:it|this|that|the|your|an?)\b|"
+    r"\b(?:the|your|this|that)\s+(?:image|picture|photo|selfie|portrait|identity|match)\s+"
+    r"(?:is\s+|has\s+been\s+)?(?:ready|sent|attached|uploaded|generated|created|verified|matched)\b"
+    r")",
+    re.IGNORECASE,
+)
+_MEDIA_INTENT_PROMISE = re.compile(r"\b(?:i(?:'ll|\s+will|\s+can)|let\s+me)\b", re.IGNORECASE)
 
 
 def is_explicit_text_only_request(user_text: str) -> bool:
@@ -83,6 +96,22 @@ def is_high_confidence_media_action_request(user_text: str) -> bool:
     if not text or is_explicit_text_only_request(text) or _NON_ACTION_MEDIA_CONTEXT.match(text):
         return False
     return bool(_EXPLICIT_MEDIA_ACTION.search(text))
+
+
+def guard_premature_media_completion_claim(user_text: str, assistant_text: str) -> tuple[str, bool]:
+    """Remove persona claims that outrun the platform's durable media evidence."""
+
+    reply = str(assistant_text or "").strip()
+    if not reply or not is_high_confidence_media_action_request(user_text):
+        return reply, False
+    if not _PREMATURE_MEDIA_COMPLETION.search(reply):
+        return reply, False
+    sentences = [item.strip() for item in re.split(r"(?<=[.!?])\s+|\n+", reply) if item.strip()]
+    safe = " ".join(item for item in sentences if not _PREMATURE_MEDIA_COMPLETION.search(item)).strip()
+    if safe and _MEDIA_INTENT_PROMISE.search(safe):
+        return safe, True
+    fallback = "I’ll try to make that picture for you."
+    return (f"{safe}\n\n{fallback}" if safe else fallback), True
 
 
 def explicitly_excludes_persona(user_text: str) -> bool:

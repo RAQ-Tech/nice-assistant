@@ -68,6 +68,9 @@ and Workspaces now use the same approachable structure:
   the same persisted blur preference available in chat controls. Its readiness
   summary separates provider reachability, basic generation, and optional
   identity enhancement so missing identity setup never reads as a basic block.
+- The chat control popover keeps speech, `Blur images`, and `Stop audio` in the
+  common path. Workspace, model, memory mode, client state, and visualization are
+  preserved under `Chat details`; they are not removed or made read-only.
 
 Provider tuning still controls direct actions. Media Catalog remains the
 operator source of truth for planned conversational generation. Technical plans

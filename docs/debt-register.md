@@ -15,7 +15,8 @@ change that alters them.
 - Per-chat causal turn execution, provider-aware context budgets, exact saved
   memory deduplication, append-only summary checkpoints, and turn accounting.
 - Review-first memory candidates, provenance, status/history, revision
-  supersession, forget/undo, scope archival, and active-only scoped FTS retrieval.
+  supersession, forget/undo, scope archival, active-only scoped FTS retrieval,
+  and editable pending proposals from the chat transcript.
 - Strict TypeScript/Vite browser modules for API transport, state/routing,
   settings, chat/rendering, media, recording, playback, and visualization, with
   Vitest/Playwright coverage and deterministic generated assets.
@@ -36,6 +37,9 @@ change that alters them.
 - Separately configured platform Task Models for titles, summaries, memory
   candidates, and semantic capability planning, with strict JSON contracts,
   budgets, health/fallback, safe content-free run audits, and operator controls.
+- Independent post-reply title, capability, and memory jobs with durable IDs,
+  truthful media-claim guarding, progressive chat controls, and cancellation UI
+  scoped to work that is still cancelable.
 - Owner-managed media model/LoRA/workflow metadata, explicit compatibility,
   deterministic explainable selection, immutable approval plans, operator
   VRAM/LoRA limits, and truthful manual-generation bypass records.
@@ -94,6 +98,9 @@ change that alters them.
   advertised.
 - Developer screening checks typed and semantic task behavior, but final model
   selection still requires live latency/quality evaluation on the Unraid GPU.
+- Deterministic human-experience scenarios cover critical contracts, but emotional
+  tone and speech quality still require a future operator-approved listening
+  evaluation; tests do not claim subjective voice quality.
 - Capability intent remains a probabilistic Task Model decision outside the
   narrow deterministic permission boundaries. Literal text-only response
   contracts are blocked before planning, but broader precision still requires

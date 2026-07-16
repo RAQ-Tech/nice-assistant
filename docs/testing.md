@@ -16,7 +16,9 @@ The canonical command is `python scripts/verify.py`; use `--repeat 3` for a
 foundation change. Node/npm are required. The command runs strict TypeScript
 checking, Vitest, a clean Vite production build, Python compilation/static/
 formatting checks, coverage plus the Python suite, the process smoke, and
-Playwright browser journeys.
+Playwright browser journeys. It then runs the deterministic human-experience
+scenario subset. Run that subset directly with
+`python scripts/evaluate_human_experience.py` or `npm run evaluate:human`.
 Branch coverage is enforced at a minimum of 70 percent across `app`; no legacy
 server exclusion remains.
 
@@ -40,7 +42,7 @@ startup.
   queue/storage metrics, configured retention, atomic disk-full writes, empty
   artifacts, and corrupt/valid backup restore drills.
 - API tests use isolated temporary databases and deterministic fake providers.
-- Migration tests upgrade pre-0004/0005/0007/0008/0009/0010/0011/0012/0013/0014/0015/0016 databases and prove
+- Migration tests upgrade pre-0004/0005/0007/0008/0009/0010/0011/0012/0013/0014/0015/0016/0017 databases and prove
   chats, messages, jobs, media, memories, turn ordering, stored artifact links,
   Task Model profiles, and imported catalog resources survive.
 - Persona identity tests cover explicit consent, safe image normalization,
@@ -113,7 +115,9 @@ startup.
   provenance, review transitions, superseding edits, forget/undo, extraction
   failure, secret-like candidate rejection, forget-versus-delete semantics,
   permanent history/FTS removal, atomic bulk actions, canonical routes, and owner
-  isolation. Chat data-action tests distinguish bulk hide from permanent delete.
+  isolation. They also prove that edited chat-memory proposals remain pending and
+  cannot displace approved correction context before review. Chat data-action
+  tests distinguish bulk hide from permanent delete.
 - Vitest covers the phase machine, settings normalization, canonical API/error
   behavior, fragmented SSE parsing, protected media rendering, routing, and safe
   markdown, capability approval/denial state, Task Model settings/audits, and
@@ -151,6 +155,11 @@ startup.
   work exposes an enabled cancellation control, calls the canonical job DELETE
   endpoint, returns to `idle`, and does not misreport acknowledged cancellation
   as an error.
+- The human-experience scenario gate selects real API and browser tests for
+  200-turn context, corrections, persona switching, memory scope, truthful media
+  wording, independent follow-ups, provider degradation, durable media retry and
+  reload, deterministic image fallback, completed-file Kokoro cleanup and
+  interruption, blur interaction, title reconciliation, and composer access.
 - Deployment acceptance exercises real hardware, HTTPS microphone access,
   provider fallback, restart recovery, and backup restore.
 

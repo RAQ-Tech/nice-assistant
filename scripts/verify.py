@@ -109,6 +109,7 @@ def main() -> int:
                 "migrations",
                 "scripts/smoke_check.py",
                 "scripts/evaluate_task_models.py",
+                "scripts/evaluate_human_experience.py",
                 "scripts/backup_restore_drill.py",
                 "scripts/audit_public_repo.py",
                 "scripts/verify.py",
@@ -119,6 +120,7 @@ def main() -> int:
                 "tests/test_browser_architecture.py",
                 "tests/test_capabilities.py",
                 "tests/test_context_service.py",
+                "tests/test_human_experience_scenarios.py",
                 "tests/test_database_foundation.py",
                 "tests/test_database_foundation.py",
                 "tests/test_identity_provider.py",
@@ -161,6 +163,8 @@ def main() -> int:
 
     if not args.skip_browser_e2e:
         run("Browser journeys", [npm, "run", "frontend:e2e"], env)
+
+    run("Human-experience scenarios", [sys.executable, "scripts/evaluate_human_experience.py"], env)
 
     print("\nVerification passed.", flush=True)
     return 0

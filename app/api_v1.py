@@ -69,6 +69,10 @@ class MemoryCreate(StrictModel):
     content: str = Field(min_length=1, max_length=8000)
 
 
+class MemoryProposalCreate(MemoryCreate):
+    source_message_id: str | None = None
+
+
 class MemoryUpdate(StrictModel):
     scope: str | None = Field(default=None, pattern="^(global|workspace|persona|chat)$")
     scope_id: str | None = None
@@ -894,6 +898,15 @@ def list_memories(
 @router.post("/memories", tags=["memories"], response_model=MemoryRepresentation)
 def create_memory(body: MemoryCreate, request: Request, context: AuthContext = Depends(current_user)):
     return services(request).memory.create(context.user_id, body.model_dump())
+
+
+@router.post("/memory-proposals", tags=["memories"], response_model=MemoryRepresentation)
+def create_memory_proposal(
+    body: MemoryProposalCreate,
+    request: Request,
+    context: AuthContext = Depends(current_user),
+):
+    return services(request).memory.propose(context.user_id, body.model_dump())
 
 
 @router.put("/memories/{memory_id}", tags=["memories"], response_model=MemoryRepresentation)

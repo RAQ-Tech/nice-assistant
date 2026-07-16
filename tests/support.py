@@ -207,8 +207,11 @@ class TestApp:
             assert response.status_code == 200, response.text
             latest = response.json()
             if latest["status"] in {"completed", "failed", "cancelled"}:
-                followup_job_id = (latest.get("result") or {}).get("followup_job_id")
-                if followup_job_id:
+                result = latest.get("result") or {}
+                followup_job_ids = list(result.get("followup_job_ids") or [])
+                if not followup_job_ids and result.get("followup_job_id"):
+                    followup_job_ids = [result["followup_job_id"]]
+                for followup_job_id in dict.fromkeys(followup_job_ids):
                     self.wait_job(followup_job_id, timeout=max(0.1, deadline - time.monotonic()))
                 return latest
             time.sleep(0.01)

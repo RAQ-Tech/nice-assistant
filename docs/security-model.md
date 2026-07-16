@@ -24,6 +24,9 @@ HTTPS and identity controls at a reverse proxy or VPN.
 - Structured secret redaction in logs, errors, backups, and job results.
 - Defense-in-depth rejection of secret-like automatic memory candidates before
   persistence, independent of Task Model compliance.
+- Chat transcript memory actions create owner-scoped pending proposals. Assistant
+  prose cannot enter prompt context until a user reviews and approves the edited
+  fact.
 - Explicit permission and confirmation policy for tools with side effects.
 
 These controls are implemented at the ASGI boundary and service entry points.
@@ -55,6 +58,9 @@ actions can be idempotent, and all state changes produce durable audit events.
 Capability, event, attachment, job, and artifact lookups are owner-scoped. Tool
 results returned to future model context contain only safe status, error, and
 protected artifact identifiers.
+For clear image actions, raw persona deltas are held until a deterministic guard
+removes unsupported sent/taken/attached/matched/verified claims. This is a
+truthfulness boundary, not a content-safety or identity-verification substitute.
 
 The capability-planning schema cannot select providers, URLs, models, LoRAs,
 workflows, or resource controls. It can emit only server-advertised semantic

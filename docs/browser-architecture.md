@@ -30,7 +30,8 @@ npm run frontend:e2e
 - `routing.ts`: hash-based home/chat/settings navigation with no server-side
   route ownership.
 - `chat.ts` and `chat_rendering.ts`: turn submission, delta rendering, terminal
-  reconciliation, persisted transcript refresh, and message/media presentation.
+  reconciliation, persisted transcript refresh, message/media presentation, and
+  editable pending memory proposals.
 - `chat_drawer.ts`: chat search, selection, individual rename/hide, and atomic
   bulk hide or permanent-delete workflows.
 - `client_id.ts`: transient optimistic-message identifiers. It uses
@@ -62,10 +63,10 @@ npm run frontend:e2e
   optional verifier configuration, validation, and audit history.
 - `media.ts`, `recording.ts`, `playback.ts`, and `visualization.ts`: async media
   jobs, push-to-talk transcription, completed-file speech playback, and real
-  playback-driven visualization. While a turn or direct media job is active,
-  the composer replaces Send with an enabled Cancel action wired to the durable
-  job endpoint. Acknowledged media cancellation returns to `idle` without being
-  presented as generation failure.
+  playback-driven visualization. While an owned conversation turn is queued or
+  running, the composer replaces Send with Cancel wired to that durable job.
+  Media attachments own separate cancellation and never replace the composer.
+  Acknowledged media cancellation is not presented as generation failure.
 - `app.ts`: composition root, shell/onboarding/auth views, routing coordination,
   session expiry, and visible reporting of unexpected browser errors.
 
@@ -82,6 +83,13 @@ browser secure context. Client-only reconciliation IDs must therefore never
 assume `crypto.randomUUID` exists. Durable IDs, idempotency, authentication, and
 authorization continue to come from the server.
 
+After a persona message commits, title generation, capability planning, and
+memory extraction are independent follow-up jobs. The browser reconciles every
+ID in `followup_job_ids` and still accepts the legacy single-ID result. Default
+chat chrome shows persona and conversation essentials; an accessible details
+disclosure retains workspace, model, memory, client-state, and visualization
+controls for people who need them.
+
 Current speech playback still uses completed authenticated audio files. The
 state machine deliberately exposes `recording`, `transcribing`, and `speaking`
 phases so later realtime voice can extend the contract. During `speaking`, the
@@ -90,13 +98,13 @@ current file playback before beginning the new turn. This is explicit manual
 interruption, not streaming speech, VAD, or automatic realtime barge-in.
 
 Platform-planned media capabilities never open a browser confirmation modal as
-an ephemeral side effect. The browser reloads owner-scoped capability requests with each chat
-and renders their durable state beneath the assistant message. Approval starts
-the linked job; denial and cancellation survive reloads. Each model-requested
-card renders its immutable media plan before approval, including selected
-resources, explanation, estimates, warnings, and blocked/stale state. Existing
-user-clicked media actions use the same backend service but need no second
-confirmation. The operator-only Settings surface edits explicit resource
+an ephemeral side effect. The browser reloads durable attachments with each chat
+and renders compact lifecycle state beneath the assistant message. Ordinary
+explicit image requests auto-run under the saved policy; `always_ask`, strict
+identity, video, and consequential capabilities retain approval/denial. Plans and
+warnings remain in collapsed Details and authenticated diagnostics rather than a
+large default card. Existing user-clicked media actions use the same durable
+attachment service. The operator-only Settings surface edits explicit resource
 metadata and previews semantic plans; it is not a persona-facing model lab.
 
 Visual identity remains operator reviewed. Browser state distinguishes profile,

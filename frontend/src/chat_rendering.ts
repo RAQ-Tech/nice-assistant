@@ -1,7 +1,7 @@
 import { api, type ApiClient } from './api';
 import { DEFAULT_PERSONA_AVATAR } from './constants';
 import { copyText, downloadUrl, el, markdown } from './dom';
-import { extractImageUrl, extractVideoUrl, imagePromptFromMessage, stripVideoLinks } from './media';
+import { extractImageUrl, extractVideoUrl, imagePromptFromMessage, speechText, stripVideoLinks } from './media';
 import { state } from './state';
 import type { AppState, ChatAttachment, CapabilityRequest, Message } from './types';
 import type { MediaController } from './media';
@@ -14,6 +14,7 @@ export class ChatRenderer {
     private readonly renderApp: () => void,
     private readonly appState: AppState = state,
     private readonly client: ApiClient = api,
+    private readonly editMemoryProposal: (content: string) => Promise<string | null> = async (content) => content,
   ) {}
 
   message(message: Message, personaId: string | null): HTMLElement | null {
@@ -104,7 +105,7 @@ export class ChatRenderer {
               this.appState.currentAudioMessageId === message.id
                 ? el('button', { class: 'icon-btn', textContent: '■', title: 'Stop audio', onclick: () => this.playback.stop() })
                 : null,
-              el('button', { class: 'icon-btn', textContent: '🧠', title: 'Save to chat memory', onclick: () => void this.saveMemory(message) }),
+              el('button', { class: 'icon-btn', textContent: '🧠', title: 'Propose a memory fact', onclick: () => void this.saveMemory(message) }),
             ]),
       ]),
     ]);
@@ -274,8 +275,16 @@ export class ChatRenderer {
   private async saveMemory(message: Message): Promise<void> {
     const chatId = this.appState.currentChat?.id;
     if (!chatId) return;
-    await this.client.createMemory('chat', chatId, message.text);
-    this.appState.memories = (await this.client.memories()).items;
+    const proposal = await this.editMemoryProposal(speechText(message.text));
+    const content = proposal?.trim();
+    if (!content) return;
+    try {
+      await this.client.proposeMemory('chat', chatId, content, message.id);
+      this.appState.memories = (await this.client.memories()).items;
+      this.appState.statusText = 'Memory fact proposed for review';
+    } catch {
+      this.appState.uiError = 'That memory fact could not be proposed.';
+    }
     this.renderApp();
   }
 }

@@ -41,6 +41,12 @@ overwritten by a trusted proxy. That flag enables Uvicorn proxy-header parsing;
 restrict `FORWARDED_ALLOW_IPS` to the proxy address rather than using a broad
 wildcard. Direct LAN HTTP must leave secure cookies off.
 
+Title generation, capability planning, and memory extraction are independent
+durable post-reply jobs. An outage in one must be visible through its authenticated
+job/task diagnostics but must not change an already completed persona turn. On
+restart, unfinished follow-ups use the same truthful interrupted-job recovery as
+other queued/running work; they are not silently replayed.
+
 Typed desktop chat also supports direct LAN HTTP: transient browser message IDs
 fall back to `crypto.getRandomValues` because `crypto.randomUUID` is restricted
 to secure contexts. This does not make microphone capture available; mobile and

@@ -146,10 +146,12 @@ export class ChatController {
       this.releaseRequest(ownedJobId, ownedAbort);
       this.stateMachine.transition('idle');
       this.onChange();
-      const followupJobId = job.result?.followup_job_id;
-      if (typeof followupJobId === 'string' && followupJobId) {
-        void this.reconcileFollowup(chat.id, followupJobId);
-      }
+      const followupJobIds = Array.isArray(job.result?.followup_job_ids)
+        ? job.result.followup_job_ids.filter((item): item is string => typeof item === 'string' && Boolean(item))
+        : typeof job.result?.followup_job_id === 'string' && job.result.followup_job_id
+          ? [job.result.followup_job_id]
+          : [];
+      followupJobIds.forEach((followupJobId) => void this.reconcileFollowup(chat.id, followupJobId));
       const assistant = [...detail.messages].reverse().find((message) => message.role === 'assistant');
       if (assistant?.text.trim()) {
         try {
@@ -188,10 +190,14 @@ export class ChatController {
   async cancel(): Promise<void> {
     const pending = this.appState.pendingRequest;
     if (!pending) return;
-    await pending.cancel();
-    this.streamAbort?.abort();
-    this.appState.pendingRequest = null;
-    if (['queued', 'thinking'].includes(this.appState.phase)) this.stateMachine.transition('idle');
+    try {
+      await pending.cancel();
+      this.streamAbort?.abort();
+      if (this.appState.pendingRequest?.jobId === pending.jobId) this.appState.pendingRequest = null;
+      if (['queued', 'thinking'].includes(this.appState.phase)) this.stateMachine.transition('idle');
+    } catch (error) {
+      this.appState.uiError = errorMessage(error, 'The current reply could not be canceled.');
+    }
     this.onChange();
   }
 

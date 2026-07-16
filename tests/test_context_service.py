@@ -55,7 +55,8 @@ class ContextServiceTests(unittest.TestCase):
         source_root = Path(__file__).resolve().parents[1] / "frontend" / "src"
         source = "\n".join(path.read_text(encoding="utf-8") for path in source_root.glob("*.ts"))
         self.assertNotIn("memory_auto_save_user_facts", source)
-        self.assertIn("Memory: saved", source)
+        self.assertIn("Use saved memory", source)
+        self.assertIn("Chat details", source)
         self.assertIn("A proposed memory that does not enter prompts until you approve it", source)
         self.assertIn("Only approved active memories enter prompts", source)
         self.assertIn("Default memory mode", source)

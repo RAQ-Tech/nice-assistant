@@ -23,7 +23,9 @@ from app.task_contracts import (
     TITLE_GENERATION,
     CapabilityPlanningTaskInput,
     TitleTaskInput,
+    guard_premature_media_completion_claim,
     is_explicit_text_only_request,
+    is_high_confidence_media_action_request,
 )
 from app.turn_events import TurnEventBroker
 
@@ -264,13 +266,13 @@ class ConversationService:
         def execute(token):
             provider = self.providers.chat(provider_name)
             planning_definitions = self.capabilities.planning_definitions(user_id)
-            planning_vocabulary = self.capabilities.planning_vocabulary(user_id) if planning_definitions else {}
             application_instructions = (
                 [
                     (
                         "A separate platform coordinator handles optional media capabilities. Respond naturally, "
-                        "but do not claim that media has already been generated or choose providers, models, "
-                        "workflows, or LoRAs."
+                        "but do not claim an image was sent, taken, attached, matched, or verified. Only the "
+                        "platform may make those claims after a durable result exists. Do not choose providers, "
+                        "models, workflows, or LoRAs."
                     )
                 ]
                 if planning_definitions
@@ -294,6 +296,7 @@ class ConversationService:
                 cancellation=token,
             )
             chunks = []
+            guard_media_claims = is_high_confidence_media_action_request(text)
             actual_prompt_tokens = None
             request = ChatRequest(
                 model=model,
@@ -312,77 +315,84 @@ class ConversationService:
                     actual_prompt_tokens = delta.metadata.get("prompt_eval_count")
                 if delta.text:
                     chunks.append(delta.text)
-                    self.broker.publish(
-                        turn.id,
-                        "assistant.delta",
-                        {"turn_id": turn.id, "text": delta.text},
-                    )
-            reply = "".join(chunks)
+                    if not guard_media_claims:
+                        self.broker.publish(
+                            turn.id,
+                            "assistant.delta",
+                            {"turn_id": turn.id, "text": delta.text},
+                        )
+            raw_reply = "".join(chunks)
+            reply, media_claim_guarded = guard_premature_media_completion_claim(text, raw_reply)
+            if guard_media_claims and reply:
+                self.broker.publish(
+                    turn.id,
+                    "assistant.delta",
+                    {"turn_id": turn.id, "text": reply},
+                )
             self.broker.replace_accumulated_text(turn.id, reply)
             self.context.record_actual_prompt_tokens(turn.id, actual_prompt_tokens)
             return {
                 "text": reply,
                 "chatId": chat_id,
+                "mediaClaimGuarded": media_claim_guarded,
                 "schedule_capability_planning": bool(planning_definitions and not is_explicit_text_only_request(text)),
             }
 
-        def execute_followup(token):
-            task_run_ids = {}
-            task_title = None
-            planned_capabilities = []
-            if should_generate_title:
-                try:
-                    outcome = self.task_models.run(
-                        user_id,
-                        TITLE_GENERATION,
-                        TitleTaskInput(text),
-                        token,
-                        chat_id=chat_id,
-                        turn_id=turn.id,
-                    )
-                    task_title = outcome.output.title
-                    task_run_ids[TITLE_GENERATION] = outcome.run_id
-                except ProviderError as exc:
-                    if exc.code == "cancelled" or token.cancelled:
-                        raise
-            planning_definitions = self.capabilities.planning_definitions(user_id)
-            if planning_definitions and not is_explicit_text_only_request(text):
-                planning_vocabulary = self.capabilities.planning_vocabulary(user_id)
-                try:
-                    outcome = self.task_models.run(
-                        user_id,
-                        CAPABILITY_PLANNING,
-                        CapabilityPlanningTaskInput(
-                            user_text=text,
-                            available_capabilities=planning_definitions,
-                            persona_selected=bool(requested_persona_id),
-                            available_operations=tuple(planning_vocabulary.get("operations") or ("generate",)),
-                            available_domains=tuple(planning_vocabulary.get("domains") or ()),
-                            available_content_tags=tuple(planning_vocabulary.get("content_tags") or ()),
-                            available_features=tuple(planning_vocabulary.get("features") or ()),
-                        ),
-                        token,
-                        chat_id=chat_id,
-                        turn_id=turn.id,
-                    )
-                    planned_capabilities = list(outcome.output.requests)
-                    task_run_ids[CAPABILITY_PLANNING] = outcome.run_id
-                except ProviderError as exc:
-                    if exc.code == "cancelled" or token.cancelled:
-                        raise
-            return {
-                "task_title": task_title,
-                "planned_capabilities": planned_capabilities,
-                "task_run_ids": task_run_ids,
-            }
+        def execute_title_followup(token):
+            try:
+                outcome = self.task_models.run(
+                    user_id,
+                    TITLE_GENERATION,
+                    TitleTaskInput(text),
+                    token,
+                    chat_id=chat_id,
+                    turn_id=turn.id,
+                )
+                return {"task_title": outcome.output.title, "task_run_id": outcome.run_id}
+            except ProviderError as exc:
+                if exc.code == "cancelled" or token.cancelled:
+                    raise
+                return {"task_title": None, "task_run_id": None}
 
-        def on_followup_success(repo, result):
+        def on_title_followup_success(repo, result):
             output = dict(result or {})
-            task_title = output.pop("task_title", None)
+            task_title = output.get("task_title")
             durable_chat = repo.chat(user_id, chat_id)
             if should_generate_title and task_title and durable_chat and durable_chat.title == deterministic_title:
                 durable_chat.title = task_title
                 durable_chat.updated_at = now_ts()
+            return output
+
+        def execute_capability_followup(token):
+            planning_definitions = self.capabilities.planning_definitions(user_id)
+            if not planning_definitions or is_explicit_text_only_request(text):
+                return {"planned_capabilities": [], "task_run_id": None}
+            planning_vocabulary = self.capabilities.planning_vocabulary(user_id)
+            try:
+                outcome = self.task_models.run(
+                    user_id,
+                    CAPABILITY_PLANNING,
+                    CapabilityPlanningTaskInput(
+                        user_text=text,
+                        available_capabilities=planning_definitions,
+                        persona_selected=bool(requested_persona_id),
+                        available_operations=tuple(planning_vocabulary.get("operations") or ("generate",)),
+                        available_domains=tuple(planning_vocabulary.get("domains") or ()),
+                        available_content_tags=tuple(planning_vocabulary.get("content_tags") or ()),
+                        available_features=tuple(planning_vocabulary.get("features") or ()),
+                    ),
+                    token,
+                    chat_id=chat_id,
+                    turn_id=turn.id,
+                )
+                return {"planned_capabilities": list(outcome.output.requests), "task_run_id": outcome.run_id}
+            except ProviderError as exc:
+                if exc.code == "cancelled" or token.cancelled:
+                    raise
+                return {"planned_capabilities": [], "task_run_id": None}
+
+        def on_capability_followup_success(repo, result):
+            output = dict(result or {})
             planned_capabilities = list(output.pop("planned_capabilities", []))
             if planned_capabilities:
                 capability_requests = self.capabilities.prepare_planned_requests(
@@ -399,7 +409,7 @@ class ConversationService:
                 output["capability_requests"] = capability_requests
             return output
 
-        def after_followup_success(result):
+        def after_capability_followup_success(result):
             for request_id in (result or {}).get("auto_capability_request_ids") or []:
                 try:
                     self.capabilities.submit_queued(user_id, request_id)
@@ -421,14 +431,28 @@ class ConversationService:
             output = dict(result or {})
             output.update({"text": reply, "chatId": chat_id})
             should_plan = bool(output.pop("schedule_capability_planning", False))
-            if should_generate_title or should_plan:
-                output["followup_job_id"] = repo.add_job(
+            background_job_ids = []
+            if should_generate_title:
+                output["title_job_id"] = repo.add_job(
                     user_id=user_id,
                     chat_id=chat_id,
                     turn_id=None,
-                    kind="chat_followup",
-                    progress="Queued for conversation follow-up",
+                    kind="title_followup",
+                    progress="Queued for title follow-up",
                 ).id
+                background_job_ids.append(output["title_job_id"])
+            if should_plan:
+                output["capability_planning_job_id"] = repo.add_job(
+                    user_id=user_id,
+                    chat_id=chat_id,
+                    turn_id=None,
+                    kind="capability_followup",
+                    progress="Queued for capability planning",
+                ).id
+                background_job_ids.append(output["capability_planning_job_id"])
+            if background_job_ids:
+                output["followup_job_ids"] = background_job_ids
+                output["followup_job_id"] = output.get("capability_planning_job_id") or output.get("title_job_id")
             if memory_mode == "saved":
                 output["memory_extraction_job_id"] = self.memory.prepare_extraction_job(
                     repo,
@@ -438,27 +462,48 @@ class ConversationService:
             return output
 
         def after_success(result):
-            followup_job_id = (result or {}).get("followup_job_id")
-            if followup_job_id:
+            title_job_id = (result or {}).get("title_job_id")
+            if title_job_id:
                 try:
                     self.jobs.submit(
-                        job_id=followup_job_id,
+                        job_id=title_job_id,
                         job_type="task_model",
                         user_id=user_id,
                         chat_id=chat_id,
                         turn_id=None,
                         latency_class="standard",
-                        model_key="task:conversation_followup",
+                        model_key="task:title_generation",
                         execution=JobExecution(
-                            execute=execute_followup,
-                            on_success=on_followup_success,
-                            after_success=after_followup_success,
+                            execute=execute_title_followup,
+                            on_success=on_title_followup_success,
                         ),
                     )
                 except Exception:
                     self.jobs.fail_unsubmitted(
-                        followup_job_id,
-                        "Conversation follow-up could not start.",
+                        title_job_id,
+                        "Title follow-up could not start.",
+                    )
+            capability_job_id = (result or {}).get("capability_planning_job_id")
+            if capability_job_id:
+                try:
+                    self.jobs.submit(
+                        job_id=capability_job_id,
+                        job_type="task_model",
+                        user_id=user_id,
+                        chat_id=chat_id,
+                        turn_id=None,
+                        latency_class="standard",
+                        model_key="task:capability_planning",
+                        execution=JobExecution(
+                            execute=execute_capability_followup,
+                            on_success=on_capability_followup_success,
+                            after_success=after_capability_followup_success,
+                        ),
+                    )
+                except Exception:
+                    self.jobs.fail_unsubmitted(
+                        capability_job_id,
+                        "Capability planning could not start.",
                     )
             extraction_job_id = (result or {}).get("memory_extraction_job_id")
             if extraction_job_id:

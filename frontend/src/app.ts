@@ -28,7 +28,18 @@ const dialogs = createDialogs();
 const router = new Router((route) => void handleRoute(route));
 const settingsView = new SettingsView(render, closeSettings, dialogs, state, api, (section) => router.settings(section));
 const authView = new AuthView(authenticated, render);
-const chatRenderer = new ChatRenderer(media, playback, render);
+const chatRenderer = new ChatRenderer(
+  media,
+  playback,
+  render,
+  state,
+  api,
+  (content) => dialogs.prompt(
+    'Propose a memory fact',
+    'Edit this into one specific fact. It will stay pending until you approve it in Memory settings.',
+    content,
+  ),
+);
 const capabilities = new CapabilityController(render, state, machine, api, (intent) => settingsView.startIdentitySetup(intent));
 const chatDrawer = new ChatDrawer(state, api, chat, dialogs, {
   render,
@@ -252,8 +263,8 @@ function shell(): HTMLElement {
   return el('div', { class: 'app-shell' }, [
     chatDrawer.node(),
     el('main', { class: 'main-pane glass' }, [
-      topbar(persona?.name ?? 'Persona', persona?.avatar_url || DEFAULT_PERSONA_AVATAR, workspaceName, model),
-      state.showChatControlsMenu ? chatControls(model, memoryMode) : null,
+      topbar(persona?.name ?? 'Persona', persona?.avatar_url || DEFAULT_PERSONA_AVATAR),
+      state.showChatControlsMenu ? chatControls(workspaceName, model, memoryMode) : null,
       pane,
       state.showJumpBottom
         ? el('button', { id: 'jumpBtn', class: 'jump-bottom show', textContent: '↓ Latest', onclick: () => scrollBottom(true) })
@@ -271,41 +282,23 @@ function shell(): HTMLElement {
   ]);
 }
 
-function topbar(personaName: string, avatar: string, workspace: string, model: string): HTMLElement {
+function topbar(personaName: string, avatar: string): HTMLElement {
   return el('div', { class: 'topbar' }, [
     el('button', { class: 'icon-btn', textContent: '☰', onclick: () => { state.drawerOpen = !state.drawerOpen; render(); } }),
     el('div', { class: 'header-meta' }, [
       el('img', { class: 'topbar-avatar', src: avatar, alt: `${personaName} avatar`, onclick: () => { state.personaAvatarPreview = avatar; render(); } }),
       el('div', { class: 'header-title', textContent: state.currentChat?.title || 'New conversation' }),
-      el('div', { class: 'chips' }, [
-        el('button', { class: 'chip', textContent: personaName }),
-        el('button', { class: 'chip', textContent: workspace }),
-        el('button', { class: 'chip', textContent: modelNickname(model || 'model') }),
-      ]),
+      el('span', { class: 'chip persona-chip', textContent: personaName }),
     ]),
-    el('div', { class: `status-pill ${statusClass()}`, textContent: state.statusText, 'data-testid': 'client-phase' }),
-    el('button', { class: 'icon-btn', textContent: '⋯', title: 'Chat controls', onclick: () => { state.showChatControlsMenu = !state.showChatControlsMenu; render(); } }),
-    el('button', { class: `viz-btn ${state.showViz ? 'active' : ''}`, textContent: state.showViz ? '✦ Visualizer On' : '✧ Visualizer', onclick: () => { state.showViz = !state.showViz; if (state.settings) state.settings.general_show_viz = state.showViz; render(); } }),
+    el('span', { class: 'sr-only', textContent: state.statusText, 'data-testid': 'client-phase' }),
+    el('button', { class: 'icon-btn', textContent: '⋯', title: 'Chat controls and details', 'aria-expanded': state.showChatControlsMenu, onclick: () => { state.showChatControlsMenu = !state.showChatControlsMenu; render(); } }),
     el('button', { class: 'icon-btn', textContent: '⚙', title: 'Settings', 'data-testid': 'open-settings', onclick: () => router.settings(state.settingsSection) }),
     el('button', { class: 'icon-btn', textContent: '↪', title: 'Log out', 'data-testid': 'logout', onclick: () => void logout() }),
   ]);
 }
 
-function chatControls(model: string, memoryMode: string): HTMLElement {
+function chatControls(workspace: string, model: string, memoryMode: string): HTMLElement {
   return el('div', { class: 'chat-controls-menu glass' }, [
-    el('label', { textContent: 'Model' }),
-    el(
-      'select',
-      { class: 'chip-select', value: model, onchange: (event: Event) => { state.selectedModel = (event.currentTarget as HTMLSelectElement).value; } },
-      state.models.map((item) => el('option', { value: item, selected: item === model, textContent: modelNickname(item) })),
-    ),
-    el('label', { textContent: 'Memory mode' }),
-    el('select', { class: 'chip-select', value: memoryMode, onchange: (event: Event) => { state.selectedMemoryMode = (event.currentTarget as HTMLSelectElement).value === 'off' ? 'off' : 'saved'; } }, [
-      el('option', { value: 'saved', selected: memoryMode !== 'off', textContent: 'Memory: saved' }),
-      el('option', { value: 'off', selected: memoryMode === 'off', textContent: 'Memory: off' }),
-    ]),
-    el('button', { class: 'pill-btn', textContent: state.showSystemMessages ? 'Hide system/tool' : 'Show system/tool', onclick: () => { state.showSystemMessages = !state.showSystemMessages; render(); } }),
-    el('button', { class: 'pill-btn', textContent: state.showThinkingByDefault ? 'Hide thinking' : 'Show thinking', onclick: () => { state.showThinkingByDefault = !state.showThinkingByDefault; render(); } }),
     el('button', { class: 'pill-btn', textContent: state.voiceResponsesEnabled ? 'Voice replies: On' : 'Voice replies: Off', onclick: () => { state.voiceResponsesEnabled = !state.voiceResponsesEnabled; render(); } }),
     el('button', {
       class: `pill-btn ${state.settings?.chat_blur_images ? 'active' : ''}`,
@@ -315,6 +308,25 @@ function chatControls(model: string, memoryMode: string): HTMLElement {
       onclick: () => void toggleChatImageBlur(),
     }),
     state.currentAudioMessageId ? el('button', { class: 'pill-btn', textContent: 'Stop audio', onclick: () => playback.stop() }) : null,
+    el('details', { class: 'chat-control-details' }, [
+      el('summary', { textContent: 'Chat details' }),
+      el('p', { class: 'meta', textContent: `Workspace: ${workspace}` }),
+      el('label', { textContent: 'Model' }),
+      el(
+        'select',
+        { class: 'chip-select', value: model, onchange: (event: Event) => { state.selectedModel = (event.currentTarget as HTMLSelectElement).value; } },
+        state.models.map((item) => el('option', { value: item, selected: item === model, textContent: modelNickname(item) })),
+      ),
+      el('label', { textContent: 'Memory mode' }),
+      el('select', { class: 'chip-select', value: memoryMode, onchange: (event: Event) => { state.selectedMemoryMode = (event.currentTarget as HTMLSelectElement).value === 'off' ? 'off' : 'saved'; } }, [
+        el('option', { value: 'saved', selected: memoryMode !== 'off', textContent: 'Use saved memory' }),
+        el('option', { value: 'off', selected: memoryMode === 'off', textContent: 'Do not use saved memory' }),
+      ]),
+      el('div', { class: `status-pill ${statusClass()}`, textContent: state.statusText }),
+      el('button', { class: 'pill-btn', textContent: state.showSystemMessages ? 'Hide system/tool' : 'Show system/tool', onclick: () => { state.showSystemMessages = !state.showSystemMessages; render(); } }),
+      el('button', { class: 'pill-btn', textContent: state.showThinkingByDefault ? 'Hide thinking' : 'Show thinking', onclick: () => { state.showThinkingByDefault = !state.showThinkingByDefault; render(); } }),
+      el('button', { class: `pill-btn ${state.showViz ? 'active' : ''}`, textContent: state.showViz ? 'Visualizer: On' : 'Visualizer: Off', onclick: () => { state.showViz = !state.showViz; if (state.settings) state.settings.general_show_viz = state.showViz; render(); } }),
+    ]),
   ]);
 }
 
@@ -337,6 +349,7 @@ async function toggleChatImageBlur(): Promise<void> {
 
 function composer(): HTMLElement {
   const { busy, inputLocked } = composerState(state.phase);
+  const cancellableTurn = state.pendingRequest && ['queued', 'thinking'].includes(state.phase);
   return el('div', { class: 'composer' }, [
     el('textarea', {
       id: 'chatInput',
@@ -358,7 +371,7 @@ function composer(): HTMLElement {
         }
       },
     }),
-    state.pendingRequest
+    cancellableTurn
       ? el('button', {
           class: 'send-btn',
           textContent: 'Cancel',

@@ -111,7 +111,9 @@ artifacts, corrupt snapshots, restart recovery, and clean lifecycle behavior.
 
 These steps remain valid, but TTS provider replacement is deferred while the
 working Kokoro path remains available. They are not prerequisites for the media
-and platform foundation below.
+and platform foundation below. Once the current human-experience restoration is
+accepted in production, these voice steps are the next capability expansion;
+additional catalog breadth does not take priority over them.
 
 ## Platform intelligence, media continuity, and release
 
@@ -152,6 +154,16 @@ and platform foundation below.
     protected content, identity labels, optional collapsed details, and a
     persisted blur control defaulted off. Multiple configured catalog backends
     are readiness-filtered before deterministic selection. See ADRs 0019–0020.
+
+23. **Human conversation cleanup — delivered.** Persona replies commit before
+    independent title, capability, and memory follow-ups. Clear image requests
+    buffer persona prose through a durable-evidence claim guard. The chat memory
+    action creates an editable pending fact instead of promoting raw assistant
+    text, default chat chrome uses progressive disclosure, and visible Cancel
+    actions are scoped to work that can still be canceled. Deterministic scenario
+    evaluations cover long conversations, corrections, persona switching, memory
+    boundaries, media/provider degradation, and completed-file Kokoro behavior.
+    See ADR 0021.
 
 Steps are delivered and reviewed independently. Step 11 cannot select providers
 until a future listening decision is approved. Any future deployment acceptance

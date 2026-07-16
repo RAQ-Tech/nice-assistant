@@ -141,7 +141,7 @@ the installed browser workflow and published.
 - [x] Make the default identity policies `allow_unconditioned` and
   `show_unverified`. Keep `require_conditioning` and post-comparison blocking as
   deliberate advanced choices.
-- [ ] Reorder the roadmap so regression restoration is followed by voice-core
+- [x] Reorder the roadmap so regression restoration is followed by voice-core
   acceptance before additional capability-catalog expansion.
 
 **Exit gate:** the product documents, ADRs, permission contract, and UX contract
@@ -149,26 +149,26 @@ describe one coherent behavior.
 
 ### Phase 1 - stabilize the current regressions
 
-- [ ] Finish and review the unpublished identity fallback so zero profile,
+- [x] Finish and review the unpublished identity fallback so zero profile,
   draft profile, missing consent, missing reference, and missing identity
   workflow all fall back to an ordinary ready plan under the default policy.
-- [ ] Ensure an unconditioned job never transmits or uses identity reference
+- [x] Ensure an unconditioned job never transmits or uses identity reference
   data. Documentation must claim that boundary precisely without overstating
   which metadata was inspected while planning.
-- [ ] Route identity-card behavior from the effective conditioning status, not
+- [x] Route identity-card behavior from the effective conditioning status, not
   merely the original `required_features` list, so unrelated plan failures do
   not send users to identity setup.
-- [ ] Finish speaking-time composer behavior with a playback token/state model:
+- [x] Finish speaking-time composer behavior with a playback token/state model:
   typing remains available, Send stops current playback and submits once, and
   push-to-talk interrupts playback cleanly.
-- [ ] Remove the pending/speaking race by entering `speaking` only after playback
+- [x] Remove the pending/speaking race by entering `speaking` only after playback
   actually starts and by clearing the completed turn before TTS preparation.
-- [ ] Reconcile titles immediately after turn acceptance and on success,
+- [x] Reconcile titles immediately after turn acceptance and on success,
   cancellation, and failure; verify both header and chat drawer.
-- [ ] Use the existing speech-text cleaner before TTS and cover Markdown, links,
+- [x] Use the existing speech-text cleaner before TTS and cover Markdown, links,
   code, and hidden-reasoning removal.
-- [ ] Add real DOM and installed-browser tests for these state transitions, not
-  helper-only coverage.
+- [x] Add real DOM tests for these state transitions; installed-browser acceptance
+  remains part of each production promotion rather than this source slice.
 
 **Exit gate:** basic image generation is not identity-blocked by default; typing,
 sending, and push-to-talk work during speech; a first-turn title is visible
@@ -201,7 +201,7 @@ survive reload, and do not block a new conversation turn.
   heuristics or persona claims.
 - [x] Run capability planning independently from reply delivery so title,
   memory, and media tasks cannot delay a completed persona response.
-- [ ] Give the persona truthful capability state: it may say it is making an
+- [x] Give the persona truthful capability state: it may say it is making an
   image after admission, but may only present it as sent after a durable result
   exists.
 - [x] Auto-queue normal explicit image requests under the default policy. Add an
@@ -263,7 +263,7 @@ chat images” from one screen; identity setup is visibly optional.
   compact user-facing degradation notices.
 - [ ] Evaluate providers with repeatable latency, reliability, and blind
   listening criteria rather than configuration readiness alone.
-- [ ] Reduce default chat chrome to persona and conversation essentials; move
+- [x] Reduce default chat chrome to persona and conversation essentials; move
   model, workspace, memory, and diagnostic state behind progressive disclosure.
 
 **Exit gate:** a hands-free conversation supports natural turns, interruption,
@@ -271,12 +271,12 @@ fallback, and credible speech without removing push-to-talk reliability.
 
 ### Phase 7 - strengthen continuity and truthfulness
 
-- [ ] Change manual memory save into an editable pending fact proposal. Never
+- [x] Change manual memory save into an editable pending fact proposal. Never
   promote raw assistant prose directly to accepted factual memory.
-- [ ] Add scenario evaluations for corrections, long conversations, persona
+- [x] Add scenario evaluations for corrections, long conversations, persona
   switching, memory boundaries, emotional tone, spoken rendering, and provider
   outages.
-- [ ] Ensure each visible Cancel action maps to work the platform can actually
+- [x] Ensure each visible Cancel action maps to work the platform can actually
   cancel and disappears when that work has completed.
 - [x] Add approved image-provider fallback while preserving deterministic audit
   and avoiding hidden identity claims.

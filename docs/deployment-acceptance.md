@@ -20,6 +20,11 @@ Record the following locally for each real deployment:
 - readiness results and redacted latency/capacity measurements;
 - chat, memory, completed-file speech, media, cancellation, and protected-file
   behavior for capabilities the build truthfully supports;
+- first-turn title delivery before nonessential follow-ups, editable pending
+  memory proposals, persona switching, and progressive chat-detail controls;
+- truthful image wording, reload-safe compact attachments, blur-off default,
+  reveal-then-preview when enabled, scoped cancel/retry, and conversation or
+  recording while media or completed-file Kokoro playback is active;
 - restart recovery and clean-shutdown evidence;
 - backup archive, SQLite-integrity, migration, and rollback-drill results;
 - provider outage and capacity-pressure behavior;
@@ -40,3 +45,5 @@ portable performance claim.
 Provider-neutral streaming TTS, local STT, natural turn-taking, barge-in, and
 real visual-identity deployment acceptance remain separate future work. A
 destructive live restore also remains an explicitly authorized operator drill.
+Completed-file Kokoro text cleanup and manual interruption are supported and must
+not be described as streaming speech or full barge-in.

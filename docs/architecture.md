@@ -204,6 +204,9 @@ controls, information tips, and closed advanced disclosure. Focused Models,
 Task Models, Media Catalog, and Operations views own their typed interaction and
 API workflows; the settings shell only composes them. Provider execution remains
 outside the view layer.
+The default chat shell uses the same progressive-disclosure rule: persona,
+conversation, speech, and image-blur controls are primary; workspace, model,
+memory, client-state, and visualization controls remain available in chat details.
 The focused visual-identity settings module provides consent, reference review,
 separate generation-unavailable and comparison-failure policy controls, provider
 readiness, validation, and correction history without moving biometric decisions
@@ -229,6 +232,13 @@ Step 13 WebSocket concern.
 
 Capability audit events are durable; SSE turn events remain process-local.
 Disconnecting the browser does not approve, deny, or cancel a capability.
+
+After the assistant message is durable, title generation, capability planning,
+and memory extraction run as independent jobs. Result payloads expose named IDs
+plus `followup_job_ids`; the legacy `followup_job_id` is retained during consumer
+migration. A failure in one follow-up cannot rewrite a completed turn. Explicit
+image actions buffer persona prose through a deterministic premature-claim guard
+before publishing it, while ordinary non-media turns retain token streaming.
 
 ## Realtime direction
 

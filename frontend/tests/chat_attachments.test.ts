@@ -122,4 +122,35 @@ describe('durable chat attachments', () => {
     expect(node.querySelector('[data-testid="retry-chat-attachment"]')).not.toBeNull();
     expect(node.textContent).not.toContain('Media plan');
   });
+
+  it('creates an edited pending memory proposal instead of promoting raw assistant prose', async () => {
+    const appState = createState();
+    appState.currentChat = {
+      id: 'chat-1', workspace_id: null, persona_id: null, model_override: null, memory_mode: 'saved',
+      title: 'Memory proposal', hidden_in_ui: false, created_at: 1, updated_at: 1,
+    };
+    const proposeMemory = vi.fn().mockResolvedValue({});
+    const client = {
+      proposeMemory,
+      memories: vi.fn().mockResolvedValue({ items: [] }),
+    } as unknown as ApiClient;
+    const renderer = new ChatRenderer(
+      {} as MediaController,
+      {} as PlaybackController,
+      () => undefined,
+      appState,
+      client,
+      async () => 'The user prefers concise answers.',
+    );
+    const node = renderer.message({
+      id: 'message-1', role: 'assistant', text: '**Long reply:** perhaps concise answers are best.', created_at: 1,
+    }, null)!;
+
+    (node.querySelector('[title="Propose a memory fact"]') as HTMLButtonElement).click();
+
+    await vi.waitFor(() => expect(proposeMemory).toHaveBeenCalledWith(
+      'chat', 'chat-1', 'The user prefers concise answers.', 'message-1',
+    ));
+    expect(appState.statusText).toBe('Memory fact proposed for review');
+  });
 });

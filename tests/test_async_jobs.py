@@ -12,11 +12,62 @@ from app.job_service import LEGAL_TRANSITIONS, InvalidJobTransition, transition_
 from app.models import MediaFile
 from app.provider_contracts import ChatToolCall, MediaArtifact, ProviderError
 from app.repositories import UnitOfWork
-from app.task_contracts import CAPABILITY_PLANNING
+from app.task_contracts import CAPABILITY_PLANNING, TITLE_GENERATION
 from tests.support import FakeChatProvider, TestApp
 
 
 class AsyncJobTests(unittest.TestCase):
+    def test_title_and_capability_followups_start_independently_after_reply_delivery(self):
+        planning_gate = threading.Event()
+        provider = FakeChatProvider(
+            ["The reply arrives first."],
+            task_outputs={
+                TITLE_GENERATION: {"title": "Independent Followups"},
+                CAPABILITY_PLANNING: {"requests": []},
+            },
+            task_gates={CAPABILITY_PLANNING: planning_gate},
+        )
+        with (
+            tempfile.TemporaryDirectory() as tmp,
+            TestApp(Path(tmp), chat_provider=provider, interactive_workers=2) as running,
+        ):
+            running.create_and_login()
+            running.services.providers.media_providers["local-image"] = object()
+            running.client.put(
+                "/api/v1/settings",
+                json={
+                    "preferences": {
+                        "image_provider": "local/automatic1111",
+                        "image_confirmation_policy": "always_ask",
+                    }
+                },
+            )
+            chat = running.client.post("/api/v1/chats", json={"title": "New chat", "memory_mode": "off"}).json()
+            accepted = running.client.post(
+                f"/api/v1/chats/{chat['id']}/turns",
+                json={"text": "Show me a garden", "memory_mode": "off"},
+            ).json()
+            deadline = time.monotonic() + 2
+            primary = None
+            while time.monotonic() < deadline:
+                primary = running.client.get(f"/api/v1/jobs/{accepted['job']['id']}").json()
+                if primary["status"] == "completed":
+                    break
+                time.sleep(0.01)
+
+            self.assertEqual(primary["status"], "completed")
+            self.assertEqual(primary["result"]["text"], "The reply arrives first.")
+            self.assertEqual(len(primary["result"]["followup_job_ids"]), 2)
+            self.assertTrue(provider.task_started[CAPABILITY_PLANNING].wait(5))
+            title_job = running.wait_job(primary["result"]["title_job_id"])
+            self.assertEqual(title_job["status"], "completed")
+            capability_job = running.client.get(
+                f"/api/v1/jobs/{primary['result']['capability_planning_job_id']}"
+            ).json()
+            self.assertIn(capability_job["status"], {"queued", "running"})
+            planning_gate.set()
+            running.wait_job(primary["result"]["capability_planning_job_id"])
+
     def test_persona_reply_completes_before_nonessential_capability_planning(self):
         planning_gate = threading.Event()
         provider = FakeChatProvider(
@@ -63,6 +114,42 @@ class AsyncJobTests(unittest.TestCase):
             self.assertEqual(detail["messages"][-1]["text"], "The visible reply is ready.")
             planning_gate.set()
             running.wait_job(primary["result"]["followup_job_id"])
+
+    def test_premature_persona_media_claim_is_never_streamed_or_persisted(self):
+        provider = FakeChatProvider(
+            ["Here is your picture. I have verified the identity match."],
+            task_outputs={CAPABILITY_PLANNING: {"requests": []}},
+        )
+        with tempfile.TemporaryDirectory() as tmp, TestApp(Path(tmp), chat_provider=provider) as running:
+            running.create_and_login()
+            running.services.providers.media_providers["local-image"] = object()
+            running.client.put(
+                "/api/v1/settings",
+                json={"preferences": {"image_provider": "local/automatic1111"}},
+            )
+            chat = running.client.post(
+                "/api/v1/chats",
+                json={"title": "Truthful media", "memory_mode": "off"},
+            ).json()
+            accepted = running.client.post(
+                f"/api/v1/chats/{chat['id']}/turns",
+                json={"text": "Create a portrait of the persona", "memory_mode": "off"},
+            ).json()
+            completed = running.wait_job(accepted["job"]["id"])
+            self.assertTrue(completed["result"]["mediaClaimGuarded"])
+            self.assertEqual(completed["result"]["text"], "I’ll try to make that picture for you.")
+            detail = running.client.get(f"/api/v1/chats/{chat['id']}").json()
+            self.assertEqual(detail["messages"][-1]["text"], "I’ll try to make that picture for you.")
+            replay = list(
+                running.services.conversations.broker.subscribe(
+                    accepted["turn"]["id"],
+                    {"status": "completed"},
+                )
+            )
+            streamed = "".join(
+                str(event.data.get("text") or "") for event in replay if event.event == "assistant.delta"
+            )
+            self.assertEqual(streamed, "I’ll try to make that picture for you.")
 
     def test_disconnecting_turn_event_subscription_does_not_cancel_generation(self):
         gate = threading.Event()

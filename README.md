@@ -100,10 +100,14 @@ server, proxy, bridge, and second listener have been removed.
   prompts use explicit budgets with durable incremental summaries
 - `off`/`saved` memory modes with post-turn pending candidates, explicit approval,
   provenance, revision history, reversible forget/undo, permanent individual or
-  bulk delete, and active-only scoped FTS retrieval
+  bulk delete, active-only scoped FTS retrieval, and editable pending proposals
+  from chat messages
 - Per-model context allocation is sent to Ollama as `num_ctx` and recorded with
   estimated/actual prompt usage on the turn
 - Authenticated turn events over SSE with snapshots and bounded in-process replay
+- Persona replies commit before independent title, capability-planning, and memory
+  follow-ups; unsupported sent/matched/verified image claims are held back until
+  durable platform evidence exists
 - Cooperative queued/running cancellation with an active composer Cancel
   control; acknowledged media cancellation returns to Ready, and late provider
   results are discarded
@@ -147,6 +151,9 @@ server, proxy, bridge, and second listener have been removed.
 - State indicator (`Listening`, `Thinking`, `Speaking`)
 - Typed and hold-to-talk controls remain available to manually interrupt current
   speech playback
+- Default chat chrome keeps persona and conversation essentials visible while
+  workspace, model, memory, state, and visualization controls remain under
+  progressive disclosure
 - STT/TTS provider settings in UI (disabled by default)
 - OpenAI STT plus OpenAI and Kokoro-compatible request/response TTS
 - Provider readiness checks in Settings for Ollama, OpenAI, Kokoro, Automatic1111, and ComfyUI

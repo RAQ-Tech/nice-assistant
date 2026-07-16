@@ -18,6 +18,55 @@ class InvalidMemoryProvider(FakeChatProvider):
 
 
 class MemoryV2Tests(unittest.TestCase):
+    def test_manual_chat_fact_is_an_editable_pending_proposal_before_context_use(self):
+        with tempfile.TemporaryDirectory() as tmp, TestApp(Path(tmp)) as running:
+            running.create_and_login()
+            chat = running.client.post("/api/v1/chats", json={"title": "Memory proposal"}).json()
+            turn = running.client.post(
+                f"/api/v1/chats/{chat['id']}/turns",
+                json={"text": "My favorite color is blue.", "memory_mode": "off"},
+            ).json()
+            running.wait_job(turn["job"]["id"])
+            detail = running.client.get(f"/api/v1/chats/{chat['id']}").json()
+            source_message = detail["messages"][-1]
+
+            proposed = running.client.post(
+                "/api/v1/memory-proposals",
+                json={
+                    "scope": "chat",
+                    "scope_id": chat["id"],
+                    "content": "The user prefers navy blue.",
+                    "source_message_id": source_message["id"],
+                },
+            )
+            self.assertEqual(proposed.status_code, 200, proposed.text)
+            proposal = proposed.json()
+            self.assertEqual(proposal["status"], "pending")
+            self.assertEqual(proposal["content"], "The user prefers navy blue.")
+            self.assertEqual(proposal["source_message_id"], source_message["id"])
+            history = running.client.get(f"/api/v1/memories/{proposal['id']}/history").json()
+            self.assertEqual(history["events"][-1]["action"], "candidate_created")
+
+            other_chat = running.client.post("/api/v1/chats", json={"title": "Other chat"}).json()
+            mismatched_source = running.client.post(
+                "/api/v1/memory-proposals",
+                json={
+                    "scope": "chat",
+                    "scope_id": other_chat["id"],
+                    "content": "This source is attached to the wrong chat.",
+                    "source_message_id": source_message["id"],
+                },
+            )
+            self.assertEqual(mismatched_source.status_code, 404)
+
+            revised = running.client.put(
+                f"/api/v1/memories/{proposal['id']}",
+                json={"content": "The user prefers deep blue."},
+            ).json()
+            self.assertEqual(revised["status"], "pending")
+            approved = running.client.post(f"/api/v1/memories/{revised['id']}/approve").json()
+            self.assertEqual(approved["status"], "active")
+
     def test_sensitive_extraction_candidates_are_discarded_before_persistence(self):
         provider = FakeChatProvider(
             ["I will not retain that credential."],

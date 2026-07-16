@@ -12,8 +12,11 @@ candidates; only active memories can enter prompts or media continuity context.
 - `forgotten`: removed from future context without destroying its history.
 - `superseded`: replaced by a newer edited revision.
 
-Manual saves start active. Editing creates a new row linked through
-`supersedes_id`; it does not overwrite the prior content. Approve, reject,
+Deliberate memory-management saves start active. The chat transcript action is
+different: it opens an editable fact and creates a `pending` manual proposal so
+raw assistant prose cannot silently become context. Editing an active memory
+creates a new row linked through `supersedes_id`; it does not overwrite the prior
+content. Approve, reject,
 forget, and edit actions append audit events. Undo reverses the latest eligible
 action when doing so does not violate scope ownership or exact-deduplication
 constraints. Deleting a workspace or persona archives its live memories instead
@@ -67,8 +70,10 @@ advertised by Memory v2.
 
 Canonical memory APIs are under `/api/v1/memories`. They expose list/create,
 revision, approve, reject, forget, delete, undo, history, and atomic explicit-ID
-bulk-action contracts. The typed browser uses these contracts directly; the
-pre-Step-9 `/api/memory` adapters are removed.
+bulk-action contracts. `POST /api/v1/memory-proposals` creates an owner-scoped
+pending proposal, optionally linked to an owned source message. The typed browser
+uses that proposal contract for its message action; the pre-Step-9 `/api/memory`
+adapters are removed.
 
 The Memory settings view groups rows by real lifecycle status and scope, shows
 provenance and confidence, and provides explicit review/history actions. It can

@@ -344,6 +344,7 @@ input[type='file']::file-selector-button {
   background: rgba(0,0,0,.12);
   min-width: 0;
 }
+.persona-chip { width: fit-content; }
 
 .status-pill { margin-left: auto; font-size: .79rem; border-radius: 999px; padding: .3rem .75rem; border:1px solid var(--border); }
 .status-listening { color: #7bffe0; border-color: rgba(123,255,224,.5); background: rgba(23,77,74,.45); }
@@ -611,6 +612,32 @@ input[type='file']::file-selector-button {
   right: max(1rem, var(--safe-right));
   z-index: 8;
 }
+
+.chat-control-details {
+  flex: 1 0 100%;
+  border-top: 1px solid var(--border);
+  padding-top: .5rem;
+}
+
+.chat-control-details > summary {
+  cursor: pointer;
+  color: var(--text-dim);
+  font-size: .82rem;
+}
+
+.chat-control-details[open] {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, auto));
+  gap: .5rem;
+  align-items: center;
+}
+
+.chat-control-details[open] > summary,
+.chat-control-details[open] > .meta {
+  grid-column: 1 / -1;
+}
+
+.chat-control-details .status-pill { margin-left: 0; width: fit-content; }
 
 
 .error-banner {
@@ -1709,6 +1736,10 @@ input[type='file']::file-selector-button {
     gap: .35rem;
     max-height: min(30vh, 190px);
   }
+
+  .chat-control-details[open] { grid-template-columns: 1fr; }
+  .chat-control-details[open] > summary,
+  .chat-control-details[open] > .meta { grid-column: 1; }
 
   .settings-screen {
     padding:

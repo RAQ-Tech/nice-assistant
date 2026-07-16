@@ -487,6 +487,13 @@ export class ApiClient {
     });
   }
 
+  proposeMemory(scope: string, scopeId: string | null, content: string, sourceMessageId: string | null): Promise<Memory> {
+    return this.request('/memory-proposals', {
+      method: 'POST',
+      body: JSON.stringify({ scope, scope_id: scopeId, content, source_message_id: sourceMessageId }),
+    });
+  }
+
   updateMemory(id: string, scope: string, scopeId: string | null, content: string): Promise<Memory> {
     return this.request(`/memories/${encodeURIComponent(id)}`, {
       method: 'PUT',
