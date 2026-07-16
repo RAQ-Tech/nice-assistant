@@ -123,7 +123,7 @@ class DeploymentGuardContractTests(unittest.TestCase):
             check=True,
         )
         created = json.loads(payload.stdout)
-        self.assertEqual(created["HostConfig"], host_config)
+        self.assertEqual(created["HostConfig"], current[0]["HostConfig"])
         self.assertEqual(created["Labels"]["keep"], "yes")
         self.assertEqual(created["Labels"]["org.opencontainers.image.revision"], "new")
         self.assertNotIn("ignored", created["Labels"])
