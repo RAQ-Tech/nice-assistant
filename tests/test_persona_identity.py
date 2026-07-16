@@ -109,6 +109,7 @@ class PersonaIdentityTests(unittest.TestCase):
             profile = running.client.get(f"/api/v1/personas/{persona['id']}/visual-identity").json()
             self.assertEqual(profile["consent_status"], "not_granted")
             self.assertEqual(profile["conditioning_fallback"], "allow_unconditioned")
+            self.assertEqual(profile["failure_policy"], "show_unverified")
             self.assertFalse(profile["generation_workflow_configured"])
             self.assertFalse(profile["verification_configured"])
             self.assertFalse(profile["validation_ready"])
@@ -164,7 +165,7 @@ class PersonaIdentityTests(unittest.TestCase):
             rejected_job = running.wait_job(rejected.json()["job"]["id"])
             self.assertEqual(rejected_job["result"]["status"], "failed")
             status = running.client.get(f"/api/v1/media/{candidate_id}/identity-status").json()
-            self.assertEqual(status["claim_status"], "rejected")
+            self.assertEqual(status["claim_status"], "unverified")
 
             updated = running.client.put(
                 f"/api/v1/personas/{persona['id']}/visual-identity",
@@ -172,7 +173,7 @@ class PersonaIdentityTests(unittest.TestCase):
                     "appearance_description": "",
                     "acceptance_threshold": 0.78,
                     "max_generation_attempts": 2,
-                    "failure_policy": "show_unverified",
+                    "failure_policy": "block_claim",
                     "conditioning_fallback": "require_conditioning",
                 },
             )
@@ -180,14 +181,14 @@ class PersonaIdentityTests(unittest.TestCase):
             self.assertEqual(updated.json()["conditioning_fallback"], "require_conditioning")
             persisted = running.client.get(f"/api/v1/personas/{persona['id']}/visual-identity")
             self.assertEqual(persisted.json()["conditioning_fallback"], "require_conditioning")
-            unverified = running.client.post(
+            strictly_rejected = running.client.post(
                 f"/api/v1/personas/{persona['id']}/visual-identity/validations",
                 json={"media_id": candidate_id},
             )
-            unverified_job = running.wait_job(unverified.json()["job"]["id"])
-            self.assertEqual(unverified_job["result"]["claim_status"], "unverified")
+            rejected_job = running.wait_job(strictly_rejected.json()["job"]["id"])
+            self.assertEqual(rejected_job["result"]["claim_status"], "rejected")
             status = running.client.get(f"/api/v1/media/{candidate_id}/identity-status").json()
-            self.assertEqual(status["claim_status"], "unverified")
+            self.assertEqual(status["claim_status"], "rejected")
 
     def test_secret_is_encrypted_owner_isolation_and_withdrawal_deletes_reference(self):
         provider = FakeIdentityProvider()
@@ -262,7 +263,7 @@ class PersonaIdentityTests(unittest.TestCase):
 
             status = running.client.get(f"/api/v1/media/{candidate_id}/identity-status").json()
             self.assertEqual(status["persona_id"], second_persona["id"])
-            self.assertEqual(status["claim_status"], "rejected")
+            self.assertEqual(status["claim_status"], "unverified")
             self.assertGreater(second_job["result"]["created_order"], first_job["result"]["created_order"])
 
     def test_bad_images_and_disabled_provider_are_honest(self):

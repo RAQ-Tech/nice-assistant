@@ -269,6 +269,52 @@ describe('CapabilityController', () => {
     expect(node.textContent).toContain('Generate image without identity matching');
   });
 
+  it('does not route an unrelated resource failure to identity setup after unconditioned fallback', () => {
+    const appState = createState();
+    appState.phase = 'idle';
+    const request = capability();
+    request.media_plan = {
+      id: 'plan-resource-blocked',
+      source: 'coordinator',
+      status: 'blocked',
+      kind: 'image',
+      operation: 'generate',
+      requirements: { kind: 'image', operation: 'generate', domains: [], content_tags: [], required_features: ['identity_control'] },
+      selected_resources: [],
+      explanation: { summary: 'The selected model cannot start.', selected: [], warnings: [], rejected: [] },
+      estimated_vram_mb: 9000,
+      identity_conditioning: {
+        required: false,
+        status: 'unconditioned',
+        mode: null,
+        persona_id: 'persona-1',
+        profile_id: null,
+        profile_revision: null,
+        reference_id: null,
+        reference_sha256: null,
+        workflow_resource_id: null,
+        appearance_description_included: false,
+        verification_status: 'not_evaluated',
+        claim_status: 'unverified',
+      },
+      block: { code: 'insufficient_vram', message: 'Not enough available VRAM.' },
+      created_at: 1,
+    };
+    const openSetup = vi.fn();
+    const node = new CapabilityController(
+      () => undefined,
+      appState,
+      new ClientStateMachine(appState),
+      {} as ApiClient,
+      openSetup,
+    ).node(request);
+
+    const configure = node.querySelector('[data-testid="configure-capability"]') as HTMLButtonElement;
+    expect(configure.textContent).toBe('Try plan again');
+    configure.click();
+    expect(openSetup).not.toHaveBeenCalled();
+  });
+
   it('labels reference conditioning separately from identity verification', () => {
     const appState = createState();
     appState.phase = 'idle';
@@ -349,7 +395,7 @@ describe('CapabilityController', () => {
       {} as ApiClient,
     ).node(request);
 
-    expect(node.textContent).toContain('persona reference was not applied');
+    expect(node.textContent).toContain('No persona identity reference was applied');
     expect(node.textContent).toContain('Resemblance is not guaranteed');
     expect(node.textContent).toContain('unconditioned and unverified');
     expect(node.textContent).not.toContain('reference conditioning was applied');

@@ -142,6 +142,15 @@ test('typed chat streams a turn and persists the canonical result', async ({ pag
   expect(fixture.turnBody).toHaveProperty('workspace_id', workspace.id);
 });
 
+test('completed turns refresh the generated chat title in the visible header', async ({ page }) => {
+  await installAuthenticatedFixture(page, { renameOnTurn: true });
+  await page.goto('/#/chats/chat-1');
+  await page.getByTestId('chat-input').fill('Plan a perfect summer morning');
+  await page.getByTestId('chat-send').click();
+
+  await expect(page.locator('.header-title')).toHaveText('Perfect Summer Morning');
+});
+
 test('active direct media work exposes cancellation and returns cleanly to idle', async ({ page }) => {
   const fixture = await installAuthenticatedFixture(page, { holdMedia: true });
   await page.goto('/#/chats/chat-1');
@@ -349,7 +358,10 @@ test('model media requests remain pending until the user approves them', async (
   await expect(page.locator('.capability-result img')).toHaveAttribute('src', '/api/v1/media/media-1');
 });
 
-async function installAuthenticatedFixture(page: Page, options: { holdMedia?: boolean } = {}): Promise<{
+async function installAuthenticatedFixture(
+  page: Page,
+  options: { holdMedia?: boolean; renameOnTurn?: boolean } = {},
+): Promise<{
   requestedPaths: string[];
   turnBody: CapturedTurnBody | null;
   memoryApproved: boolean;
@@ -375,7 +387,7 @@ async function installAuthenticatedFixture(page: Page, options: { holdMedia?: bo
     mediaCatalogUpdated: false,
     mediaCancelled: false,
   };
-  const chat = {
+  let chat = {
     id: 'chat-1',
     workspace_id: workspace.id,
     persona_id: persona.id,
@@ -482,6 +494,7 @@ async function installAuthenticatedFixture(page: Page, options: { holdMedia?: bo
     else if (path === '/api/v1/chats/chat-1/turns' && method === 'POST') {
       const turnBody = request.postDataJSON() as CapturedTurnBody;
       result.turnBody = turnBody;
+      if (options.renameOnTurn) chat = { ...chat, title: 'Perfect Summer Morning', updated_at: 111 };
       messages = [
         ...messages,
         { id: 'user-new', role: 'user', text: turnBody.text, created_at: 110 },

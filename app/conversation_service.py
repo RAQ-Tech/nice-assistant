@@ -216,8 +216,10 @@ class ConversationService:
             stamp = now_ts()
             user_message = repo.add_message(chat_id, "user", text, created_at=stamp)
             should_generate_title = chat_title_needs_autogeneration(chat.title)
+            deterministic_title = None
             if should_generate_title:
-                chat.title = generate_chat_title_from_first_user_message(text)
+                deterministic_title = generate_chat_title_from_first_user_message(text)
+                chat.title = deterministic_title
             chat.updated_at = stamp
             chat.memory_mode = memory_mode
             chat.persona_id = requested_persona_id
@@ -308,6 +310,13 @@ class ConversationService:
             reply = "".join(chunks)
             self.broker.replace_accumulated_text(turn.id, reply)
             self.context.record_actual_prompt_tokens(turn.id, actual_prompt_tokens)
+            return {
+                "text": reply,
+                "chatId": chat_id,
+                "schedule_capability_planning": bool(planning_definitions and not is_explicit_text_only_request(text)),
+            }
+
+        def execute_followup(token):
             task_run_ids = {}
             task_title = None
             planned_capabilities = []
@@ -326,7 +335,9 @@ class ConversationService:
                 except ProviderError as exc:
                     if exc.code == "cancelled" or token.cancelled:
                         raise
+            planning_definitions = self.capabilities.planning_definitions(user_id)
             if planning_definitions and not is_explicit_text_only_request(text):
+                planning_vocabulary = self.capabilities.planning_vocabulary(user_id)
                 try:
                     outcome = self.task_models.run(
                         user_id,
@@ -350,12 +361,28 @@ class ConversationService:
                     if exc.code == "cancelled" or token.cancelled:
                         raise
             return {
-                "text": reply,
-                "chatId": chat_id,
                 "task_title": task_title,
                 "planned_capabilities": planned_capabilities,
                 "task_run_ids": task_run_ids,
             }
+
+        def on_followup_success(repo, result):
+            output = dict(result or {})
+            task_title = output.pop("task_title", None)
+            durable_chat = repo.chat(user_id, chat_id)
+            if should_generate_title and task_title and durable_chat and durable_chat.title == deterministic_title:
+                durable_chat.title = task_title
+                durable_chat.updated_at = now_ts()
+            planned_capabilities = list(output.pop("planned_capabilities", []))
+            if planned_capabilities:
+                output["capability_requests"] = self.capabilities.prepare_planned_requests(
+                    repo,
+                    user_id=user_id,
+                    chat_id=chat_id,
+                    turn_id=turn.id,
+                    planned=planned_capabilities,
+                )
+            return output
 
         def on_success(repo, result):
             reply = str((result or {}).get("text") or "")
@@ -366,18 +393,15 @@ class ConversationService:
             durable_chat.updated_at = now_ts()
             output = dict(result or {})
             output.update({"text": reply, "chatId": chat_id})
-            task_title = output.pop("task_title", None)
-            if should_generate_title and task_title:
-                durable_chat.title = task_title
-            planned_capabilities = list(output.pop("planned_capabilities", []))
-            if planned_capabilities:
-                output["capability_requests"] = self.capabilities.prepare_planned_requests(
-                    repo,
+            should_plan = bool(output.pop("schedule_capability_planning", False))
+            if should_generate_title or should_plan:
+                output["followup_job_id"] = repo.add_job(
                     user_id=user_id,
                     chat_id=chat_id,
-                    turn_id=turn.id,
-                    planned=planned_capabilities,
-                )
+                    turn_id=None,
+                    kind="chat_followup",
+                    progress="Queued for conversation follow-up",
+                ).id
             if memory_mode == "saved":
                 output["memory_extraction_job_id"] = self.memory.prepare_extraction_job(
                     repo,
@@ -387,19 +411,36 @@ class ConversationService:
             return output
 
         def after_success(result):
+            followup_job_id = (result or {}).get("followup_job_id")
+            if followup_job_id:
+                try:
+                    self.jobs.submit(
+                        job_id=followup_job_id,
+                        job_type="task_model",
+                        user_id=user_id,
+                        chat_id=chat_id,
+                        turn_id=None,
+                        latency_class="standard",
+                        model_key="task:conversation_followup",
+                        execution=JobExecution(execute=execute_followup, on_success=on_followup_success),
+                    )
+                except Exception:
+                    self.jobs.fail_unsubmitted(
+                        followup_job_id,
+                        "Conversation follow-up could not start.",
+                    )
             extraction_job_id = (result or {}).get("memory_extraction_job_id")
-            if not extraction_job_id:
-                return
-            self.memory.submit_extraction(
-                job_id=extraction_job_id,
-                user_id=user_id,
-                chat_id=chat_id,
-                turn_id=turn.id,
-                message_id=user_message.id,
-                user_text=text,
-                workspace_id=workspace_id,
-                persona_id=requested_persona_id,
-            )
+            if extraction_job_id:
+                self.memory.submit_extraction(
+                    job_id=extraction_job_id,
+                    user_id=user_id,
+                    chat_id=chat_id,
+                    turn_id=turn.id,
+                    message_id=user_message.id,
+                    user_text=text,
+                    workspace_id=workspace_id,
+                    persona_id=requested_persona_id,
+                )
 
         self.jobs.submit(
             job_id=job.id,

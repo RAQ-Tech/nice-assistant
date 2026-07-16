@@ -1,10 +1,13 @@
 import { api, type ApiClient } from './api';
+import { speechText } from './speech_text';
 import { machine, state, type ClientStateMachine } from './state';
 import type { AppState } from './types';
 import { Visualizer } from './visualization';
 
 export class PlaybackController {
   private onChange: () => void = () => undefined;
+  private sequence = 0;
+  private activePlaybackToken: number | null = null;
 
   constructor(
     private readonly audio: HTMLAudioElement,
@@ -13,8 +16,8 @@ export class PlaybackController {
     private readonly stateMachine: ClientStateMachine = machine,
     private readonly client: ApiClient = api,
   ) {
-    audio.addEventListener('ended', this.finish);
-    audio.addEventListener('error', this.finish);
+    audio.addEventListener('ended', this.finishActive);
+    audio.addEventListener('error', this.failActive);
   }
 
   setChangeHandler(handler: () => void): void {
@@ -23,43 +26,84 @@ export class PlaybackController {
 
   async synthesize(text: string, messageId: string, chatId: string, personaId: string | null): Promise<void> {
     const settings = this.appState.settings;
-    if (!settings || settings.tts_provider === 'disabled' || !this.appState.voiceResponsesEnabled || !text.trim()) return;
+    const cleanedText = speechText(text);
+    if (!settings || settings.tts_provider === 'disabled' || !this.appState.voiceResponsesEnabled || !cleanedText) return;
+    const token = this.begin(messageId);
     const result = await this.client.synthesize({
-      text,
+      text: cleanedText,
       chat_id: chatId,
       persona_id: personaId,
       format: settings.tts_format || 'wav',
     });
+    if (token !== this.sequence) return;
     this.appState.messageAudioById[messageId] = result.audio_url;
-    await this.play(messageId, result.audio_url);
+    await this.playPrepared(messageId, result.audio_url, token);
   }
 
   async play(messageId: string, url: string): Promise<void> {
-    this.stop(false);
-    this.visualizer.connectAudio();
-    this.audio.src = url;
-    this.appState.currentAudioMessageId = messageId;
-    this.stateMachine.transition('speaking');
-    this.onChange();
-    try {
-      await this.audio.play();
-    } catch (error) {
-      this.finish();
-      throw error;
-    }
+    const token = this.begin(messageId);
+    await this.playPrepared(messageId, url, token);
   }
 
   stop(render = true): void {
-    this.audio.pause();
-    this.audio.currentTime = 0;
-    this.appState.currentAudioMessageId = null;
+    this.sequence += 1;
+    this.activePlaybackToken = null;
+    this.haltAudio();
     if (this.appState.phase === 'speaking') this.stateMachine.transition('idle');
     if (render) this.onChange();
   }
 
-  private readonly finish = (): void => {
+  private begin(messageId: string): number {
+    this.stop(false);
+    delete this.appState.messageAudioErrors[messageId];
+    return this.sequence;
+  }
+
+  private async playPrepared(messageId: string, url: string, token: number): Promise<void> {
+    if (token !== this.sequence) return;
+    this.visualizer.connectAudio();
+    this.audio.src = url;
+    this.activePlaybackToken = token;
+    this.appState.currentAudioMessageId = messageId;
+    try {
+      await this.audio.play();
+      if (token !== this.sequence || this.appState.phase !== 'idle') {
+        if (this.activePlaybackToken === token) {
+          this.activePlaybackToken = null;
+          this.haltAudio();
+        }
+        return;
+      }
+      this.stateMachine.transition('speaking');
+      this.onChange();
+    } catch (error) {
+      if (token !== this.sequence) return;
+      this.activePlaybackToken = null;
+      this.haltAudio();
+      if (this.appState.phase === 'speaking') this.stateMachine.transition('idle');
+      this.onChange();
+      throw error;
+    }
+  }
+
+  private haltAudio(): void {
+    this.audio.pause();
+    this.audio.currentTime = 0;
     this.appState.currentAudioMessageId = null;
+  }
+
+  private readonly finishActive = (): void => {
+    if (this.activePlaybackToken === null) return;
+    this.sequence += 1;
+    this.activePlaybackToken = null;
+    this.haltAudio();
     if (this.appState.phase === 'speaking') this.stateMachine.transition('idle');
     this.onChange();
+  };
+
+  private readonly failActive = (): void => {
+    const messageId = this.appState.currentAudioMessageId;
+    if (messageId) this.appState.messageAudioErrors[messageId] = 'Audio could not be played.';
+    this.finishActive();
   };
 }

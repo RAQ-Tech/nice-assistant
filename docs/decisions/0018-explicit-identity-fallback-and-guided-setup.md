@@ -31,12 +31,16 @@ supporting capability prevent otherwise working image generation.
 - A persona-subject request always prefers a compatible, explicitly bound
   `identity_control` workflow. When configuration is unavailable and the saved
   policy allows fallback, the coordinator may select an ordinary image plan. The
+  implicit policy is also `allow_unconditioned` when no profile exists. The
   durable plan and result are labeled `unconditioned` and `unverified`, preserve
-  the persona/profile revision and appearance guidance, and warn that the
-  approved reference was not applied and resemblance is not guaranteed.
-- Configuration fallback is not a bypass for changed consent, a replaced or
-  tampered reference, a stale reviewed profile revision, or a stale selected
-  resource. Those conditions continue to block approval or execution.
+  the persona and any saved profile revision, and warn that no persona identity
+  reference was applied and resemblance is not guaranteed. Appearance guidance
+  is included only from an active, consented profile.
+- Unconditioned execution does not transmit or use a reference, so it does not
+  require consent or approved reference state. A saved strict policy, a
+  changed snapshotted profile revision, or a stale selected media resource still
+  blocks approval. Conditioned plans continue to require current consent,
+  reviewed-reference digest, binding, and profile state.
 - `failure_policy` continues to govern a real comparison failure only. It does
   not describe or control missing generation conditioning. The browser exposes
   both policies directly and describes inactive saved comparison behavior when
@@ -75,8 +79,8 @@ supporting capability prevent otherwise working image generation.
 ## Consequences
 
 Persona images work by default even on deployments without an identity extension,
-but the approval card and final media visibly disclose that the approved reference
-will not be or was not applied. Operators who require strict likeness can save
+profile, consent grant, or reference, but the approval card and final media visibly
+disclose that no persona identity reference will be or was applied. Operators who require strict likeness can save
 `require_conditioning` and receive a targeted block until setup is complete.
 
 The catalog remains extension-neutral and hardware-agnostic. Nice Assistant can
@@ -91,7 +95,8 @@ subject-authority, and reviewed-plan constraints remain in force.
 
 - Migration tests prove existing profiles acquire the explicit fallback policy.
 - Service/API tests cover conditioned preference, disclosed unconditioned
-  fallback, strict blocking, stale/tampered reference rejection, and audited
+  fallback with no profile and with a draft/unconsented profile, strict blocking,
+  stale/tampered conditioned-reference rejection, and audited
   replanning of only blocked pending requests, including immutable persona context
   and one-time recovery of legacy plans without a persona snapshot.
 - Provider-contract tests use deterministic ComfyUI `/object_info` fakes for

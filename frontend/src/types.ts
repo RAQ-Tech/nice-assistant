@@ -297,6 +297,7 @@ export interface JobResult {
   videoUrl?: string;
   mediaId?: Id;
   memory_extraction_job_id?: Id;
+  followup_job_id?: Id;
   identityConditioning?: {
     status?: 'conditioned' | 'unconditioned';
     verification_status: 'not_evaluated' | 'passed' | 'failed' | 'unavailable' | 'error' | 'cancelled';
@@ -725,6 +726,7 @@ export interface AppState {
   voiceResponsesEnabled: boolean;
   currentAudioMessageId: Id | null;
   messageAudioById: Record<Id, string>;
+  messageAudioErrors: Record<Id, string>;
   pendingRequest: PendingRequest | null;
   recordingStartedAt: number;
   settingsSaving: boolean;

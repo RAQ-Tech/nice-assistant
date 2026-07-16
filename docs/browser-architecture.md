@@ -84,8 +84,10 @@ authorization continue to come from the server.
 
 Current speech playback still uses completed authenticated audio files. The
 state machine deliberately exposes `recording`, `transcribing`, and `speaking`
-phases so later realtime voice can extend the contract, but it does not imply
-streaming speech, VAD, or barge-in today.
+phases so later realtime voice can extend the contract. During `speaking`, the
+composer remains editable; sending typed text or starting hold-to-talk stops the
+current file playback before beginning the new turn. This is explicit manual
+interruption, not streaming speech, VAD, or automatic realtime barge-in.
 
 Platform-planned media capabilities never open a browser confirmation modal as
 an ephemeral side effect. The browser reloads owner-scoped capability requests with each chat

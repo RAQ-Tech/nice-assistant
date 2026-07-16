@@ -1063,7 +1063,7 @@ class ApplicationRepository:
             consent_status="not_granted",
             acceptance_threshold=0.78,
             max_generation_attempts=2,
-            failure_policy="block_claim",
+            failure_policy="show_unverified",
             revision=1,
             last_validation_sequence=0,
             last_event_sequence=0,

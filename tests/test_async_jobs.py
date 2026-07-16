@@ -1,5 +1,7 @@
+import json
 import tempfile
 import threading
+import time
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
@@ -15,6 +17,48 @@ from tests.support import FakeChatProvider, TestApp
 
 
 class AsyncJobTests(unittest.TestCase):
+    def test_persona_reply_completes_before_nonessential_capability_planning(self):
+        planning_gate = threading.Event()
+        provider = FakeChatProvider(
+            ["The visible reply is ready."],
+            task_outputs={CAPABILITY_PLANNING: {"requests": []}},
+            task_gates={CAPABILITY_PLANNING: planning_gate},
+        )
+        with tempfile.TemporaryDirectory() as tmp, TestApp(Path(tmp), chat_provider=provider) as running:
+            running.create_and_login()
+            running.services.providers.media_providers["local-image"] = object()
+            running.client.put(
+                "/api/v1/settings",
+                json={"preferences": {"image_provider": "local/automatic1111"}},
+            )
+            chat = running.client.post(
+                "/api/v1/chats",
+                json={"title": "Already named", "memory_mode": "off"},
+            ).json()
+            accepted = running.client.post(
+                f"/api/v1/chats/{chat['id']}/turns",
+                json={"text": "Would you make an image of a garden?", "memory_mode": "off"},
+            ).json()
+            job_id = accepted["job"]["id"]
+            deadline = time.monotonic() + 2
+            primary = None
+            while time.monotonic() < deadline:
+                primary = running.client.get(f"/api/v1/jobs/{job_id}").json()
+                if primary["status"] == "completed":
+                    break
+                time.sleep(0.01)
+
+            self.assertEqual(primary["status"], "completed")
+            self.assertEqual(primary["result"]["text"], "The visible reply is ready.")
+            self.assertIn("followup_job_id", primary["result"])
+            self.assertTrue(provider.task_started[CAPABILITY_PLANNING].wait(1))
+            followup = running.client.get(f"/api/v1/jobs/{primary['result']['followup_job_id']}").json()
+            self.assertIn(followup["status"], {"queued", "running"})
+            detail = running.client.get(f"/api/v1/chats/{chat['id']}").json()
+            self.assertEqual(detail["messages"][-1]["text"], "The visible reply is ready.")
+            planning_gate.set()
+            running.wait_job(primary["result"]["followup_job_id"])
+
     def test_disconnecting_turn_event_subscription_does_not_cancel_generation(self):
         gate = threading.Event()
         provider = FakeChatProvider(["still completes"], gate=gate)

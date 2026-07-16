@@ -13,6 +13,22 @@ function Get-FreePort {
   return $port
 }
 
+function Wait-NiceJob {
+  param(
+    [string]$Base,
+    [Microsoft.PowerShell.Commands.WebRequestSession]$Session,
+    [string]$JobId,
+    [int]$TimeoutSeconds = 20
+  )
+  $deadline = [DateTime]::UtcNow.AddSeconds($TimeoutSeconds)
+  do {
+    $job = Invoke-RestMethod -Uri "$Base/api/v1/jobs/$JobId" -WebSession $Session
+    if ($job.status -in @('completed', 'failed', 'cancelled')) { return $job }
+    Start-Sleep -Milliseconds 100
+  } while ([DateTime]::UtcNow -lt $deadline)
+  return $job
+}
+
 $name = 'nice-assistant-container-smoke-' + [Guid]::NewGuid().ToString('N').Substring(0, 8)
 $fakePort = Get-FreePort
 $appPort = Get-FreePort
@@ -258,15 +274,10 @@ try {
       memory_mode = 'off'
       model = 'smoke-model'
     } | ConvertTo-Json)
-  $deadline = [DateTime]::UtcNow.AddSeconds(20)
-  do {
-    $fallbackIdentityJob = Invoke-RestMethod `
-      -Uri "$base/api/v1/jobs/$($fallbackIdentityTurn.job.id)" `
-      -WebSession $session
-    if ($fallbackIdentityJob.status -in @('completed', 'failed', 'cancelled')) { break }
-    Start-Sleep -Milliseconds 100
-  } while ([DateTime]::UtcNow -lt $deadline)
+  $fallbackIdentityJob = Wait-NiceJob $base $session $fallbackIdentityTurn.job.id
   if ($fallbackIdentityJob.status -ne 'completed') { throw 'identity fallback planning turn failed' }
+  $fallbackIdentityFollowup = Wait-NiceJob $base $session $fallbackIdentityJob.result.followup_job_id
+  if ($fallbackIdentityFollowup.status -ne 'completed') { throw 'identity fallback follow-up failed' }
   $fallbackIdentityRequests = Invoke-RestMethod `
     -Uri "$base/api/v1/capability-requests?chat_id=$($fallbackIdentityChat.id)" `
     -WebSession $session
@@ -303,7 +314,7 @@ try {
       $fallbackPlan.identity_conditioning.status -ne 'unconditioned' -or
       $fallbackPlan.identity_conditioning.claim_status -ne 'unverified' -or
       $fallbackPlan.identity_conditioning.conditioning_fallback -ne 'allow_unconditioned' -or
-      $fallbackWarnings -notmatch 'reference will not be applied') {
+      $fallbackWarnings -notmatch 'No persona identity reference will be applied') {
     throw 'identity fallback replan was not ready, disclosed, and explicitly unverified'
   }
   $fallbackEvents = Invoke-RestMethod `
@@ -392,13 +403,10 @@ try {
       memory_mode = 'off'
       model = 'smoke-model'
     } | ConvertTo-Json)
-  $deadline = [DateTime]::UtcNow.AddSeconds(20)
-  do {
-    $identityJob = Invoke-RestMethod -Uri "$base/api/v1/jobs/$($identityTurn.job.id)" -WebSession $session
-    if ($identityJob.status -in @('completed', 'failed', 'cancelled')) { break }
-    Start-Sleep -Milliseconds 100
-  } while ([DateTime]::UtcNow -lt $deadline)
+  $identityJob = Wait-NiceJob $base $session $identityTurn.job.id
   if ($identityJob.status -ne 'completed') { throw 'identity planning turn failed' }
+  $identityFollowup = Wait-NiceJob $base $session $identityJob.result.followup_job_id
+  if ($identityFollowup.status -ne 'completed') { throw 'identity planning follow-up failed' }
   $identityRequests = Invoke-RestMethod `
     -Uri "$base/api/v1/capability-requests?chat_id=$($identityChat.id)" `
     -WebSession $session
@@ -454,13 +462,10 @@ try {
       memory_mode = 'off'
       model = 'smoke-model'
     } | ConvertTo-Json)
-  $deadline = [DateTime]::UtcNow.AddSeconds(20)
-  do {
-    $job = Invoke-RestMethod -Uri "$base/api/v1/jobs/$($accepted.job.id)" -WebSession $session
-    if ($job.status -in @('completed', 'failed', 'cancelled')) { break }
-    Start-Sleep -Milliseconds 100
-  } while ([DateTime]::UtcNow -lt $deadline)
+  $job = Wait-NiceJob $base $session $accepted.job.id
   if ($job.status -ne 'completed' -or $job.result.text -ne 'Smoke model reply.') { throw 'container chat job failed' }
+  $titleFollowup = Wait-NiceJob $base $session $job.result.followup_job_id
+  if ($titleFollowup.status -ne 'completed') { throw 'container title follow-up failed' }
   $runs = Invoke-RestMethod -Uri "$base/api/v1/task-model-runs?role=title_generation" -WebSession $session
   if ($runs.items.Count -ne 1 -or $runs.items[0].status -ne 'fallback') {
     throw 'title fallback audit was not durable'

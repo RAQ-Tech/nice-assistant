@@ -22,7 +22,8 @@
     owner approves them; edits and forgetting preserve an auditable history.
 11. **Explainable coordination.** Privileged resource selection uses explicit
     operator metadata and compatibility, never model/LoRA filenames or persona
-    guesses, and is visible before execution.
+    guesses, and remains inspectable before and after execution without forcing
+    operator detail into ordinary chat.
 12. **Identity requires evidence.** Persona appearance guidance and generation
     inputs are not proof of identity. Only consented, reviewed references and a
     real accepted comparison may support a persona identity claim.
@@ -31,3 +32,6 @@
     IDs, preserve expert controls through progressive disclosure, and reveal
     concise supporting explanations through pointer- and keyboard-accessible
     information tips without hiding safety consequences.
+14. **Explicit low-risk intent is permission.** A direct request for an ordinary
+    image does not require the same instruction twice. Auto-run stays bounded by
+    evaluated explicit intent, saved policy, durable audit, and consequence.

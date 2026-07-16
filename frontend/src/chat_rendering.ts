@@ -32,6 +32,7 @@ export class ChatRenderer {
     const body = el('div', { html: markdown(displayText) });
     this.bindImagePreviews(body);
     const audioUrl = this.appState.messageAudioById[message.id];
+    const audioError = this.appState.messageAudioErrors[message.id];
     return el('div', { class: `msg-wrap ${isUser ? 'user' : ''}`, 'data-testid': `message-${message.role}` }, [
       !isUser && message.role === 'assistant'
         ? el('img', {
@@ -61,6 +62,7 @@ export class ChatRenderer {
             ])
           : null,
         message.isTyping && !message.text ? null : body,
+        audioError ? el('p', { class: 'message-audio-error', textContent: audioError }) : null,
         videoUrl
           ? el('button', { class: 'msg-video-preview', onclick: () => { this.appState.chatVideoPreview = videoUrl; this.renderApp(); } }, [
               el('video', { class: 'msg-inline-video', src: videoUrl, preload: 'metadata', muted: true, playsInline: true }),
@@ -89,7 +91,7 @@ export class ChatRenderer {
               imageUrl ? el('button', { class: 'icon-btn', textContent: '⬇', title: 'Save image', onclick: () => downloadUrl(imageUrl, `nice-assistant-image-${Date.now()}.png`) }) : null,
               videoUrl ? el('button', { class: 'icon-btn', textContent: '⬇', title: 'Save video', onclick: () => downloadUrl(videoUrl, `nice-assistant-video-${Date.now()}.mp4`) }) : null,
               audioUrl
-                ? el('button', { class: 'icon-btn', textContent: '⟲', title: 'Replay response audio', onclick: () => void this.playback.play(message.id, audioUrl) })
+                ? el('button', { class: 'icon-btn', textContent: '⟲', title: 'Replay response audio', onclick: () => void this.replayAudio(message.id, audioUrl) })
                 : null,
               this.appState.currentAudioMessageId === message.id
                 ? el('button', { class: 'icon-btn', textContent: '■', title: 'Stop audio', onclick: () => this.playback.stop() })
@@ -128,6 +130,15 @@ export class ChatRenderer {
 
   private async generateImage(message: Message): Promise<void> {
     await this.media.generateImage(imagePromptFromMessage(message), this.appState.currentChat?.id ?? null);
+  }
+
+  private async replayAudio(messageId: string, audioUrl: string): Promise<void> {
+    try {
+      await this.playback.play(messageId, audioUrl);
+    } catch {
+      this.appState.messageAudioErrors[messageId] = 'Audio could not be played.';
+      this.renderApp();
+    }
   }
 
   private async saveMemory(message: Message): Promise<void> {

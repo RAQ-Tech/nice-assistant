@@ -65,6 +65,7 @@ export function createState(): AppState {
     voiceResponsesEnabled: true,
     currentAudioMessageId: null,
     messageAudioById: {},
+    messageAudioErrors: {},
     pendingRequest: null,
     recordingStartedAt: 0,
     settingsSaving: false,

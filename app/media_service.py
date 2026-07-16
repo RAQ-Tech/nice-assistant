@@ -297,7 +297,7 @@ class MediaService:
         message = "Here is your generated image."
         if unconditioned:
             message += (
-                " The approved persona reference was not applied, so resemblance is not guaranteed; "
+                " No persona identity reference was applied, so resemblance is not guaranteed; "
                 "this result is unconditioned and unverified."
             )
         result = {

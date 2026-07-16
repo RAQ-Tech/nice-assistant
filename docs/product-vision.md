@@ -29,12 +29,16 @@ Cross-persona background decisions belong to platform Task Models with typed,
 evaluated contracts; an individual persona model must not silently own provider,
 model, LoRA, workflow, or resource selection.
 Task Models describe intent, while deterministic platform policy chooses media
-resources from operator-reviewed metadata and shows that plan before approval.
+resources from operator-reviewed metadata. An explicit ordinary image request
+is permission to generate under the default saved policy; confirmation remains
+available as an advanced preference and remains mandatory for consequential
+capabilities. Technical plans are inspectable without dominating normal chat.
 
 When a persona presents generated media as depicting them, visual identity must
 come from a durable, user-reviewable identity profile and validated references.
-Prompt hints alone are not identity persistence, and failed identity validation
-must be reported or retried rather than shown as if it were the persona.
+Prompt hints alone are not identity persistence. Missing optional identity setup
+must not block basic generation, and failed comparison must be labeled
+unverified or retried rather than shown as verified.
 
 ## Product quality bar
 

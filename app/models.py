@@ -498,7 +498,7 @@ class PersonaVisualIdentity(Base):
     appearance_description: Mapped[str | None] = mapped_column(Text)
     acceptance_threshold: Mapped[float] = mapped_column(Float, nullable=False, default=0.78)
     max_generation_attempts: Mapped[int] = mapped_column(Integer, nullable=False, default=2)
-    failure_policy: Mapped[str] = mapped_column(Text, nullable=False, default="block_claim")
+    failure_policy: Mapped[str] = mapped_column(Text, nullable=False, default="show_unverified")
     conditioning_fallback: Mapped[str] = mapped_column(Text, nullable=False, default="allow_unconditioned")
     revision: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
     last_validation_sequence: Mapped[int] = mapped_column(Integer, nullable=False, default=0)

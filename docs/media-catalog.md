@@ -93,13 +93,16 @@ it. See ADR 0017.
 When `identity_control` is required, planning first looks for a persona chat, an
 active consented identity profile, an approved primary reference whose file still
 matches its reviewed digest, and a compatible bound ComfyUI workflow. A ready
-workflow produces the existing conditioned snapshot. When only the workflow is
-unavailable and the saved profile policy is `allow_unconditioned`, the planner
-may select an ordinary model while preserving a durable `unconditioned` snapshot
-and an explicit resemblance warning. `require_conditioning`, missing consent,
-or changed reference evidence remains blocked. Approval revalidates the saved
-policy and profile revision. Conditioned candidates may be compared inline, and
-each generation/comparison/correction attempt remains durable.
+workflow produces the existing conditioned snapshot. When conditioning cannot
+be completed and the effective policy is `allow_unconditioned`, the planner may
+select an ordinary model while preserving a durable `unconditioned` snapshot
+and an explicit resemblance warning. That policy is the default even when no
+profile exists; unconditioned execution does not transmit or use identity
+references and therefore does not require consent or a reference. `require_conditioning`
+remains blocked. Approval revalidates the saved policy and any snapshotted
+profile revision. Conditioned candidates still require current consent and
+reference evidence, may be compared inline, and keep every
+generation/comparison/correction attempt durable.
 
 ComfyUI plans execute `generate`, `inpaint`, `outpaint`, and `image_to_image`
 only when their exact inputs are configured. Automatic1111 and cloud media

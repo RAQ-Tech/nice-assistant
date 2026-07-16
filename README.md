@@ -141,6 +141,8 @@ server, proxy, bridge, and second listener have been removed.
 - Visualizer overlay toggle and ring-of-dots canvas driven by **actual `<audio>` playback analyser**
 - Hold-to-talk recording (`MediaRecorder`) posting to `/api/v1/speech/transcriptions`
 - State indicator (`Listening`, `Thinking`, `Speaking`)
+- Typed and hold-to-talk controls remain available to manually interrupt current
+  speech playback
 - STT/TTS provider settings in UI (disabled by default)
 - OpenAI STT plus OpenAI and Kokoro-compatible request/response TTS
 - Provider readiness checks in Settings for Ollama, OpenAI, Kokoro, Automatic1111, and ComfyUI

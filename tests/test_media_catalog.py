@@ -112,6 +112,31 @@ def addon_payload(resource_type, name, external_id, model_id, *, content_tags=No
     }
 
 
+def resource_write_payload(resource, **changes):
+    keys = (
+        "resource_type",
+        "kind",
+        "name",
+        "provider_key",
+        "backend",
+        "external_id",
+        "enabled",
+        "priority",
+        "operations",
+        "domains",
+        "content_tags",
+        "features",
+        "estimated_vram_mb",
+        "estimated_load_seconds",
+        "default_settings",
+        "notes",
+        "compatible_model_ids",
+    )
+    payload = {key: resource[key] for key in keys}
+    payload.update(changes)
+    return payload
+
+
 class MediaCatalogTests(unittest.TestCase):
     def _identity_persona(self, running):
         workspace = running.client.post("/api/v1/workspaces", json={"name": "Identity world"}).json()
@@ -605,7 +630,7 @@ class MediaCatalogTests(unittest.TestCase):
                 media = uow.repo.media(user_id, media_id)
                 self.assertEqual(media.generation_plan_id, pending["media_plan"]["id"])
 
-    def test_missing_identity_workflow_uses_explicit_unconditioned_fallback_and_never_bypasses_tampering(self):
+    def test_missing_identity_workflow_uses_explicit_unconditioned_fallback_and_labels_results_truthfully(self):
         planned = {
             "capability_key": "media.generate_image",
             "prompt": "a casual selfie of the selected persona",
@@ -654,7 +679,7 @@ class MediaCatalogTests(unittest.TestCase):
             self.assertEqual(plan["requirements"]["required_features"], ["identity_control"])
             self.assertEqual(plan["identity_conditioning"]["status"], "unconditioned")
             self.assertEqual(plan["identity_conditioning"]["claim_status"], "unverified")
-            self.assertIn("reference will not be applied", " ".join(plan["explanation"]["warnings"]))
+            self.assertIn("No persona identity reference will be applied", " ".join(plan["explanation"]["warnings"]))
 
             approved = running.client.post(f"/api/v1/capability-requests/{pending['id']}/approval")
             self.assertEqual(approved.status_code, 200, approved.text)
@@ -669,7 +694,7 @@ class MediaCatalogTests(unittest.TestCase):
             self.assertEqual(result["status"], "unconditioned")
             self.assertEqual(result["claim_status"], "unverified")
             self.assertNotIn("identityWorkflow", capability["result"])
-            self.assertIn("approved persona reference was not applied", capability["result"]["text"])
+            self.assertIn("No persona identity reference was applied", capability["result"]["text"])
             self.assertIn("resemblance is not guaranteed", capability["result"]["text"])
             media_status = running.client.get(f"/api/v1/media/{capability['result']['mediaId']}/identity-status").json()
             self.assertEqual(media_status["claim_status"], "unverified")
@@ -761,8 +786,139 @@ class MediaCatalogTests(unittest.TestCase):
             running.wait_job(third_turn["job"]["id"])
             requests = running.client.get("/api/v1/capability-requests", params={"chat_id": chat["id"]}).json()["items"]
             tampered = next(item for item in requests if item["arguments"]["prompt"] == planned["prompt"])
-            self.assertEqual(tampered["media_plan"]["status"], "blocked")
-            self.assertEqual(tampered["media_plan"]["block"]["code"], "identity_reference_changed")
+            self.assertEqual(tampered["media_plan"]["status"], "ready")
+            self.assertEqual(tampered["media_plan"]["identity_conditioning"]["status"], "unconditioned")
+            self.assertIsNone(tampered["media_plan"]["identity_conditioning"]["reference_id"])
+
+    def test_unconditioned_fallback_needs_no_saved_profile_consent_or_reference(self):
+        planned = {
+            "capability_key": "media.generate_image",
+            "prompt": "a candid portrait of the selected persona",
+            "operation": "generate",
+            "domains": [],
+            "content_tags": [],
+            "required_features": [],
+            "persona_subject": True,
+        }
+        chat_provider = FakeChatProvider(
+            ["I can prepare that image.", "I can prepare another image.", "I cannot prepare that image yet."],
+            task_outputs={CAPABILITY_PLANNING: {"requests": [planned]}},
+        )
+        image_provider = FakeImageProvider()
+        with tempfile.TemporaryDirectory() as tmp, TestApp(Path(tmp), chat_provider=chat_provider) as running:
+            user_id = running.create_and_login()
+            running.services.providers.media_providers["local-image"] = image_provider
+            running.client.put(
+                "/api/v1/settings",
+                json={"preferences": {"image_provider": "local/comfyui"}},
+            )
+            workspace = running.client.post("/api/v1/workspaces", json={"name": "Fallback world"}).json()
+            persona = running.client.post(
+                "/api/v1/personas", json={"workspace_id": workspace["id"], "name": "Taylor"}
+            ).json()
+            implicit = running.client.get(f"/api/v1/personas/{persona['id']}/visual-identity").json()
+            self.assertIsNone(implicit["id"])
+            self.assertEqual(implicit["conditioning_fallback"], "allow_unconditioned")
+            catalog = running.client.get("/api/v1/media-catalog").json()
+            chat = running.client.post(
+                "/api/v1/chats",
+                json={
+                    "workspace_id": workspace["id"],
+                    "persona_id": persona["id"],
+                    "title": "Default fallback",
+                    "memory_mode": "off",
+                },
+            ).json()
+
+            first_turn = running.client.post(
+                f"/api/v1/chats/{chat['id']}/turns",
+                json={"text": "Send me a candid portrait", "memory_mode": "off"},
+            ).json()
+            running.wait_job(first_turn["job"]["id"])
+            first = running.client.get("/api/v1/capability-requests", params={"chat_id": chat["id"]}).json()["items"][0]
+            self.assertEqual(first["media_plan"]["status"], "ready")
+            self.assertEqual(first["media_plan"]["requirements"]["required_features"], ["identity_control"])
+            self.assertEqual(first["media_plan"]["identity_conditioning"]["status"], "unconditioned")
+            self.assertIsNone(first["media_plan"]["identity_conditioning"]["profile_id"])
+            self.assertIsNone(first["media_plan"]["identity_conditioning"]["reference_id"])
+            approved = running.client.post(f"/api/v1/capability-requests/{first['id']}/approval")
+            self.assertEqual(approved.status_code, 200, approved.text)
+            running.wait_job(approved.json()["job_id"])
+
+            saved = running.client.put(
+                f"/api/v1/personas/{persona['id']}/visual-identity",
+                json={
+                    "appearance_description": "private draft appearance text",
+                    "acceptance_threshold": 0.78,
+                    "max_generation_attempts": 2,
+                    "failure_policy": "block_claim",
+                    "conditioning_fallback": "allow_unconditioned",
+                },
+            ).json()
+            self.assertEqual(saved["status"], "draft")
+            self.assertEqual(saved["consent_status"], "not_granted")
+            self.assertEqual(saved["approved_reference_count"], 0)
+            planned["prompt"] = "another candid portrait of the selected persona"
+            second_turn = running.client.post(
+                f"/api/v1/chats/{chat['id']}/turns",
+                json={"text": "Send another candid portrait", "memory_mode": "off"},
+            ).json()
+            running.wait_job(second_turn["job"]["id"])
+            requests = running.client.get("/api/v1/capability-requests", params={"chat_id": chat["id"]}).json()["items"]
+            second = next(item for item in requests if item["arguments"]["prompt"] == planned["prompt"])
+            self.assertEqual(second["media_plan"]["status"], "ready")
+            self.assertEqual(second["media_plan"]["identity_conditioning"]["status"], "unconditioned")
+            self.assertEqual(second["media_plan"]["identity_conditioning"]["profile_id"], saved["id"])
+            self.assertFalse(second["media_plan"]["identity_conditioning"]["appearance_description_included"])
+            approved = running.client.post(f"/api/v1/capability-requests/{second['id']}/approval")
+            self.assertEqual(approved.status_code, 200, approved.text)
+            running.wait_job(approved.json()["job_id"])
+
+            self.assertEqual(len(image_provider.requests), 2)
+            self.assertNotIn("private draft appearance text", image_provider.requests[1].prompt)
+            self.assertIsNone(image_provider.requests[0].options["local_settings"]["identity_reference_path"])
+            self.assertIsNone(image_provider.requests[1].options["local_settings"]["identity_reference_path"])
+
+            running.client.put(
+                "/api/v1/media-catalog/settings",
+                json={"vram_budget_mb": 1, "max_loras": 4},
+            )
+            legacy = catalog["resources"][0]
+            disabled = running.client.put(
+                f"/api/v1/media-catalog/resources/{legacy['id']}",
+                json=resource_write_payload(legacy, enabled=False),
+            )
+            self.assertEqual(disabled.status_code, 200, disabled.text)
+            created = running.client.post(
+                "/api/v1/media-catalog/resources",
+                json=model_payload(
+                    "Budget constrained model",
+                    "budget.safetensors",
+                    backend="comfyui",
+                    vram=10,
+                ),
+            )
+            self.assertEqual(created.status_code, 201, created.text)
+            with UnitOfWork(
+                running.services.runtime.session_factory,
+                running.services.runtime.secret_store,
+            ) as uow:
+                blocked = running.services.media_catalog._build_plan(
+                    uow.repo,
+                    user_id,
+                    {
+                        "kind": "image",
+                        "operation": "generate",
+                        "domains": [],
+                        "content_tags": [],
+                        "required_features": ["identity_control"],
+                    },
+                    persona_id=persona["id"],
+                )
+            self.assertEqual(blocked["status"], "blocked")
+            reasons = [reason for candidate in blocked["explanation"]["rejected"] for reason in candidate["reasons"]]
+            self.assertTrue(any("vram" in reason.lower() for reason in reasons), reasons)
+            self.assertFalse(any("identity_control" in reason for reason in reasons), reasons)
 
     def test_identity_plan_revalidates_profile_revision_before_approval(self):
         provider = FakeChatProvider(

@@ -101,8 +101,12 @@ intermediate candidates stay owner-protected and are not rendered as persona
 output under `block_claim`.
 When the saved policy permits generation without an available conditioning
 workflow, Nice Assistant does not send the reference and labels both plan and
-result `unconditioned`/`unverified`. This compatibility path cannot bypass
-consent withdrawal, changed reference evidence, or stale reviewed state.
+result `unconditioned`/`unverified`. This path may run without a profile,
+consent grant, or approved reference precisely because it neither reads nor
+sends identity evidence. A saved `require_conditioning` policy or a changed
+profile revision still invalidates a reviewed plan. Consent, reference digest,
+and reviewed-state checks remain mandatory whenever reference conditioning is
+actually selected.
 Workflow setup may inspect ComfyUI `/object_info` through the same private-LAN
 URL policy and server-held authentication as other provider checks. Provider
 addresses, credentials, and raw provider errors are never returned to the

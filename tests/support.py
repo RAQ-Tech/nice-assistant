@@ -45,6 +45,7 @@ class FakeChatProvider:
         tool_calls: list[ChatToolCall] | None = None,
         task_outputs: dict[str, object] | None = None,
         task_errors: dict[str, ProviderError] | None = None,
+        task_gates: dict[str, threading.Event] | None = None,
     ):
         self.chunks = list(chunks or ["Test reply."])
         self.error = error
@@ -57,6 +58,8 @@ class FakeChatProvider:
         self.tool_calls = list(tool_calls or [])
         self.task_outputs = dict(task_outputs or {})
         self.task_errors = dict(task_errors or {})
+        self.task_gates = dict(task_gates or {})
+        self.task_started: dict[str, threading.Event] = {role: threading.Event() for role in self.task_gates}
         self.memory_started = threading.Event()
         self.started = threading.Event()
 
@@ -87,6 +90,11 @@ class FakeChatProvider:
         if role:
             cancellation.raise_if_cancelled()
             self.task_requests.append(request)
+            self.task_started.setdefault(role, threading.Event()).set()
+            gate = self.task_gates.get(role)
+            if gate:
+                while not gate.wait(0.01):
+                    cancellation.raise_if_cancelled()
             if role in self.task_errors:
                 raise self.task_errors[role]
             if role == MEMORY_EXTRACTION:
@@ -199,6 +207,9 @@ class TestApp:
             assert response.status_code == 200, response.text
             latest = response.json()
             if latest["status"] in {"completed", "failed", "cancelled"}:
+                followup_job_id = (latest.get("result") or {}).get("followup_job_id")
+                if followup_job_id:
+                    self.wait_job(followup_job_id, timeout=max(0.1, deadline - time.monotonic()))
                 return latest
             time.sleep(0.01)
         raise AssertionError(f"job did not finish: {latest}")

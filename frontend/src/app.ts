@@ -4,6 +4,7 @@ import { ChatController } from './chat';
 import { ChatDrawer } from './chat_drawer';
 import { ChatRenderer, modelNickname } from './chat_rendering';
 import { CapabilityController } from './capabilities';
+import { composerState } from './composer_state';
 import { DEFAULT_PERSONA_AVATAR } from './constants';
 import { captureFocus, el, errorMessage, restoreFocus } from './dom';
 import { MediaController } from './media';
@@ -306,8 +307,7 @@ function chatControls(model: string, memoryMode: string): HTMLElement {
 }
 
 function composer(): HTMLElement {
-  const busy = ['queued', 'thinking', 'transcribing', 'speaking'].includes(state.phase);
-  const inputLocked = ['transcribing', 'speaking'].includes(state.phase);
+  const { busy, inputLocked } = composerState(state.phase);
   return el('div', { class: 'composer' }, [
     el('textarea', {
       id: 'chatInput',

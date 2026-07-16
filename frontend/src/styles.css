@@ -497,6 +497,12 @@ input[type='file']::file-selector-button {
 }
 .msg:hover .msg-actions { opacity: 1; }
 
+.message-audio-error {
+  margin: .45rem 0 0;
+  color: #ffd0dc;
+  font-size: .8rem;
+}
+
 .composer {
   display: grid;
   grid-template-columns: 1fr auto auto;

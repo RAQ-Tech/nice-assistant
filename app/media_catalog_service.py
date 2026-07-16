@@ -411,7 +411,10 @@ class MediaCatalogService:
         if not identity_required:
             return built
         if built["status"] == "ready":
-            return self._bind_identity(repo, user_id, persona_id, requirements, built)
+            bound = self._bind_identity(repo, user_id, persona_id, requirements, built)
+            if bound["status"] == "ready":
+                return bound
+            return self._build_unconditioned_fallback(repo, user_id, persona_id, requirements, bound)
         if not self._identity_configuration_missing(built):
             return built
         return self._build_unconditioned_fallback(repo, user_id, persona_id, requirements, built)
@@ -432,73 +435,50 @@ class MediaCatalogService:
                 "Identity-aware generation requires a chat with a selected persona.",
             )
         identity = repo.visual_identity(user_id, persona_id)
-        if not identity or identity.conditioning_fallback != "allow_unconditioned":
+        fallback_policy = identity.conditioning_fallback if identity else "allow_unconditioned"
+        if fallback_policy != "allow_unconditioned":
             return blocked
-        if identity.status != "active" or identity.consent_status != "granted":
-            return self._block_identity(
-                blocked,
-                "identity_profile_unavailable",
-                "The selected persona needs an active, consented visual identity profile.",
-                persona_id=persona_id,
-                profile=identity,
-            )
-        references = repo.approved_identity_references(user_id, identity.id)
-        reference = references[0] if references else None
-        if not reference or not reference.local_path:
-            return self._block_identity(
-                blocked,
-                "identity_reference_unavailable",
-                "The selected persona needs an approved identity reference.",
-                persona_id=persona_id,
-                profile=identity,
-            )
-        try:
-            content = read_identity_image_file(Path(reference.local_path), max_bytes=MAX_REFERENCE_BYTES)
-        except RequestError:
-            return self._block_identity(
-                blocked,
-                "identity_reference_unavailable",
-                "The approved identity reference file is unavailable.",
-                persona_id=persona_id,
-                profile=identity,
-            )
-        if sha256(content).hexdigest() != reference.sha256:
-            return self._block_identity(
-                blocked,
-                "identity_reference_changed",
-                "The approved identity reference no longer matches its reviewed content.",
-                persona_id=persona_id,
-                profile=identity,
-            )
         relaxed = dict(requirements)
         relaxed["required_features"] = [
             feature for feature in requirements["required_features"] if feature != IDENTITY_CONTROL_FEATURE
         ]
         fallback = build_media_plan(repo, user_id, relaxed, self.providers)
-        if fallback["status"] != "ready":
-            return blocked
+        appearance_description = (
+            identity.appearance_description
+            if identity and identity.status == "active" and identity.consent_status == "granted"
+            else ""
+        )
         fallback["identity_conditioning"] = {
             "required": True,
             "status": "unconditioned",
             "mode": IDENTITY_UNCONDITIONED_MODE,
             "persona_id": persona_id,
-            "profile_id": identity.id,
-            "profile_revision": identity.revision,
-            "reference_id": reference.id,
-            "reference_sha256": reference.sha256,
-            "acceptance_threshold": float(identity.acceptance_threshold),
-            "max_generation_attempts": int(identity.max_generation_attempts),
-            "failure_policy": identity.failure_policy,
-            "conditioning_fallback": identity.conditioning_fallback,
-            "appearance_description": identity.appearance_description or "",
+            "profile_id": identity.id if identity else None,
+            "profile_revision": identity.revision if identity else None,
+            "reference_id": None,
+            "reference_sha256": None,
+            "acceptance_threshold": float(identity.acceptance_threshold) if identity else None,
+            "max_generation_attempts": int(identity.max_generation_attempts) if identity else None,
+            "failure_policy": identity.failure_policy if identity else None,
+            "conditioning_fallback": fallback_policy,
+            "appearance_description": appearance_description or "",
             "fallback_reason": blocked.get("block_message"),
         }
+        if fallback["status"] != "ready":
+            fallback["explanation"]["warnings"].append(
+                "Identity matching was allowed to fall back, but the ordinary media plan is still unavailable."
+            )
+            return fallback
         fallback["explanation"]["summary"] = (
-            "No compatible identity workflow is configured, so the explicit persona policy selected ordinary "
+            "Persona identity conditioning is unavailable for this request, so the explicit policy selected ordinary "
             "generation without reference conditioning."
         )
+        if blocked.get("block_message"):
+            fallback["explanation"]["warnings"].append(
+                f"Identity conditioning was unavailable: {blocked['block_message']}"
+            )
         fallback["explanation"]["warnings"].append(
-            "The approved persona reference will not be applied. Appearance guidance may be included, but the "
+            "No persona identity reference will be applied. Appearance guidance may be included, but the "
             "result is unconditioned and explicitly unverified."
         )
         return fallback
@@ -697,6 +677,28 @@ class MediaCatalogService:
         if not isinstance(snapshot, dict) or snapshot.get("status") not in {"ready", "unconditioned"}:
             raise ConflictError("The identity-aware plan has no executable identity binding.")
         identity = repo.visual_identity(user_id, snapshot.get("persona_id"))
+        if snapshot.get("status") == "unconditioned":
+            if snapshot.get("conditioning_fallback") != "allow_unconditioned":
+                raise ConflictError(
+                    "The persona identity fallback policy changed after this request was planned. Create a new request."
+                )
+            profile_id = snapshot.get("profile_id")
+            if profile_id:
+                if (
+                    not identity
+                    or identity.id != profile_id
+                    or identity.revision != snapshot.get("profile_revision")
+                    or identity.conditioning_fallback != "allow_unconditioned"
+                ):
+                    raise ConflictError(
+                        "The persona identity profile changed after this request was planned. Create a new request before approval."
+                    )
+            elif identity:
+                raise ConflictError(
+                    "The persona identity profile changed after this request was planned. Create a new request before approval."
+                )
+            options["_identity_conditioning"] = snapshot
+            return
         if (
             not identity
             or identity.id != snapshot.get("profile_id")
@@ -725,16 +727,6 @@ class MediaCatalogService:
             raise ConflictError("The approved identity reference file is unavailable.") from exc
         if sha256(content).hexdigest() != reference.sha256:
             raise ConflictError("The approved identity reference no longer matches its reviewed content.")
-        if snapshot.get("status") == "unconditioned":
-            if (
-                identity.conditioning_fallback != "allow_unconditioned"
-                or snapshot.get("conditioning_fallback") != "allow_unconditioned"
-            ):
-                raise ConflictError(
-                    "The persona identity fallback policy changed after this request was planned. Create a new request."
-                )
-            options["_identity_conditioning"] = snapshot
-            return
         bindings = snapshot.get("identity_image_bindings")
         if options.get("backend") != "comfyui" or not isinstance(bindings, list) or not bindings:
             raise ConflictError("The selected adapter cannot execute the identity-aware workflow.")

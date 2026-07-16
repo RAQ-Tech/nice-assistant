@@ -235,12 +235,12 @@ class CapabilityTests(unittest.TestCase):
             persona_request = next(
                 item for item in requests if item["arguments"]["prompt"] == "a selfie of the selected persona"
             )
-            self.assertEqual(persona_request["media_plan"]["status"], "blocked")
+            self.assertEqual(persona_request["media_plan"]["status"], "ready")
             self.assertEqual(
                 persona_request["media_plan"]["requirements"]["required_features"],
                 ["identity_control"],
             )
-            self.assertIn("Open Settings", persona_request["media_plan"]["block"]["message"])
+            self.assertEqual(persona_request["media_plan"]["identity_conditioning"]["status"], "unconditioned")
 
     def test_task_planned_capability_turn_still_extracts_memory_candidates(self):
         provider = FakeChatProvider(

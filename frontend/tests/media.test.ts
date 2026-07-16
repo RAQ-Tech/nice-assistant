@@ -35,6 +35,8 @@ describe('media presentation', () => {
     const text = 'Done.\n\n[Download generated video](/api/v1/media/video-1)';
     expect(extractVideoUrl(text)).toBe('/api/v1/media/video-1');
     expect(speechText('**Hello** [world](https://example.test)')).toBe('Hello world');
+    expect(speechText('<think>private chain</think>Hi `friend`.\n```ts\nconst secret = true;\n```\n![photo](/media/1) <b>Ready</b>'))
+      .toBe('Hi friend. Ready');
   });
 
   it('treats an acknowledged media cancellation as idle instead of an error', async () => {

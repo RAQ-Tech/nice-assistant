@@ -1,5 +1,6 @@
 import { api, type ApiClient, type MediaJobInput } from './api';
 import { errorMessage } from './dom';
+import { speechText } from './speech_text';
 import { machine, state, type ClientStateMachine } from './state';
 import type { AppState, Job, Message } from './types';
 
@@ -135,16 +136,7 @@ export function stripVideoLinks(text: string): string {
   return text.replace(VIDEO_MARKDOWN, '').trim();
 }
 
-export function speechText(text: string): string {
-  return text
-    .replace(/```[\s\S]*?```/g, ' ')
-    .replace(/!\[[^\]]*\]\([^)]+\)/g, ' ')
-    .replace(/\[([^\]]+)\]\([^)]+\)/g, '$1')
-    .replace(/<think>[\s\S]*?<\/think>/gi, ' ')
-    .replace(/[`*_>#-]/g, ' ')
-    .replace(/\s+/g, ' ')
-    .trim();
-}
+export { speechText } from './speech_text';
 
 export function imagePromptFromMessage(message: Message): string {
   const source = speechText(message.text).slice(0, 1200);

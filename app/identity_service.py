@@ -138,7 +138,7 @@ class IdentityService:
     def save_profile(self, user_id: str, persona_id: str, values: dict) -> dict:
         threshold = float(values.get("acceptance_threshold", 0.78))
         attempts = int(values.get("max_generation_attempts", 2))
-        policy = str(values.get("failure_policy") or "block_claim")
+        policy = str(values.get("failure_policy") or "show_unverified")
         conditioning_fallback = str(values.get("conditioning_fallback") or "allow_unconditioned")
         if threshold < 0 or threshold > 1:
             raise RequestError("Acceptance threshold must be between 0 and 1.", 400)
@@ -836,7 +836,7 @@ class IdentityService:
             "appearance_description": "",
             "acceptance_threshold": 0.78,
             "max_generation_attempts": 2,
-            "failure_policy": "block_claim",
+            "failure_policy": "show_unverified",
             "conditioning_fallback": "allow_unconditioned",
             "revision": 0,
             "consent_granted_at": None,

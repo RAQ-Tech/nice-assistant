@@ -25,7 +25,11 @@ export class CapabilityController {
     const identityResult = request.result?.identityConditioning;
     const identityWorkflow = request.result?.identityWorkflow;
     const planBlocked = plan?.status === 'blocked';
-    const identityBlocked = Boolean(planBlocked && plan.requirements.required_features.includes('identity_control'));
+    const identityBlocked = Boolean(
+      planBlocked
+      && plan.identity_conditioning?.status !== 'unconditioned'
+      && plan.requirements.required_features.includes('identity_control'),
+    );
     const identityProfileBlocked = Boolean(identityBlocked && isVisualIdentityBlock(plan?.block?.code));
     const unconditioned = plan?.identity_conditioning?.status === 'unconditioned';
     const approvalBlocked = this.appState.phase !== 'idle';
@@ -82,7 +86,7 @@ export class CapabilityController {
         ? el('p', {
             class: 'meta',
             textContent: identityResult.status === 'unconditioned'
-              ? 'The persona reference was not applied. Resemblance is not guaranteed; this result is explicitly unconditioned and unverified.'
+              ? 'No persona identity reference was applied. Resemblance is not guaranteed; this result is explicitly unconditioned and unverified.'
               : identityResult.claim_status === 'verified'
                 ? `Persona identity verified${identityWorkflow?.attempts ? ` after ${identityWorkflow.attempts} attempt${identityWorkflow.attempts === 1 ? '' : 's'}` : ''}.`
                 : identityResult.verification_status === 'failed'
