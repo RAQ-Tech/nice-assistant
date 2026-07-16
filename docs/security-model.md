@@ -46,12 +46,15 @@ fixed server adapters rather than browser-supplied URLs.
 
 Persona-model output cannot directly start media generation and persona chat is
 not offered platform tools. A separately configured, typed capability-planning
-role may only create an owner-scoped `pending_confirmation` record with semantic
-prompt data. The authenticated owner must approve it before a job is created. Explicit
-UI actions are recorded separately, repeated actions can be idempotent, and all
-state changes produce durable audit events. Capability, event, job, and artifact
-lookups are owner-scoped. Tool results returned to future model context contain
-only safe status, error, and protected artifact identifiers.
+role may propose semantic prompt data. A separate conservative platform gate
+admits only clear ordinary image actions to audited `auto` execution under the
+owner's saved policy; stories, discussion, hypotheticals, quoted instructions,
+video, and consequential actions do not gain automatic authority. `always_ask`
+retains owner approval. Explicit UI actions are recorded separately, repeated
+actions can be idempotent, and all state changes produce durable audit events.
+Capability, event, attachment, job, and artifact lookups are owner-scoped. Tool
+results returned to future model context contain only safe status, error, and
+protected artifact identifiers.
 
 The capability-planning schema cannot select providers, URLs, models, LoRAs,
 workflows, or resource controls. It can emit only server-advertised semantic

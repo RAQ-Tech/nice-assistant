@@ -32,7 +32,6 @@ export class CapabilityController {
     );
     const identityProfileBlocked = Boolean(identityBlocked && isVisualIdentityBlock(plan?.block?.code));
     const unconditioned = plan?.identity_conditioning?.status === 'unconditioned';
-    const approvalBlocked = this.appState.phase !== 'idle';
     const body = resultText ? el('div', { class: 'capability-result', html: markdown(resultText) }) : null;
     body?.querySelectorAll<HTMLImageElement>('img').forEach((image) => {
       image.addEventListener('click', () => {
@@ -47,12 +46,8 @@ export class CapabilityController {
       ]),
       prompt ? el('p', { class: 'capability-prompt', textContent: prompt }) : null,
       plan
-        ? el('div', { class: `capability-plan plan-${plan.status}` }, [
-            el('strong', {
-              textContent: plan.source === 'manual'
-                ? 'Manual provider settings'
-                : `Media plan: ${plan.status === 'ready' ? 'ready' : 'blocked'}`,
-            }),
+        ? el('details', { class: `capability-plan plan-${plan.status}` }, [
+            el('summary', { textContent: 'Details' }),
             plan.selected_resources.length
               ? el('div', {
                   class: 'meta',
@@ -123,13 +118,9 @@ export class CapabilityController {
                 })
               : el('button', {
                   class: 'send-btn',
-                  textContent: approvalBlocked
-                    ? approvalWaitLabel(this.appState.phase)
-                    : unconditioned
+                  textContent: unconditioned
                       ? `Generate ${kind} without identity matching`
                       : `Generate ${kind}`,
-                  disabled: approvalBlocked,
-                  title: approvalBlocked ? approvalWaitMessage(this.appState.phase) : undefined,
                   'data-testid': 'approve-capability',
                   onclick: () => void this.approve(request),
                 }),
@@ -163,36 +154,25 @@ export class CapabilityController {
   }
 
   private async approve(request: CapabilityRequest): Promise<void> {
-    if (this.appState.phase !== 'idle') return;
-    this.stateMachine.transition('queued', 'Capability queued');
-    this.renderApp();
     try {
       const approved = await this.client.approveCapability(request.id);
       this.upsert(approved);
       if (!approved.job_id) throw new Error('The capability was approved without a job.');
-      this.appState.pendingRequest = {
-        jobId: approved.job_id,
-        progress: 'Generating…',
-        cancel: async () => {
-          await this.client.cancelCapability(request.id);
-        },
-      };
-      this.stateMachine.transition('thinking', 'Generating');
+      await this.refreshChat(approved.chat_id);
       while (true) {
         const current = await this.client.capabilityRequest(request.id);
         this.upsert(current);
         if (!['queued', 'running'].includes(current.status)) break;
+        await this.refreshChat(current.chat_id);
+        this.renderApp();
         await new Promise((resolve) => window.setTimeout(resolve, 350));
       }
       const final = await this.client.capabilityRequest(request.id);
       this.upsert(final);
-      if (final.status === 'failed') this.appState.uiError = final.error?.message || 'Capability failed.';
-      this.stateMachine.transition('idle');
+      await this.refreshChat(final.chat_id);
     } catch (error) {
       this.appState.uiError = errorMessage(error, 'Unable to run the requested capability.');
-      this.stateMachine.transition('error');
     } finally {
-      this.appState.pendingRequest = null;
       this.renderApp();
     }
   }
@@ -240,8 +220,7 @@ export class CapabilityController {
   private async cancel(request: CapabilityRequest): Promise<void> {
     try {
       this.upsert(await this.client.cancelCapability(request.id));
-      this.appState.pendingRequest = null;
-      if (['queued', 'thinking'].includes(this.appState.phase)) this.stateMachine.transition('idle');
+      await this.refreshChat(request.chat_id);
     } catch (error) {
       this.appState.uiError = errorMessage(error, 'Unable to cancel the capability request.');
     }
@@ -253,6 +232,14 @@ export class CapabilityController {
       ...this.appState.capabilityRequests.filter((item) => item.id !== request.id),
       request,
     ].sort((left, right) => left.requested_at - right.requested_at);
+  }
+
+  private async refreshChat(chatId: string | null): Promise<void> {
+    if (!chatId || this.appState.currentChat?.id !== chatId) return;
+    const detail = await this.client.chat(chatId);
+    if (this.appState.currentChat?.id !== chatId) return;
+    this.appState.currentChat = detail.chat;
+    this.appState.messages = detail.messages;
   }
 }
 
@@ -286,16 +273,4 @@ function isVisualIdentityBlock(code: string | null | undefined): boolean {
     'identity_reference_unavailable',
     'identity_reference_changed',
   ].includes(code ?? '');
-}
-
-function approvalWaitLabel(phase: AppState['phase']): string {
-  if (phase === 'speaking') return 'Wait for audio to finish';
-  if (phase === 'error') return 'Resolve the current error first';
-  return 'Wait for the current action';
-}
-
-function approvalWaitMessage(phase: AppState['phase']): string {
-  if (phase === 'speaking') return 'Stop or finish the current audio before starting image generation.';
-  if (phase === 'error') return 'Dismiss the current error before starting image generation.';
-  return 'Finish or cancel the current action before starting image generation.';
 }

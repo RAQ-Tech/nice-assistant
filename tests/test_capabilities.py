@@ -6,7 +6,7 @@ from types import SimpleNamespace
 
 from app.capability_contracts import CAPABILITY_LEGAL_TRANSITIONS, CapabilityRegistry
 from app.capability_service import InvalidCapabilityTransition, transition_capability
-from app.provider_contracts import ChatToolCall, MediaArtifact
+from app.provider_contracts import ChatToolCall, MediaArtifact, ProviderError
 from app.service_errors import RequestError
 from app.task_contracts import CAPABILITY_PLANNING
 from tests.support import FakeChatProvider, TestApp
@@ -24,6 +24,21 @@ class FakeImageProvider:
         if self.gate:
             self.gate.wait(2)
         cancellation.raise_if_cancelled()
+        return MediaArtifact("image", b"image-bytes", ".png", "image/png")
+
+
+class FlakyImageProvider(FakeImageProvider):
+    def __init__(self):
+        super().__init__()
+        self.failures_remaining = 1
+
+    def generate(self, request, cancellation):
+        self.requests.append(request)
+        self.started.set()
+        cancellation.raise_if_cancelled()
+        if self.failures_remaining:
+            self.failures_remaining -= 1
+            raise ProviderError("fake-image", "provider_unavailable", "The image provider is unavailable.", True)
         return MediaArtifact("image", b"image-bytes", ".png", "image/png")
 
 
@@ -113,7 +128,12 @@ class CapabilityTests(unittest.TestCase):
             running.services.providers.media_providers["local-image"] = image_provider
             running.client.put(
                 "/api/v1/settings",
-                json={"preferences": {"image_provider": "local/automatic1111"}},
+                json={
+                    "preferences": {
+                        "image_provider": "local/automatic1111",
+                        "image_confirmation_policy": "always_ask",
+                    }
+                },
             )
             definitions = running.client.get("/api/v1/capabilities").json()["items"]
             self.assertTrue(next(item for item in definitions if item["key"] == "media.generate_image")["available"])
@@ -176,6 +196,117 @@ class CapabilityTests(unittest.TestCase):
                 404,
             )
             self.assertNotEqual(owner_id, "")
+
+    def test_explicit_image_request_runs_automatically_as_a_reload_safe_attachment(self):
+        planned = {
+            "capability_key": "media.generate_image",
+            "prompt": "a moonlit garden",
+            "operation": "generate",
+            "domains": [],
+            "content_tags": [],
+            "required_features": [],
+            "persona_subject": False,
+        }
+        provider = FakeChatProvider(
+            ["I’ll make that for you."],
+            task_outputs={CAPABILITY_PLANNING: {"requests": [planned]}},
+        )
+        image_provider = FakeImageProvider()
+        with tempfile.TemporaryDirectory() as tmp, TestApp(Path(tmp), chat_provider=provider) as running:
+            running.create_and_login()
+            running.services.providers.media_providers["local-image"] = image_provider
+            running.client.put(
+                "/api/v1/settings",
+                json={"preferences": {"image_provider": "local/automatic1111"}},
+            )
+            chat = running.client.post("/api/v1/chats", json={"memory_mode": "off"}).json()
+            accepted = running.client.post(
+                f"/api/v1/chats/{chat['id']}/turns",
+                json={"text": "Show me a moonlit garden", "memory_mode": "off"},
+            ).json()
+            chat_job = running.wait_job(accepted["job"]["id"])
+            running.wait_job(chat_job["result"]["followup_job_id"])
+            request = running.client.get("/api/v1/capability-requests", params={"chat_id": chat["id"]}).json()["items"][
+                0
+            ]
+            self.assertEqual(request["permission_mode"], "auto")
+            self.assertIsNotNone(request["job_id"])
+            running.wait_job(request["job_id"])
+            completed = running.client.get(f"/api/v1/capability-requests/{request['id']}").json()
+            self.assertEqual(completed["status"], "completed")
+            self.assertEqual(completed["attachment"]["status"], "completed")
+            detail = running.client.get(f"/api/v1/chats/{chat['id']}").json()
+            attached = [attachment for message in detail["messages"] for attachment in message.get("attachments", [])]
+            self.assertEqual(len(attached), 1)
+            self.assertEqual(attached[0]["content_url"], f"/api/v1/media/{completed['result']['mediaId']}")
+            self.assertEqual(len(image_provider.requests), 1)
+
+            story = running.client.post(
+                f"/api/v1/chats/{chat['id']}/turns",
+                json={
+                    "text": "Tell me a story where someone says, ‘generate an image of a lighthouse.’",
+                    "memory_mode": "off",
+                },
+            ).json()
+            story_job = running.wait_job(story["job"]["id"])
+            running.wait_job(story_job["result"]["followup_job_id"])
+            requests = running.client.get("/api/v1/capability-requests", params={"chat_id": chat["id"]}).json()["items"]
+            self.assertEqual(len(requests), 1)
+            self.assertEqual(len(image_provider.requests), 1)
+
+    def test_failed_chat_attachment_can_retry_against_current_policy(self):
+        image_provider = FlakyImageProvider()
+        with tempfile.TemporaryDirectory() as tmp, TestApp(Path(tmp)) as running:
+            running.create_and_login()
+            running.services.providers.media_providers["local-image"] = image_provider
+            running.client.put(
+                "/api/v1/settings",
+                json={"preferences": {"image_provider": "local/automatic1111"}},
+            )
+            chat = running.client.post("/api/v1/chats", json={"memory_mode": "off"}).json()
+            started = running.client.post(
+                "/api/v1/media/image-jobs",
+                json={"prompt": "a garden", "chat_id": chat["id"]},
+            ).json()
+            failed_job = running.wait_job(started["job_id"])
+            self.assertEqual(failed_job["status"], "failed")
+            failed = running.client.get(f"/api/v1/capability-requests/{started['capability_request_id']}").json()
+            self.assertTrue(failed["attachment"]["retry_available"])
+
+            retried = running.client.post(f"/api/v1/capability-requests/{failed['id']}/retry")
+            self.assertEqual(retried.status_code, 200, retried.text)
+            replacement = retried.json()
+            self.assertEqual(replacement["retry_of_request_id"], failed["id"])
+            self.assertEqual(replacement["permission_mode"], "auto")
+            running.wait_job(replacement["job_id"])
+            replacement = running.client.get(f"/api/v1/capability-requests/{replacement['id']}").json()
+            self.assertEqual(replacement["attachment"]["status"], "completed")
+            history = running.client.get(f"/api/v1/capability-requests/{failed['id']}/events").json()
+            self.assertEqual(history["events"][-1]["action"], "retried")
+
+    def test_media_readiness_keeps_basic_generation_separate_from_optional_identity(self):
+        with tempfile.TemporaryDirectory() as tmp, TestApp(Path(tmp)) as running:
+            running.create_and_login()
+            running.services.providers.media_providers["local-image"] = FakeImageProvider()
+            running.client.put(
+                "/api/v1/settings",
+                json={"preferences": {"image_provider": "local/automatic1111"}},
+            )
+            running.services.provider_service.check = lambda _user_id, provider, _overrides=None: {
+                "ok": True,
+                "provider": provider,
+                "status": "ready",
+                "message": "Automatic1111 is reachable.",
+            }
+
+            response = running.client.get("/api/v1/media/readiness")
+            self.assertEqual(response.status_code, 200, response.text)
+            readiness = response.json()
+            self.assertEqual(readiness["provider"]["key"], "automatic1111")
+            self.assertTrue(readiness["provider"]["reachable"])
+            self.assertTrue(readiness["basic_generation"]["ready"])
+            self.assertFalse(readiness["optional_identity"]["ready"])
+            self.assertIn("Basic images", readiness["optional_identity"]["message"])
 
     def test_persona_subject_flag_prevents_unrelated_images_from_inheriting_identity_control(self):
         planned = {
@@ -273,7 +404,12 @@ class CapabilityTests(unittest.TestCase):
             running.services.providers.media_providers["local-image"] = FakeImageProvider()
             running.client.put(
                 "/api/v1/settings",
-                json={"preferences": {"image_provider": "local/automatic1111"}},
+                json={
+                    "preferences": {
+                        "image_provider": "local/automatic1111",
+                        "image_confirmation_policy": "always_ask",
+                    }
+                },
             )
             chat = running.client.post(
                 "/api/v1/chats",
@@ -322,7 +458,12 @@ class CapabilityTests(unittest.TestCase):
             running.services.providers.media_providers["local-image"] = image_provider
             running.client.put(
                 "/api/v1/settings",
-                json={"preferences": {"image_provider": "local/automatic1111"}},
+                json={
+                    "preferences": {
+                        "image_provider": "local/automatic1111",
+                        "image_confirmation_policy": "always_ask",
+                    }
+                },
             )
             chat = running.client.post("/api/v1/chats", json={"title": "Deny", "memory_mode": "off"}).json()
             turn = running.client.post(

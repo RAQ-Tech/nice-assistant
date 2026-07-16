@@ -82,6 +82,11 @@ startup.
   semantic requirement, explicit no-persona wording overrides an incorrect
   positive model classification, configured workflows remain preferred,
   explicit fallback affects runtime, and only blocked pending plans can be replanned.
+- Picture-message contract tests prove clear image actions auto-run under the
+  default, `always_ask` still waits, story/discussion prompts create no request,
+  direct and planned jobs return durable transcript attachments, reload retains
+  lifecycle state, and failed/cancelled attachments create linked retries under
+  the current policy.
 - ComfyUI workflow-inspection tests fake `/object_info` and cover detected image
   inputs, missing node classes/assets and required inputs, disconnected identity
   inputs, broken links, authentication, bounded provider metadata, and safe
@@ -114,7 +119,9 @@ startup.
   markdown, capability approval/denial state, Task Model settings/audits, and
   media catalog planning, GPU coordination controls/status, and canonical
   multipart identity-reference transport, and memory selection/bulk-action
-  confirmation behavior. Visual Identity coverage requires a plain-language
+  confirmation behavior. Durable attachment coverage verifies compact
+  progress/errors, scoped retry/cancel, blur-off default, and
+  reveal-then-preview when enabled. Visual Identity coverage requires a plain-language
   readiness view, visible editable generation/comparison policies,
   closed-by-default advanced diagnostics, fictional-persona
   rights wording, owner-protected thumbnail selection without opaque media ID

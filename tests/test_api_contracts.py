@@ -37,7 +37,14 @@ class BrowserApiContractTests(unittest.TestCase):
         self.assertEqual(saved.status_code, 200, saved.text)
         returned = self.client.get("/api/v1/settings").json()
         self.assertEqual(returned["openai_api_key"], "********3456")
-        self.assertEqual(returned["preferences"], {"general_auto_logout": True})
+        self.assertEqual(
+            returned["preferences"],
+            {
+                "general_auto_logout": True,
+                "image_confirmation_policy": "auto_explicit_request",
+                "chat_blur_images": False,
+            },
+        )
         self.assertEqual(returned["default_memory_mode"], "saved")
         invalid = {**settings_payload, "default_memory_mode": "auto"}
         self.assertEqual(self.client.put("/api/v1/settings", json=invalid).status_code, 422)

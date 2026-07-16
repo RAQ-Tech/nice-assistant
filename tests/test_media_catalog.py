@@ -138,6 +138,73 @@ def resource_write_payload(resource, **changes):
 
 
 class MediaCatalogTests(unittest.TestCase):
+    def test_multiple_configured_backends_select_a_ready_fallback_deterministically(self):
+        provider = FakeChatProvider(
+            ["I’ll make that image."],
+            task_outputs={
+                CAPABILITY_PLANNING: {
+                    "requests": [
+                        {
+                            "capability_key": "media.generate_image",
+                            "prompt": "a lighthouse in a storm",
+                            "operation": "generate",
+                            "domains": [],
+                            "content_tags": [],
+                            "required_features": [],
+                            "persona_subject": False,
+                        }
+                    ]
+                }
+            },
+        )
+        local = FakeImageProvider()
+        openai = FakeImageProvider()
+        with tempfile.TemporaryDirectory() as tmp, TestApp(Path(tmp), chat_provider=provider) as running:
+            running.create_and_login()
+            running.services.providers.media_providers["local-image"] = local
+            running.services.providers.media_providers["openai-image"] = openai
+            running.client.put("/api/v1/settings", json={"openai_api_key": "test-image-key", "preferences": {}})
+            running.client.get("/api/v1/media-catalog")
+            running.client.post(
+                "/api/v1/media-catalog/resources",
+                json=model_payload("Preferred local", "local.safetensors", priority=90),
+            )
+            openai_model = model_payload("Ready OpenAI", "provider-default", priority=20)
+            openai_model.update(
+                {
+                    "provider_key": "openai-image",
+                    "backend": "openai",
+                    "estimated_vram_mb": 0,
+                    "default_settings": {"size": "1024x1024", "quality": "auto"},
+                }
+            )
+            running.client.post("/api/v1/media-catalog/resources", json=openai_model)
+            running.services.provider_service.check = lambda _user_id, check: {
+                "ok": check == "openai",
+                "provider": check,
+                "status": "ready" if check == "openai" else "unreachable",
+                "message": "ready" if check == "openai" else "unreachable",
+            }
+            chat = running.client.post("/api/v1/chats", json={"memory_mode": "off"}).json()
+            turn = running.client.post(
+                f"/api/v1/chats/{chat['id']}/turns",
+                json={"text": "Create an image of a lighthouse in a storm", "memory_mode": "off"},
+            ).json()
+            chat_job = running.wait_job(turn["job"]["id"])
+            running.wait_job(chat_job["result"]["followup_job_id"])
+            request = running.client.get("/api/v1/capability-requests", params={"chat_id": chat["id"]}).json()["items"][
+                0
+            ]
+            if request["job_id"]:
+                running.wait_job(request["job_id"])
+            request = running.client.get(f"/api/v1/capability-requests/{request['id']}").json()
+            model = next(
+                item for item in request["media_plan"]["selected_resources"] if item["resource_type"] == "model"
+            )
+            self.assertEqual(model["provider_key"], "openai-image")
+            self.assertEqual(len(openai.requests), 1)
+            self.assertEqual(local.requests, [])
+
     def _identity_persona(self, running):
         workspace = running.client.post("/api/v1/workspaces", json={"name": "Identity world"}).json()
         persona = running.client.post(
@@ -188,6 +255,10 @@ class MediaCatalogTests(unittest.TestCase):
         ):
             running.create_and_login()
             running.services.providers.media_providers["local-image"] = image_provider
+            running.client.put(
+                "/api/v1/settings",
+                json={"preferences": {"image_confirmation_policy": "always_ask"}},
+            )
             running.client.put(
                 "/api/v1/identity-validation/settings",
                 json={
@@ -650,7 +721,12 @@ class MediaCatalogTests(unittest.TestCase):
             running.services.providers.media_providers["local-image"] = image_provider
             running.client.put(
                 "/api/v1/settings",
-                json={"preferences": {"image_provider": "local/comfyui"}},
+                json={
+                    "preferences": {
+                        "image_provider": "local/comfyui",
+                        "image_confirmation_policy": "always_ask",
+                    }
+                },
             )
             workspace, persona = self._identity_persona(running)
             profile = running.client.get(f"/api/v1/personas/{persona['id']}/visual-identity").json()
@@ -719,6 +795,8 @@ class MediaCatalogTests(unittest.TestCase):
             running.wait_job(second_turn["job"]["id"])
             requests = running.client.get("/api/v1/capability-requests", params={"chat_id": chat["id"]}).json()["items"]
             strict = next(item for item in requests if item["arguments"]["prompt"] == planned["prompt"])
+            self.assertEqual(strict["status"], "pending_confirmation")
+            self.assertEqual(strict["permission_mode"], "confirm")
             self.assertEqual(strict["media_plan"]["status"], "blocked")
             self.assertEqual(strict["media_plan"]["identity_conditioning"]["persona_id"], persona["id"])
 
@@ -942,6 +1020,10 @@ class MediaCatalogTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp, TestApp(Path(tmp), chat_provider=provider) as running:
             running.create_and_login()
             running.services.providers.media_providers["local-image"] = FakeImageProvider()
+            running.client.put(
+                "/api/v1/settings",
+                json={"preferences": {"image_confirmation_policy": "always_ask"}},
+            )
             workspace = running.client.post("/api/v1/workspaces", json={"name": "Identity"}).json()
             persona = running.client.post(
                 "/api/v1/personas", json={"workspace_id": workspace["id"], "name": "Avery"}
@@ -979,7 +1061,8 @@ class MediaCatalogTests(unittest.TestCase):
                 json={"persona_id": persona["id"], "memory_mode": "off"},
             ).json()
             turn = running.client.post(
-                f"/api/v1/chats/{chat['id']}/turns", json={"text": "A portrait", "memory_mode": "off"}
+                f"/api/v1/chats/{chat['id']}/turns",
+                json={"text": "Generate a portrait", "memory_mode": "off"},
             ).json()
             running.wait_job(turn["job"]["id"])
             pending = running.client.get("/api/v1/capability-requests", params={"chat_id": chat["id"]}).json()["items"][
@@ -1099,6 +1182,10 @@ class MediaCatalogTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp, TestApp(Path(tmp), chat_provider=provider) as running:
             running.create_and_login()
             running.services.providers.media_providers["local-image"] = FakeImageProvider()
+            running.client.put(
+                "/api/v1/settings",
+                json={"preferences": {"image_confirmation_policy": "always_ask"}},
+            )
             running.client.get("/api/v1/media-catalog")
             model = running.client.post(
                 "/api/v1/media-catalog/resources",

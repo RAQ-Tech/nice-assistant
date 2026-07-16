@@ -4,6 +4,7 @@ $ErrorActionPreference = 'Stop'
 $csrfHeaders = @{ 'X-Nice-Assistant-CSRF' = '1' }
 $PSDefaultParameterValues['Invoke-RestMethod:Headers'] = $csrfHeaders
 $PSDefaultParameterValues['Invoke-WebRequest:Headers'] = $csrfHeaders
+$PSDefaultParameterValues['Invoke-WebRequest:UseBasicParsing'] = $true
 
 function Get-FreePort {
   $listener = [Net.Sockets.TcpListener]::new([Net.IPAddress]::Loopback, 0)
@@ -27,6 +28,42 @@ function Wait-NiceJob {
     Start-Sleep -Milliseconds 100
   } while ([DateTime]::UtcNow -lt $deadline)
   return $job
+}
+
+function Invoke-NiceMultipartUpload {
+  param(
+    [string]$Uri,
+    [Microsoft.PowerShell.Commands.WebRequestSession]$Session,
+    [string]$FilePath
+  )
+  Add-Type -AssemblyName System.Net.Http
+  $handler = [System.Net.Http.HttpClientHandler]::new()
+  $handler.CookieContainer = $Session.Cookies
+  $client = [System.Net.Http.HttpClient]::new($handler)
+  $form = [System.Net.Http.MultipartFormDataContent]::new()
+  $fileContent = $null
+  $provenanceContent = $null
+  $attestedContent = $null
+  try {
+    $client.DefaultRequestHeaders.Add('X-Nice-Assistant-CSRF', '1')
+    $fileContent = [System.Net.Http.ByteArrayContent]::new([IO.File]::ReadAllBytes($FilePath))
+    $fileContent.Headers.ContentType = [System.Net.Http.Headers.MediaTypeHeaderValue]::new('image/x-portable-pixmap')
+    $provenanceContent = [System.Net.Http.StringContent]::new('user_upload')
+    $attestedContent = [System.Net.Http.StringContent]::new('true')
+    $form.Add($fileContent, 'file', [IO.Path]::GetFileName($FilePath))
+    $form.Add($provenanceContent, 'provenance')
+    $form.Add($attestedContent, 'attested')
+    $response = $client.PostAsync($Uri, $form).GetAwaiter().GetResult()
+    $body = $response.Content.ReadAsStringAsync().GetAwaiter().GetResult()
+    if (-not $response.IsSuccessStatusCode) {
+      throw "multipart upload failed with HTTP $([int]$response.StatusCode)"
+    }
+    return $body | ConvertFrom-Json
+  } finally {
+    $form.Dispose()
+    $client.Dispose()
+    $handler.Dispose()
+  }
 }
 
 $name = 'nice-assistant-container-smoke-' + [Guid]::NewGuid().ToString('N').Substring(0, 8)
@@ -231,15 +268,10 @@ try {
     -WebSession $session `
     -ContentType 'application/json' `
     -Body (@{ attested = $true } | ConvertTo-Json) | Out-Null
-  $reference = Invoke-RestMethod `
-    -Method Post `
+  $reference = Invoke-NiceMultipartUpload `
     -Uri "$base/api/v1/personas/$($persona.id)/visual-identity/references" `
-    -WebSession $session `
-    -Form @{
-      file = Get-Item -LiteralPath $referencePath
-      provenance = 'user_upload'
-      attested = 'true'
-    }
+    -Session $session `
+    -FilePath $referencePath
   if ($reference.review_status -ne 'pending' -or $reference.content_type -ne 'image/jpeg') {
     throw 'identity reference normalization or review state failed'
   }
@@ -322,6 +354,34 @@ try {
     -WebSession $session
   if (@($fallbackEvents.events)[-1].action -ne 'replanned') {
     throw 'identity fallback replan audit was not recorded'
+  }
+
+  $disabledCatalogResource = Invoke-RestMethod `
+    -Method Put `
+    -Uri "$base/api/v1/media-catalog/resources/$($catalogResource.id)" `
+    -WebSession $session `
+    -ContentType 'application/json' `
+    -Body (@{
+      resource_type = $catalogResource.resource_type
+      kind = $catalogResource.kind
+      name = $catalogResource.name
+      provider_key = $catalogResource.provider_key
+      backend = $catalogResource.backend
+      external_id = $catalogResource.external_id
+      enabled = $false
+      priority = $catalogResource.priority
+      operations = @($catalogResource.operations)
+      domains = @($catalogResource.domains)
+      content_tags = @($catalogResource.content_tags)
+      features = @($catalogResource.features)
+      estimated_vram_mb = $catalogResource.estimated_vram_mb
+      estimated_load_seconds = $catalogResource.estimated_load_seconds
+      default_settings = $catalogResource.default_settings
+      notes = $catalogResource.notes
+      compatible_model_ids = @($catalogResource.compatible_model_ids)
+    } | ConvertTo-Json -Depth 6)
+  if ($disabledCatalogResource.enabled) {
+    throw 'non-identity smoke backend was not disabled before identity planning'
   }
 
   $identityModel = Invoke-RestMethod `
@@ -423,7 +483,7 @@ try {
   $schemaRaw = docker exec $name python -c "import sqlite3,json; c=sqlite3.connect('/data/nice_assistant.db'); print(json.dumps({'version':c.execute('SELECT version_num FROM alembic_version').fetchone()[0],'plan_columns':[r[1] for r in c.execute('PRAGMA table_info(media_execution_plans)')],'media_columns':[r[1] for r in c.execute('PRAGMA table_info(media_files)')],'attempt_columns':[r[1] for r in c.execute('PRAGMA table_info(media_generation_attempts)')]}))"
   if ($LASTEXITCODE -ne 0) { throw 'media correction schema inspection failed' }
   $schema = $schemaRaw | ConvertFrom-Json
-  if ($schema.version -ne '0016_identity_fallback' -or
+  if ($schema.version -ne '0017_chat_attachments' -or
       $schema.plan_columns -notcontains 'identity_conditioning_json' -or
       $schema.media_columns -notcontains 'generation_plan_id' -or
       $schema.attempt_columns -notcontains 'attempt_number') {
@@ -435,11 +495,14 @@ try {
     -Uri "$base/api/v1/personas/$($persona.id)/visual-identity/consent" `
     -WebSession $session
   if ($withdrawnIdentity.consent_status -ne 'withdrawn') { throw 'identity consent withdrawal failed' }
-  $deletedReference = Invoke-WebRequest `
-    -Uri "$base$($reference.content_url)" `
-    -WebSession $session `
-    -SkipHttpErrorCheck
-  if ($deletedReference.StatusCode -ne 404) { throw 'withdrawn identity reference remained accessible' }
+  $deletedReferenceStatus = $null
+  try {
+    $deletedReference = Invoke-WebRequest -Uri "$base$($reference.content_url)" -WebSession $session
+    $deletedReferenceStatus = [int]$deletedReference.StatusCode
+  } catch [System.Net.WebException] {
+    $deletedReferenceStatus = [int]$_.Exception.Response.StatusCode
+  }
+  if ($deletedReferenceStatus -ne 404) { throw 'withdrawn identity reference remained accessible' }
 
   $chat = Invoke-RestMethod `
     -Method Post `
@@ -501,7 +564,7 @@ c.commit()
 c.close()
 '@
   $insert = $insertTemplate.Replace('USER_ID', $created.id)
-  docker exec $name python -c $insert
+  $insert | docker exec -i $name python -
   if ($LASTEXITCODE -ne 0) { throw 'protected media setup failed' }
   $media = Invoke-WebRequest -Uri "$base/api/v1/media/container-media" -WebSession $session
   if ($media.StatusCode -ne 200 -or $media.RawContentLength -ne 25) { throw 'protected media request failed' }

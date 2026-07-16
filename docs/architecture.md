@@ -113,14 +113,15 @@ On startup, unfinished jobs and turns become failed with the safe message
 Persona chat requests do not receive tools. After the persona reply, the typed
 capability-planning role may propose controlled semantic requirements. The
 deterministic catalog coordinator selects only explicitly described and
-compatible resources, then the conversation turn persists its assistant text,
-`pending_confirmation` request, and immutable execution plan in one transaction.
-Approval first rejects stale resource revisions, then creates the linked media
-job. Direct browser actions use the same service with explicit permission and a
-truthfully labeled manual plan. Capability/job callbacks share a unit of work so
-running, completion, failure, and cancellation cannot disagree. Later prompts
-receive bounded, safe tool outcomes. See ADRs 0007–0009 and
-`docs/media-catalog.md`.
+compatible resources. A high-confidence ordinary image action uses audited
+`auto` permission under the saved default; `always_ask`, video, and consequential
+capabilities remain confirmation-gated. The assistant reply is durable before
+nonessential planning, and every chat media request creates a durable attachment
+on an assistant message. Capability/job/attachment callbacks share a unit of
+work so running, completion, failure, and cancellation cannot disagree. Direct
+browser actions use the same capability and attachment services with explicit
+permission and a truthfully labeled manual plan. See ADRs 0007–0009, 0019–0020
+and `docs/media-catalog.md`.
 
 Turns within one chat have a durable sequence and a queue ordering key. Prompts
 are built when work starts so a successor sees its completed predecessor while
@@ -184,6 +185,9 @@ kinds for already-enabled providers and does not alter existing resources.
 Migration `0016_identity_fallback` adds the explicit conditioning-unavailable
 policy to existing persona visual-identity profiles without changing references,
 media, or completed plans.
+Migration `0017_chat_attachments` adds linked retry metadata, effective automatic
+permission auditing, user image preferences, and reload-safe chat attachments
+without reconstructing the referenced capability table or losing dependent rows.
 
 ## Browser application
 

@@ -107,8 +107,12 @@ server, proxy, bridge, and second listener have been removed.
 - Cooperative queued/running cancellation with an active composer Cancel
   control; acknowledged media cancellation returns to Ready, and late provider
   results are discarded
-- Typed platform capability planning creates durable approval cards instead of
-  triggering work from persona output, keywords, or hidden response tags
+- Typed platform capability planning plus a deterministic intent gate auto-runs
+  only clear ordinary image requests; stories, discussion, hypotheticals, and
+  quoted instructions create no job
+- Reload-safe picture-message attachments provide compact progress, scoped
+  cancel/retry, protected results, optional collapsed Details, and a persisted
+  blur toggle that defaults off
 - Owner-scoped capability approval, denial, cancellation, idempotent explicit
   actions, audit history, and protected results
 - Separate Task Model roles for titles, summaries, reviewable memory extraction,
@@ -117,8 +121,8 @@ server, proxy, bridge, and second listener have been removed.
 - Persona models are not offered platform tools and cannot select media
   providers, checkpoints, workflows, LoRAs, or identity controls
 - Operator-managed model/LoRA/workflow metadata and explicit compatibility feed
-  a deterministic coordinator; model-requested approval cards show the selected
-  resources, explanation, estimates, warnings, or blocked reason before execution
+  a deterministic coordinator; multiple configured catalog backends are checked
+  for readiness and selected provider details remain inspectable
 - Catalog planning never infers fitness from filenames or claims live GPU
   residency; ComfyUI editing requires exact declared source/mask bindings and
   Automatic1111 remains generation-only
@@ -300,11 +304,13 @@ For iPhone/Android browsers, microphone capture usually requires **HTTPS** (or l
 - `GET/DELETE /api/v1/capability-requests/:id`
 - `POST /api/v1/capability-requests/:id/approval`, `POST /api/v1/capability-requests/:id/denial`
 - `POST /api/v1/capability-requests/:id/replan`
+- `POST /api/v1/capability-requests/:id/retry`
 - `GET /api/v1/capability-requests/:id/events`
 - `GET /api/v1/models`, `POST /api/v1/provider-checks`
 - `GET /api/v1/task-models`, `PUT /api/v1/task-models/:role`
 - `POST /api/v1/task-models/:role/check`, `GET /api/v1/task-model-runs`
 - `POST /api/v1/media/image-jobs`, `POST /api/v1/media/image-edit-jobs`, `POST /api/v1/media/video-jobs`
+- `GET /api/v1/media/readiness`
 - `GET /api/v1/media-catalog`, `PUT /api/v1/media-catalog/settings`
 - `POST /api/v1/media-catalog/resources`, `GET/PUT/DELETE /api/v1/media-catalog/resources/:id`
 - `POST /api/v1/media-catalog/identity-workflows/inspect`
@@ -322,7 +328,8 @@ For iPhone/Android browsers, microphone capture usually requires **HTTPS** (or l
 SSE disconnect does not cancel a turn. Turn and direct-job cancellation uses an
 explicit `DELETE /api/v1/jobs/:id`; capability cards cancel through
 `DELETE /api/v1/capability-requests/:id`.
-Model-requested media requires an explicit capability approval; direct media
-buttons are already explicit user actions and use the same audited job path.
+Clear ordinary image actions auto-run under the saved default; `always_ask`,
+video, and consequential capabilities retain approval. Direct and planned chat
+media use the same audited capability and durable attachment path.
 Replay via `Last-Event-ID` is bounded and survives only while the process and
 short retention window remain alive; final turn/job state is durable in SQLite.

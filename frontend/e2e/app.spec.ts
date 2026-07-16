@@ -43,6 +43,8 @@ const settings = {
     image_quality: 'none',
     image_local_backend: 'automatic1111',
     image_local_base_url: '',
+    image_confirmation_policy: 'auto_explicit_request',
+    chat_blur_images: false,
     video_provider: 'disabled',
   },
 };
@@ -155,7 +157,7 @@ test('active direct media work exposes cancellation and returns cleanly to idle'
   const fixture = await installAuthenticatedFixture(page, { holdMedia: true });
   await page.goto('/#/chats/chat-1');
   await page.getByTitle('Generate an image from this reply').click();
-  const cancel = page.getByTestId('chat-cancel');
+  const cancel = page.getByTestId('cancel-chat-attachment');
   await expect(cancel).toBeVisible();
   await expect(cancel).toBeEnabled();
   await cancel.click();
@@ -311,6 +313,7 @@ test('model media requests remain pending until the user approves them', async (
     { id: 'user-1', role: 'user', text: 'Show me a garden', created_at: 100 },
     { id: 'assistant-1', role: 'assistant', text: 'I can create that.', created_at: 101 },
   ];
+  let capabilityAttachment = chatAttachment('capability-1', 'queued');
   let capability = {
     id: 'capability-1', capability_key: 'media.generate_image', status: 'pending_confirmation', permission_mode: 'confirm',
     arguments: { prompt: 'a moonlit garden' }, result: null as Record<string, unknown> | null, error: null,
@@ -320,6 +323,9 @@ test('model media requests remain pending until the user approves them', async (
     started_at: null as number | null,
     completed_at: null as number | null,
     expires_at: null as number | null,
+    retry_of_request_id: null,
+    attachment: capabilityAttachment,
+    media_plan: null,
   };
   await page.route('**/api/v1/**', async (route) => {
     const request = route.request();
@@ -330,18 +336,26 @@ test('model media requests remain pending until the user approves them', async (
     else if (path === '/api/v1/workspaces') await json(route, { items: [workspace] });
     else if (path === '/api/v1/personas') await json(route, { items: [persona] });
     else if (path === '/api/v1/chats' && method === 'GET') await json(route, { items: [chat] });
-    else if (path === '/api/v1/chats/chat-1') await json(route, { chat, messages });
+    else if (path === '/api/v1/chats/chat-1') await json(route, {
+      chat,
+      messages: messages.map((message) => message.id === 'assistant-1'
+        ? { ...message, attachments: [capabilityAttachment] }
+        : message),
+    });
     else if (path === '/api/v1/settings') await json(route, settings);
     else if (path === '/api/v1/memories') await json(route, { items: [] });
     else if (path === '/api/v1/capability-requests' && method === 'GET') await json(route, { items: [capability] });
     else if (path === '/api/v1/capability-requests/capability-1/approval' && method === 'POST') {
-      capability = { ...capability, status: 'queued', job_id: 'media-job', decided_at: 103 };
+      capabilityAttachment = chatAttachment('capability-1', 'queued');
+      capability = { ...capability, status: 'queued', job_id: 'media-job', decided_at: 103, attachment: capabilityAttachment };
       await json(route, capability);
     } else if (path === '/api/v1/capability-requests/capability-1' && method === 'GET') {
+      capabilityAttachment = chatAttachment('capability-1', 'completed');
       capability = {
         ...capability,
         status: 'completed',
         result: { text: 'Ready.\n\n![Generated image](/api/v1/media/media-1)', mediaId: 'media-1' },
+        attachment: capabilityAttachment,
         started_at: 104,
         completed_at: 105,
       };
@@ -354,8 +368,8 @@ test('model media requests remain pending until the user approves them', async (
   await page.goto('/#/chats/chat-1');
   await expect(page.getByTestId('capability-request')).toContainText('Approval needed');
   await page.getByTestId('approve-capability').click();
-  await expect(page.getByTestId('capability-request')).toContainText('Completed');
-  await expect(page.locator('.capability-result img')).toHaveAttribute('src', '/api/v1/media/media-1');
+  await expect(page.getByTestId('capability-request')).toHaveCount(0);
+  await expect(page.locator('.chat-attachment img')).toHaveAttribute('src', '/api/v1/media/media-1');
 });
 
 async function installAuthenticatedFixture(
@@ -423,6 +437,8 @@ async function installAuthenticatedFixture(
     can_undo: false,
   };
   let mediaResource = { ...baseMediaResource };
+  let explicitCapability: Record<string, unknown> | null = null;
+  let explicitAttachment: ReturnType<typeof chatAttachment> | null = null;
 
   await page.route('**/api/v1/**', async (route) => {
     const request = route.request();
@@ -485,12 +501,17 @@ async function installAuthenticatedFixture(
         }],
       });
     } else if (path === '/api/v1/memories' && method === 'GET') await json(route, { items: [memory] });
-    else if (path === '/api/v1/capability-requests' && method === 'GET') await json(route, { items: [] });
+    else if (path === '/api/v1/capability-requests' && method === 'GET') await json(route, { items: explicitCapability ? [explicitCapability] : [] });
     else if (path === '/api/v1/memories/memory-1/approve') {
       result.memoryApproved = true;
       memory = { ...memory, status: 'active', reviewed_at: 103, can_undo: true };
       await json(route, memory);
-    } else if (path === '/api/v1/chats/chat-1' && method === 'GET') await json(route, { chat, messages });
+    } else if (path === '/api/v1/chats/chat-1' && method === 'GET') await json(route, {
+      chat,
+      messages: messages.map((message) => message.id === 'assistant-old' && explicitAttachment
+        ? { ...message, attachments: [explicitAttachment] }
+        : message),
+    });
     else if (path === '/api/v1/chats/chat-1/turns' && method === 'POST') {
       const turnBody = request.postDataJSON() as CapturedTurnBody;
       result.turnBody = turnBody;
@@ -519,8 +540,19 @@ async function installAuthenticatedFixture(
         ].join(''),
       });
     } else if (path === '/api/v1/jobs/chat-job') await json(route, job('chat-job', 'completed', { text: 'Hello from stream' }));
-    else if (path === '/api/v1/media/image-jobs') await json(route, { job_id: 'media-job', capability_request_id: 'explicit-capability', chat_id: chat.id, status: 'queued' }, 202);
-    else if (path === '/api/v1/jobs/media-job' && method === 'DELETE') {
+    else if (path === '/api/v1/media/image-jobs') {
+      const status = options.holdMedia ? 'running' : 'completed';
+      explicitAttachment = chatAttachment('explicit-capability', status);
+      explicitCapability = directCapability(status, explicitAttachment);
+      await json(route, { job_id: 'media-job', capability_request_id: 'explicit-capability', chat_id: chat.id, status: 'queued' }, 202);
+    } else if (path === '/api/v1/capability-requests/explicit-capability' && method === 'DELETE') {
+      result.mediaCancelled = true;
+      explicitAttachment = chatAttachment('explicit-capability', 'cancelled');
+      explicitCapability = directCapability('cancelled', explicitAttachment);
+      await json(route, explicitCapability);
+    } else if (path === '/api/v1/capability-requests/explicit-capability' && method === 'GET') {
+      await json(route, explicitCapability);
+    } else if (path === '/api/v1/jobs/media-job' && method === 'DELETE') {
       result.mediaCancelled = true;
       await json(route, job('media-job', 'cancelled', null));
     } else if (path === '/api/v1/jobs/media-job') {
@@ -586,6 +618,55 @@ function job(id: string, status: 'queued' | 'running' | 'completed' | 'cancelled
     created_at: 100,
     started_at: status === 'running' || status === 'completed' || status === 'cancelled' ? 101 : null,
     completed_at: status === 'completed' || status === 'cancelled' ? 102 : null,
+  };
+}
+
+function chatAttachment(
+  capabilityRequestId: string,
+  status: 'queued' | 'running' | 'completed' | 'failed' | 'cancelled' | 'retried',
+) {
+  const completed = status === 'completed';
+  return {
+    id: `attachment-${capabilityRequestId}`,
+    kind: 'image' as const,
+    status,
+    capability_request_id: capabilityRequestId,
+    media_id: completed ? 'media-1' : null,
+    content_url: completed ? '/api/v1/media/media-1' : null,
+    identity_state: 'unconditioned' as const,
+    safe_error: status === 'failed' ? 'That picture could not be made.' : null,
+    retry_available: ['failed', 'cancelled'].includes(status),
+    created_at: 100,
+    updated_at: 102,
+    completed_at: completed ? 102 : null,
+  };
+}
+
+function directCapability(
+  status: 'queued' | 'running' | 'completed' | 'cancelled',
+  attachment: ReturnType<typeof chatAttachment>,
+) {
+  const completed = status === 'completed';
+  return {
+    id: 'explicit-capability',
+    capability_key: 'media.generate_image',
+    status,
+    permission_mode: 'explicit',
+    arguments: { prompt: 'Earlier reply' },
+    result: completed ? { text: 'Ready.', mediaId: 'media-1' } : null,
+    error: null,
+    chat_id: 'chat-1',
+    turn_id: null,
+    assistant_message_id: 'assistant-old',
+    job_id: 'media-job',
+    requested_at: 102,
+    decided_at: 102,
+    started_at: 102,
+    completed_at: completed || status === 'cancelled' ? 103 : null,
+    expires_at: null,
+    retry_of_request_id: null,
+    attachment,
+    media_plan: null,
   };
 }
 

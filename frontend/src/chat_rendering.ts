@@ -3,7 +3,7 @@ import { DEFAULT_PERSONA_AVATAR } from './constants';
 import { copyText, downloadUrl, el, markdown } from './dom';
 import { extractImageUrl, extractVideoUrl, imagePromptFromMessage, stripVideoLinks } from './media';
 import { state } from './state';
-import type { AppState, Message } from './types';
+import type { AppState, ChatAttachment, CapabilityRequest, Message } from './types';
 import type { MediaController } from './media';
 import type { PlaybackController } from './playback';
 
@@ -30,7 +30,14 @@ export class ChatRenderer {
     const videoUrl = extractVideoUrl(source);
     const displayText = videoUrl ? stripVideoLinks(source) : source;
     const body = el('div', { html: markdown(displayText) });
+    const attachmentNodes = (message.attachments ?? [])
+      .filter((attachment) => this.appState.capabilityRequests.find(
+        (request) => request.id === attachment.capability_request_id,
+      )?.status !== 'pending_confirmation')
+      .map((attachment) => this.attachmentNode(attachment));
+    const mediaRoot = el('div', { class: 'chat-attachments' }, attachmentNodes);
     this.bindImagePreviews(body);
+    this.bindImagePreviews(mediaRoot);
     const audioUrl = this.appState.messageAudioById[message.id];
     const audioError = this.appState.messageAudioErrors[message.id];
     return el('div', { class: `msg-wrap ${isUser ? 'user' : ''}`, 'data-testid': `message-${message.role}` }, [
@@ -62,6 +69,7 @@ export class ChatRenderer {
             ])
           : null,
         message.isTyping && !message.text ? null : body,
+        attachmentNodes.length ? mediaRoot : null,
         audioError ? el('p', { class: 'message-audio-error', textContent: audioError }) : null,
         videoUrl
           ? el('button', { class: 'msg-video-preview', onclick: () => { this.appState.chatVideoPreview = videoUrl; this.renderApp(); } }, [
@@ -73,7 +81,7 @@ export class ChatRenderer {
         message.isTyping
           ? null
           : el('div', { class: 'msg-actions' }, [
-              message.role === 'assistant'
+              message.role === 'assistant' && message.text.trim()
                 ? el('button', { class: 'icon-btn', textContent: '🖼', title: 'Generate an image from this reply', onclick: () => void this.generateImage(message) })
                 : null,
               hasThinking
@@ -111,12 +119,13 @@ export class ChatRenderer {
   private bindImagePreviews(root: HTMLElement): void {
     root.querySelectorAll<HTMLImageElement>('.msg-inline-image').forEach((image) => {
       const key = image.src;
-      if (!this.appState.revealedImages[key]) {
+      const blur = Boolean(this.appState.settings?.chat_blur_images);
+      if (blur && !this.appState.revealedImages[key]) {
         image.classList.add('image-blurred');
         image.title = 'Tap to reveal image';
       } else image.title = 'Open image preview';
       image.addEventListener('click', () => {
-        if (!this.appState.revealedImages[key]) {
+        if (blur && !this.appState.revealedImages[key]) {
           this.appState.revealedImages[key] = true;
           image.classList.remove('image-blurred');
           image.title = 'Open image preview';
@@ -126,6 +135,127 @@ export class ChatRenderer {
         this.renderApp();
       });
     });
+  }
+
+  private attachmentNode(attachment: ChatAttachment): HTMLElement {
+    const request = this.appState.capabilityRequests.find((item) => item.id === attachment.capability_request_id);
+    const label = attachment.kind === 'image' ? 'picture' : 'video';
+    if (attachment.status === 'completed' && attachment.content_url) {
+      const media = attachment.kind === 'image'
+        ? el('img', {
+            class: 'msg-inline-image attachment-image',
+            src: attachment.content_url,
+            alt: 'Generated picture',
+          })
+        : el('button', {
+            class: 'msg-video-preview',
+            onclick: () => {
+              this.appState.chatVideoPreview = attachment.content_url ?? '';
+              this.renderApp();
+            },
+          }, [
+            el('video', { class: 'msg-inline-video', src: attachment.content_url, preload: 'metadata', muted: true, playsInline: true }),
+            el('span', { class: 'msg-video-play', textContent: '▶' }),
+            el('span', { class: 'msg-video-label', textContent: 'Play video' }),
+          ]);
+      return el('section', { class: 'chat-attachment attachment-completed', 'data-testid': 'chat-attachment' }, [
+        media,
+        attachment.identity_state === 'unconditioned'
+          ? el('p', { class: 'attachment-identity', textContent: 'No identity reference was applied · unverified' })
+          : attachment.identity_state === 'verified'
+            ? el('p', { class: 'attachment-identity', textContent: 'Identity match verified' })
+            : attachment.identity_state === 'unverified'
+              ? el('p', { class: 'attachment-identity', textContent: 'Identity match unverified' })
+              : null,
+        this.attachmentDetails(request),
+      ]);
+    }
+    if (attachment.status === 'failed') {
+      return el('section', { class: 'chat-attachment attachment-failed', 'data-testid': 'chat-attachment' }, [
+        el('span', { textContent: attachment.safe_error || `That ${label} could not be made.` }),
+        attachment.retry_available
+          ? el('button', {
+              class: 'pill-btn attachment-action',
+              textContent: 'Retry',
+              'data-testid': 'retry-chat-attachment',
+              onclick: () => void this.retryAttachment(attachment),
+            })
+          : null,
+        this.attachmentDetails(request),
+      ]);
+    }
+    if (attachment.status === 'cancelled') {
+      return el('section', { class: 'chat-attachment attachment-cancelled', 'data-testid': 'chat-attachment' }, [
+        el('span', { textContent: `${capitalize(label)} canceled.` }),
+        attachment.retry_available
+          ? el('button', { class: 'pill-btn attachment-action', textContent: 'Retry', onclick: () => void this.retryAttachment(attachment) })
+          : null,
+      ]);
+    }
+    if (attachment.status === 'retried') {
+      return el('section', { class: 'chat-attachment attachment-retried', textContent: `${capitalize(label)} retry started.` });
+    }
+    return el('section', { class: 'chat-attachment attachment-progress', 'data-testid': 'chat-attachment' }, [
+      el('span', { class: 'attachment-spinner', 'aria-hidden': 'true' }),
+      el('span', { textContent: attachment.status === 'running' ? `Making that ${label}…` : `${capitalize(label)} queued…` }),
+      request && ['queued', 'running'].includes(request.status)
+        ? el('button', {
+            class: 'pill-btn attachment-action',
+            textContent: 'Cancel',
+            'data-testid': 'cancel-chat-attachment',
+            onclick: () => void this.cancelAttachment(request),
+          })
+        : null,
+      this.attachmentDetails(request),
+    ]);
+  }
+
+  private attachmentDetails(request: CapabilityRequest | undefined): HTMLElement | null {
+    if (!request) return null;
+    const selected = request.media_plan?.selected_resources ?? [];
+    const provider = selected.find((item) => item.resource_type === 'model');
+    return el('details', { class: 'attachment-details' }, [
+      el('summary', { textContent: 'Details' }),
+      request.arguments.prompt
+        ? el('p', { textContent: String(request.arguments.prompt) })
+        : null,
+      provider
+        ? el('p', { class: 'meta', textContent: `Made with ${provider.name} (${provider.backend})` })
+        : null,
+    ]);
+  }
+
+  private async cancelAttachment(request: CapabilityRequest): Promise<void> {
+    try {
+      await this.client.cancelCapability(request.id);
+      await this.refreshCurrentChat();
+    } catch {
+      this.appState.uiError = 'That picture could not be canceled.';
+    }
+    this.renderApp();
+  }
+
+  private async retryAttachment(attachment: ChatAttachment): Promise<void> {
+    try {
+      await this.client.retryCapability(attachment.capability_request_id);
+      await this.refreshCurrentChat();
+    } catch {
+      this.appState.uiError = 'That picture could not be retried.';
+    }
+    this.renderApp();
+  }
+
+  private async refreshCurrentChat(): Promise<void> {
+    const chatId = this.appState.currentChat?.id;
+    if (!chatId) return;
+    const [detail, capabilities] = await Promise.all([
+      this.client.chat(chatId),
+      this.client.capabilityRequests(chatId),
+    ]);
+    if (this.appState.currentChat?.id !== chatId) return;
+    this.appState.currentChat = detail.chat;
+    this.appState.messages = detail.messages;
+    this.appState.capabilityRequests = capabilities.items;
   }
 
   private async generateImage(message: Message): Promise<void> {
@@ -148,6 +278,10 @@ export class ChatRenderer {
     this.appState.memories = (await this.client.memories()).items;
     this.renderApp();
   }
+}
+
+function capitalize(value: string): string {
+  return value.charAt(0).toUpperCase() + value.slice(1);
 }
 
 export function splitThinking(text: string): { thinking: string; visibleText: string } {

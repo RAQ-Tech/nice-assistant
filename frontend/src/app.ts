@@ -76,7 +76,7 @@ async function initialize(): Promise<void> {
 
 async function authenticated(session: Session, runOnboarding = true): Promise<void> {
   state.session = session;
-  const [models, workspaces, personas, chats, wire, memories, taskModels, taskRuns, mediaCatalog] = await Promise.all([
+  const [models, workspaces, personas, chats, wire, memories, taskModels, taskRuns, mediaCatalog, mediaReadiness] = await Promise.all([
     api.models().catch(() => ({ models: [] })),
     api.workspaces(),
     api.personas(),
@@ -86,6 +86,7 @@ async function authenticated(session: Session, runOnboarding = true): Promise<vo
     api.taskModels().catch(() => ({ items: [] })),
     api.taskModelRuns(undefined, 20).catch(() => ({ items: [] })),
     api.mediaCatalog().catch(() => null),
+    api.mediaReadiness().catch(() => null),
   ]);
   state.models = models.models;
   state.workspaces = workspaces.items;
@@ -96,6 +97,7 @@ async function authenticated(session: Session, runOnboarding = true): Promise<vo
   state.taskModels = taskModels.items;
   state.taskModelRuns = taskRuns.items;
   state.mediaCatalog = mediaCatalog;
+  state.mediaReadiness = mediaReadiness;
   state.showSystemMessages = state.settings.general_show_system_messages;
   state.showThinkingByDefault = state.settings.general_show_thinking;
   state.voiceResponsesEnabled = state.settings.general_voice_responses;
@@ -222,7 +224,9 @@ function shell(): HTMLElement {
     const requests = state.capabilityRequests
       .filter(
         (request) =>
-          request.permission_mode === 'confirm' && request.assistant_message_id === message.id,
+          request.permission_mode === 'confirm'
+          && request.status === 'pending_confirmation'
+          && request.assistant_message_id === message.id,
       )
       .map((request) => capabilities.node(request));
     return [node, ...requests];
@@ -231,6 +235,7 @@ function shell(): HTMLElement {
     .filter(
       (request) =>
         request.permission_mode === 'confirm' &&
+        request.status === 'pending_confirmation' &&
         !messages.some((message) => message.id === request.assistant_message_id),
     )
     .map((request) => capabilities.node(request));
@@ -302,8 +307,32 @@ function chatControls(model: string, memoryMode: string): HTMLElement {
     el('button', { class: 'pill-btn', textContent: state.showSystemMessages ? 'Hide system/tool' : 'Show system/tool', onclick: () => { state.showSystemMessages = !state.showSystemMessages; render(); } }),
     el('button', { class: 'pill-btn', textContent: state.showThinkingByDefault ? 'Hide thinking' : 'Show thinking', onclick: () => { state.showThinkingByDefault = !state.showThinkingByDefault; render(); } }),
     el('button', { class: 'pill-btn', textContent: state.voiceResponsesEnabled ? 'Voice replies: On' : 'Voice replies: Off', onclick: () => { state.voiceResponsesEnabled = !state.voiceResponsesEnabled; render(); } }),
+    el('button', {
+      class: `pill-btn ${state.settings?.chat_blur_images ? 'active' : ''}`,
+      textContent: state.settings?.chat_blur_images ? 'Blur images: On' : 'Blur images: Off',
+      'aria-pressed': Boolean(state.settings?.chat_blur_images),
+      'data-testid': 'toggle-chat-image-blur',
+      onclick: () => void toggleChatImageBlur(),
+    }),
     state.currentAudioMessageId ? el('button', { class: 'pill-btn', textContent: 'Stop audio', onclick: () => playback.stop() }) : null,
   ]);
+}
+
+async function toggleChatImageBlur(): Promise<void> {
+  if (!state.settings || state.settingsSaving) return;
+  const previous = state.settings.chat_blur_images;
+  state.settings.chat_blur_images = !previous;
+  state.settingsSaving = true;
+  render();
+  try {
+    state.settings = normalizeSettings(await api.updateSettings(settingsWire(state.settings)));
+  } catch (error) {
+    state.settings.chat_blur_images = previous;
+    state.uiError = errorMessage(error, 'The image blur preference could not be saved.');
+  } finally {
+    state.settingsSaving = false;
+    render();
+  }
 }
 
 function composer(): HTMLElement {

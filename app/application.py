@@ -155,6 +155,14 @@ def build_services(
         provider_url_policy=provider_url_policy,
         media_catalog=media_catalog,
     )
+    provider_service = ProviderService(
+        runtime.session_factory,
+        runtime.secret_store,
+        config,
+        registry,
+        runtime.logger,
+        provider_url_policy=provider_url_policy,
+    )
     capabilities = CapabilityService(
         runtime.session_factory,
         runtime.secret_store,
@@ -164,6 +172,8 @@ def build_services(
         media_catalog,
         runtime.logger,
         provider_url_policy=provider_url_policy,
+        provider_service=provider_service,
+        identity_service=identity,
     )
     task_models = TaskModelService(
         runtime.session_factory,
@@ -200,14 +210,6 @@ def build_services(
         memory,
         capabilities,
         task_models,
-    )
-    provider_service = ProviderService(
-        runtime.session_factory,
-        runtime.secret_store,
-        config,
-        registry,
-        runtime.logger,
-        provider_url_policy=provider_url_policy,
     )
     speech = SpeechService(
         runtime.session_factory,

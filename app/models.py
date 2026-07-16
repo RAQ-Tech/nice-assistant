@@ -734,6 +734,10 @@ class CapabilityRequest(Base):
             "permission_mode IN ('confirm','explicit')",
             name="ck_capability_requests_permission_mode",
         ),
+        CheckConstraint(
+            "permission_mode_effective IN ('confirm','explicit','auto')",
+            name="ck_capability_requests_permission_mode_effective",
+        ),
         UniqueConstraint("user_id", "idempotency_key", name="uq_capability_requests_user_idempotency"),
         Index("idx_capability_requests_user_chat", "user_id", "chat_id", "requested_at"),
         Index("idx_capability_requests_user_status", "user_id", "status", "requested_at"),
@@ -747,6 +751,7 @@ class CapabilityRequest(Base):
     arguments_json: Mapped[str] = mapped_column(Text, nullable=False)
     status: Mapped[str] = mapped_column(Text, nullable=False)
     permission_mode: Mapped[str] = mapped_column(Text, nullable=False)
+    permission_mode_effective: Mapped[str] = mapped_column(Text, nullable=False, default="confirm")
     idempotency_key: Mapped[str] = mapped_column(Text, nullable=False)
     result_json: Mapped[str | None] = mapped_column(Text)
     error_code: Mapped[str | None] = mapped_column(Text)
@@ -756,13 +761,14 @@ class CapabilityRequest(Base):
     started_at: Mapped[int | None] = mapped_column(Integer)
     completed_at: Mapped[int | None] = mapped_column(Integer)
     expires_at: Mapped[int | None] = mapped_column(Integer)
+    retry_of_request_id: Mapped[str | None] = mapped_column(ForeignKey("capability_requests.id", ondelete="SET NULL"))
 
 
 class CapabilityEvent(Base):
     __tablename__ = "capability_events"
     __table_args__ = (
         CheckConstraint(
-            "action IN ('requested','approved','denied','queued','started','completed','failed','cancelled','expired','replanned')",
+            "action IN ('requested','approved','denied','queued','started','completed','failed','cancelled','expired','replanned','retried')",
             name="ck_capability_events_action",
         ),
         Index("idx_capability_events_request_created", "capability_request_id", "created_at"),
@@ -778,6 +784,41 @@ class CapabilityEvent(Base):
     to_status: Mapped[str | None] = mapped_column(Text)
     detail_json: Mapped[str] = mapped_column(Text, default="{}", nullable=False)
     created_at: Mapped[int] = mapped_column(Integer, nullable=False)
+
+
+class ChatAttachment(Base):
+    __tablename__ = "chat_attachments"
+    __table_args__ = (
+        CheckConstraint("kind IN ('image','video')", name="ck_chat_attachments_kind"),
+        CheckConstraint(
+            "status IN ('queued','running','completed','failed','cancelled','retried')",
+            name="ck_chat_attachments_status",
+        ),
+        CheckConstraint(
+            "identity_state IN ('not_applicable','unconditioned','verified','unverified')",
+            name="ck_chat_attachments_identity_state",
+        ),
+        CheckConstraint("retry_available IN (0,1)", name="ck_chat_attachments_retry_available"),
+        UniqueConstraint("capability_request_id", name="uq_chat_attachments_capability_request"),
+        Index("idx_chat_attachments_user_chat", "user_id", "chat_id", "created_at"),
+        Index("idx_chat_attachments_message", "assistant_message_id", "created_at"),
+    )
+    id: Mapped[str] = mapped_column(Text, primary_key=True)
+    user_id: Mapped[str] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    chat_id: Mapped[str] = mapped_column(ForeignKey("chats.id", ondelete="CASCADE"), nullable=False)
+    assistant_message_id: Mapped[str] = mapped_column(ForeignKey("messages.id", ondelete="CASCADE"), nullable=False)
+    capability_request_id: Mapped[str] = mapped_column(
+        ForeignKey("capability_requests.id", ondelete="CASCADE"), nullable=False
+    )
+    kind: Mapped[str] = mapped_column(Text, nullable=False)
+    status: Mapped[str] = mapped_column(Text, nullable=False)
+    media_id: Mapped[str | None] = mapped_column(ForeignKey("media_files.id", ondelete="SET NULL"))
+    identity_state: Mapped[str] = mapped_column(Text, nullable=False, default="not_applicable")
+    safe_error: Mapped[str | None] = mapped_column(Text)
+    retry_available: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    created_at: Mapped[int] = mapped_column(Integer, nullable=False)
+    updated_at: Mapped[int] = mapped_column(Integer, nullable=False)
+    completed_at: Mapped[int | None] = mapped_column(Integer)
 
 
 class AsyncJob(Base):

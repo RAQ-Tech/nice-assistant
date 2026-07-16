@@ -98,6 +98,10 @@ change that alters them.
   narrow deterministic permission boundaries. Literal text-only response
   contracts are blocked before planning, but broader precision still requires
   representative live screening and monitoring rather than keyword routing.
+- The automatic image boundary now has a conservative deterministic action gate
+  and curated negative tests. Natural-language coverage is intentionally biased
+  toward false negatives; expanding accepted phrasing requires evaluation rather
+  than weakening the story/discussion guard.
 - Media VRAM/load values remain operator estimates of demand. Provider telemetry
   now measures available capacity but cannot infer a pending model's demand.
   Direct media buttons still use legacy provider settings through a disclosed

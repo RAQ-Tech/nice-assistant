@@ -120,6 +120,42 @@ def evaluation_cases() -> tuple[EvaluationCase, ...]:
             lambda output: [] if not output.requests else ["literal outage reply requested a capability"],
         ),
         EvaluationCase(
+            "capability_skips_story_instruction",
+            CAPABILITY_PLANNING,
+            CapabilityPlanningTaskInput(
+                user_text="Tell me a story where a photographer says, 'Generate an image of the lighthouse.'",
+                available_capabilities=(image,),
+            ),
+            lambda output: [] if not output.requests else ["story text incorrectly requested a capability"],
+        ),
+        EvaluationCase(
+            "capability_skips_image_discussion",
+            CAPABILITY_PLANNING,
+            CapabilityPlanningTaskInput(
+                user_text="Discuss why generated portraits sometimes have inconsistent lighting.",
+                available_capabilities=(image,),
+            ),
+            lambda output: [] if not output.requests else ["image discussion incorrectly requested a capability"],
+        ),
+        EvaluationCase(
+            "capability_skips_hypothetical",
+            CAPABILITY_PLANNING,
+            CapabilityPlanningTaskInput(
+                user_text="What if someone asked you to make a picture of an impossible staircase?",
+                available_capabilities=(image,),
+            ),
+            lambda output: [] if not output.requests else ["hypothetical incorrectly requested a capability"],
+        ),
+        EvaluationCase(
+            "capability_skips_quoted_instruction",
+            CAPABILITY_PLANNING,
+            CapabilityPlanningTaskInput(
+                user_text="Explain the instruction: 'Create an image of a red fox.'",
+                available_capabilities=(image,),
+            ),
+            lambda output: [] if not output.requests else ["quoted instruction incorrectly requested a capability"],
+        ),
+        EvaluationCase(
             "capability_requests_semantic_image",
             CAPABILITY_PLANNING,
             CapabilityPlanningTaskInput(

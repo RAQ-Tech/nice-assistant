@@ -23,6 +23,8 @@ function capability(status: CapabilityRequest['status'] = 'pending_confirmation'
     started_at: null,
     completed_at: null,
     expires_at: null,
+    retry_of_request_id: null,
+    attachment: null,
     media_plan: null,
   };
 }
@@ -79,7 +81,7 @@ describe('CapabilityController', () => {
     expect(client.denyCapability).toHaveBeenCalledWith('capability-1');
   });
 
-  it('disables approval with truthful copy while voice playback is active', () => {
+  it('keeps image approval available while voice playback is active', () => {
     const appState = createState();
     appState.phase = 'speaking';
     const client = { approveCapability: vi.fn() } as unknown as ApiClient;
@@ -91,10 +93,8 @@ describe('CapabilityController', () => {
     ).node(capability());
 
     const approve = node.querySelector('[data-testid="approve-capability"]') as HTMLButtonElement;
-    expect(approve.disabled).toBe(true);
-    expect(approve.textContent).toBe('Wait for audio to finish');
-    expect(approve.title).toContain('Stop or finish the current audio');
-    approve.click();
+    expect(approve.disabled).toBe(false);
+    expect(approve.textContent).toBe('Generate image');
     expect(client.approveCapability).not.toHaveBeenCalled();
   });
 
@@ -133,7 +133,7 @@ describe('CapabilityController', () => {
       openMediaCatalog,
     ).node(request);
 
-    expect(node.textContent).toContain('Media plan: blocked');
+    expect(node.textContent).toContain('Details');
     expect(node.textContent).toContain('cannot execute inpainting');
     expect(node.textContent).toContain('Required features: identity_control');
     expect(node.textContent).toContain('Portrait model: missing required features: identity_control');

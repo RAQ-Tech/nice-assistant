@@ -28,6 +28,8 @@ export const SETTINGS_DEFAULTS: Settings = {
   stt_language: 'auto',
   stt_store_recordings: false,
   image_provider: 'disabled',
+  image_confirmation_policy: 'auto_explicit_request',
+  chat_blur_images: false,
   image_size: '1024x1024',
   image_quality: 'none',
   image_local_allow_nsfw: false,
@@ -95,6 +97,8 @@ export const SETTINGS_SECTION_KEYS: Record<SettingsSection, readonly (keyof Sett
   STT: ['stt_provider', 'stt_language', 'stt_store_recordings'],
   'Image Generation': [
     'image_provider',
+    'image_confirmation_policy',
+    'chat_blur_images',
     'image_size',
     'image_quality',
     'image_local_allow_nsfw',

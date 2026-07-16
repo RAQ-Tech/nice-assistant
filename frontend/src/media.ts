@@ -2,7 +2,7 @@ import { api, type ApiClient, type MediaJobInput } from './api';
 import { errorMessage } from './dom';
 import { speechText } from './speech_text';
 import { machine, state, type ClientStateMachine } from './state';
-import type { AppState, Job, Message } from './types';
+import type { AppState, CapabilityRequest, Job, Message } from './types';
 
 const IMAGE_MARKDOWN = /!\[[^\]]*\]\(([^)]+)\)/i;
 const VIDEO_MARKDOWN = /\[[^\]]*(?:video|download)[^\]]*\]\(([^)]+)\)/i;
@@ -48,41 +48,52 @@ export class MediaController {
 
   private async generate(kind: 'image' | 'video', input: MediaJobInput): Promise<Message | null> {
     if (!input.prompt) throw new Error(`${kind} prompt is required`);
-    if (this.appState.phase !== 'idle') throw new Error('Wait for the active request to finish first.');
-    this.stateMachine.transition('queued', `Queued ${kind}`);
-    this.onChange();
+    let durableRequest: CapabilityRequest | null = null;
     try {
       const accepted = kind === 'image' ? await this.client.imageJob(input) : await this.client.videoJob(input);
-      const cancellation = async (): Promise<void> => {
-        await this.client.cancelJob(accepted.job_id);
-      };
-      this.appState.pendingRequest = {
-        jobId: accepted.job_id,
-        progress: `Generating ${kind}…`,
-        cancel: cancellation,
-      };
-      this.stateMachine.transition('thinking', `Generating ${kind}`);
-      const job = await waitForJob(this.client, accepted.job_id, (current) => {
-        if (this.appState.pendingRequest) this.appState.pendingRequest.progress = current.progress || `Generating ${kind}…`;
+      durableRequest = await this.client.capabilityRequest(accepted.capability_request_id);
+      await this.refreshChat(input.chat_id ?? null);
+      while (['queued', 'running'].includes(durableRequest.status)) {
+        await new Promise((resolve) => window.setTimeout(resolve, 350));
+        durableRequest = await this.client.capabilityRequest(durableRequest.id);
+        this.upsert(durableRequest);
+        await this.refreshChat(input.chat_id ?? null, false);
         this.onChange();
-      });
-      if (job.status === 'cancelled') {
-        this.stateMachine.transition('idle');
-        return null;
       }
-      if (job.status !== 'completed') throw new Error(job.error || `${kind} generation ${job.status}`);
-      const message = mediaMessage(kind, job);
-      this.appState.messages.push(message);
-      this.stateMachine.transition('idle');
-      return message;
+      await this.refreshChat(input.chat_id ?? null);
+      if (durableRequest.status !== 'completed') return null;
+      return this.appState.messages.find((message) =>
+        message.attachments?.some((attachment) => attachment.capability_request_id === durableRequest?.id),
+      ) ?? null;
     } catch (error) {
-      this.appState.uiError = errorMessage(error, `${kind} generation failed.`);
-      this.stateMachine.transition('error');
-      throw error;
+      if (!durableRequest) {
+        this.appState.uiError = errorMessage(error, `${kind} generation could not start.`);
+        throw error;
+      }
+      await this.refreshChat(input.chat_id ?? null).catch(() => undefined);
+      return null;
     } finally {
-      this.appState.pendingRequest = null;
       this.onChange();
     }
+  }
+
+  private upsert(request: CapabilityRequest): void {
+    this.appState.capabilityRequests = [
+      ...this.appState.capabilityRequests.filter((item) => item.id !== request.id),
+      request,
+    ].sort((left, right) => left.requested_at - right.requested_at);
+  }
+
+  private async refreshChat(chatId: string | null, includeCapabilities = true): Promise<void> {
+    if (!chatId || this.appState.currentChat?.id !== chatId) return;
+    const [detail, capabilities] = await Promise.all([
+      this.client.chat(chatId),
+      includeCapabilities ? this.client.capabilityRequests(chatId) : Promise.resolve(null),
+    ]);
+    if (this.appState.currentChat?.id !== chatId) return;
+    this.appState.currentChat = detail.chat;
+    this.appState.messages = detail.messages;
+    if (capabilities) this.appState.capabilityRequests = capabilities.items;
   }
 
   private requiredSettings() {

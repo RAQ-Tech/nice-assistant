@@ -9,6 +9,7 @@ from app.chat import (
     parse_model_options,
     persona_instruction_block,
 )
+from app.capability_service import attachment_response
 from app.job_service import JobExecution, JobService, turn_response
 from app.context_service import ContextService
 from app.memory_service import MemoryService
@@ -97,8 +98,17 @@ class ConversationService:
             chat = uow.repo.chat(user_id, chat_id)
             if not chat:
                 return None
+            attachments = {}
+            for row in uow.repo.chat_attachments(user_id, chat_id):
+                attachments.setdefault(row.assistant_message_id, []).append(attachment_response(row))
             messages = [
-                {"id": row.id, "role": row.role, "text": row.text, "created_at": row.created_at}
+                {
+                    "id": row.id,
+                    "role": row.role,
+                    "text": row.text,
+                    "created_at": row.created_at,
+                    "attachments": attachments.get(row.id, []),
+                }
                 for row in uow.repo.messages(chat_id)
             ]
             return {"chat": _chat_response(chat), "messages": messages}
@@ -375,14 +385,31 @@ class ConversationService:
                 durable_chat.updated_at = now_ts()
             planned_capabilities = list(output.pop("planned_capabilities", []))
             if planned_capabilities:
-                output["capability_requests"] = self.capabilities.prepare_planned_requests(
+                capability_requests = self.capabilities.prepare_planned_requests(
                     repo,
                     user_id=user_id,
                     chat_id=chat_id,
                     turn_id=turn.id,
+                    user_text=text,
                     planned=planned_capabilities,
                 )
+                output["auto_capability_request_ids"] = [
+                    item["id"] for item in capability_requests if item.pop("auto_submit", False)
+                ]
+                output["capability_requests"] = capability_requests
             return output
+
+        def after_followup_success(result):
+            for request_id in (result or {}).get("auto_capability_request_ids") or []:
+                try:
+                    self.capabilities.submit_queued(user_id, request_id)
+                except Exception as exc:  # noqa: BLE001 - durable attachment exposes a retryable failure
+                    self.capabilities.fail_queued_submission(user_id, request_id)
+                    self.capabilities.logger.error(
+                        "automatic capability submission failed request_id=%s error=%s",
+                        request_id,
+                        exc.__class__.__name__,
+                    )
 
         def on_success(repo, result):
             reply = str((result or {}).get("text") or "")
@@ -422,7 +449,11 @@ class ConversationService:
                         turn_id=None,
                         latency_class="standard",
                         model_key="task:conversation_followup",
-                        execution=JobExecution(execute=execute_followup, on_success=on_followup_success),
+                        execution=JobExecution(
+                            execute=execute_followup,
+                            on_success=on_followup_success,
+                            after_success=after_followup_success,
+                        ),
                     )
                 except Exception:
                     self.jobs.fail_unsubmitted(

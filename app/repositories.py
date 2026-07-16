@@ -15,6 +15,7 @@ from app.models import (
     CapabilityEvent,
     CapabilityRequest,
     Chat,
+    ChatAttachment,
     ConversationTurn,
     ConversationSummary,
     MediaCatalogResource,
@@ -1395,6 +1396,7 @@ class ApplicationRepository:
         permission_mode: str,
         idempotency_key: str,
         expires_at: int | None = None,
+        retry_of_request_id: str | None = None,
     ):
         existing = self.session.scalar(
             select(CapabilityRequest).where(
@@ -1412,10 +1414,12 @@ class ApplicationRepository:
             capability_key=capability_key,
             arguments_json=json.dumps(arguments, separators=(",", ":"), ensure_ascii=False),
             status=status,
-            permission_mode=permission_mode,
+            permission_mode="explicit" if permission_mode == "auto" else permission_mode,
+            permission_mode_effective=permission_mode,
             idempotency_key=idempotency_key,
             requested_at=now_ts(),
             expires_at=expires_at,
+            retry_of_request_id=retry_of_request_id,
         )
         self.session.add(row)
         self.session.flush()
@@ -1458,6 +1462,53 @@ class ApplicationRepository:
                 CapabilityEvent.capability_request_id == request_id,
             )
             .order_by(CapabilityEvent.created_at, CapabilityEvent.id)
+        ).all()
+
+    # Durable persona chat attachments
+    def add_chat_attachment(
+        self,
+        *,
+        user_id: str,
+        chat_id: str,
+        assistant_message_id: str,
+        capability_request_id: str,
+        kind: str,
+        status: str,
+    ):
+        existing = self.chat_attachment_for_capability(user_id, capability_request_id)
+        if existing:
+            return existing
+        stamp = now_ts()
+        row = ChatAttachment(
+            id=secrets.token_hex(12),
+            user_id=user_id,
+            chat_id=chat_id,
+            assistant_message_id=assistant_message_id,
+            capability_request_id=capability_request_id,
+            kind=kind,
+            status=status,
+            identity_state="not_applicable",
+            retry_available=0,
+            created_at=stamp,
+            updated_at=stamp,
+        )
+        self.session.add(row)
+        self.session.flush()
+        return row
+
+    def chat_attachment_for_capability(self, user_id: str, request_id: str):
+        return self.session.scalar(
+            select(ChatAttachment).where(
+                ChatAttachment.user_id == user_id,
+                ChatAttachment.capability_request_id == request_id,
+            )
+        )
+
+    def chat_attachments(self, user_id: str, chat_id: str):
+        return self.session.scalars(
+            select(ChatAttachment)
+            .where(ChatAttachment.user_id == user_id, ChatAttachment.chat_id == chat_id)
+            .order_by(ChatAttachment.created_at, ChatAttachment.id)
         ).all()
 
     # Protected artifacts

@@ -20,7 +20,7 @@ def _json(value: str | None, fallback):
     return parsed
 
 
-def build_media_plan(repo, user_id: str, requirements: dict, providers) -> dict:
+def build_media_plan(repo, user_id: str, requirements: dict, providers, ready_backends=None) -> dict:
     """Select an explainable plan from explicit metadata; never inspect resource names."""
     resources = repo.media_catalog_resources(user_id, enabled=True)
     setting = repo.media_catalog_setting(user_id)
@@ -38,6 +38,8 @@ def build_media_plan(repo, user_id: str, requirements: dict, providers) -> dict:
         reasons = []
         if model.provider_key not in providers.media_providers:
             reasons.append("provider adapter is unavailable")
+        if ready_backends is not None and (model.provider_key, model.backend) not in ready_backends:
+            reasons.append("provider is not currently reachable")
         model_ops = set(_json(model.operations_json, []))
         model_domains = set(_json(model.domains_json, []))
         model_content = set(_json(model.content_tags_json, []))

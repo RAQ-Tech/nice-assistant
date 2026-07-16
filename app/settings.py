@@ -39,9 +39,14 @@ def parse_preferences_json(raw_value):
 
 
 def normalize_media_preferences(value):
-    """Canonicalize persisted media-provider aliases without adding defaults."""
+    """Canonicalize persisted media preferences and human-experience defaults."""
 
     preferences = dict(value or {}) if isinstance(value, dict) else {}
+    confirmation = str(preferences.get("image_confirmation_policy") or "auto_explicit_request").strip()
+    preferences["image_confirmation_policy"] = (
+        confirmation if confirmation in {"auto_explicit_request", "always_ask"} else "auto_explicit_request"
+    )
+    preferences["chat_blur_images"] = truthy(preferences.get("chat_blur_images", False))
     if "image_provider" in preferences:
         provider = str(preferences.get("image_provider") or "disabled").strip().lower()
         if provider == "local/automatic1111":

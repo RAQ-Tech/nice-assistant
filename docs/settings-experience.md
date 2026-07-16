@@ -64,13 +64,16 @@ and Workspaces now use the same approachable structure:
   image resources exist, so conversational planning becomes available without
   overwriting an operator-curated catalog. Legacy local-provider aliases are
   shown and saved in their canonical `local` plus backend form.
+- Image Generation exposes the everyday automatic-versus-always-ask choice and
+  the same persisted blur preference available in chat controls. Its readiness
+  summary separates provider reachability, basic generation, and optional
+  identity enhancement so missing identity setup never reads as a basic block.
 
 Provider tuning still controls direct actions. Media Catalog remains the
-operator source of truth for planned conversational generation.
-Blocked conversational plans show hard requirements and rejected-resource
-reasons. Their primary action is an enabled plan recheck, and identity-related
-remediation opens a focused setup card with the originating request/persona
-context. Visual Identity keeps both runtime policies editable: whether to
+operator source of truth for planned conversational generation. Technical plans
+and rejected-resource reasons are collapsed Details rather than default chat
+content; blocked `always_ask` requests retain a focused recheck or correct
+identity remediation. Visual Identity keeps both runtime policies editable: whether to
 generate with a warning while conditioning is unavailable, and what to do after
 a real comparison failure. The Media Catalog setup imports API-format workflow
 JSON, reports missing ComfyUI nodes/assets, and creates an explicit reference

@@ -179,9 +179,25 @@ export interface Message {
   role: 'user' | 'assistant' | 'system' | 'tool' | string;
   text: string;
   created_at: number;
+  attachments?: ChatAttachment[];
   isTyping?: boolean;
   retryImagePrompt?: string;
   retryChatId?: Id;
+}
+
+export interface ChatAttachment {
+  id: Id;
+  kind: 'image' | 'video';
+  status: 'queued' | 'running' | 'completed' | 'failed' | 'cancelled' | 'retried';
+  capability_request_id: Id;
+  media_id: Id | null;
+  content_url: string | null;
+  identity_state: 'not_applicable' | 'unconditioned' | 'verified' | 'unverified';
+  safe_error: string | null;
+  retry_available: boolean;
+  created_at: number;
+  updated_at: number;
+  completed_at: number | null;
 }
 
 export interface ChatDetail {
@@ -328,7 +344,7 @@ export interface CapabilityRequest {
   id: Id;
   capability_key: 'media.generate_image' | 'media.generate_video' | string;
   status: CapabilityStatus;
-  permission_mode: 'confirm' | 'explicit';
+  permission_mode: 'confirm' | 'explicit' | 'auto';
   arguments: { prompt?: string; [key: string]: unknown };
   result: JobResult | null;
   error: { code: string; message: string } | null;
@@ -341,7 +357,15 @@ export interface CapabilityRequest {
   started_at: number | null;
   completed_at: number | null;
   expires_at: number | null;
+  retry_of_request_id: Id | null;
+  attachment: ChatAttachment | null;
   media_plan: MediaPlan | null;
+}
+
+export interface MediaReadiness {
+  provider: { key: string; reachable: boolean; status: string; message: string };
+  basic_generation: { ready: boolean; message: string };
+  optional_identity: { ready: boolean; status: string; message: string };
 }
 
 export interface IdentitySetupIntent {
@@ -540,6 +564,8 @@ export interface Settings extends Record<string, SettingScalar | Record<string, 
   stt_language: string;
   stt_store_recordings: boolean;
   image_provider: string;
+  image_confirmation_policy: 'auto_explicit_request' | 'always_ask';
+  chat_blur_images: boolean;
   image_size: string;
   image_quality: string;
   image_local_allow_nsfw: boolean;
@@ -693,6 +719,7 @@ export interface AppState {
   taskModelChecks: Partial<Record<TaskModelRole, TaskModelReadiness>>;
   taskModelBusy: Partial<Record<TaskModelRole, boolean>>;
   mediaCatalog: MediaCatalog | null;
+  mediaReadiness: MediaReadiness | null;
   mediaCatalogBusy: boolean;
   mediaPlanPreview: MediaPlan | null;
   mediaCatalogIdentitySetupIntent: IdentitySetupIntent | null;

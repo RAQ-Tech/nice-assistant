@@ -39,6 +39,27 @@ _EXPLICIT_PERSONA_EXCLUSION = re.compile(
     re.IGNORECASE,
 )
 
+_EXPLICIT_MEDIA_ACTION = re.compile(
+    r"(?:"
+    r"\b(?:please\s+)?(?:generate|create|make|draw|paint|render|show|send|take)\b|"
+    r"\b(?:give|show|send)\s+me\b|"
+    r"\btry\s+(?:(?:one|1)\s+more|another|a|an)\s+(?:image|picture|photo|portrait|selfie|video)\b|"
+    r"\b(?:can|could|would|will)\s+you\s+(?:please\s+)?(?:generate|create|make|draw|paint|render|show|send|take)\b|"
+    r"\b(?:i\s+(?:want|need)|i(?:'d|\s+would)\s+like)\b.{0,80}\b(?:image|picture|photo|selfie|video)\b"
+    r")",
+    re.IGNORECASE | re.DOTALL,
+)
+_NON_ACTION_MEDIA_CONTEXT = re.compile(
+    r"^\s*(?:"
+    r"tell\s+me\s+(?:a\s+)?story|write\s+(?:me\s+)?(?:a\s+)?story|"
+    r"explain|discuss|analy[sz]e|summarize|quote|translate|"
+    r"what\s+(?:if|does|would|could)|how\s+(?:does|would|could)|"
+    r"imagine\s+(?:if|that)|suppose\s+(?:that|someone)|"
+    r"i(?:'m|\s+am)\s+not\s+asking\s+(?:you\s+)?to"
+    r")\b",
+    re.IGNORECASE,
+)
+
 
 def is_explicit_text_only_request(user_text: str) -> bool:
     """Return true for an unambiguous leading literal-response contract.
@@ -48,6 +69,20 @@ def is_explicit_text_only_request(user_text: str) -> bool:
     """
 
     return bool(_EXPLICIT_TEXT_ONLY_PREFIX.match(str(user_text or "")))
+
+
+def is_high_confidence_media_action_request(user_text: str) -> bool:
+    """Conservatively authorize automatic media only for an explicit user action.
+
+    The task model still extracts semantic intent, but this deterministic gate
+    prevents a quoted instruction, story, hypothetical, or discussion from
+    becoming executable work merely because a planner overreaches.
+    """
+
+    text = str(user_text or "").strip()
+    if not text or is_explicit_text_only_request(text) or _NON_ACTION_MEDIA_CONTEXT.match(text):
+        return False
+    return bool(_EXPLICIT_MEDIA_ACTION.search(text))
 
 
 def explicitly_excludes_persona(user_text: str) -> bool:

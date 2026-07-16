@@ -43,7 +43,7 @@ class DatabaseFoundationTests(unittest.TestCase):
             journal_mode = conn.execute("PRAGMA journal_mode").fetchone()[0]
             conn.close()
 
-            self.assertEqual(version, "0016_identity_fallback")
+            self.assertEqual(version, "0017_chat_attachments")
             self.assertIn("setting_values", tables)
             self.assertIn("conversation_turns", tables)
             self.assertIn("conversation_summaries", tables)
@@ -796,6 +796,7 @@ class DatabaseFoundationTests(unittest.TestCase):
             conn.execute("INSERT INTO users(id,username,password_hash,is_admin,created_at) VALUES('u','owner','h',1,1)")
             conn.execute("INSERT INTO chats(id,user_id,title,created_at,updated_at) VALUES('c','u','Chat',1,1)")
             conn.execute("INSERT INTO messages(id,chat_id,role,text,created_at) VALUES('m','c','user','hello',1)")
+            conn.execute("INSERT INTO messages(id,chat_id,role,text,created_at) VALUES('a','c','assistant','',1)")
             conn.execute(
                 """
                 INSERT INTO conversation_turns(
@@ -819,6 +820,12 @@ class DatabaseFoundationTests(unittest.TestCase):
                 "INSERT INTO async_jobs("
                 "id,user_id,chat_id,capability_request_id,kind,status,cancel_requested,created_at,started_at,updated_at"
                 ") VALUES('cap-job','u','c','cap','image','running',0,1,1,1)"
+            )
+            conn.execute(
+                "INSERT INTO chat_attachments("
+                "id,user_id,chat_id,assistant_message_id,capability_request_id,kind,status,identity_state,"
+                "retry_available,created_at,updated_at"
+                ") VALUES('attachment','u','c','a','cap','image','running','not_applicable',0,1,1)"
             )
             conn.execute(
                 "INSERT INTO media_execution_plans("
@@ -882,13 +889,16 @@ class DatabaseFoundationTests(unittest.TestCase):
                 "SELECT status,error_code,error_message,completed_at FROM media_generation_attempts "
                 "WHERE id='restart-attempt'"
             ).fetchone()
+            attachment = conn.execute(
+                "SELECT status,safe_error,retry_available,completed_at FROM chat_attachments WHERE id='attachment'"
+            ).fetchone()
             conn.close()
             self.assertEqual(job[0:2], ("failed", "interrupted by server restart"))
             self.assertIsNotNone(job[2])
             self.assertEqual(turn[0:3], ("failed", "interrupted", "interrupted by server restart"))
             self.assertIsNotNone(turn[3])
             self.assertIsNone(turn[4])
-            self.assertEqual(assistant_count, 0)
+            self.assertEqual(assistant_count, 1)
             self.assertEqual(capability[0:3], ("failed", "interrupted", "interrupted by server restart"))
             self.assertIsNotNone(capability[3])
             self.assertEqual(task_run[0:3], ("failed", "interrupted", "interrupted by server restart"))
@@ -903,6 +913,11 @@ class DatabaseFoundationTests(unittest.TestCase):
                 ("error", "interrupted", "interrupted by server restart"),
             )
             self.assertIsNotNone(media_attempt[3])
+            self.assertEqual(
+                attachment[0:3],
+                ("failed", "Image generation was interrupted by a restart.", 1),
+            )
+            self.assertIsNotNone(attachment[3])
 
     def test_pre_alembic_preferences_are_migrated_to_typed_rows(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -928,7 +943,16 @@ class DatabaseFoundationTests(unittest.TestCase):
             columns = {row[1] for row in conn.execute("PRAGMA table_info(app_settings)")}
             conn.close()
 
-            self.assertEqual(values, {"label": "Guide", "speech_enabled": True, "voice_speed": 1.25})
+            self.assertEqual(
+                values,
+                {
+                    "label": "Guide",
+                    "speech_enabled": True,
+                    "voice_speed": 1.25,
+                    "image_confirmation_policy": "auto_explicit_request",
+                    "chat_blur_images": False,
+                },
+            )
             self.assertIn("openai_api_key_encrypted", columns)
 
             conn = database.connect_sqlite(path)

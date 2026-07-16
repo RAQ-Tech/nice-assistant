@@ -14,6 +14,10 @@ VALID_OUTPUTS = {
     "capability_skips_ordinary_text": '{"requests":[]}',
     "capability_skips_literal_reply_contract": '{"requests":[]}',
     "capability_skips_literal_outage_reply": '{"requests":[]}',
+    "capability_skips_story_instruction": '{"requests":[]}',
+    "capability_skips_image_discussion": '{"requests":[]}',
+    "capability_skips_hypothetical": '{"requests":[]}',
+    "capability_skips_quoted_instruction": '{"requests":[]}',
     "capability_requests_semantic_image": (
         '{"requests":[{"capability_key":"media.generate_image","prompt":"A lighthouse in a storm",'
         '"operation":"generate","domains":[],"content_tags":[],"required_features":[],"persona_subject":false}]}'
@@ -24,7 +28,7 @@ VALID_OUTPUTS = {
 class TaskModelEvaluationTests(unittest.TestCase):
     def test_curated_contract_cases_have_deterministic_acceptance_checks(self):
         cases = evaluation_cases()
-        self.assertEqual(len(cases), 8)
+        self.assertEqual(len(cases), 12)
         for case in cases:
             with self.subTest(case=case.name):
                 definition = task_definition(case.role)

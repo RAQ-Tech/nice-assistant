@@ -145,6 +145,14 @@ and platform foundation below.
     supporting image generation through an explicit warned fallback while
     retaining strict conditioning as a user-selectable policy.
 
+22. **Human picture-message delivery — delivered.** Ordinary explicit image
+    requests auto-run under a saved policy, while deterministic negative-intent
+    gating prevents story/discussion jobs. Direct and planned work share durable
+    transcript attachments, reload recovery, compact cancel/retry/error UI,
+    protected content, identity labels, optional collapsed details, and a
+    persisted blur control defaulted off. Multiple configured catalog backends
+    are readiness-filtered before deterministic selection. See ADRs 0019–0020.
+
 Steps are delivered and reviewed independently. Step 11 cannot select providers
 until a future listening decision is approved. Any future deployment acceptance
 must use the intended LAN hardware and service topology.

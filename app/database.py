@@ -102,6 +102,10 @@ def initialize_database(path, session_ttl_seconds, secret_store=None):
         (stamp,),
     )
     conn.execute(
+        "UPDATE chat_attachments SET status='failed', safe_error='Image generation was interrupted by a restart.', retry_available=1, completed_at=?, updated_at=? WHERE status IN ('queued','running')",
+        (stamp, stamp),
+    )
+    conn.execute(
         "UPDATE task_model_runs SET status='failed', error_code='interrupted', error_message='interrupted by server restart', completed_at=? WHERE status='running'",
         (stamp,),
     )

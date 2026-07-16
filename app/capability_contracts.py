@@ -49,7 +49,7 @@ class CapabilityDefinition:
     title: str
     description: str
     kind: Literal["image", "video"]
-    permission_mode: Literal["confirm", "explicit"] = "confirm"
+    permission_mode: Literal["confirm", "explicit", "auto"] = "confirm"
 
     def tool_schema(self) -> dict:
         return {
@@ -93,7 +93,7 @@ class CapabilityRegistry:
                 title="Generate image",
                 description=(
                     "Request an image from the platform. Supply visual intent only; the platform applies its "
-                    "configured provider and settings. The user must approve before generation starts."
+                    "configured provider and settings. Clear user image actions follow the saved confirmation policy."
                 ),
                 kind="image",
             ),

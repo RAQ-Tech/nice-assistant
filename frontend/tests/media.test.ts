@@ -50,10 +50,9 @@ describe('media presentation', () => {
       image_local_backend: 'comfyui',
       image_local_base_url: 'http://comfyui.test',
     } as AppState['settings'];
-    const cancelled = { ...completedJob(null), status: 'cancelled', progress: 'Cancelled' } as Job;
     const client = {
       imageJob: async () => ({ job_id: 'job-1', capability_request_id: 'request-1', chat_id: 'chat-1', status: 'queued' }),
-      job: async () => cancelled,
+      capabilityRequest: async () => ({ id: 'request-1', status: 'cancelled' }),
     } as unknown as ApiClient;
     const media = new MediaController(appState, stateMachine, client);
 

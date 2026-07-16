@@ -503,6 +503,56 @@ input[type='file']::file-selector-button {
   font-size: .8rem;
 }
 
+.chat-attachments {
+  display: grid;
+  gap: .45rem;
+}
+
+.chat-attachment {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: .55rem;
+  flex-wrap: wrap;
+  margin: .35rem 0;
+  color: var(--text-dim);
+  font-size: .9rem;
+}
+
+.chat-attachment .attachment-image {
+  flex-basis: 100%;
+  margin: 0;
+  cursor: pointer;
+}
+
+.attachment-progress,
+.attachment-failed,
+.attachment-cancelled,
+.attachment-retried {
+  padding: .55rem .65rem;
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--panel) 60%, transparent);
+  border: 1px solid var(--border);
+}
+
+.attachment-failed { color: var(--danger); }
+.attachment-action { margin-left: auto; }
+.attachment-identity { margin: 0; font-size: .78rem; color: var(--text-dim); }
+.attachment-details { flex-basis: 100%; font-size: .78rem; color: var(--text-dim); }
+.attachment-details summary { cursor: pointer; width: max-content; }
+.attachment-details p { margin: .3rem 0 0; }
+
+.attachment-spinner {
+  width: .8rem;
+  height: .8rem;
+  border: 2px solid color-mix(in srgb, var(--accent) 30%, transparent);
+  border-top-color: var(--accent);
+  border-radius: 999px;
+  animation: attachment-spin .9s linear infinite;
+}
+
+@keyframes attachment-spin { to { transform: rotate(360deg); } }
+
 .composer {
   display: grid;
   grid-template-columns: 1fr auto auto;

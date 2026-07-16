@@ -288,6 +288,22 @@ export class EverydaySettingsView {
         true,
         'Local uses Automatic1111 or ComfyUI on your LAN. OpenAI sends the prompt to OpenAI.',
       ),
+      selectField(
+        'When you explicitly ask for a picture',
+        settings.image_confirmation_policy,
+        ['auto_explicit_request', 'always_ask'],
+        (value) => this.change('image_confirmation_policy', value as Settings['image_confirmation_policy']),
+        'image-confirmation-policy',
+        (value) => value === 'always_ask' ? 'Ask me again' : 'Make it automatically',
+        true,
+        'Automatic applies only to clear image-action requests. Stories, quoted instructions, and image discussion do not start a job.',
+      ),
+      toggleField(
+        'Blur pictures in chat',
+        settings.chat_blur_images,
+        (value) => this.change('chat_blur_images', value),
+        'When enabled, the first tap reveals a picture and the second opens the large preview. The default is off.',
+      ),
       inputField(
         'Resolution',
         settings.image_size,
@@ -372,6 +388,19 @@ export class EverydaySettingsView {
         'These defaults power direct image actions. Persona-planned generation may select richer Media Catalog resources.',
       ),
       settingsCard(common),
+      this.appState.mediaReadiness
+        ? settingsCard([
+            settingsHeading('Images readiness', this.appState.mediaReadiness.basic_generation.message),
+            el('div', {
+              class: 'settings-readiness-facts',
+              textContent: [
+                `Provider: ${this.appState.mediaReadiness.provider.reachable ? 'reachable' : this.appState.mediaReadiness.provider.status}`,
+                `Basic generation: ${this.appState.mediaReadiness.basic_generation.ready ? 'ready' : 'not ready'}`,
+                `Optional identity enhancement: ${this.appState.mediaReadiness.optional_identity.ready ? 'ready' : 'not configured'}`,
+              ].join(' · '),
+            }),
+          ])
+        : null,
       settings.image_provider === 'disabled'
         ? el('div', { class: 'settings-empty-state', textContent: 'Image generation is off.' })
         : settingsCard([

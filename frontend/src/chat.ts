@@ -4,13 +4,14 @@ import { errorMessage } from './dom';
 import { waitForJob } from './media';
 import { modelSettings } from './settings';
 import { clearIdentitySetupContextForChat, machine, state, type ClientStateMachine } from './state';
-import type { AppState, Chat, Job, Message, TurnEvent } from './types';
+import type { AppState, CapabilityRequest, Chat, Job, Message, TurnEvent } from './types';
 import type { PlaybackController } from './playback';
 
 export class ChatController {
   private onChange: () => void = () => undefined;
   private onNavigate: (chatId: string) => void = () => undefined;
   private streamAbort: AbortController | null = null;
+  private readonly capabilityPolls = new Set<string>();
 
   constructor(
     private readonly playback: PlaybackController,
@@ -47,6 +48,7 @@ export class ChatController {
       this.appState.selectedMemoryMode = detail.chat.memory_mode;
       this.appState.uiError = '';
       this.stateMachine.transition('idle');
+      this.resumeCapabilities(detail.chat.id, capabilities.items);
     } catch (error) {
       this.appState.uiError = errorMessage(error, 'Unable to open this chat.');
       this.stateMachine.transition('error');
@@ -267,7 +269,10 @@ export class ChatController {
     this.mergeChat(detail.chat);
     try {
       const capabilities = await this.client.capabilityRequests(chatId);
-      if (this.appState.currentChat?.id === chatId) this.appState.capabilityRequests = capabilities.items;
+      if (this.appState.currentChat?.id === chatId) {
+        this.appState.capabilityRequests = capabilities.items;
+        this.resumeCapabilities(chatId, capabilities.items);
+      }
     } catch {
       // Capability reconciliation is nonessential to the delivered conversation reply.
     }
@@ -298,6 +303,39 @@ export class ChatController {
   private releaseRequest(jobId: string | null, abort: AbortController | null): void {
     if (jobId && this.appState.pendingRequest?.jobId === jobId) this.appState.pendingRequest = null;
     if (abort && this.streamAbort === abort) this.streamAbort = null;
+  }
+
+  private resumeCapabilities(chatId: string, requests: CapabilityRequest[]): void {
+    requests
+      .filter((request) => request.attachment && ['queued', 'running'].includes(request.status))
+      .forEach((request) => {
+        if (this.capabilityPolls.has(request.id)) return;
+        this.capabilityPolls.add(request.id);
+        void this.pollCapability(chatId, request.id);
+      });
+  }
+
+  private async pollCapability(chatId: string, requestId: string): Promise<void> {
+    try {
+      while (this.appState.currentChat?.id === chatId) {
+        const current = await this.client.capabilityRequest(requestId);
+        this.appState.capabilityRequests = [
+          ...this.appState.capabilityRequests.filter((item) => item.id !== current.id),
+          current,
+        ].sort((left, right) => left.requested_at - right.requested_at);
+        const detail = await this.client.chat(chatId);
+        if (this.appState.currentChat?.id !== chatId) break;
+        this.appState.currentChat = detail.chat;
+        this.appState.messages = detail.messages;
+        this.onChange();
+        if (!['queued', 'running'].includes(current.status)) break;
+        await new Promise((resolve) => window.setTimeout(resolve, 500));
+      }
+    } catch {
+      // Durable server state is reloaded on the next chat open; polling failure is not a generation failure.
+    } finally {
+      this.capabilityPolls.delete(requestId);
+    }
   }
 
   private requiredSettings() {

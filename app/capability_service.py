@@ -13,7 +13,7 @@ from app.job_service import JobExecution, JobService
 from app.identity_conditioning import IDENTITY_CONTROL_FEATURE
 from app.repositories import UnitOfWork, now_ts
 from app.service_errors import ConflictError, NotFoundError, RequestError
-from app.task_contracts import AvailableCapability, PlannedCapability
+from app.task_contracts import AvailableCapability, PlannedCapability, is_high_confidence_media_action_request
 
 
 def _json_object(value: str | None) -> dict:
@@ -24,6 +24,70 @@ def _json_object(value: str | None) -> dict:
     except (TypeError, ValueError):
         return {}
     return parsed if isinstance(parsed, dict) else {}
+
+
+def _identity_state(kind: str, result: dict | None) -> str:
+    if kind != "image":
+        return "not_applicable"
+    identity = (result or {}).get("identityConditioning")
+    if not isinstance(identity, dict):
+        return "not_applicable"
+    if identity.get("status") == "unconditioned":
+        return "unconditioned"
+    if identity.get("claim_status") == "verified" or identity.get("verification_status") == "passed":
+        return "verified"
+    return "unverified"
+
+
+def _blocked_identity_needs_confirmation(*, auto_execute: bool, plan, required_features: list[str]) -> bool:
+    """Keep an explicitly strict identity policy remediable instead of failing an auto request."""
+
+    return bool(auto_execute and plan.status == "blocked" and IDENTITY_CONTROL_FEATURE in required_features)
+
+
+def attachment_response(row) -> dict | None:
+    if not row:
+        return None
+    return {
+        "id": row.id,
+        "kind": row.kind,
+        "status": row.status,
+        "capability_request_id": row.capability_request_id,
+        "media_id": row.media_id,
+        "content_url": f"/api/v1/media/{row.media_id}" if row.media_id else None,
+        "identity_state": row.identity_state,
+        "safe_error": row.safe_error,
+        "retry_available": bool(row.retry_available),
+        "created_at": row.created_at,
+        "updated_at": row.updated_at,
+        "completed_at": row.completed_at,
+    }
+
+
+def _sync_attachment(repo, request, state: str, *, message: str | None = None, result: dict | None = None) -> None:
+    attachment = repo.chat_attachment_for_capability(request.user_id, request.id)
+    if not attachment:
+        return
+    attachment.status = {
+        "pending_confirmation": "queued",
+        "denied": "cancelled",
+        "expired": "cancelled",
+    }.get(state, state)
+    attachment.updated_at = now_ts()
+    if result is not None:
+        attachment.media_id = str(result.get("mediaId") or "") or None
+        attachment.identity_state = _identity_state(attachment.kind, result)
+    if state == "failed":
+        attachment.safe_error = redact_sensitive_text(message or "Image generation failed.")[:500]
+        attachment.retry_available = 1
+    elif state == "cancelled":
+        attachment.safe_error = None
+        attachment.retry_available = 1
+    elif state in CAPABILITY_TERMINAL_STATES:
+        attachment.safe_error = None
+        attachment.retry_available = 0
+    if state in CAPABILITY_TERMINAL_STATES:
+        attachment.completed_at = now_ts()
 
 
 class InvalidCapabilityTransition(RuntimeError):
@@ -55,6 +119,7 @@ def transition_capability(
     request.error_message = redact_sensitive_text(message or "")[:1000] or None
     if result is not None:
         request.result_json = json.dumps(result, separators=(",", ":"), ensure_ascii=False, default=str)
+    _sync_attachment(repo, request, state, message=message, result=result)
     repo.add_capability_event(
         request,
         action,
@@ -75,6 +140,8 @@ class CapabilityService:
         media_catalog,
         logger,
         provider_url_policy=None,
+        provider_service=None,
+        identity_service=None,
     ):
         self.session_factory = session_factory
         self.secret_store = secret_store
@@ -84,6 +151,8 @@ class CapabilityService:
         self.media_catalog = media_catalog
         self.logger = logger
         self.provider_url_policy = provider_url_policy
+        self.provider_service = provider_service
+        self.identity_service = identity_service
 
     def _uow(self):
         return UnitOfWork(self.session_factory, self.secret_store)
@@ -119,6 +188,94 @@ class CapabilityService:
     def definitions(self, user_id: str) -> list[dict]:
         enabled = self._enabled_keys(user_id)
         return [{**item.public(), "available": item.key in enabled} for item in self.registry.definitions()]
+
+    def _ready_media_backends(self, repo, user_id: str, kind: str):
+        """Check fallback candidates only when multiple explicit catalog backends exist."""
+
+        if not self.provider_service:
+            return None
+        candidates = sorted(
+            {
+                (row.provider_key, row.backend)
+                for row in repo.media_catalog_resources(user_id, enabled=True)
+                if row.resource_type == "model" and row.kind == kind
+            }
+        )
+        if len(candidates) <= 1:
+            return None
+        ready = set()
+        for provider_key, backend in candidates:
+            check_key = backend if provider_key == "local-image" else "openai"
+            checked = self.provider_service.check(user_id, check_key)
+            if checked and checked.get("ok"):
+                ready.add((provider_key, backend))
+        return ready
+
+    def media_readiness(self, user_id: str) -> dict:
+        """Return an everyday image readiness summary without exposing catalog internals."""
+
+        with self._uow() as uow:
+            settings = uow.repo.settings(user_id) or {}
+            preferences = settings.get("preferences") or {}
+            configured = str(preferences.get("image_provider") or "disabled").strip().lower()
+            local_backend = str(preferences.get("image_local_backend") or "automatic1111").strip().lower()
+        provider_key = {
+            "local/automatic1111": "automatic1111",
+            "local/comfyui": "comfyui",
+            "local": local_backend,
+            "a1111": "automatic1111",
+        }.get(configured, configured)
+        provider = {
+            "key": provider_key,
+            "reachable": False,
+            "status": "disabled",
+            "message": "Choose an image provider to enable image generation.",
+        }
+        if provider_key != "disabled" and self.provider_service:
+            checked = self.provider_service.check(user_id, provider_key)
+            if checked:
+                provider = {
+                    "key": provider_key,
+                    "reachable": bool(checked.get("ok")),
+                    "status": str(checked.get("status") or "unknown"),
+                    "message": str(checked.get("message") or "Provider readiness is unknown."),
+                }
+        catalog_ready = self.media_catalog.has_ready_resource(user_id, "image")
+        basic_ready = bool(catalog_ready and provider["reachable"])
+        identity = {
+            "ready": False,
+            "status": "optional",
+            "message": "Optional identity matching is not configured. Basic images are still available.",
+        }
+        vocabulary = self.media_catalog.vocabulary(user_id)
+        if IDENTITY_CONTROL_FEATURE in (vocabulary.get("features") or []) and self.identity_service:
+            try:
+                checked_identity = self.identity_service.check_provider(user_id)
+            except ConflictError:
+                checked_identity = {
+                    "ready": False,
+                    "status": "incomplete",
+                    "message": "Optional identity matching settings are incomplete.",
+                }
+            identity = {
+                "ready": bool(checked_identity.get("ready")),
+                "status": str(checked_identity.get("status") or "unknown"),
+                "message": str(checked_identity.get("message") or "Optional identity readiness is unknown."),
+            }
+        return {
+            "provider": provider,
+            "basic_generation": {
+                "ready": basic_ready,
+                "message": (
+                    "Images are ready."
+                    if basic_ready
+                    else provider["message"]
+                    if not provider["reachable"]
+                    else "The provider is reachable, but no basic image workflow is ready."
+                ),
+            },
+            "optional_identity": identity,
+        }
 
     def list_requests(
         self,
@@ -183,6 +340,7 @@ class CapabilityService:
                 row.id,
                 requirements,
                 persona_id=persona_id,
+                ready_backends=self._ready_media_backends(uow.repo, user_id, definition.kind),
             )
             uow.repo.add_capability_event(
                 row,
@@ -223,14 +381,26 @@ class CapabilityService:
         user_id: str,
         chat_id: str,
         turn_id: str,
+        user_text: str,
         planned: list[PlannedCapability],
     ) -> list[dict]:
         chat = repo.chat(user_id, chat_id)
         if not chat:
             raise NotFoundError("chat not found")
+        turn = repo.turn_by_id(turn_id)
+        if not turn or not turn.assistant_message_id:
+            raise ConflictError("The assistant reply must be durable before media can be attached.")
+        settings = repo.settings(user_id) or {}
+        preferences = settings.get("preferences") or {}
+        image_policy = str(preferences.get("image_confirmation_policy") or "auto_explicit_request")
         prepared = []
         for index, request in enumerate(planned):
             definition = self.registry.by_key(request.capability_key)
+            if not is_high_confidence_media_action_request(user_text):
+                continue
+            auto_execute = definition.kind == "image" and image_policy == "auto_explicit_request"
+            status = "queued" if auto_execute else "pending_confirmation"
+            permission_mode = "auto" if auto_execute else "confirm"
             requirements = self.registry.requirements(definition, {"prompt": request.prompt})
             requirements = requirements.__class__(
                 kind=requirements.kind,
@@ -246,10 +416,11 @@ class CapabilityService:
                 turn_id=turn_id,
                 capability_key=definition.key,
                 arguments=requirements.as_arguments(),
-                status="pending_confirmation",
-                permission_mode="confirm",
+                status=status,
+                permission_mode=permission_mode,
                 idempotency_key=f"turn:{turn_id}:task:{index}:{definition.key}",
             )
+            job = repo.job_for_capability(row.id)
             if created:
                 plan = self.media_catalog.create_coordinator_plan(
                     repo,
@@ -263,16 +434,98 @@ class CapabilityService:
                         "required_features": requirements.required_features,
                     },
                     persona_id=chat.persona_id,
+                    ready_backends=self._ready_media_backends(repo, user_id, definition.kind),
                 )
+                if _blocked_identity_needs_confirmation(
+                    auto_execute=auto_execute,
+                    plan=plan,
+                    required_features=requirements.required_features,
+                ):
+                    row.status = "pending_confirmation"
+                    row.permission_mode = "confirm"
+                    row.permission_mode_effective = "confirm"
+                    auto_execute = False
                 repo.add_capability_event(
                     row,
                     "requested",
                     from_status=None,
-                    to_status="pending_confirmation",
+                    to_status=row.status,
                     detail={"source": "task_model", "media_plan_status": plan.status},
                 )
-            prepared.append(self._response(repo, row))
+                repo.add_chat_attachment(
+                    user_id=user_id,
+                    chat_id=chat_id,
+                    assistant_message_id=turn.assistant_message_id,
+                    capability_request_id=row.id,
+                    kind=definition.kind,
+                    status="queued",
+                )
+                if auto_execute and plan.status == "ready":
+                    job = repo.add_job(
+                        user_id=user_id,
+                        chat_id=chat_id,
+                        turn_id=None,
+                        kind=definition.kind,
+                        progress="Queued",
+                        capability_request_id=row.id,
+                    )
+                    repo.add_capability_event(row, "queued", from_status="queued", to_status="queued")
+                elif auto_execute:
+                    transition_capability(
+                        repo,
+                        row,
+                        "failed",
+                        "failed",
+                        code=plan.block_code or "plan_blocked",
+                        message=plan.block_message or "Image generation is not ready.",
+                    )
+            response = self._response(repo, row, job=job)
+            if created and auto_execute and job and row.status == "queued":
+                response["auto_submit"] = True
+            prepared.append(response)
         return prepared
+
+    def submit_queued(self, user_id: str, request_id: str) -> dict | None:
+        """Submit a durable auto-approved request after its creating transaction commits."""
+
+        submit = False
+        values: dict = {}
+        kind = ""
+        chat_id = None
+        with self._uow() as uow:
+            row = uow.repo.capability_request(user_id, request_id)
+            if not row:
+                return None
+            job = uow.repo.job_for_capability(row.id)
+            definition = self.registry.by_key(row.capability_key)
+            kind = definition.kind
+            chat_id = row.chat_id
+            if row.status == "queued" and job and job.status == "queued":
+                values = _json_object(row.arguments_json)
+                execution_spec = self.media_catalog.execution_spec(uow.repo, user_id, row.id)
+                values.update(execution_spec["options"])
+                values["_estimated_vram_mb"] = execution_spec["estimated_vram_mb"]
+                submit = True
+            response = self._response(uow.repo, row, job=job)
+        if submit:
+            self._submit(request_id, job.id, kind, user_id, chat_id, values)
+        return response
+
+    def fail_queued_submission(self, user_id: str, request_id: str) -> dict | None:
+        with self._uow() as uow:
+            row = uow.repo.capability_request(user_id, request_id)
+            if not row:
+                return None
+            if row.status == "queued":
+                transition_capability(
+                    uow.repo,
+                    row,
+                    "failed",
+                    "failed",
+                    code="submission_failed",
+                    message="Image generation could not start. You can retry it.",
+                )
+            return self._response(uow.repo, row)
 
     def start_explicit(
         self,
@@ -312,7 +565,8 @@ class CapabilityService:
         submit = False
         submission_values = dict(execution_arguments)
         with self._uow() as uow:
-            if chat_id and not uow.repo.chat(user_id, chat_id):
+            chat = uow.repo.chat(user_id, chat_id) if chat_id else None
+            if chat_id and not chat:
                 raise NotFoundError("chat not found")
             row, created = uow.repo.add_capability_request(
                 user_id=user_id,
@@ -342,6 +596,17 @@ class CapabilityService:
                     to_status="queued",
                     detail={"source": "explicit_user_action"},
                 )
+                if chat_id:
+                    assistant = uow.repo.add_message(chat_id, "assistant", "")
+                    chat.updated_at = now_ts()
+                    uow.repo.add_chat_attachment(
+                        user_id=user_id,
+                        chat_id=chat_id,
+                        assistant_message_id=assistant.id,
+                        capability_request_id=row.id,
+                        kind=kind,
+                        status="queued",
+                    )
             else:
                 plan = uow.repo.media_execution_plan_for_capability(user_id, row.id)
             if plan:
@@ -361,6 +626,134 @@ class CapabilityService:
             response = self._response(uow.repo, row, job=job)
         if submit:
             self._submit(response["id"], job.id, definition.kind, user_id, chat_id, submission_values)
+        return response
+
+    def retry(self, user_id: str, request_id: str) -> dict | None:
+        submit = False
+        kind = ""
+        chat_id = None
+        values: dict = {}
+        with self._uow() as uow:
+            original = uow.repo.capability_request(user_id, request_id)
+            if not original:
+                return None
+            attachment = uow.repo.chat_attachment_for_capability(user_id, original.id)
+            if not attachment or not attachment.retry_available or original.status not in {"failed", "cancelled"}:
+                raise ConflictError("This image cannot be retried.")
+            definition = self.registry.by_key(original.capability_key)
+            if definition.kind != "image" or not original.chat_id:
+                raise ConflictError("Only failed chat images can be retried here.")
+            chat = uow.repo.chat(user_id, original.chat_id)
+            if not chat:
+                raise NotFoundError("chat not found")
+            settings = uow.repo.settings(user_id) or {}
+            preferences = settings.get("preferences") or {}
+            auto_execute = (
+                str(preferences.get("image_confirmation_policy") or "auto_explicit_request") == "auto_explicit_request"
+            )
+            status = "queued" if auto_execute else "pending_confirmation"
+            permission_mode = "auto" if auto_execute else "confirm"
+            arguments = _json_object(original.arguments_json)
+            row, _created = uow.repo.add_capability_request(
+                user_id=user_id,
+                chat_id=original.chat_id,
+                turn_id=None,
+                capability_key=original.capability_key,
+                arguments=arguments,
+                status=status,
+                permission_mode=permission_mode,
+                idempotency_key=f"retry:{original.id}:{secrets.token_hex(12)}",
+                retry_of_request_id=original.id,
+            )
+            prior_plan = uow.repo.media_execution_plan_for_capability(user_id, original.id)
+            if prior_plan and prior_plan.source == "coordinator":
+                plan = self.media_catalog.create_coordinator_plan(
+                    uow.repo,
+                    user_id,
+                    row.id,
+                    {
+                        "kind": definition.kind,
+                        "operation": arguments.get("operation") or "generate",
+                        "domains": arguments.get("domains") or [],
+                        "content_tags": arguments.get("content_tags") or [],
+                        "required_features": arguments.get("required_features") or [],
+                    },
+                    persona_id=chat.persona_id,
+                    ready_backends=self._ready_media_backends(uow.repo, user_id, definition.kind),
+                )
+            else:
+                plan = self.media_catalog.create_manual_plan(
+                    repo=uow.repo,
+                    user_id=user_id,
+                    capability_request_id=row.id,
+                    kind=definition.kind,
+                )
+            if _blocked_identity_needs_confirmation(
+                auto_execute=auto_execute,
+                plan=plan,
+                required_features=list(arguments.get("required_features") or []),
+            ):
+                row.status = "pending_confirmation"
+                row.permission_mode = "confirm"
+                row.permission_mode_effective = "confirm"
+                auto_execute = False
+            uow.repo.add_capability_event(
+                row,
+                "requested",
+                from_status=None,
+                to_status=row.status,
+                detail={"source": "retry", "retry_of": original.id, "media_plan_status": plan.status},
+            )
+            assistant = uow.repo.add_message(original.chat_id, "assistant", "")
+            chat.updated_at = now_ts()
+            uow.repo.add_chat_attachment(
+                user_id=user_id,
+                chat_id=original.chat_id,
+                assistant_message_id=assistant.id,
+                capability_request_id=row.id,
+                kind=definition.kind,
+                status="queued",
+            )
+            attachment.status = "retried"
+            attachment.retry_available = 0
+            attachment.updated_at = now_ts()
+            uow.repo.add_capability_event(
+                original,
+                "retried",
+                from_status=original.status,
+                to_status=original.status,
+                detail={"retry_request_id": row.id},
+            )
+            job = None
+            if auto_execute and plan.status == "ready":
+                job = uow.repo.add_job(
+                    user_id=user_id,
+                    chat_id=original.chat_id,
+                    turn_id=None,
+                    kind=definition.kind,
+                    progress="Queued",
+                    capability_request_id=row.id,
+                )
+                uow.repo.add_capability_event(row, "queued", from_status="queued", to_status="queued")
+                execution_spec = self.media_catalog.execution_spec(uow.repo, user_id, row.id)
+                values = dict(arguments)
+                values.update(execution_spec["options"])
+                values["_estimated_vram_mb"] = execution_spec["estimated_vram_mb"]
+                submit = True
+            elif auto_execute:
+                transition_capability(
+                    uow.repo,
+                    row,
+                    "failed",
+                    "failed",
+                    code=plan.block_code or "plan_blocked",
+                    message=plan.block_message or "Image generation is not ready.",
+                )
+            response = self._response(uow.repo, row, job=job)
+            kind = definition.kind
+            chat_id = original.chat_id
+        if submit:
+            self._submit(response["id"], job.id, kind, user_id, chat_id, values)
         return response
 
     def start_edit(
@@ -585,7 +978,7 @@ class CapabilityService:
             "id": row.id,
             "capability_key": row.capability_key,
             "status": row.status,
-            "permission_mode": row.permission_mode,
+            "permission_mode": row.permission_mode_effective,
             "arguments": _json_object(row.arguments_json),
             "result": _json_object(row.result_json) if row.result_json else None,
             "error": error,
@@ -598,5 +991,7 @@ class CapabilityService:
             "started_at": row.started_at,
             "completed_at": row.completed_at,
             "expires_at": row.expires_at,
+            "retry_of_request_id": row.retry_of_request_id,
+            "attachment": attachment_response(repo.chat_attachment_for_capability(row.user_id, row.id)),
             "media_plan": self.media_catalog.plan_for_capability(repo, row.user_id, row.id),
         }

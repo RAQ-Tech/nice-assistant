@@ -83,13 +83,22 @@ Provider cancellation is cooperative, so a provider incapable of interruption
 may consume resources until its request returns even though the late result is
 discarded.
 
-Model-requested capabilities remain pending until an authenticated user approves
-or denies them. Direct media buttons create explicit capability records and may
-start immediately. `Idempotency-Key` is supported on media-job creation; reuse
+High-confidence explicit image requests start under the saved
+`auto_explicit_request` policy. `always_ask` image requests, video, and
+consequential capabilities remain pending until an authenticated user approves
+or denies them. Stories, quoted instructions, explanations, and ambiguous media
+discussion create no job. Direct media buttons create explicit capability
+records and durable chat attachments. `Idempotency-Key` is supported on media-job creation; reuse
 with a different payload returns a conflict. Operators can inspect durable
 capability history through `/api/v1/capability-requests/{id}/events`. A configured
 provider is not proof of healthy external capacity; readiness checks and final
 job state remain authoritative.
+
+`GET /api/v1/media/readiness` separates provider reachability, basic generation,
+and optional identity enhancement. Missing optional identity readiness never
+changes a ready basic image fact. If several enabled catalog image backends are
+configured, coordinator planning checks them and deterministically selects among
+the reachable candidates; attachment Details identifies the selected backend.
 
 Task Model profiles live under Settings -> Task Models. A blank model means the
 first installed Ollama model, which is reported by the readiness check; explicit
@@ -286,6 +295,10 @@ kind is empty, leaving every existing operator resource unchanged.
 Migration `0016_identity_fallback` adds the explicit
 `allow_unconditioned`/`require_conditioning` policy to visual-identity profiles;
 existing rows use the compatibility-preserving warned fallback.
+Migration `0017_chat_attachments` adds reload-safe media attachments, linked
+retries, and the two image experience preferences. Startup marks interrupted
+queued/running attachments failed and retryable; it never duplicates or silently
+resumes provider work.
 Schema migrations are
 forward-only. Rollback means
 stopping the service,

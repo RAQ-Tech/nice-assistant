@@ -29,7 +29,12 @@ class AsyncJobTests(unittest.TestCase):
             running.services.providers.media_providers["local-image"] = object()
             running.client.put(
                 "/api/v1/settings",
-                json={"preferences": {"image_provider": "local/automatic1111"}},
+                json={
+                    "preferences": {
+                        "image_provider": "local/automatic1111",
+                        "image_confirmation_policy": "always_ask",
+                    }
+                },
             )
             chat = running.client.post(
                 "/api/v1/chats",
@@ -167,13 +172,18 @@ class AsyncJobTests(unittest.TestCase):
             running.services.providers.media_providers["local-image"] = object()
             saved = running.client.put(
                 "/api/v1/settings",
-                json={"preferences": {"image_provider": "local/automatic1111"}},
+                json={
+                    "preferences": {
+                        "image_provider": "local/automatic1111",
+                        "image_confirmation_policy": "always_ask",
+                    }
+                },
             )
             self.assertEqual(saved.status_code, 200, saved.text)
             chat = running.client.post("/api/v1/chats", json={"title": "Capability"}).json()
             started = running.client.post(
                 f"/api/v1/chats/{chat['id']}/turns",
-                json={"text": "Tell me something visual"},
+                json={"text": "Generate an image of a small cat"},
             ).json()
             job = running.wait_job(started["job"]["id"])
             self.assertEqual(job["result"]["text"], "I can make that for you.")

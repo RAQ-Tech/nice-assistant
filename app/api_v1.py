@@ -294,11 +294,27 @@ class ChatRepresentation(BaseModel):
     updated_at: int
 
 
+class ChatAttachmentRepresentation(BaseModel):
+    id: str
+    kind: Literal["image", "video"]
+    status: Literal["queued", "running", "completed", "failed", "cancelled", "retried"]
+    capability_request_id: str
+    media_id: str | None = None
+    content_url: str | None = None
+    identity_state: Literal["not_applicable", "unconditioned", "verified", "unverified"]
+    safe_error: str | None = None
+    retry_available: bool
+    created_at: int
+    updated_at: int
+    completed_at: int | None = None
+
+
 class MessageRepresentation(BaseModel):
     id: str
     role: str
     text: str
     created_at: int
+    attachments: list[ChatAttachmentRepresentation] = Field(default_factory=list)
 
 
 class ChatListResponse(BaseModel):
@@ -580,7 +596,7 @@ class CapabilityRequestRepresentation(BaseModel):
     id: str
     capability_key: str
     status: CapabilityState
-    permission_mode: Literal["confirm", "explicit"]
+    permission_mode: Literal["confirm", "explicit", "auto"]
     arguments: dict
     result: dict | None = None
     error: TurnErrorRepresentation | None = None
@@ -593,6 +609,8 @@ class CapabilityRequestRepresentation(BaseModel):
     started_at: int | None = None
     completed_at: int | None = None
     expires_at: int | None = None
+    retry_of_request_id: str | None = None
+    attachment: ChatAttachmentRepresentation | None = None
     media_plan: MediaPlanRepresentation | None = None
 
 
@@ -613,6 +631,28 @@ class CapabilityEventRepresentation(BaseModel):
 class CapabilityHistoryResponse(BaseModel):
     request: CapabilityRequestRepresentation
     events: list[CapabilityEventRepresentation]
+
+
+class MediaReadinessFact(BaseModel):
+    ready: bool
+    message: str
+
+
+class OptionalIdentityReadinessFact(MediaReadinessFact):
+    status: str
+
+
+class MediaProviderReadiness(BaseModel):
+    key: str
+    reachable: bool
+    status: str
+    message: str
+
+
+class MediaReadinessResponse(BaseModel):
+    provider: MediaProviderReadiness
+    basic_generation: MediaReadinessFact
+    optional_identity: OptionalIdentityReadinessFact
 
 
 class TaskModelProfileUpdate(StrictModel):
@@ -1094,6 +1134,18 @@ def replan_capability(request_id: str, request: Request, context: AuthContext = 
     return value
 
 
+@router.post(
+    "/capability-requests/{request_id}/retry",
+    response_model=CapabilityRequestRepresentation,
+    tags=["capabilities"],
+)
+def retry_capability(request_id: str, request: Request, context: AuthContext = Depends(current_user)):
+    value = services(request).capabilities.retry(context.user_id, request_id)
+    if not value:
+        raise NotFoundError("capability request not found")
+    return value
+
+
 @router.get(
     "/capability-requests/{request_id}/events",
     response_model=CapabilityHistoryResponse,
@@ -1150,6 +1202,15 @@ def cancel_capability(request_id: str, request: Request, context: AuthContext = 
 )
 def media_catalog(request: Request, context: AuthContext = Depends(current_user)):
     return services(request).media_catalog.catalog(context.user_id)
+
+
+@router.get(
+    "/media/readiness",
+    response_model=MediaReadinessResponse,
+    tags=["media"],
+)
+def media_readiness(request: Request, context: AuthContext = Depends(current_user)):
+    return services(request).capabilities.media_readiness(context.user_id)
 
 
 @router.put(

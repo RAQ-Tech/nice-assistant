@@ -32,6 +32,7 @@ export function createState(): AppState {
     taskModelChecks: {},
     taskModelBusy: {},
     mediaCatalog: null,
+    mediaReadiness: null,
     mediaCatalogBusy: false,
     mediaPlanPreview: null,
     mediaCatalogIdentitySetupIntent: null,

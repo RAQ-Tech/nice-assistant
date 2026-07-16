@@ -15,6 +15,7 @@ import type {
   MediaLibraryItem,
   MediaPlan,
   MediaPlanRequirements,
+  MediaReadiness,
   IdentityEvent,
   IdentityReference,
   IdentityValidation,
@@ -373,6 +374,14 @@ export class ApiClient {
 
   cancelCapability(id: string): Promise<CapabilityRequest> {
     return this.request(`/capability-requests/${encodeURIComponent(id)}`, { method: 'DELETE' });
+  }
+
+  retryCapability(id: string): Promise<CapabilityRequest> {
+    return this.request(`/capability-requests/${encodeURIComponent(id)}/retry`, { method: 'POST' });
+  }
+
+  mediaReadiness(): Promise<MediaReadiness> {
+    return this.request('/media/readiness');
   }
 
   mediaCatalog(): Promise<MediaCatalog> {

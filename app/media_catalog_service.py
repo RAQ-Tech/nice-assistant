@@ -238,10 +238,17 @@ class MediaCatalogService:
         requirements: dict,
         *,
         persona_id: str | None,
+        ready_backends=None,
     ):
         normalized = self._normalize_requirements(requirements)
         self._ensure_imported(repo, user_id)
-        built = self._build_plan(repo, user_id, normalized, persona_id=persona_id)
+        built = self._build_plan(
+            repo,
+            user_id,
+            normalized,
+            persona_id=persona_id,
+            ready_backends=ready_backends,
+        )
         return repo.add_media_execution_plan(
             user_id=user_id,
             capability_request_id=capability_request_id,
@@ -256,6 +263,7 @@ class MediaCatalogService:
         requirements: dict,
         *,
         persona_id: str | None,
+        ready_backends=None,
     ):
         normalized = self._normalize_requirements(requirements)
         self._ensure_imported(repo, user_id)
@@ -264,7 +272,13 @@ class MediaCatalogService:
             raise NotFoundError("media execution plan not found")
         if row.status != "blocked":
             raise ConflictError("Only a blocked media plan can be replanned.")
-        built = self._build_plan(repo, user_id, normalized, persona_id=persona_id)
+        built = self._build_plan(
+            repo,
+            user_id,
+            normalized,
+            persona_id=persona_id,
+            ready_backends=ready_backends,
+        )
         return repo.save_media_execution_plan(
             row,
             self._plan_row_values("coordinator", normalized, built),
@@ -395,8 +409,16 @@ class MediaCatalogService:
         options["_mask_image_path"] = mask.local_path
         options["_mask_image_sha256"] = sha256(mask_content).hexdigest()
 
-    def _build_plan(self, repo, user_id: str, requirements: dict, *, persona_id: str | None) -> dict:
-        built = build_media_plan(repo, user_id, requirements, self.providers)
+    def _build_plan(
+        self,
+        repo,
+        user_id: str,
+        requirements: dict,
+        *,
+        persona_id: str | None,
+        ready_backends=None,
+    ) -> dict:
+        built = build_media_plan(repo, user_id, requirements, self.providers, ready_backends)
         identity_required = IDENTITY_CONTROL_FEATURE in requirements["required_features"]
         built["identity_conditioning"] = (
             {

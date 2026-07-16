@@ -176,16 +176,16 @@ without waiting for speech.
 
 ### Phase 2 - create one durable image path
 
-- [ ] Represent every direct or Task-Model image request as the same durable,
+- [x] Represent every direct or Task-Model image request as the same durable,
   owner-scoped capability plus chat-attachment record.
-- [ ] Migrate the direct image action off its synthetic browser-only message and
+- [x] Migrate the direct image action off its synthetic browser-only message and
   manual-plan presentation without breaking its simple one-click behavior.
-- [ ] Render queued, running, completed, failed, and canceled media from durable
+- [x] Render queued, running, completed, failed, and canceled media from durable
   server state so refresh and navigation resume cleanly and never duplicate an
   attachment.
-- [ ] Admit media work independently from conversation and speech phases. Keep a
+- [x] Admit media work independently from conversation and speech phases. Keep a
   compact cancel action scoped to the media job.
-- [ ] Continue deterministic catalog/resource selection and immutable audit
+- [x] Continue deterministic catalog/resource selection and immutable audit
   records without exposing them in the normal transcript.
 
 **Exit gate:** both image entry points produce the same durable chat attachment,
@@ -193,20 +193,20 @@ survive reload, and do not block a new conversation turn.
 
 ### Phase 3 - make image orchestration conversational
 
-- [ ] Raise capability intent precision before enabling default auto-run. The
+- [x] Raise capability intent precision before enabling default auto-run. The
   Task Model must produce no request for stories, discussion, explanations,
   hypotheticals, or quoted instructions.
-- [ ] Add explicit-action fixtures and adversarial negatives to the Task Model
+- [x] Add explicit-action fixtures and adversarial negatives to the Task Model
   evaluation set. Gate auto-run on the evaluated typed result, not keyword
   heuristics or persona claims.
-- [ ] Run capability planning independently from reply delivery so title,
+- [x] Run capability planning independently from reply delivery so title,
   memory, and media tasks cannot delay a completed persona response.
 - [ ] Give the persona truthful capability state: it may say it is making an
   image after admission, but may only present it as sent after a durable result
   exists.
-- [ ] Auto-queue normal explicit image requests under the default policy. Add an
+- [x] Auto-queue normal explicit image requests under the default policy. Add an
   advanced, persisted confirmation policy for operators who want it.
-- [ ] Keep identity status as attachment metadata. Show only a subtle
+- [x] Keep identity status as attachment metadata. Show only a subtle
   `Identity not verified` indicator when material; put evidence and provenance
   behind Details.
 
@@ -216,21 +216,21 @@ actual job state.
 
 ### Phase 4 - restore the picture-message experience
 
-- [ ] Replace the expanded capability card with a shared compact attachment
+- [x] Replace the expanded capability card with a shared compact attachment
   component: small progress, image, scoped cancel/retry, and optional Details.
-- [ ] On success, show the image as an ordinary persona chat attachment. Do not
+- [x] On success, show the image as an ordinary persona chat attachment. Do not
   auto-open a modal or technical panel.
-- [ ] On failure, show one small inline notice such as `I couldn't make that
+- [x] On failure, show one small inline notice such as `I couldn't make that
   image. Retry - Details`. Keep raw resource IDs, workflow IDs, memory estimates,
   and rejection lists out of the default transcript.
-- [ ] Extract one shared image interaction binder used by all chat attachments.
-- [ ] Add `Blur images` to chat controls as a persisted per-user toggle,
+- [x] Extract one shared image interaction binder used by all chat attachments.
+- [x] Add `Blur images` to chat controls as a persisted per-user toggle,
   defaulting to off, with `aria-pressed` and keyboard support.
-- [ ] When blur is on, initially blur every generated image; first activation
+- [x] When blur is on, initially blur every generated image; first activation
   reveals it in place and second activation opens the preview. Turning blur off
   reveals current images immediately; turning it on resets current-chat reveal
   state.
-- [ ] Keep fullscreen preview opt-in and image-focused, with technical details
+- [x] Keep fullscreen preview opt-in and image-focused, with technical details
   elsewhere.
 
 **Exit gate:** success looks like receiving a picture message, failure occupies
@@ -238,16 +238,16 @@ one compact row, and blur behavior is consistent across every image source.
 
 ### Phase 5 - simplify everyday image setup
 
-- [ ] Add one everyday `Images` readiness summary that separately answers:
+- [x] Add one everyday `Images` readiness summary that separately answers:
   provider reachable, basic generation ready now, and optional identity
   enhancement ready.
 - [ ] Make provider setup seed or repair the minimum normal generation path
   without requiring the operator to understand Task Models or catalog records.
 - [ ] Keep catalog metadata, resource compatibility, workflows, identity
   bindings, and memory estimates under advanced/operator settings.
-- [ ] Ensure every displayed policy is editable where it is shown, or link
+- [x] Ensure every displayed policy is editable where it is shown, or link
   directly to the one editable source of truth.
-- [ ] Use human labels in chat and everyday settings; reserve internal names such
+- [x] Use human labels in chat and everyday settings; reserve internal names such
   as `identity_control` for optional diagnostics.
 
 **Exit gate:** a new operator can configure a provider and answer “ready to make
@@ -278,7 +278,7 @@ fallback, and credible speech without removing push-to-talk reliability.
   outages.
 - [ ] Ensure each visible Cancel action maps to work the platform can actually
   cancel and disappears when that work has completed.
-- [ ] Add approved image-provider fallback while preserving deterministic audit
+- [x] Add approved image-provider fallback while preserving deterministic audit
   and avoiding hidden identity claims.
 
 **Exit gate:** continuity and degradation behavior are measured through lived
