@@ -150,6 +150,7 @@ class MediaCatalogTests(unittest.TestCase):
                             "domains": [],
                             "content_tags": [],
                             "required_features": ["identity_control"],
+                            "persona_subject": True,
                         }
                     ]
                 }
@@ -493,6 +494,7 @@ class MediaCatalogTests(unittest.TestCase):
                             "domains": ["fantasy"],
                             "content_tags": [],
                             "required_features": ["identity_control"],
+                            "persona_subject": True,
                         }
                     ]
                 }
@@ -616,6 +618,7 @@ class MediaCatalogTests(unittest.TestCase):
                             "domains": [],
                             "content_tags": [],
                             "required_features": ["identity_control"],
+                            "persona_subject": True,
                         }
                     ]
                 }
@@ -693,6 +696,7 @@ class MediaCatalogTests(unittest.TestCase):
                             "domains": ["fantasy"],
                             "content_tags": ["pose.special"],
                             "required_features": ["text_to_image"],
+                            "persona_subject": False,
                         }
                     ]
                 }
@@ -771,6 +775,7 @@ class MediaCatalogTests(unittest.TestCase):
                             "domains": [],
                             "content_tags": [],
                             "required_features": [],
+                            "persona_subject": False,
                         }
                     ]
                 }

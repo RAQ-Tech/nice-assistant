@@ -101,6 +101,7 @@ class CapabilityTests(unittest.TestCase):
                             "domains": [],
                             "content_tags": [],
                             "required_features": [],
+                            "persona_subject": False,
                         }
                     ]
                 }
@@ -176,6 +177,71 @@ class CapabilityTests(unittest.TestCase):
             )
             self.assertNotEqual(owner_id, "")
 
+    def test_persona_subject_flag_prevents_unrelated_images_from_inheriting_identity_control(self):
+        planned = {
+            "capability_key": "media.generate_image",
+            "prompt": "an empty greenhouse at sunrise",
+            "operation": "generate",
+            "domains": [],
+            "content_tags": [],
+            "required_features": ["identity_control"],
+            "persona_subject": False,
+        }
+        provider = FakeChatProvider(
+            ["Maybe we could visit it together."],
+            task_outputs={CAPABILITY_PLANNING: {"requests": [planned]}},
+        )
+        with tempfile.TemporaryDirectory() as tmp, TestApp(Path(tmp), chat_provider=provider) as running:
+            running.create_and_login()
+            running.services.providers.media_providers["local-image"] = FakeImageProvider()
+            running.client.put(
+                "/api/v1/settings",
+                json={"preferences": {"image_provider": "local/comfyui"}},
+            )
+            workspace = running.client.post("/api/v1/workspaces", json={"name": "Greenhouse"}).json()
+            persona = running.client.post(
+                "/api/v1/personas",
+                json={"workspace_id": workspace["id"], "name": "Companion"},
+            ).json()
+            chat = running.client.post(
+                "/api/v1/chats",
+                json={"title": "Images", "memory_mode": "off", "persona_id": persona["id"]},
+            ).json()
+
+            turn = running.client.post(
+                f"/api/v1/chats/{chat['id']}/turns",
+                json={"text": "Show an empty greenhouse; do not include the persona", "memory_mode": "off"},
+            ).json()
+            running.wait_job(turn["job"]["id"])
+            general = running.client.get(
+                "/api/v1/capability-requests",
+                params={"chat_id": chat["id"]},
+            ).json()["items"][0]
+            self.assertEqual(general["media_plan"]["status"], "ready")
+            self.assertEqual(general["media_plan"]["requirements"]["required_features"], [])
+
+            planned["prompt"] = "a selfie of the selected persona"
+            planned["required_features"] = []
+            planned["persona_subject"] = True
+            second = running.client.post(
+                f"/api/v1/chats/{chat['id']}/turns",
+                json={"text": "Send me a selfie", "memory_mode": "off"},
+            ).json()
+            running.wait_job(second["job"]["id"])
+            requests = running.client.get(
+                "/api/v1/capability-requests",
+                params={"chat_id": chat["id"]},
+            ).json()["items"]
+            persona_request = next(
+                item for item in requests if item["arguments"]["prompt"] == "a selfie of the selected persona"
+            )
+            self.assertEqual(persona_request["media_plan"]["status"], "blocked")
+            self.assertEqual(
+                persona_request["media_plan"]["requirements"]["required_features"],
+                ["identity_control"],
+            )
+            self.assertIn("Open Settings", persona_request["media_plan"]["block"]["message"])
+
     def test_task_planned_capability_turn_still_extracts_memory_candidates(self):
         provider = FakeChatProvider(
             ["I can create that."],
@@ -189,6 +255,7 @@ class CapabilityTests(unittest.TestCase):
                             "domains": [],
                             "content_tags": [],
                             "required_features": [],
+                            "persona_subject": False,
                         }
                     ]
                 }
@@ -243,6 +310,7 @@ class CapabilityTests(unittest.TestCase):
                             "domains": [],
                             "content_tags": [],
                             "required_features": [],
+                            "persona_subject": False,
                         }
                     ]
                 }

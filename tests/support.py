@@ -121,6 +121,7 @@ class FakeChatProvider:
                                 "domains": [],
                                 "content_tags": [],
                                 "required_features": [],
+                                "persona_subject": False,
                             }
                         )
                 return json.dumps({"requests": requests})

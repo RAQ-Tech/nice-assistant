@@ -16,7 +16,7 @@ VALID_OUTPUTS = {
     "capability_skips_literal_outage_reply": '{"requests":[]}',
     "capability_requests_semantic_image": (
         '{"requests":[{"capability_key":"media.generate_image","prompt":"A lighthouse in a storm",'
-        '"operation":"generate","domains":[],"content_tags":[],"required_features":[]}]}'
+        '"operation":"generate","domains":[],"content_tags":[],"required_features":[],"persona_subject":false}]}'
     ),
 }
 

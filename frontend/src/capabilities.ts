@@ -10,6 +10,7 @@ export class CapabilityController {
     private readonly appState: AppState = state,
     private readonly stateMachine: ClientStateMachine = machine,
     private readonly client: ApiClient = api,
+    private readonly openMediaCatalog: () => void = () => undefined,
   ) {}
 
   node(request: CapabilityRequest): HTMLElement {
@@ -57,6 +58,18 @@ export class CapabilityController {
                 })
               : null,
             ...plan.explanation.warnings.map((warning) => el('div', { class: 'meta', textContent: warning })),
+            plan.status === 'blocked' && plan.requirements.required_features.length
+              ? el('div', {
+                  class: 'meta capability-block-detail',
+                  textContent: `Required features: ${plan.requirements.required_features.join(', ')}`,
+                })
+              : null,
+            ...(plan.status === 'blocked'
+              ? plan.explanation.rejected.flatMap((candidate) => candidate.reasons.map((reason) => el('div', {
+                  class: 'meta capability-block-detail',
+                  textContent: `${candidate.name}: ${reason}`,
+                })))
+              : []),
           ])
         : null,
       request.error ? el('p', { class: 'capability-error', textContent: request.error.message }) : null,
@@ -90,6 +103,14 @@ export class CapabilityController {
               'data-testid': 'approve-capability',
               onclick: () => void this.approve(request),
             }),
+            plan?.status === 'blocked'
+              ? el('button', {
+                  class: 'pill-btn',
+                  textContent: 'Open Media Catalog',
+                  'data-testid': 'configure-capability',
+                  onclick: this.openMediaCatalog,
+                })
+              : null,
             el('button', {
               class: 'pill-btn',
               textContent: 'No thanks',

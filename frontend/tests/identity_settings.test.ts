@@ -95,7 +95,8 @@ describe('Visual identity settings', () => {
   it('explains readiness and keeps provider plumbing in a closed advanced section', () => {
     const { root } = setup();
     expect(root.textContent).toContain('Keep each persona visually recognizable');
-    expect(root.textContent).toContain('add an identity-aware ComfyUI workflow in Media Catalog');
+    expect(root.textContent).toContain('ComfyUI needs an identity model plus a bound workflow in Media Catalog');
+    expect(root.textContent).toContain('IPAdapter, InstantID, PuLID, or PhotoMaker');
     const blocking = [...root.querySelectorAll('.settings-readiness-row')]
       .find((row) => row.textContent?.includes('Automatic blocking'));
     expect(blocking?.textContent).toContain('Off');

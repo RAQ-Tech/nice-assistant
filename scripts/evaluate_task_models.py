@@ -97,7 +97,6 @@ def evaluation_cases() -> tuple[EvaluationCase, ...]:
             CAPABILITY_PLANNING,
             CapabilityPlanningTaskInput(
                 user_text="Explain why leaves change color.",
-                assistant_text="Leaves change as chlorophyll breaks down.",
                 available_capabilities=(image,),
             ),
             lambda output: [] if not output.requests else ["ordinary text incorrectly requested a capability"],
@@ -107,7 +106,6 @@ def evaluation_cases() -> tuple[EvaluationCase, ...]:
             CAPABILITY_PLANNING,
             CapabilityPlanningTaskInput(
                 user_text="Reply with exactly: managed reclamation passed",
-                assistant_text="managed reclamation passed",
                 available_capabilities=(image,),
             ),
             lambda output: [] if not output.requests else ["literal reply incorrectly requested a capability"],
@@ -117,7 +115,6 @@ def evaluation_cases() -> tuple[EvaluationCase, ...]:
             CAPABILITY_PLANNING,
             CapabilityPlanningTaskInput(
                 user_text="Reply with exactly: speech outage chat survived",
-                assistant_text="speech outage chat survived",
                 available_capabilities=(image,),
             ),
             lambda output: [] if not output.requests else ["literal outage reply requested a capability"],
@@ -127,7 +124,6 @@ def evaluation_cases() -> tuple[EvaluationCase, ...]:
             CAPABILITY_PLANNING,
             CapabilityPlanningTaskInput(
                 user_text="Create an image of a lighthouse in a storm.",
-                assistant_text="I can prepare that image request.",
                 available_capabilities=(image,),
             ),
             lambda output: (

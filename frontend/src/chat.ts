@@ -62,7 +62,7 @@ export class ChatController {
       persona_id: persona?.id ?? null,
       model: persona?.default_model ?? (settings.global_default_model || null),
       memory_mode: settings.default_memory_mode,
-      title: 'New conversation',
+      title: 'New chat',
     });
     this.appState.chats = [chat, ...this.appState.chats.filter((item) => item.id !== chat.id)];
     this.appState.currentChat = chat;

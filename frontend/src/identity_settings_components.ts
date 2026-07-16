@@ -31,9 +31,9 @@ export function identityReadinessCard(
         'Reference-aware generation',
         profile.generation_workflow_configured
           ? 'An identity-capable ComfyUI workflow is configured'
-          : 'Not configured; add an identity-aware ComfyUI workflow in Media Catalog',
+          : 'Not configured; ComfyUI needs an identity model plus a bound workflow in Media Catalog',
         profile.generation_workflow_configured ? 'ready' : 'attention',
-        'Generation needs an enabled ComfyUI model and a compatible workflow with explicit identity-image bindings.',
+        'Install and test an identity graph such as IPAdapter, InstantID, PuLID, or PhotoMaker in ComfyUI. Then add its API-format workflow in Media Catalog with feature identity_control and explicit identity_image_bindings.',
       ),
       readinessRow(
         'Optional comparison',

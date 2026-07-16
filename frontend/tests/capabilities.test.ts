@@ -89,25 +89,38 @@ describe('CapabilityController', () => {
       status: 'blocked',
       kind: 'image',
       operation: 'inpaint',
-      requirements: { kind: 'image', operation: 'inpaint', domains: [], content_tags: [], required_features: [] },
+      requirements: {
+        kind: 'image', operation: 'inpaint', domains: [], content_tags: [], required_features: ['identity_control'],
+      },
       selected_resources: [],
-      explanation: { summary: 'No executable workflow.', selected: [], warnings: [], rejected: [] },
+      explanation: {
+        summary: 'No executable workflow.',
+        selected: [],
+        warnings: [],
+        rejected: [{ resource_id: 'model-1', name: 'Portrait model', reasons: ['missing required features: identity_control'] }],
+      },
       estimated_vram_mb: 0,
       identity_conditioning: null,
       block: { code: 'no_compatible_media_plan', message: 'The adapter cannot execute inpainting.' },
       created_at: 1,
     };
     const client = { approveCapability: vi.fn() } as unknown as ApiClient;
+    const openMediaCatalog = vi.fn();
     const node = new CapabilityController(
       () => undefined,
       appState,
       new ClientStateMachine(appState),
       client,
+      openMediaCatalog,
     ).node(request);
 
     expect(node.textContent).toContain('Media plan: blocked');
     expect(node.textContent).toContain('cannot execute inpainting');
+    expect(node.textContent).toContain('Required features: identity_control');
+    expect(node.textContent).toContain('Portrait model: missing required features: identity_control');
     expect((node.querySelector('[data-testid="approve-capability"]') as HTMLButtonElement).disabled).toBe(true);
+    (node.querySelector('[data-testid="configure-capability"]') as HTMLButtonElement).click();
+    expect(openMediaCatalog).toHaveBeenCalledOnce();
     expect(client.approveCapability).not.toHaveBeenCalled();
   });
 

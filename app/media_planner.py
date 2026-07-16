@@ -111,6 +111,7 @@ def build_media_plan(repo, user_id: str, requirements: dict, providers) -> dict:
             }
         )
     if not candidates:
+        block_message = _blocked_plan_message(rejected)
         return {
             "status": "blocked",
             "selected_resources": [],
@@ -123,7 +124,7 @@ def build_media_plan(repo, user_id: str, requirements: dict, providers) -> dict:
             },
             "estimated_vram_mb": 0,
             "block_code": "no_compatible_media_plan",
-            "block_message": "No enabled media catalog resources satisfy this request.",
+            "block_message": block_message,
         }
     candidates.sort(
         key=lambda item: (
@@ -179,6 +180,17 @@ def _select_workflow(compatible, operation: str, missing_features: set[str]):
         candidates.append((item, coverage))
     candidates.sort(key=lambda value: (-value[1], -value[0].priority, value[0].name.casefold(), value[0].id))
     return candidates[0][0] if candidates else None
+
+
+def _blocked_plan_message(rejected: list[dict]) -> str:
+    reasons = [reason for item in rejected for reason in item.get("reasons", [])]
+    if any("missing required features: identity_control" in reason for reason in reasons):
+        return (
+            "This persona image requires identity conditioning, but no enabled compatible Media Catalog workflow "
+            "provides identity_control. Open Settings → Media Catalog and add a tested ComfyUI workflow with an "
+            "identity_control feature and explicit identity_image_bindings."
+        )
+    return "No enabled media catalog resources satisfy this request."
 
 
 def _select_loras(

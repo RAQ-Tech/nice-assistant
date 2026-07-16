@@ -279,7 +279,7 @@ test('visual identity guides reference setup without exposing internal media IDs
   await expect(page.getByRole('heading', { name: 'Visual Identity' })).toBeVisible();
   await expect(page.getByText('Keep each persona visually recognizable')).toBeVisible();
   await expect(page.getByText('Reference-aware generation', { exact: true })).toBeVisible();
-  await expect(page.getByText('add an identity-aware ComfyUI workflow in Media Catalog', { exact: false })).toBeVisible();
+  await expect(page.getByText('ComfyUI needs an identity model plus a bound workflow in Media Catalog', { exact: false })).toBeVisible();
   await expect(page.getByText('Protected media ID')).toHaveCount(0);
   await expect(page.getByTestId('identity-advanced-settings')).not.toHaveAttribute('open', '');
 

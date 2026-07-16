@@ -76,6 +76,11 @@ startup.
   VRAM policy, immutable revisions, blocked adapter operations, stale-plan
   rejection, manual bypass disclosure, late provider bootstrap, and selected
   settings/LoRA payloads.
+- Capability-planning tests prove persona reply prose cannot attach identity
+  conditioning to an unrelated image, genuine persona subjects retain the hard
+  requirement, and blocked cards expose remediation details.
+- Chat-title tests cover the canonical browser placeholder and legacy placeholder
+  recognition so the title Task Model is actually scheduled on the first turn.
 - Resource-coordination tests cover real provider response parsing, unknown and
   unavailable telemetry, admin isolation, disabled/observe/managed policy,
   endpoint-fingerprint authorization, verified release, safe timeout,

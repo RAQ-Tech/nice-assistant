@@ -66,6 +66,10 @@ and Workspaces now use the same approachable structure:
 
 Provider tuning still controls direct actions. Media Catalog remains the
 operator source of truth for planned conversational generation.
+Blocked conversational plans show hard requirements, rejected-resource reasons,
+and an Open Media Catalog action. Visual Identity readiness explains that a real
+identity model and bound ComfyUI workflow are required; a saved persona reference
+alone is not generation readiness.
 
 ### 21C — Operator settings — delivered
 

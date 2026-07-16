@@ -6,6 +6,7 @@ import re
 from typing import Any, Callable
 
 from app.chat import generate_chat_title_from_first_user_message
+from app.identity_conditioning import IDENTITY_CONTROL_FEATURE
 
 
 TITLE_GENERATION = "title_generation"
@@ -95,12 +96,12 @@ class PlannedCapability:
     domains: tuple[str, ...] = ()
     content_tags: tuple[str, ...] = ()
     required_features: tuple[str, ...] = ()
+    persona_subject: bool = False
 
 
 @dataclass(frozen=True)
 class CapabilityPlanningTaskInput:
     user_text: str
-    assistant_text: str
     available_capabilities: tuple[AvailableCapability, ...]
     persona_selected: bool = False
     available_operations: tuple[str, ...] = ("generate",)
@@ -196,9 +197,10 @@ def _system_prompt(role: str) -> str:
             "or modify media. Literal response-format requests such as 'reply with exactly', 'answer only', or "
             "'say exactly' are text-only and must always return no capability requests. "
             "Describe semantic operation, domain, content, and feature requirements using only the supplied vocabulary. "
-            "When identity_control is available and persona_selected is true, require it for an image presented as "
-            "the selected persona or when that persona's established visual identity must be preserved; do not use "
-            "it for unrelated subjects or when persona_selected is false. "
+            "Set persona_subject true only when the user's requested image depicts the selected persona or must preserve "
+            "that persona's established appearance. Base this decision strictly on user_text: never expand the requested "
+            "subject from persona context or merely because persona_selected is true. The platform derives identity_control "
+            "from persona_subject; do not use identity_control for unrelated subjects. "
             "Never select or name a provider, model, LoRA, workflow, resource ID, or privileged setting. "
             "Return no requests when ordinary text is sufficient or the intent is ambiguous."
         )
@@ -363,6 +365,7 @@ def _capability_schema(task_input: CapabilityPlanningTaskInput) -> dict:
                         "domains",
                         "content_tags",
                         "required_features",
+                        "persona_subject",
                     ],
                     "properties": {
                         "capability_key": {"type": "string", "enum": keys},
@@ -374,6 +377,7 @@ def _capability_schema(task_input: CapabilityPlanningTaskInput) -> dict:
                         "domains": vocabulary_array(task_input.available_domains),
                         "content_tags": vocabulary_array(task_input.available_content_tags),
                         "required_features": vocabulary_array(task_input.available_features),
+                        "persona_subject": {"type": "boolean"},
                     },
                 },
             }
@@ -413,7 +417,15 @@ def _parse_capabilities(
     for value in values:
         value = _strict_mapping(
             value,
-            {"capability_key", "prompt", "operation", "domains", "content_tags", "required_features"},
+            {
+                "capability_key",
+                "prompt",
+                "operation",
+                "domains",
+                "content_tags",
+                "required_features",
+                "persona_subject",
+            },
             label="capability request",
         )
         key = str(value.get("capability_key") or "").strip()
@@ -430,11 +442,31 @@ def _parse_capabilities(
         required_features = _semantic_values(
             value.get("required_features"), task_input.available_features, "media feature"
         )
+        persona_subject = value.get("persona_subject")
+        if not isinstance(persona_subject, bool):
+            raise TaskContractError("task model returned an invalid persona subject flag")
+        if persona_subject and (key != "media.generate_image" or not task_input.persona_selected):
+            raise TaskContractError("task model assigned a selected persona to an invalid capability request")
+        required_features = tuple(feature for feature in required_features if feature != IDENTITY_CONTROL_FEATURE)
+        if persona_subject:
+            if IDENTITY_CONTROL_FEATURE not in task_input.available_features:
+                raise TaskContractError("persona image planning is unavailable")
+            required_features = (*required_features, IDENTITY_CONTROL_FEATURE)
         identity = (key, prompt.casefold())
         if identity in seen:
             continue
         seen.add(identity)
-        requests.append(PlannedCapability(key, prompt, operation, domains, content_tags, required_features))
+        requests.append(
+            PlannedCapability(
+                key,
+                prompt,
+                operation,
+                domains,
+                content_tags,
+                required_features,
+                persona_subject,
+            )
+        )
         if len(requests) >= len(available):
             break
     return CapabilityPlanningTaskOutput(tuple(requests))
@@ -455,7 +487,6 @@ def _memory_payload(task_input: MemoryExtractionTaskInput) -> dict:
 def _capability_payload(task_input: CapabilityPlanningTaskInput) -> dict:
     return {
         "user_text": task_input.user_text,
-        "assistant_text": task_input.assistant_text,
         "persona_selected": task_input.persona_selected,
         "available_capabilities": [
             {"key": item.key, "title": item.title, "description": item.description}

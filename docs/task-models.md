@@ -16,6 +16,15 @@ media resources, or privileged settings.
 All model outputs must match the role's strict JSON Schema and parser. Extra
 fields are rejected. Capability output may add only an operation, domains,
 content tags, and required features from server-advertised vocabularies.
+Image requests also include a typed `persona_subject` decision based on the user
+request. The platform removes `identity_control` from unrelated images and adds
+it for persona subjects; assistant reply prose cannot expand the subject. See
+ADR 0017.
+
+Chat-title generation runs while a chat still has a recognized placeholder.
+The browser creates the canonical `New chat` title, and the server also recognizes
+legacy `New conversation` and `Untitled chat` values so existing chats can recover
+on their next successful turn.
 Provider, checkpoint, model, workflow, LoRA, generation settings, and identity
 references remain excluded. The deterministic media coordinator resolves the
 semantic request against operator metadata; see `docs/media-catalog.md`.

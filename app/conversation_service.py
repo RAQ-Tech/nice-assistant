@@ -333,7 +333,6 @@ class ConversationService:
                         CAPABILITY_PLANNING,
                         CapabilityPlanningTaskInput(
                             user_text=text,
-                            assistant_text=reply,
                             available_capabilities=planning_definitions,
                             persona_selected=bool(requested_persona_id),
                             available_operations=tuple(planning_vocabulary.get("operations") or ("generate",)),

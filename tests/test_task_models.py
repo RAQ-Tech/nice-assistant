@@ -120,7 +120,7 @@ class TaskModelTests(unittest.TestCase):
             self.assertEqual(saved.status_code, 200, saved.text)
             chat = running.client.post(
                 "/api/v1/chats",
-                json={"title": "New chat", "model": "persona-model", "memory_mode": "off"},
+                json={"title": "New conversation", "model": "persona-model", "memory_mode": "off"},
             ).json()
             accepted = running.client.post(
                 f"/api/v1/chats/{chat['id']}/turns",
@@ -202,28 +202,58 @@ class TaskModelTests(unittest.TestCase):
     def test_capability_contract_excludes_media_resource_selection(self):
         task_input = CapabilityPlanningTaskInput(
             user_text="Show me a portrait.",
-            assistant_text="I can help with that.",
             available_capabilities=(AvailableCapability("media.generate_image", "Generate image", "Create an image."),),
             persona_selected=True,
+            available_features=("text_to_image", "identity_control"),
         )
         definition = task_definition(CAPABILITY_PLANNING)
         self.assertIn("identity_control", definition.messages(task_input)[0]["content"])
-        self.assertTrue(json.loads(definition.messages(task_input)[1]["content"])["persona_selected"])
+        payload = json.loads(definition.messages(task_input)[1]["content"])
+        self.assertTrue(payload["persona_selected"])
+        self.assertNotIn("assistant_text", payload)
         item_properties = definition.response_schema(task_input)["properties"]["requests"]["items"]["properties"]
         self.assertEqual(
             set(item_properties),
-            {"capability_key", "prompt", "operation", "domains", "content_tags", "required_features"},
+            {
+                "capability_key",
+                "prompt",
+                "operation",
+                "domains",
+                "content_tags",
+                "required_features",
+                "persona_subject",
+            },
         )
         self.assertEqual(item_properties["prompt"]["maxLength"], 1000)
-        for field in ("domains", "content_tags", "required_features"):
+        for field in ("domains", "content_tags"):
             self.assertNotIn("maxItems", item_properties[field])
             self.assertNotIn("enum", item_properties[field]["items"])
+        self.assertEqual(
+            item_properties["required_features"]["items"]["enum"],
+            ["text_to_image", "identity_control"],
+        )
         with self.assertRaises(TaskContractError):
             definition.parse_output(
-                '{"requests":[{"capability_key":"media.generate_image","prompt":"portrait","operation":"generate","domains":[],"content_tags":[],"required_features":[],"model":"forced"}]}',
+                '{"requests":[{"capability_key":"media.generate_image","prompt":"portrait","operation":"generate","domains":[],"content_tags":[],"required_features":[],"persona_subject":true,"model":"forced"}]}',
                 task_input,
                 384,
             )
+
+        unrelated = definition.parse_output(
+            '{"requests":[{"capability_key":"media.generate_image","prompt":"an empty greenhouse","operation":"generate","domains":[],"content_tags":[],"required_features":["identity_control","text_to_image"],"persona_subject":false}]}',
+            task_input,
+            384,
+        ).requests[0]
+        self.assertFalse(unrelated.persona_subject)
+        self.assertEqual(unrelated.required_features, ("text_to_image",))
+
+        persona_image = definition.parse_output(
+            '{"requests":[{"capability_key":"media.generate_image","prompt":"a selfie of the selected persona","operation":"generate","domains":[],"content_tags":[],"required_features":[],"persona_subject":true}]}',
+            task_input,
+            384,
+        ).requests[0]
+        self.assertTrue(persona_image.persona_subject)
+        self.assertEqual(persona_image.required_features, ("identity_control",))
 
     def test_profile_validation_prevents_unsupported_deterministic_fallback(self):
         with tempfile.TemporaryDirectory() as tmp, TestApp(Path(tmp)) as running:

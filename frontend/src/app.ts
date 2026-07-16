@@ -28,7 +28,7 @@ const router = new Router((route) => void handleRoute(route));
 const settingsView = new SettingsView(render, closeSettings, dialogs);
 const authView = new AuthView(authenticated, render);
 const chatRenderer = new ChatRenderer(media, playback, render);
-const capabilities = new CapabilityController(render);
+const capabilities = new CapabilityController(render, state, machine, api, () => router.settings('Media Catalog'));
 const chatDrawer = new ChatDrawer(state, api, chat, dialogs, {
   render,
   openChat: (chatId) => router.chat(chatId),

@@ -52,6 +52,10 @@ class RefactoredModuleContractTests(unittest.TestCase):
         sensitive = "openai_api_key=sk-contractsecret123456 bearer abcdefghijklmnop"
         self.assertNotIn("sk-contractsecret123456", auth.redact_sensitive_text(sensitive))
         self.assertEqual(chat.generate_chat_title("Please explain durable queues"), "explain durable queues")
+        self.assertTrue(chat.chat_title_needs_autogeneration("New chat"))
+        self.assertTrue(chat.chat_title_needs_autogeneration("New conversation"))
+        self.assertTrue(chat.chat_title_needs_autogeneration("Untitled chat"))
+        self.assertFalse(chat.chat_title_needs_autogeneration("Greenhouse at sunrise"))
         self.assertEqual(media.normalize_image_quality("hd"), "high")
         self.assertEqual(settings.parse_preferences_json('{"x":1}'), {"x": 1})
         response = providers.provider_test_response(

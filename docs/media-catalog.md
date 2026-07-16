@@ -71,6 +71,11 @@ The approval card shows the selected resources, reasoning, estimates, warnings,
 and blocked state. Approval revalidates every selected resource. Editing,
 disabling, or deleting a selected resource makes the old plan stale and prevents
 execution; the system does not silently re-plan after the user has reviewed it.
+Blocked cards also show the hard requirements and per-resource rejection reasons
+and link directly to Media Catalog. Persona-chat planning derives
+`identity_control` from the Task Model's typed `persona_subject` decision; the
+user's requested subject is authoritative and persona reply prose cannot expand
+it. See ADR 0017.
 
 When `identity_control` is required, planning also requires a persona chat, an
 active consented identity profile, an approved primary reference whose file still

@@ -61,6 +61,10 @@ fallback, and content-free run audit records.
 `MediaCatalogService` owns resource metadata, compatibility, deterministic plan
 construction, immutable plan snapshots, and approval-time resource revalidation;
 the pure selection policy is isolated in `media_planner.py`.
+Capability Task Models declare whether the requested image actually depicts the
+selected persona. The platform derives the hard `identity_control` feature from
+that typed decision so persona-model prose cannot make unrelated images require
+identity conditioning. See ADR 0017.
 `ResourceService` delegates the narrow disabled-to-enabled media transition to
 `MediaCatalogService`: a starter model is created only when that catalog kind is
 empty. Existing operator resources remain authoritative and are never synced

@@ -193,6 +193,17 @@ actual identity extension nodes, declare the `identity_control` feature, and set
 `default_settings.identity_image_bindings` to exact node/input pairs already in
 the inline `workflow_patch`. Example:
 
+Before adding the catalog resource, install and test one real identity system in
+ComfyUI, including its required model assets (for example IPAdapter plus CLIP
+Vision, InstantID, PuLID, or PhotoMaker). Installed node classes without their
+model assets are not ready. Export the tested graph in API format, identify the
+`LoadImage`-compatible input that receives the reviewed reference, then add the
+workflow for `local-image` and `comfyui`, mark it compatible with the enabled base
+model, enable it, and run a preview requiring `identity_control`.
+
+Nice Assistant does not install provider extensions or model assets and does not
+claim identity readiness until this real workflow contract is complete.
+
 ```json
 {
   "workflow_patch": {

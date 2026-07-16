@@ -137,6 +137,8 @@ and platform foundation below.
     The provider-bootstrap repair canonicalizes legacy local image aliases and
     seeds a missing starter catalog model when media is enabled after initial
     setup, while preserving operator-managed resources under ADR 0016.
+    Persona-subject planning now keeps user intent authoritative and makes
+    identity workflow blocks actionable under ADR 0017.
 
 Steps are delivered and reviewed independently. Step 11 cannot select providers
 until a future listening decision is approved. Any future deployment acceptance

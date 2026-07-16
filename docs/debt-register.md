@@ -41,6 +41,9 @@ change that alters them.
 - Late media-provider enablement now bootstraps only an empty catalog kind and
   migration `0015` repairs affected accounts; provider settings do not overwrite
   operator-curated resources.
+- Typed persona-subject planning prevents identity requirements from leaking into
+  unrelated images, and blocked plans expose exact rejection/remediation details.
+  Identity model installation and graph authoring remain deployment-owned.
 - Consent-bound persona visual identity profiles, normalized protected
   references, explicit review/deletion, stateless LAN comparison, durable
   validation history, and truthful verified/rejected/unverified media state.

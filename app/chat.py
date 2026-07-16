@@ -2,7 +2,7 @@ import json
 import re
 
 
-CHAT_TITLE_PLACEHOLDERS = {"new chat", "untitled chat"}
+CHAT_TITLE_PLACEHOLDERS = {"new chat", "new conversation", "untitled chat"}
 CHAT_TITLE_MAX_LENGTH = 48
 CHAT_TITLE_MIN_LENGTH = 8
 CHAT_TITLE_FALLBACK_LENGTH = 40

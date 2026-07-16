@@ -112,6 +112,7 @@ class AsyncJobTests(unittest.TestCase):
                             "domains": [],
                             "content_tags": [],
                             "required_features": [],
+                            "persona_subject": False,
                         }
                     ]
                 }
@@ -181,6 +182,7 @@ class AsyncJobTests(unittest.TestCase):
                             "domains": [],
                             "content_tags": [],
                             "required_features": [],
+                            "persona_subject": False,
                         }
                     ]
                 }

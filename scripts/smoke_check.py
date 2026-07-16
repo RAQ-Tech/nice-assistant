@@ -77,6 +77,7 @@ class _FakeOllamaHandler(BaseHTTPRequestHandler):
                                 "domains": ["fantasy"],
                                 "content_tags": ["general"],
                                 "required_features": ["identity_control"],
+                                "persona_subject": True,
                             }
                         ]
                     }
