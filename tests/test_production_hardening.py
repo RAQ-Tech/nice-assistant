@@ -82,6 +82,24 @@ class ProductionHardeningTests(unittest.TestCase):
                 self.assertIn("HttpOnly", cookie)
                 self.assertIn("SameSite=strict", cookie)
 
+    def test_active_session_cookie_renews_and_disabled_auto_logout_uses_browser_session(self):
+        with tempfile.TemporaryDirectory() as tmp, TestApp(Path(tmp)) as running:
+            running.create_and_login()
+            active = running.client.get("/api/v1/settings")
+            self.assertEqual(active.status_code, 200, active.text)
+            self.assertIn("Max-Age=1800", active.headers["set-cookie"])
+
+            saved = running.client.put(
+                "/api/v1/settings",
+                json={"preferences": {"general_auto_logout": False}},
+            )
+            self.assertEqual(saved.status_code, 200, saved.text)
+            persistent = running.client.get("/api/v1/settings")
+            self.assertEqual(persistent.status_code, 200, persistent.text)
+            cookie = persistent.headers["set-cookie"]
+            self.assertIn("HttpOnly", cookie)
+            self.assertNotIn("Max-Age", cookie)
+
     def test_login_throttle_is_keyed_and_reports_retry_after(self):
         now = [100.0]
         throttle = LoginThrottle(max_attempts=2, window_seconds=60, lockout_seconds=30, clock=lambda: now[0])

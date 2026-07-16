@@ -12,6 +12,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from app.application import ApplicationServices
 from app.resource_service import AuthContext
 from app.runtime import SESSION_COOKIE
+from app.session_cookie import set_session_cookie
 from app.security import request_client_address
 from app.service_errors import AuthenticationError, NotFoundError, RequestError
 
@@ -738,21 +739,18 @@ def services(request: Request) -> ApplicationServices:
 
 def current_user(
     request: Request,
+    response: Response,
     session_token: str | None = Cookie(default=None, alias=SESSION_COOKIE),
 ) -> AuthContext:
-    return services(request).resources.authenticate(session_token)
-
-
-def _set_session_cookie(response: Response, context: AuthContext, ttl_seconds: int, *, secure: bool) -> None:
-    response.set_cookie(
-        SESSION_COOKIE,
-        context.token,
-        httponly=True,
-        samesite="strict",
-        max_age=ttl_seconds,
-        path="/",
-        secure=secure,
+    app_services = services(request)
+    context = app_services.resources.authenticate(session_token)
+    set_session_cookie(
+        response,
+        context,
+        app_services.runtime.config.session_ttl_seconds,
+        secure=app_services.runtime.config.secure_cookies,
     )
+    return context
 
 
 @router.get("/health", tags=["system"])
@@ -780,7 +778,7 @@ def login(body: Credentials, request: Request, response: Response):
         app_services.login_throttle.failure(throttle_key)
         raise
     app_services.login_throttle.success(throttle_key)
-    _set_session_cookie(response, context, config.session_ttl_seconds, secure=config.secure_cookies)
+    set_session_cookie(response, context, config.session_ttl_seconds, secure=config.secure_cookies)
     return payload
 
 

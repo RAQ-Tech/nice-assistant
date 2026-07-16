@@ -16,11 +16,19 @@ from app.service_errors import (
 
 
 class AuthContext:
-    def __init__(self, user_id: str, token: str, expires_at: int | None, is_admin: bool):
+    def __init__(
+        self,
+        user_id: str,
+        token: str,
+        expires_at: int | None,
+        is_admin: bool,
+        auto_logout: bool,
+    ):
         self.user_id = user_id
         self.token = token
         self.expires_at = expires_at
         self.is_admin = is_admin
+        self.auto_logout = auto_logout
 
 
 def workspace_response(row) -> dict:
@@ -115,7 +123,15 @@ class ResourceService:
             if not user or not self.password_verifier(password, user.password_hash):
                 raise AuthenticationError("invalid credentials")
             session = uow.repo.create_session(user.id, self.session_ttl_seconds)
-            context = AuthContext(user.id, session.token, session.expires_at, bool(user.is_admin))
+            settings = uow.repo.settings(user.id) or {}
+            auto_logout = bool((settings.get("preferences") or {}).get("general_auto_logout", True))
+            context = AuthContext(
+                user.id,
+                session.token,
+                session.expires_at,
+                bool(user.is_admin),
+                auto_logout,
+            )
             return context, {
                 "user_id": user.id,
                 "expires_at": session.expires_at,
@@ -139,7 +155,7 @@ class ResourceService:
                 raise AuthenticationError("session expired")
             if auto_logout:
                 session.expires_at = stamp + self.session_ttl_seconds
-            return AuthContext(user.id, token, session.expires_at, bool(user.is_admin))
+            return AuthContext(user.id, token, session.expires_at, bool(user.is_admin), auto_logout)
 
     def logout(self, token: str) -> None:
         with self._uow() as uow:

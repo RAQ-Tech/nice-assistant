@@ -34,8 +34,12 @@ All state-changing `/api/v1` calls require `X-Nice-Assistant-CSRF: 1`; browser
 origins must match the target or `NICE_ASSISTANT_ALLOWED_ORIGINS`. The API does
 not enable credentialed cross-origin requests. Session cookies are
 `SameSite=Strict` and `HttpOnly`; set `NICE_ASSISTANT_SECURE_COOKIES=1` only when
-the browser-facing origin is HTTPS. Login failures are bounded per client and
-normalized username and do not disclose whether a username exists.
+the browser-facing origin is HTTPS. Authenticated activity renews both the
+server expiry and browser cookie when inactive-session expiry is enabled. When
+the user disables automatic inactivity logout, the server keeps the session
+valid and the browser uses a session cookie rather than a contradictory fixed
+30-minute cookie. Login failures are bounded per client and normalized username
+and do not disclose whether a username exists.
 
 User-configurable LAN provider base URLs accept only HTTP(S), contain no
 credentials/query/fragment, and must target a private/loopback/Tailscale address,

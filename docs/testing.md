@@ -45,7 +45,8 @@ complete the private server and installed-browser acceptance records.
 
 - Unit tests cover pure parsing, policy, state machines, and error normalization.
 - Production-hardening tests cover CSRF/origin behavior, login lockout,
-  secure-cookie flags, private/Tailscale/provider allowlists, metadata/public
+  secure-cookie flags, active-session renewal, inactivity-expiry preference,
+  private/Tailscale/provider allowlists, metadata/public
   target rejection, correlation/security headers, readiness/admin isolation,
   queue/storage metrics, configured retention, atomic disk-full writes, empty
   artifacts, and corrupt/valid backup restore drills.

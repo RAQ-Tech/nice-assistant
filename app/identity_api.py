@@ -1,12 +1,13 @@
 from __future__ import annotations
 
-from fastapi import APIRouter, Cookie, Depends, File, Form, Query, Request, UploadFile
+from fastapi import APIRouter, Cookie, Depends, File, Form, Query, Request, Response, UploadFile
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, ConfigDict, Field
 
 from app.application import ApplicationServices
 from app.resource_service import AuthContext
 from app.runtime import SESSION_COOKIE
+from app.session_cookie import set_session_cookie
 
 
 router = APIRouter(prefix="/api/v1")
@@ -57,9 +58,18 @@ def services(request: Request) -> ApplicationServices:
 
 def current_user(
     request: Request,
+    response: Response,
     session_token: str | None = Cookie(default=None, alias=SESSION_COOKIE),
 ) -> AuthContext:
-    return services(request).resources.authenticate(session_token)
+    app_services = services(request)
+    context = app_services.resources.authenticate(session_token)
+    set_session_cookie(
+        response,
+        context,
+        app_services.runtime.config.session_ttl_seconds,
+        secure=app_services.runtime.config.secure_cookies,
+    )
+    return context
 
 
 @router.get("/identity-validation/settings", tags=["visual identity"])
