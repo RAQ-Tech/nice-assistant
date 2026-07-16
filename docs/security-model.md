@@ -45,6 +45,24 @@ literal IP targets are rejected. An allowlist entry is an operator trust grant,
 not proof that the remote service is private; public-internet providers remain
 fixed server adapters rather than browser-supplied URLs.
 
+## Deployment automation authority
+
+The optional production deployment key is not a general administrative key. Its
+root `authorized_keys` entry is source-restricted, uses OpenSSH `restrict`, and
+forces the repository's deployment guard. The guard accepts only Nice Assistant
+inspect, verified backup, immutable-digest deploy, health, bounded redacted logs,
+and compatible container rollback. Its root-owned configuration fixes one
+container name, one GHCR repository, one private state directory, and optionally
+one Unraid template.
+
+The guard cannot execute an arbitrary command, accept a mutable tag, restore a
+database, downgrade a schema, alter credentials, expose a port, or target a
+different container. Installation is deliberately supervised and authorizes
+the key only after a stopped-probe comparison proves the captured Docker
+definition preserves the working container configuration. The laptop client
+uses a dedicated key, strict host-key checking, `BatchMode`, and
+`IdentitiesOnly`; exact addresses and fingerprints remain outside Git.
+
 ## Capability permissions
 
 Persona-model output cannot directly start media generation and persona chat is

@@ -35,6 +35,12 @@ The public acceptance checklist and deliberately unaccepted capabilities are in
 [`docs/deployment-acceptance.md`](docs/deployment-acceptance.md). Keep exact
 deployment evidence under the ignored `.local/` directory.
 
+Autonomous promotions use the dedicated-key forced-command guard documented in
+[`docs/operations.md`](docs/operations.md#guarded-production-deployment). It
+accepts only immutable Nice Assistant digests and bounded backup, health, log,
+and compatible container-rollback actions; installation requires one supervised
+server session and never grants a general remote shell.
+
 ## Environment variables (defaults)
 
 - `PORT=3000`

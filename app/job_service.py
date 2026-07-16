@@ -192,6 +192,7 @@ class JobService:
         execution: JobExecution,
         estimated_vram_mb: int = 0,
         resource_request=None,
+        ordering_key: str | None = None,
     ) -> None:
         if self.queue is None:
             raise RuntimeError("job service is not started")
@@ -214,7 +215,7 @@ class JobService:
             metadata={
                 "async_job_id": job_id,
                 "turn_id": turn_id,
-                "ordering_key": f"chat:{chat_id}" if turn_id and chat_id else "",
+                "ordering_key": ordering_key or (f"chat:{chat_id}" if turn_id and chat_id else ""),
                 "coordinated_resource": coordinated_resource,
             },
             execute=lambda: self._run(queue_job.id, job_id, turn_id, token, execution),

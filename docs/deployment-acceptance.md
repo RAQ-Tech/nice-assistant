@@ -30,6 +30,22 @@ Record the following locally for each real deployment:
 - provider outage and capacity-pressure behavior;
 - unavailable or deliberately deferred capabilities.
 
+For a guarded promotion, additionally record:
+
+- installer definition-probe success and whether an Unraid template or captured
+  Docker definition is authoritative;
+- prior and candidate immutable digests and source revisions;
+- fresh backup verification and candidate migration revision;
+- whether container-only rollback is database-compatible;
+- effective configuration, Docker health, `/health`, `/ready`, startup-log, and
+  digest/revision acceptance;
+- automatic rollback result when a recoverable candidate failure is exercised;
+- the installed-browser journeys below after server acceptance.
+
+Never copy the guard configuration, SSH key, private address, template, captured
+container definition, environment, mounts, backup name, or raw logs into the
+public record.
+
 Public documentation may state whether a capability has been accepted, but must
 not include the operator's exact endpoints, server/share paths, hostnames,
 capacity snapshots, backup names, personal model inventory, persona content, or
@@ -47,3 +63,7 @@ real visual-identity deployment acceptance remain separate future work. A
 destructive live restore also remains an explicitly authorized operator drill.
 Completed-file Kokoro text cleanup and manual interruption are supported and must
 not be described as streaming speech or full barge-in.
+
+The restricted deployment guard is source-delivered but is not considered
+installed until its supervised key enrollment and stopped-probe comparison pass
+on the target server. Source tests cannot substitute for that acceptance.

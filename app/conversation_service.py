@@ -473,6 +473,7 @@ class ConversationService:
                         turn_id=None,
                         latency_class="standard",
                         model_key="task:title_generation",
+                        ordering_key=f"chat:{chat_id}",
                         execution=JobExecution(
                             execute=execute_title_followup,
                             on_success=on_title_followup_success,
@@ -494,6 +495,7 @@ class ConversationService:
                         turn_id=None,
                         latency_class="standard",
                         model_key="task:capability_planning",
+                        ordering_key=f"chat:{chat_id}",
                         execution=JobExecution(
                             execute=execute_capability_followup,
                             on_success=on_capability_followup_success,

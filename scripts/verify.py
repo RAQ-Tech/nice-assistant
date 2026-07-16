@@ -120,6 +120,7 @@ def main() -> int:
                 "tests/test_browser_architecture.py",
                 "tests/test_capabilities.py",
                 "tests/test_context_service.py",
+                "tests/test_deployment_guard.py",
                 "tests/test_human_experience_scenarios.py",
                 "tests/test_database_foundation.py",
                 "tests/test_database_foundation.py",

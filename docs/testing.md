@@ -33,6 +33,14 @@ container from it. A successful image build is insufficient because entrypoint,
 installed dependency, port, and lifespan failures occur only at container
 startup.
 
+Deployment-guard changes additionally run `tests/test_deployment_guard.py`. The
+contract verifies shell syntax, exact forced-command and immutable-digest
+boundaries, effective configuration preservation, verified backup and candidate
+migration requirements, container-only rollback limits, and strict dedicated-key
+SSH behavior. Real installation must still run the guard's stopped-probe
+definition comparison. Promotion must then use the immutable GHCR digest and
+complete the private server and installed-browser acceptance records.
+
 ## Test layers
 
 - Unit tests cover pure parsing, policy, state machines, and error normalization.

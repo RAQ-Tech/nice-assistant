@@ -65,8 +65,8 @@ class AsyncJobTests(unittest.TestCase):
             capability_job = running.wait_job(primary["result"]["capability_planning_job_id"])
             self.assertEqual(capability_job["status"], "completed")
             self.assertEqual(
-                {provider._task_role(request) for request in provider.task_requests},
-                {TITLE_GENERATION, CAPABILITY_PLANNING},
+                [provider._task_role(request) for request in provider.task_requests],
+                [TITLE_GENERATION, CAPABILITY_PLANNING],
             )
 
     def test_persona_reply_completes_before_nonessential_capability_planning(self):

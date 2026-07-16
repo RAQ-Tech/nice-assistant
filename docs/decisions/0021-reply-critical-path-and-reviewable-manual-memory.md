@@ -20,6 +20,9 @@ state during every ordinary conversation.
   and memory extraction run as independent durable jobs. Title and capability
   IDs are returned in `followup_job_ids`; memory retains its named extraction ID,
   and `followup_job_id` remains a compatibility alias.
+- Follow-ups from one chat retain the chat ordering key. They are failure-isolated
+  records but do not concurrently mutate the same SQLite conversation state;
+  title is submitted before capability planning and memory extraction.
 - The visible persona reply never waits for those jobs. Each follow-up may fail
   without changing a completed assistant turn, while causal ordering is preserved
   because no follow-up is created before the assistant message commits.

@@ -571,6 +571,7 @@ class MemoryService:
                 turn_id=None,
                 latency_class="standard",
                 model_key=f"task:{MEMORY_EXTRACTION}",
+                ordering_key=f"chat:{chat_id}",
                 execution=JobExecution(execute=execute, on_success=on_success),
             )
         except Exception:

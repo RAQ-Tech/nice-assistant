@@ -495,13 +495,11 @@ try {
     -Uri "$base/api/v1/personas/$($persona.id)/visual-identity/consent" `
     -WebSession $session
   if ($withdrawnIdentity.consent_status -ne 'withdrawn') { throw 'identity consent withdrawal failed' }
-  $deletedReferenceStatus = $null
-  try {
-    $deletedReference = Invoke-WebRequest -Uri "$base$($reference.content_url)" -WebSession $session
-    $deletedReferenceStatus = [int]$deletedReference.StatusCode
-  } catch [System.Net.WebException] {
-    $deletedReferenceStatus = [int]$_.Exception.Response.StatusCode
-  }
+  $deletedReference = Invoke-WebRequest `
+    -Uri "$base$($reference.content_url)" `
+    -WebSession $session `
+    -SkipHttpErrorCheck
+  $deletedReferenceStatus = [int]$deletedReference.StatusCode
   if ($deletedReferenceStatus -ne 404) { throw 'withdrawn identity reference remained accessible' }
 
   $chat = Invoke-RestMethod `

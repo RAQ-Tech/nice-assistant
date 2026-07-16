@@ -126,6 +126,22 @@ the installed browser workflow and published.
 
 ## Delivery plan
 
+### Delivery foundation - gated autonomy
+
+- [x] Test integration-branch pushes without publishing a mutable production
+  image; reserve GHCR publication for `main` and release tags.
+- [x] Add a dedicated-key, source-restricted forced-command deployment guard
+  that accepts only Nice Assistant inspect, backup, digest deploy, health, logs,
+  and compatible container rollback.
+- [x] Capture and stopped-probe the effective container definition before key
+  authorization; preserve the optional Unraid template separately.
+- [x] Require a verified application backup and candidate migration drill before
+  deployment; never automatically restore a database or touch another service.
+- [ ] Complete the one supervised server sign-in, install the key restriction,
+  and record private definition-probe evidence.
+- [ ] Exercise the guard against the target container and complete all three
+  immutable-digest milestone promotions with installed-browser acceptance.
+
 ### Phase 0 - reset the product contract
 
 - [x] Add a superseding ADR for low-risk companion capabilities. Treat an

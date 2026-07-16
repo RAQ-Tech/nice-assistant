@@ -10,6 +10,62 @@ Browser microphone use, particularly on mobile, requires an HTTPS origin. Place
 the application behind a LAN HTTPS reverse proxy or another trusted secure
 access layer.
 
+## Guarded production deployment
+
+Routine production promotion uses the restricted scripts under
+`scripts/deployment`; it does not use a general-purpose remote shell. During one
+supervised root session, generate a dedicated laptop key, confirm the server SSH
+host fingerprint, and install the forced-command guard:
+
+```powershell
+pwsh -File scripts/deployment/new_laptop_deploy_key.ps1
+```
+
+```bash
+bash scripts/deployment/install_unraid_deploy_guard.sh \
+  --container nice-assistant \
+  --image-prefix ghcr.io/OWNER/nice-assistant \
+  --public-key /PATH/TO/DEDICATED_PUBLIC_KEY \
+  --source CLIENT_ADDRESS_OR_CIDR \
+  --state-dir /ROOT_ONLY/NICE_ASSISTANT_DEPLOYMENT \
+  --authorized-keys /root/.ssh/authorized_keys \
+  --unraid-template /PATH/TO/NICE_ASSISTANT_TEMPLATE
+```
+
+Use exact installation values only in the supervised shell and ignored local
+records. The installer refuses to authorize the key until the running
+container's effective definition can recreate a stopped, normalized probe. If
+no usable Unraid template exists, omit `--unraid-template`; the captured Docker
+definition becomes the root-only deployment source of truth.
+
+Configure a private SSH alias and key path in ignored
+`.local/deployment/remote.json`:
+
+```json
+{
+  "host_alias": "nice-assistant-deploy",
+  "key_path": ".local/deployment/nice_assistant_deploy_ed25519"
+}
+```
+
+The alias owns the private address, root user, pinned host key, and any source
+routing. Routine calls are noninteractive and host-key-strict:
+
+```powershell
+pwsh -File scripts/deployment/invoke_guarded_deploy.ps1 -Action inspect
+pwsh -File scripts/deployment/invoke_guarded_deploy.ps1 -Action deploy -Digest ghcr.io/OWNER/nice-assistant@sha256:DIGEST
+pwsh -File scripts/deployment/invoke_guarded_deploy.ps1 -Action health
+```
+
+`deploy` verifies a fresh backup and candidate migration drill before stopping
+the current container. It retains the prior digest/container, recreates only
+Nice Assistant, and checks effective configuration, Docker health, `/health`,
+`/ready`, revision, digest, and bounded startup logs. Compatible container-only
+failures roll back automatically. A schema-changing failure stops for operator
+approval; the guard never restores a database. Browser acceptance is performed
+from the signed-in laptop after server acceptance and is required before a
+milestone is considered promoted.
+
 ## Operational requirements
 
 - Health distinguishes application liveness from provider readiness.
@@ -45,7 +101,10 @@ Title generation, capability planning, and memory extraction are independent
 durable post-reply jobs. An outage in one must be visible through its authenticated
 job/task diagnostics but must not change an already completed persona turn. On
 restart, unfinished follow-ups use the same truthful interrupted-job recovery as
-other queued/running work; they are not silently replayed.
+other queued/running work; they are not silently replayed. Follow-ups for one
+chat retain a shared causal ordering key even when multiple interactive workers
+are configured, preventing concurrent SQLite mutation while keeping the persona
+reply off their critical path.
 
 Typed desktop chat also supports direct LAN HTTP: transient browser message IDs
 fall back to `crypto.getRandomValues` because `crypto.randomUUID` is restricted

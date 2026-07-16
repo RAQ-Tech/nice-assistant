@@ -19,7 +19,7 @@ BACKEND_SCENARIOS = (
     "tests.test_human_experience_scenarios.HumanExperienceScenarioTests.test_persona_switching_changes_the_next_turn_without_leaking_the_prior_persona",
     "tests.test_memory_v2.MemoryV2Tests.test_only_approved_scoped_fts_results_reach_context",
     "tests.test_async_jobs.AsyncJobTests.test_premature_persona_media_claim_is_never_streamed_or_persisted",
-    "tests.test_async_jobs.AsyncJobTests.test_title_and_capability_followups_start_independently_after_reply_delivery",
+    "tests.test_async_jobs.AsyncJobTests.test_title_and_capability_followups_are_distinct_jobs_after_reply_delivery",
     "tests.test_context_service.ContextServiceTests.test_summary_failure_degrades_without_failing_main_turn",
     "tests.test_memory_v2.MemoryV2Tests.test_extraction_failure_never_changes_a_completed_turn",
     "tests.test_capabilities.CapabilityTests.test_explicit_image_request_runs_automatically_as_a_reload_safe_attachment",
