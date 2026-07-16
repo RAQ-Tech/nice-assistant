@@ -189,10 +189,14 @@ print(json.dumps({"name": item["name"], "path": str(config.backup_dir / item["na
 }
 
 candidate_migration_revision() {
-  local image=$1 report="$NICE_DEPLOY_STATE_DIR/migration-drill.json"
+  local image=$1 report="$NICE_DEPLOY_STATE_DIR/migration-drill.json" backup_name mounted_snapshot
+  backup_name=$("$JQ" -er '.name' "$NICE_DEPLOY_STATE_DIR/backup-state.json")
+  [[ "$backup_name" =~ ^nice-assistant-snapshot-[0-9]{8}_[0-9]{6}-[a-f0-9]{8}\.zip$ ]] ||
+    die "verified backup state is invalid" 69
+  mounted_snapshot="/$backup_name"
   "$DOCKER" run --rm --entrypoint python \
-    -v "$NICE_DEPLOY_STATE_DIR/pre-deploy-backup.zip:/candidate.zip:ro" \
-    "$image" /opt/nice-assistant/scripts/backup_restore_drill.py /candidate.zip >"$report"
+    -v "$NICE_DEPLOY_STATE_DIR/pre-deploy-backup.zip:${mounted_snapshot}:ro" \
+    "$image" /opt/nice-assistant/scripts/backup_restore_drill.py "$mounted_snapshot" >"$report"
   chmod 600 "$report"
   "$JQ" -er '.migration_revision' "$report"
 }

@@ -149,6 +149,8 @@ class DeploymentGuardContractTests(unittest.TestCase):
         self.assertIn("create_verified_backup", guard)
         self.assertIn("verify_backup", guard)
         self.assertIn("backup_restore_drill.py", guard)
+        self.assertIn('mounted_snapshot="/$backup_name"', guard)
+        self.assertNotIn("backup_restore_drill.py /candidate.zip", guard)
         self.assertIn("database_compatible", guard)
         self.assertIn("database restore approval is required before rollback", guard)
         self.assertIn("wait_healthy", guard)
