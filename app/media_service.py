@@ -67,9 +67,10 @@ class MediaService:
 
     def _generate_image(self, user_id, chat_id, prompt, values, settings, preferences, cancellation):
         identity = values.get("_identity_conditioning")
+        conditioned_identity = identity if (identity or {}).get("status") == "ready" else None
         generation_plan_id = values.get("_media_plan_id")
         prompt = prompt_with_identity_description(prompt, identity)
-        max_attempts = int((identity or {}).get("max_generation_attempts") or 1)
+        max_attempts = int((conditioned_identity or {}).get("max_generation_attempts") or 1)
         candidates = []
         attempt_values = dict(values)
         for attempt_number in range(1, max_attempts + 1):
@@ -81,19 +82,24 @@ class MediaService:
                 attempt_number,
                 operation,
                 attempt_values.get("_source_media_id"),
-                (identity or {}).get("correction_workflow_resource_id")
+                (conditioned_identity or {}).get("correction_workflow_resource_id")
                 if operation == "image_to_image"
-                else (identity or {}).get("workflow_resource_id"),
+                else (conditioned_identity or {}).get("workflow_resource_id"),
             )
             try:
                 artifact = self._generate_image_artifact(
-                    prompt, attempt_values, settings, preferences, identity, cancellation
+                    prompt, attempt_values, settings, preferences, conditioned_identity, cancellation
                 )
                 media = self._persist_image(user_id, chat_id, generation_plan_id, artifact, cancellation)
-                if not identity:
+                if not conditioned_identity:
                     self._finish_attempt(attempt, "passed", media_id=media.id)
-                    return self._image_result(media, chat_id)
-                validation = self.identity.validate_generated_media(user_id, media.id, identity, cancellation)
+                    return self._image_result(media, chat_id, identity)
+                validation = self.identity.validate_generated_media(
+                    user_id,
+                    media.id,
+                    conditioned_identity,
+                    cancellation,
+                )
                 validation_row = validation.get("validation") or {}
                 status = validation["status"]
                 attempt_status = status if status in {"passed", "failed"} else "unverified"
@@ -103,23 +109,29 @@ class MediaService:
                     media_id=media.id,
                     validation_id=validation_row.get("id"),
                     score=validation_row.get("score"),
-                    threshold=validation_row.get("threshold") or identity.get("acceptance_threshold"),
+                    threshold=validation_row.get("threshold") or conditioned_identity.get("acceptance_threshold"),
                 )
                 candidate = (media, validation)
                 candidates.append(candidate)
                 if status == "passed":
-                    return self._image_result(media, chat_id, identity, validation, attempt_number)
+                    return self._image_result(media, chat_id, conditioned_identity, validation, attempt_number)
                 if status != "failed":
-                    return self._image_result(media, chat_id, identity, validation, attempt_number)
+                    return self._image_result(media, chat_id, conditioned_identity, validation, attempt_number)
                 if attempt_number < max_attempts:
-                    attempt_values = self._correction_values(values, identity, media)
+                    attempt_values = self._correction_values(values, conditioned_identity, media)
                     continue
-                if identity.get("failure_policy") == "show_unverified":
+                if conditioned_identity.get("failure_policy") == "show_unverified":
                     best_media, best_validation = max(
                         candidates,
                         key=lambda item: float(((item[1].get("validation") or {}).get("score")) or -1),
                     )
-                    return self._image_result(best_media, chat_id, identity, best_validation, attempt_number)
+                    return self._image_result(
+                        best_media,
+                        chat_id,
+                        conditioned_identity,
+                        best_validation,
+                        attempt_number,
+                    )
                 raise ProviderError(
                     provider="identity-verifier",
                     code="identity_validation_failed",
@@ -281,9 +293,16 @@ class MediaService:
     @staticmethod
     def _image_result(media, chat_id, identity=None, validation=None, attempts=1):
         canonical_url = f"/api/v1/media/{media.id}"
+        unconditioned = (identity or {}).get("status") == "unconditioned"
+        message = "Here is your generated image."
+        if unconditioned:
+            message += (
+                " The approved persona reference was not applied, so resemblance is not guaranteed; "
+                "this result is unconditioned and unverified."
+            )
         result = {
             "ok": True,
-            "text": f"Here is your generated image.\n\n![Generated image]({canonical_url})",
+            "text": f"{message}\n\n![Generated image]({canonical_url})",
             "imageUrl": canonical_url,
             "mediaId": media.id,
             "chatId": chat_id,
@@ -297,7 +316,8 @@ class MediaService:
         )
         if conditioning:
             result["identityConditioning"] = conditioning
-            result["identityWorkflow"] = {"attempts": attempts, "validation": validation.get("validation")}
+            if conditioning.get("status") == "conditioned":
+                result["identityWorkflow"] = {"attempts": attempts, "validation": validation.get("validation")}
         return result
 
     def _start_attempt(self, user_id, plan_id, number, operation, source_media_id, workflow_resource_id):

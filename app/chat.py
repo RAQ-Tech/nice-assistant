@@ -45,7 +45,7 @@ def generate_chat_title_from_first_user_message(text: str, max_len: int = 40) ->
 
 
 def chat_title_needs_autogeneration(title: str | None) -> bool:
-    normalized = (title or "").strip()
+    normalized = (title or "").strip().strip(".,!?;:-_\"'")
     if not normalized:
         return True
     return normalized.lower() in CHAT_TITLE_PLACEHOLDERS

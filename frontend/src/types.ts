@@ -106,6 +106,7 @@ export interface VisualIdentityProfile {
   acceptance_threshold: number;
   max_generation_attempts: number;
   failure_policy: 'block_claim' | 'show_unverified';
+  conditioning_fallback: 'allow_unconditioned' | 'require_conditioning';
   revision: number;
   consent_granted_at: number | null;
   consent_withdrawn_at: number | null;
@@ -297,6 +298,7 @@ export interface JobResult {
   mediaId?: Id;
   memory_extraction_job_id?: Id;
   identityConditioning?: {
+    status?: 'conditioned' | 'unconditioned';
     verification_status: 'not_evaluated' | 'passed' | 'failed' | 'unavailable' | 'error' | 'cancelled';
     claim_status?: 'verified' | 'unverified' | 'rejected';
   };
@@ -339,6 +341,15 @@ export interface CapabilityRequest {
   completed_at: number | null;
   expires_at: number | null;
   media_plan: MediaPlan | null;
+}
+
+export interface IdentitySetupIntent {
+  capability_request_id: Id | null;
+  chat_id: Id | null;
+  persona_id: Id | null;
+  prompt: string;
+  required_features: string[];
+  block_code?: string | null;
 }
 
 export type MediaResourceType = 'model' | 'lora' | 'workflow';
@@ -385,6 +396,31 @@ export interface MediaCatalog {
   vocabulary: MediaPlanningVocabulary;
 }
 
+export interface IdentityWorkflowInputCandidate {
+  node_id: string;
+  input_name: string;
+  label: string;
+}
+
+export interface IdentityWorkflowInspection {
+  provider: 'comfyui';
+  status: 'provider_compatible' | 'incompatible' | 'invalid' | 'unreachable' | 'error';
+  provider_compatible: boolean;
+  live_tested: false;
+  message: string;
+  identity_input_candidates: IdentityWorkflowInputCandidate[];
+  detected_node_types: string[];
+  missing_node_types: string[];
+  asset_checks: {
+    node_id: string;
+    node_type: string;
+    input_name: string;
+    value: string;
+    available: boolean;
+  }[];
+  warnings: string[];
+}
+
 export interface MediaPlanRequirements {
   kind: 'image' | 'video';
   operation: 'generate' | 'inpaint' | 'outpaint' | 'image_to_image';
@@ -425,8 +461,8 @@ export interface MediaPlan {
   };
   estimated_vram_mb: number;
   identity_conditioning: {
-    required: true;
-    status: 'ready' | 'blocked' | 'conditioned';
+    required: boolean;
+    status: 'ready' | 'blocked' | 'conditioned' | 'unconditioned';
     mode: string | null;
     persona_id: Id | null;
     profile_id: Id | null;
@@ -658,6 +694,7 @@ export interface AppState {
   mediaCatalog: MediaCatalog | null;
   mediaCatalogBusy: boolean;
   mediaPlanPreview: MediaPlan | null;
+  mediaCatalogIdentitySetupIntent: IdentitySetupIntent | null;
   identitySettings: IdentityValidationSettings | null;
   identityProfiles: Record<Id, VisualIdentityProfile>;
   identityValidations: Record<Id, IdentityValidation[]>;

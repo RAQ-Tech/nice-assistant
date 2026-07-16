@@ -3,6 +3,7 @@ from __future__ import annotations
 
 IDENTITY_CONTROL_FEATURE = "identity_control"
 IDENTITY_CONDITIONING_MODE = "approved_reference_workflow"
+IDENTITY_UNCONDITIONED_MODE = "appearance_guidance_only"
 
 
 def public_identity_conditioning(
@@ -29,10 +30,13 @@ def public_identity_conditioning(
         "acceptance_threshold": snapshot.get("acceptance_threshold"),
         "max_generation_attempts": snapshot.get("max_generation_attempts"),
         "failure_policy": snapshot.get("failure_policy"),
+        "conditioning_fallback": snapshot.get("conditioning_fallback"),
         "appearance_description_included": bool(snapshot.get("appearance_description")),
         "verification_status": verification_status or "not_evaluated",
     }
-    if applied and status == "conditioned":
+    if status == "unconditioned":
+        result["claim_status"] = "unverified"
+    elif applied and status == "conditioned":
         result["claim_status"] = claim_status or ("verified" if verification_status == "passed" else "unverified")
     return result
 

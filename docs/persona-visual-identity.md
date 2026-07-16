@@ -48,17 +48,29 @@ Settings -> Visual Identity provides the review workflow:
 2. Upload an image or choose one from the owner-protected generated-image
    gallery. Raw database or protected-media IDs are not user-facing inputs.
 3. Review and explicitly approve, reject, or delete each pending reference.
-4. Record stable appearance guidance and configure an identity-aware ComfyUI
-   workflow if new generations should actually use the approved reference.
-5. Optionally configure the separate LAN verifier under Advanced settings when
-   automated comparison, retry, or blocking is wanted.
-6. Optionally choose a generated image from the thumbnail gallery for manual
+4. Record stable appearance guidance and choose what happens while a
+   reference-aware workflow is unavailable: generate with a visible warning or
+   require conditioning and block.
+5. Use the focused Identity Control setup in Media Catalog to import a ComfyUI
+   API-format workflow, inspect installed nodes/assets, and bind the reviewed
+   reference input when new generations should use the approved reference.
+6. Optionally configure the separate LAN verifier under Advanced settings when
+   automated comparison or retry is wanted, and choose the visible policy used
+   after a measured comparison failure.
+7. Optionally choose a generated image from the thumbnail gallery for manual
    comparison and inspect the durable result and audit history.
 
 The readiness card reports reference approval, reference-aware generation,
-optional comparison, and automatic blocking independently. CompreFace is only a
-stateless verifier: it can compare a result to an approved reference, but it
-cannot improve generation or make an image resemble that reference.
+the saved no-workflow behavior, optional comparison, and the saved
+comparison-failure behavior independently. CompreFace is only a stateless
+verifier: it can compare a result to an approved reference, but it cannot improve
+generation or make an image resemble that reference.
+
+`allow_unconditioned` keeps image generation available when no compatible
+identity workflow is configured. The durable plan and result are labeled
+`unconditioned` and `unverified`, and the approval card states that the approved
+reference will not be applied and resemblance is not guaranteed.
+`require_conditioning` keeps the request blocked until setup is complete.
 
 The appearance description is snapshotted into identity-aware plans
 and added to the generation prompt. The approved primary reference is separately
@@ -90,17 +102,21 @@ unavailability is not evidence of a mismatch, so it does not trigger retries.
 - `GET /api/v1/personas/{id}/visual-identity/history`
 - `GET /api/v1/media/{id}/identity-status`
 - `GET /api/v1/media-plans/{id}/attempts`
+- `POST /api/v1/capability-requests/{id}/replan`
+- `POST /api/v1/media-catalog/identity-workflows/inspect`
 
 Every lookup is owner scoped. Reference content uses authenticated protected
 delivery and is included only in full backups.
 
 ## Generation and correction boundary
 
-Identity-aware media may use an active, consented profile and reviewed reference only when the
-platform planner requests `identity_control` and the catalog selects a real bound
-ComfyUI workflow. It preserves the exact profile revision, reference digest, and
-workflow in the media plan. This is conditioning, not verification. Ordinary
-generation makes no identity claim, and only an accepted comparison can produce
-`verified`. Each attempt and comparison is durable. Rejected intermediate
-artifacts remain protected and queryable to their owner through attempt audit,
-but are never rendered as the persona result under `block_claim`.
+Reference-conditioned media may use an active, consented profile and reviewed
+reference only when the platform planner requests `identity_control` and the
+catalog selects a real bound ComfyUI workflow. It preserves the exact profile
+revision, reference digest, and workflow in the media plan. This is conditioning,
+not verification. When the saved policy permits an ordinary fallback, appearance
+guidance may still be used but the reference is not sent and the result makes no
+identity claim. Only an accepted comparison can produce `verified`. Each attempt
+and comparison is durable. Rejected intermediate artifacts remain protected and
+queryable to their owner through attempt audit, but are never rendered as the
+persona result under `block_claim`.

@@ -1,6 +1,6 @@
 # ADR 0012: Reviewed-reference persona identity conditioning
 
-- Status: Accepted
+- Status: Accepted; setup-flow decision partially superseded by ADR 0018
 - Date: 2026-07-14
 - Owners: Nice Assistant maintainers
 
@@ -58,6 +58,8 @@ part of its core contract.
   semantics.
 - Add an end-user workflow builder. Rejected for this step. Identity graph setup
   is an operator/developer responsibility in the existing Media Catalog surface.
+  ADR 0018 later supersedes this alternative with a guided import, inspection,
+  and explicit-binding flow while retaining the exact binding contract.
 
 ## Consequences
 

@@ -59,10 +59,25 @@ def normalize_provider_base_url(raw_url, default_url):
     return candidate.rstrip("/")
 
 
-def provider_get_json(url, headers=None, timeout=10):
+def provider_get_json(url, headers=None, timeout=10, max_bytes=None):
     req = urllib.request.Request(url, headers=headers or {}, method="GET")
     with urllib.request.urlopen(req, timeout=timeout) as resp:
-        raw = resp.read().decode("utf-8", errors="replace")
+        if max_bytes is None:
+            payload = resp.read()
+        else:
+            limit = max(1, int(max_bytes))
+            content_length = resp.headers.get("Content-Length")
+            if content_length:
+                try:
+                    declared_length = int(content_length)
+                except (TypeError, ValueError):
+                    declared_length = None
+                if declared_length is not None and declared_length > limit:
+                    raise ValueError("Provider response exceeds the configured size limit.")
+            payload = resp.read(limit + 1)
+            if len(payload) > limit:
+                raise ValueError("Provider response exceeds the configured size limit.")
+        raw = payload.decode("utf-8", errors="replace")
     if not raw.strip():
         return {}
     return json.loads(raw)

@@ -127,7 +127,10 @@ and platform foundation below.
 
 21. **Approachable settings experience — delivered.** Visual Identity provides
     guided reference setup, truthful generation-versus-verification readiness,
-    and protected thumbnail pickers. Everyday tabs lead with common controls,
+    editable missing-conditioning and comparison-failure behavior, and protected
+    thumbnail pickers. Media Catalog adds targeted identity workflow
+    import/inspection/binding and blocked-plan rechecks without claiming a schema
+    check is a live provider success. Everyday tabs lead with common controls,
     accessible information tips, and closed expert details. Models, Task Models,
     Media Catalog, GPU Coordination, and Data now lead with effective-state and
     readiness summaries, use collapsed named editors, keep warnings visible,
@@ -138,7 +141,9 @@ and platform foundation below.
     seeds a missing starter catalog model when media is enabled after initial
     setup, while preserving operator-managed resources under ADR 0016.
     Persona-subject planning now keeps user intent authoritative and makes
-    identity workflow blocks actionable under ADR 0017.
+    identity workflow blocks actionable under ADR 0017. ADR 0018 restores
+    supporting image generation through an explicit warned fallback while
+    retaining strict conditioning as a user-selectable policy.
 
 Steps are delivered and reviewed independently. Step 11 cannot select providers
 until a future listening decision is approved. Any future deployment acceptance

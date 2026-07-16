@@ -40,7 +40,7 @@ startup.
   queue/storage metrics, configured retention, atomic disk-full writes, empty
   artifacts, and corrupt/valid backup restore drills.
 - API tests use isolated temporary databases and deterministic fake providers.
-- Migration tests upgrade pre-0004/0005/0007/0008/0009/0010/0011/0012/0013/0014/0015 databases and prove
+- Migration tests upgrade pre-0004/0005/0007/0008/0009/0010/0011/0012/0013/0014/0015/0016 databases and prove
   chats, messages, jobs, media, memories, turn ordering, stored artifact links,
   Task Model profiles, and imported catalog resources survive.
 - Persona identity tests cover explicit consent, safe image normalization,
@@ -51,7 +51,8 @@ startup.
   upload, persona/profile/reference gates, file digests, stale approval,
   appearance prompt composition, immutable generated-media plan provenance,
   stage cancellation checks, measured failed/passed correction attempts,
-  failure policy, and verified/unverified API/browser labels.
+  separate conditioning-fallback and comparison-failure policies, disclosed
+  unconditioned results, and verified/unverified API/browser labels.
 - Provider contract tests exercise the same behavioral suite for every adapter.
 - Ollama tests cover fragmented NDJSON, completion metadata, mid-stream errors,
   malformed frames, timeout/unavailable behavior, and cancellation closure.
@@ -78,9 +79,17 @@ startup.
   settings/LoRA payloads.
 - Capability-planning tests prove persona reply prose cannot attach identity
   conditioning to an unrelated image, genuine persona subjects retain the hard
-  requirement, and blocked cards expose remediation details.
-- Chat-title tests cover the canonical browser placeholder and legacy placeholder
-  recognition so the title Task Model is actually scheduled on the first turn.
+  semantic requirement, explicit no-persona wording overrides an incorrect
+  positive model classification, configured workflows remain preferred,
+  explicit fallback affects runtime, and only blocked pending plans can be replanned.
+- ComfyUI workflow-inspection tests fake `/object_info` and cover detected image
+  inputs, missing node classes/assets and required inputs, disconnected identity
+  inputs, broken links, authentication, bounded provider metadata, and safe
+  provider errors without claiming a live generation passed. Provider URL policy
+  is covered separately by production-hardening tests.
+- Chat-title tests cover the canonical browser placeholder, legacy placeholder
+  recognition, punctuation variants, and rejection of placeholder model output
+  so the title Task Model cannot restore an untitled chat after a completed turn.
 - Resource-coordination tests cover real provider response parsing, unknown and
   unavailable telemetry, admin isolation, disabled/observe/managed policy,
   endpoint-fingerprint authorization, verified release, safe timeout,
@@ -106,14 +115,17 @@ startup.
   media catalog planning, GPU coordination controls/status, and canonical
   multipart identity-reference transport, and memory selection/bulk-action
   confirmation behavior. Visual Identity coverage requires a plain-language
-  readiness view, closed-by-default advanced diagnostics, fictional-persona
+  readiness view, visible editable generation/comparison policies,
+  closed-by-default advanced diagnostics, fictional-persona
   rights wording, owner-protected thumbnail selection without opaque media ID
   entry, and accessible information-button to tooltip associations. Everyday
   settings tests keep common controls visible while provider tuning and
   credentials remain closed by default. Operator settings coverage asserts
   effective model state, runtime-effective per-model overrides, closed role and
   resource editors, independent persistence actions, safe coordination wording,
-  and backup restore verification.
+  and backup restore verification. Media Catalog coverage imports API-format
+  identity workflow JSON, selects an exact binding/model, preserves targeted
+  request/persona context, and exercises the active blocked-plan recheck.
   Direct-LAN client-ID coverage proves that chat does not require the
   secure-context-only `crypto.randomUUID`; Data settings coverage exercises the
   administrator backup verification action and visible restore-drill result.
@@ -147,7 +159,9 @@ container smoke repeats the installed-package path from the built
 image through `scripts/container_smoke_check.ps1`. It verifies task-profile
 migration/readiness, chat and documented task fallback, cancellation, protected
 media, consent-bound identity reference normalization/review/deletion, truthful
-disabled-verifier readiness, the installed `0013` migration, durable
-identity-conditioned capability planning, and clean shutdown. The planning smoke
-stops before provider execution; real ComfyUI workflow and identity-provider
-hardware acceptance remain separate explicit checks.
+  disabled-verifier readiness, the installed current migration head, durable
+  conditioned planning, a strict missing-workflow block followed by an audited
+  `allow_unconditioned` replan with disclosed/unverified fields, and clean
+  shutdown. Provider schema inspection is deterministic in CI; real ComfyUI
+  workflow and identity-provider hardware acceptance remain separate explicit
+  checks.

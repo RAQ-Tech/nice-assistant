@@ -28,10 +28,18 @@ ComfyUI `/upload/image` and replaces only those declared inputs. This supports
 operator-tested IPAdapter, InstantID, PuLID, or other graphs without pretending
 their custom-node schemas are interchangeable.
 
-The browser creates new workflow resources as disabled drafts so operators can
-paste and review executable JSON before enabling them. An enabled workflow must
-have a non-empty patch; an enabled `identity_control` workflow must also have at
-least one valid binding.
+The browser provides a focused Identity Control setup card. Operators import an
+API-format graph, inspect it against the configured ComfyUI `/object_info`, select
+a detected reference-image input and compatible base model, then save the exact
+graph and binding. Missing custom nodes or selected assets are reported by name.
+The inspection enables saving only when provider metadata proves complete
+required inputs, valid typed links, an acyclic path to an output, and a path from
+the selected reference input through a recognized identity application node.
+Graphs that cannot be proven remain drafts. This structural proof is not a
+successful live generation or an identity-match result. The expert resource
+editor remains available for deliberate manual changes. An enabled workflow must
+have a non-empty patch; an enabled
+`identity_control` workflow must also have at least one valid binding.
 
 An enabled ComfyUI `image_to_image` workflow must also declare exact
 `source_image_bindings`. Enabled `inpaint` and `outpaint` workflows additionally
@@ -71,18 +79,27 @@ The approval card shows the selected resources, reasoning, estimates, warnings,
 and blocked state. Approval revalidates every selected resource. Editing,
 disabling, or deleting a selected resource makes the old plan stale and prevents
 execution; the system does not silently re-plan after the user has reviewed it.
-Blocked cards also show the hard requirements and per-resource rejection reasons
-and link directly to Media Catalog. Persona-chat planning derives
+Blocked cards also show the hard requirements and per-resource rejection reasons.
+Their active remediation action carries the request/persona context into the
+Identity Control setup and can explicitly recheck a still-pending blocked plan.
+Rechecking retains the plan's originating persona and rejects a changed chat
+persona. Legacy blocked plans without the newer persona snapshot adopt the
+current chat persona once and record that recovery in the replan audit.
+Persona-chat planning derives
 `identity_control` from the Task Model's typed `persona_subject` decision; the
 user's requested subject is authoritative and persona reply prose cannot expand
 it. See ADR 0017.
 
-When `identity_control` is required, planning also requires a persona chat, an
+When `identity_control` is required, planning first looks for a persona chat, an
 active consented identity profile, an approved primary reference whose file still
-matches its reviewed digest, and a compatible bound ComfyUI workflow. The plan
-stores the profile/reference/workflow snapshot. Approval revalidates it, and the
-generated media links back to that plan. The generated candidate is compared
-inline, and each generation/comparison/correction attempt remains durable.
+matches its reviewed digest, and a compatible bound ComfyUI workflow. A ready
+workflow produces the existing conditioned snapshot. When only the workflow is
+unavailable and the saved profile policy is `allow_unconditioned`, the planner
+may select an ordinary model while preserving a durable `unconditioned` snapshot
+and an explicit resemblance warning. `require_conditioning`, missing consent,
+or changed reference evidence remains blocked. Approval revalidates the saved
+policy and profile revision. Conditioned candidates may be compared inline, and
+each generation/comparison/correction attempt remains durable.
 
 ComfyUI plans execute `generate`, `inpaint`, `outpaint`, and `image_to_image`
 only when their exact inputs are configured. Automatic1111 and cloud media
@@ -115,6 +132,9 @@ provider after the one-shot import had already completed, but only when the
 matching catalog kind is empty. Future disabled-to-enabled settings changes use
 the same missing-kind rule. Existing operator resources are never overwritten
 or recreated; see ADR 0016.
+Migration `0016_identity_fallback` adds the explicit no-workflow policy to
+existing visual-identity profiles. It does not rewrite reviewed references,
+media, or completed plans.
 
 Resource metadata and plans are owner-scoped. Prompts remain in their existing
 capability request; execution plans store semantic requirements and selected
@@ -138,5 +158,6 @@ future identity/consent rules.
 The canonical operator surface is Settings -> Media Catalog. The API is
 `/api/v1/media-catalog`, `/api/v1/media-catalog/settings`,
 `/api/v1/media-catalog/resources/{id}`,
+`/api/v1/media-catalog/identity-workflows/inspect`,
 `/api/v1/media-catalog/plan-previews`, `/api/v1/media-plans/{id}`, and
 `/api/v1/media-plans/{id}/attempts`.

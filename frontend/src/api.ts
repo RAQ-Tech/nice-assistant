@@ -19,6 +19,7 @@ import type {
   IdentityReference,
   IdentityValidation,
   IdentityValidationSettings,
+  IdentityWorkflowInspection,
   Persona,
   ProviderCheckResult,
   ResourceCoordinationEvent,
@@ -231,6 +232,7 @@ export class ApiClient {
         acceptance_threshold: profile.acceptance_threshold,
         max_generation_attempts: profile.max_generation_attempts,
         failure_policy: profile.failure_policy,
+        conditioning_fallback: profile.conditioning_fallback ?? 'allow_unconditioned',
       }),
     });
   }
@@ -361,6 +363,10 @@ export class ApiClient {
     return this.request(`/capability-requests/${encodeURIComponent(id)}/approval`, { method: 'POST' });
   }
 
+  replanCapability(id: string): Promise<CapabilityRequest> {
+    return this.request(`/capability-requests/${encodeURIComponent(id)}/replan`, { method: 'POST' });
+  }
+
   denyCapability(id: string): Promise<CapabilityRequest> {
     return this.request(`/capability-requests/${encodeURIComponent(id)}/denial`, { method: 'POST' });
   }
@@ -403,6 +409,16 @@ export class ApiClient {
     return this.request('/media-catalog/plan-previews', {
       method: 'POST',
       body: JSON.stringify(requirements),
+    });
+  }
+
+  inspectIdentityWorkflow(
+    workflowPatch: Record<string, unknown>,
+    settings: Record<string, unknown> = {},
+  ): Promise<IdentityWorkflowInspection> {
+    return this.request('/media-catalog/identity-workflows/inspect', {
+      method: 'POST',
+      body: JSON.stringify({ workflow_patch: workflowPatch, settings }),
     });
   }
 

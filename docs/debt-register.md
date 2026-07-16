@@ -20,8 +20,9 @@ change that alters them.
   settings, chat/rendering, media, recording, playback, and visualization, with
   Vitest/Playwright coverage and deterministic generated assets.
 - Guided Visual Identity settings with separate truthful reference, generation,
-  comparison, and blocking readiness; owner-protected thumbnail pickers; and
-  optional advanced diagnostics instead of opaque media-ID inputs.
+  missing-conditioning policy, comparison readiness, and measured-failure
+  policy; owner-protected thumbnail pickers; and optional advanced diagnostics
+  instead of opaque media-ID inputs.
 - Goal-oriented everyday settings for General, speech, direct media defaults,
   Memory, User, Personas, and Workspaces, with accessible information tips and
   closed-by-default advanced provider controls.
@@ -42,8 +43,11 @@ change that alters them.
   migration `0015` repairs affected accounts; provider settings do not overwrite
   operator-curated resources.
 - Typed persona-subject planning prevents identity requirements from leaking into
-  unrelated images, and blocked plans expose exact rejection/remediation details.
-  Identity model installation and graph authoring remain deployment-owned.
+  unrelated images. Persona plans prefer reviewed-reference conditioning, use a
+  disclosed unconditioned fallback only when the saved policy permits it, and
+  expose targeted setup/recheck actions when strict planning blocks. Identity
+  extension/model installation remains deployment-owned; guided graph import,
+  provider-schema inspection, and exact binding are delivered in the product.
 - Consent-bound persona visual identity profiles, normalized protected
   references, explicit review/deletion, stateless LAN comparison, durable
   validation history, and truthful verified/rejected/unverified media state.

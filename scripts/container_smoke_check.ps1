@@ -203,8 +203,10 @@ try {
       acceptance_threshold = 0.78
       max_generation_attempts = 2
       failure_policy = 'block_claim'
+      conditioning_fallback = 'require_conditioning'
     } | ConvertTo-Json)
-  if ($identity.appearance_description -ne 'short copper hair and green eyes') {
+  if ($identity.appearance_description -ne 'short copper hair and green eyes' -or
+      $identity.conditioning_fallback -ne 'require_conditioning') {
     throw 'persona identity profile did not persist'
   }
   Invoke-RestMethod `
@@ -233,6 +235,82 @@ try {
   $protectedReference = Invoke-WebRequest -Uri "$base$($reference.content_url)" -WebSession $session
   if ($protectedReference.StatusCode -ne 200 -or $protectedReference.RawContentLength -le 0) {
     throw 'protected identity reference delivery failed'
+  }
+
+  $fallbackIdentityChat = Invoke-RestMethod `
+    -Method Post `
+    -Uri "$base/api/v1/chats" `
+    -WebSession $session `
+    -ContentType 'application/json' `
+    -Body (@{
+      workspace_id = $workspace.id
+      persona_id = $persona.id
+      memory_mode = 'off'
+      title = 'Identity fallback smoke'
+    } | ConvertTo-Json)
+  $fallbackIdentityTurn = Invoke-RestMethod `
+    -Method Post `
+    -Uri "$base/api/v1/chats/$($fallbackIdentityChat.id)/turns" `
+    -WebSession $session `
+    -ContentType 'application/json' `
+    -Body (@{
+      text = 'Create the container identity portrait before setup'
+      memory_mode = 'off'
+      model = 'smoke-model'
+    } | ConvertTo-Json)
+  $deadline = [DateTime]::UtcNow.AddSeconds(20)
+  do {
+    $fallbackIdentityJob = Invoke-RestMethod `
+      -Uri "$base/api/v1/jobs/$($fallbackIdentityTurn.job.id)" `
+      -WebSession $session
+    if ($fallbackIdentityJob.status -in @('completed', 'failed', 'cancelled')) { break }
+    Start-Sleep -Milliseconds 100
+  } while ([DateTime]::UtcNow -lt $deadline)
+  if ($fallbackIdentityJob.status -ne 'completed') { throw 'identity fallback planning turn failed' }
+  $fallbackIdentityRequests = Invoke-RestMethod `
+    -Uri "$base/api/v1/capability-requests?chat_id=$($fallbackIdentityChat.id)" `
+    -WebSession $session
+  if ($fallbackIdentityRequests.items.Count -ne 1) {
+    throw 'identity fallback capability request was not created'
+  }
+  $blockedIdentityRequest = $fallbackIdentityRequests.items[0]
+  if ($blockedIdentityRequest.media_plan.status -ne 'blocked' -or
+      $blockedIdentityRequest.media_plan.identity_conditioning.persona_id -ne $persona.id) {
+    throw 'strict missing-workflow identity plan was not blocked with its originating persona'
+  }
+  $identity = Invoke-RestMethod `
+    -Method Put `
+    -Uri "$base/api/v1/personas/$($persona.id)/visual-identity" `
+    -WebSession $session `
+    -ContentType 'application/json' `
+    -Body (@{
+      appearance_description = 'short copper hair and green eyes'
+      acceptance_threshold = 0.78
+      max_generation_attempts = 2
+      failure_policy = 'block_claim'
+      conditioning_fallback = 'allow_unconditioned'
+    } | ConvertTo-Json)
+  if ($identity.conditioning_fallback -ne 'allow_unconditioned') {
+    throw 'identity missing-conditioning fallback did not persist'
+  }
+  $fallbackReplan = Invoke-RestMethod `
+    -Method Post `
+    -Uri "$base/api/v1/capability-requests/$($blockedIdentityRequest.id)/replan" `
+    -WebSession $session
+  $fallbackPlan = $fallbackReplan.media_plan
+  $fallbackWarnings = $fallbackPlan.explanation.warnings -join ' '
+  if ($fallbackPlan.status -ne 'ready' -or
+      $fallbackPlan.identity_conditioning.status -ne 'unconditioned' -or
+      $fallbackPlan.identity_conditioning.claim_status -ne 'unverified' -or
+      $fallbackPlan.identity_conditioning.conditioning_fallback -ne 'allow_unconditioned' -or
+      $fallbackWarnings -notmatch 'reference will not be applied') {
+    throw 'identity fallback replan was not ready, disclosed, and explicitly unverified'
+  }
+  $fallbackEvents = Invoke-RestMethod `
+    -Uri "$base/api/v1/capability-requests/$($blockedIdentityRequest.id)/events" `
+    -WebSession $session
+  if (@($fallbackEvents.events)[-1].action -ne 'replanned') {
+    throw 'identity fallback replan audit was not recorded'
   }
 
   $identityModel = Invoke-RestMethod `
@@ -337,7 +415,7 @@ try {
   $schemaRaw = docker exec $name python -c "import sqlite3,json; c=sqlite3.connect('/data/nice_assistant.db'); print(json.dumps({'version':c.execute('SELECT version_num FROM alembic_version').fetchone()[0],'plan_columns':[r[1] for r in c.execute('PRAGMA table_info(media_execution_plans)')],'media_columns':[r[1] for r in c.execute('PRAGMA table_info(media_files)')],'attempt_columns':[r[1] for r in c.execute('PRAGMA table_info(media_generation_attempts)')]}))"
   if ($LASTEXITCODE -ne 0) { throw 'media correction schema inspection failed' }
   $schema = $schemaRaw | ConvertFrom-Json
-  if ($schema.version -ne '0015_media_provider_bootstrap' -or
+  if ($schema.version -ne '0016_identity_fallback' -or
       $schema.plan_columns -notcontains 'identity_conditioning_json' -or
       $schema.media_columns -notcontains 'generation_plan_id' -or
       $schema.attempt_columns -notcontains 'attempt_number') {
@@ -452,6 +530,7 @@ c.close()
     resource_coordination = 'ok'
     media_catalog = 'ok'
     persona_visual_identity = 'ok'
+    identity_fallback_replan = 'ok'
     identity_conditioned_planning = 'ok'
     media_correction_migration = 'ok'
     chat_and_title_fallback = 'ok'

@@ -34,6 +34,7 @@ export function createState(): AppState {
     mediaCatalog: null,
     mediaCatalogBusy: false,
     mediaPlanPreview: null,
+    mediaCatalogIdentitySetupIntent: null,
     identitySettings: null,
     identityProfiles: {},
     identityValidations: {},
@@ -99,6 +100,15 @@ export function createState(): AppState {
     sessionTimer: null,
     lastActivityAt: Date.now(),
   };
+}
+
+export function clearIdentitySetupContext(appState: AppState): void {
+  appState.mediaCatalogIdentitySetupIntent = null;
+}
+
+export function clearIdentitySetupContextForChat(appState: AppState, chatId: string): void {
+  const intent = appState.mediaCatalogIdentitySetupIntent;
+  if (intent && intent.chat_id !== chatId) clearIdentitySetupContext(appState);
 }
 
 export class ClientStateMachine {

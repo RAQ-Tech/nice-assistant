@@ -108,6 +108,7 @@ class PersonaIdentityTests(unittest.TestCase):
             persona = self._persona(running)
             profile = running.client.get(f"/api/v1/personas/{persona['id']}/visual-identity").json()
             self.assertEqual(profile["consent_status"], "not_granted")
+            self.assertEqual(profile["conditioning_fallback"], "allow_unconditioned")
             self.assertFalse(profile["generation_workflow_configured"])
             self.assertFalse(profile["verification_configured"])
             self.assertFalse(profile["validation_ready"])
@@ -172,9 +173,13 @@ class PersonaIdentityTests(unittest.TestCase):
                     "acceptance_threshold": 0.78,
                     "max_generation_attempts": 2,
                     "failure_policy": "show_unverified",
+                    "conditioning_fallback": "require_conditioning",
                 },
             )
             self.assertEqual(updated.status_code, 200, updated.text)
+            self.assertEqual(updated.json()["conditioning_fallback"], "require_conditioning")
+            persisted = running.client.get(f"/api/v1/personas/{persona['id']}/visual-identity")
+            self.assertEqual(persisted.json()["conditioning_fallback"], "require_conditioning")
             unverified = running.client.post(
                 f"/api/v1/personas/{persona['id']}/visual-identity/validations",
                 json={"media_id": candidate_id},

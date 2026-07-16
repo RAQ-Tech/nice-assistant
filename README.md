@@ -134,6 +134,10 @@ server, proxy, bridge, and second listener have been removed.
   inputs, run post-generation comparison, durably record attempts, and apply a
   bounded correction/rerun policy before returning verified or explicit
   unverified output
+- Persona identity settings separately control missing-conditioning fallback and
+  measured comparison failures. Missing identity workflows can use a visibly
+  unconditioned result or strict blocking, while Media Catalog provides guided
+  ComfyUI workflow import, compatibility inspection, and exact reference binding
 - Visualizer overlay toggle and ring-of-dots canvas driven by **actual `<audio>` playback analyser**
 - Hold-to-talk recording (`MediaRecorder`) posting to `/api/v1/speech/transcriptions`
 - State indicator (`Listening`, `Thinking`, `Speaking`)
@@ -142,7 +146,10 @@ server, proxy, bridge, and second listener have been removed.
 - Provider readiness checks in Settings for Ollama, OpenAI, Kokoro, Automatic1111, and ComfyUI
 - Local image generation through Automatic1111 (`/sdapi/v1/txt2img`) or ComfyUI (`/upload/image`, `/prompt`, `/history/{prompt_id}`, `/view`) with per-user endpoint override in Settings
 - Enabling a media provider after initial setup bootstraps a missing starter catalog model without replacing operator-managed catalog resources
-- Persona-chat image planning keeps the user's requested subject authoritative: unrelated images use ordinary catalog models, while persona images require an explicitly configured identity workflow and show actionable block reasons when it is missing
+- Persona-chat image planning keeps the user's requested subject authoritative:
+  unrelated images use ordinary catalog models, while persona images prefer an
+  identity workflow and otherwise follow the saved, explicitly disclosed
+  fallback policy with actionable setup and plan-recheck controls
 - ffmpeg included for audio conversion
 - Audio hot-cache rotation into archives with durable replay-path updates and
   configurable age retention
@@ -290,6 +297,7 @@ For iPhone/Android browsers, microphone capture usually requires **HTTPS** (or l
 - `GET /api/v1/capabilities`, `GET /api/v1/capability-requests`
 - `GET/DELETE /api/v1/capability-requests/:id`
 - `POST /api/v1/capability-requests/:id/approval`, `POST /api/v1/capability-requests/:id/denial`
+- `POST /api/v1/capability-requests/:id/replan`
 - `GET /api/v1/capability-requests/:id/events`
 - `GET /api/v1/models`, `POST /api/v1/provider-checks`
 - `GET /api/v1/task-models`, `PUT /api/v1/task-models/:role`
@@ -297,6 +305,7 @@ For iPhone/Android browsers, microphone capture usually requires **HTTPS** (or l
 - `POST /api/v1/media/image-jobs`, `POST /api/v1/media/image-edit-jobs`, `POST /api/v1/media/video-jobs`
 - `GET /api/v1/media-catalog`, `PUT /api/v1/media-catalog/settings`
 - `POST /api/v1/media-catalog/resources`, `GET/PUT/DELETE /api/v1/media-catalog/resources/:id`
+- `POST /api/v1/media-catalog/identity-workflows/inspect`
 - `POST /api/v1/media-catalog/plan-previews`, `GET /api/v1/media-plans/:id`, `GET /api/v1/media-plans/:id/attempts`
 - `GET/PUT /api/v1/identity-validation/settings`, `POST /api/v1/identity-validation/check`
 - `GET/PUT /api/v1/personas/:id/visual-identity`, consent, reference review, validation, and history routes

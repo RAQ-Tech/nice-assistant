@@ -19,12 +19,16 @@ content tags, and required features from server-advertised vocabularies.
 Image requests also include a typed `persona_subject` decision based on the user
 request. The platform removes `identity_control` from unrelated images and adds
 it for persona subjects; assistant reply prose cannot expand the subject. See
-ADR 0017.
+ADR 0017. A narrow server guard also honors explicit exclusions such as
+"without you" even if the Task Model incorrectly marks the selected persona as
+the subject; generic scene exclusions cannot remove persona identity control.
 
 Chat-title generation runs while a chat still has a recognized placeholder.
 The browser creates the canonical `New chat` title, and the server also recognizes
 legacy `New conversation` and `Untitled chat` values so existing chats can recover
-on their next successful turn.
+on their next successful turn. A title-model output that is itself one of those
+placeholders is rejected and uses the deterministic user-text title instead, so
+a nominally successful model call cannot restore the untitled state.
 Provider, checkpoint, model, workflow, LoRA, generation settings, and identity
 references remain excluded. The deterministic media coordinator resolves the
 semantic request against operator metadata; see `docs/media-catalog.md`.

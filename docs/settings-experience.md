@@ -34,8 +34,9 @@ what to do next without reading the source code.
   storage, choosing an image, and explicitly approving it.
 - Replace protected-media ID entry with an owner-scoped generated-image
   thumbnail picker.
-- Separate reference storage, reference-aware generation, optional comparison,
-  and automatic blocking into honest readiness rows.
+- Separate reference storage, reference-aware generation, the editable
+  no-workflow fallback, optional comparison, and measured comparison-failure
+  behavior into honest readiness rows and controls.
 - Explain that CompreFace is an optional comparison service. It can evaluate a
   generated face but cannot make generation resemble the reference.
 - Use fictional-persona language for the rights confirmation while preserving
@@ -66,10 +67,14 @@ and Workspaces now use the same approachable structure:
 
 Provider tuning still controls direct actions. Media Catalog remains the
 operator source of truth for planned conversational generation.
-Blocked conversational plans show hard requirements, rejected-resource reasons,
-and an Open Media Catalog action. Visual Identity readiness explains that a real
-identity model and bound ComfyUI workflow are required; a saved persona reference
-alone is not generation readiness.
+Blocked conversational plans show hard requirements and rejected-resource
+reasons. Their primary action is an enabled plan recheck, and identity-related
+remediation opens a focused setup card with the originating request/persona
+context. Visual Identity keeps both runtime policies editable: whether to
+generate with a warning while conditioning is unavailable, and what to do after
+a real comparison failure. The Media Catalog setup imports API-format workflow
+JSON, reports missing ComfyUI nodes/assets, and creates an explicit reference
+binding without claiming that schema inspection is a live generation test.
 
 ### 21C — Operator settings — delivered
 

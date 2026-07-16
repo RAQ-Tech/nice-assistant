@@ -139,12 +139,15 @@ class IdentityService:
         threshold = float(values.get("acceptance_threshold", 0.78))
         attempts = int(values.get("max_generation_attempts", 2))
         policy = str(values.get("failure_policy") or "block_claim")
+        conditioning_fallback = str(values.get("conditioning_fallback") or "allow_unconditioned")
         if threshold < 0 or threshold > 1:
             raise RequestError("Acceptance threshold must be between 0 and 1.", 400)
         if attempts < 1 or attempts > 10:
             raise RequestError("Maximum generation attempts must be between 1 and 10.", 400)
         if policy not in {"block_claim", "show_unverified"}:
             raise RequestError("Unsupported identity failure policy.", 400)
+        if conditioning_fallback not in {"allow_unconditioned", "require_conditioning"}:
+            raise RequestError("Unsupported identity conditioning fallback.", 400)
         description = str(values.get("appearance_description") or "").strip()[:8000]
         with self._uow() as uow:
             identity = self._identity(uow.repo, user_id, persona_id, create=True)
@@ -152,6 +155,7 @@ class IdentityService:
             identity.acceptance_threshold = threshold
             identity.max_generation_attempts = attempts
             identity.failure_policy = policy
+            identity.conditioning_fallback = conditioning_fallback
             identity.revision += 1
             identity.updated_at = now_ts()
             uow.repo.add_identity_event(identity, "profile_updated", detail={"revision": identity.revision})
@@ -771,6 +775,7 @@ class IdentityService:
             "acceptance_threshold": identity.acceptance_threshold,
             "max_generation_attempts": identity.max_generation_attempts,
             "failure_policy": identity.failure_policy,
+            "conditioning_fallback": identity.conditioning_fallback,
             "revision": identity.revision,
             "consent_granted_at": identity.consent_granted_at,
             "consent_withdrawn_at": identity.consent_withdrawn_at,
@@ -832,6 +837,7 @@ class IdentityService:
             "acceptance_threshold": 0.78,
             "max_generation_attempts": 2,
             "failure_policy": "block_claim",
+            "conditioning_fallback": "allow_unconditioned",
             "revision": 0,
             "consent_granted_at": None,
             "consent_withdrawn_at": None,

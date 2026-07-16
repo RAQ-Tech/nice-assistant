@@ -12,7 +12,7 @@ import { RecordingController } from './recording';
 import { Router } from './routing';
 import { normalizeSettings, settingsWire } from './settings';
 import { SettingsView, type Dialogs } from './settings_view';
-import { machine, state } from './state';
+import { clearIdentitySetupContext, machine, state } from './state';
 import type { ModalState, RouteState, Session } from './types';
 import { Visualizer } from './visualization';
 
@@ -25,10 +25,10 @@ const chat = new ChatController(playback);
 const recording = new RecordingController();
 const dialogs = createDialogs();
 const router = new Router((route) => void handleRoute(route));
-const settingsView = new SettingsView(render, closeSettings, dialogs);
+const settingsView = new SettingsView(render, closeSettings, dialogs, state, api, (section) => router.settings(section));
 const authView = new AuthView(authenticated, render);
 const chatRenderer = new ChatRenderer(media, playback, render);
-const capabilities = new CapabilityController(render, state, machine, api, () => router.settings('Media Catalog'));
+const capabilities = new CapabilityController(render, state, machine, api, (intent) => settingsView.startIdentitySetup(intent));
 const chatDrawer = new ChatDrawer(state, api, chat, dialogs, {
   render,
   openChat: (chatId) => router.chat(chatId),
@@ -413,6 +413,7 @@ function videoOverlay(url: string): HTMLElement {
 }
 
 function closeSettings(): void {
+  clearIdentitySetupContext(state);
   state.showSettings = false;
   if (state.currentChat) router.chat(state.currentChat.id);
   else router.home();
@@ -426,6 +427,7 @@ async function signedOut(message = ''): Promise<void> {
   state.currentChat = null;
   state.messages = [];
   state.capabilityRequests = [];
+  clearIdentitySetupContext(state);
   state.mediaCatalog = null;
   state.mediaPlanPreview = null;
   state.resourceCoordination = null;

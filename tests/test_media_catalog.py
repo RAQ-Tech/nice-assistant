@@ -605,6 +605,165 @@ class MediaCatalogTests(unittest.TestCase):
                 media = uow.repo.media(user_id, media_id)
                 self.assertEqual(media.generation_plan_id, pending["media_plan"]["id"])
 
+    def test_missing_identity_workflow_uses_explicit_unconditioned_fallback_and_never_bypasses_tampering(self):
+        planned = {
+            "capability_key": "media.generate_image",
+            "prompt": "a casual selfie of the selected persona",
+            "operation": "generate",
+            "domains": [],
+            "content_tags": [],
+            "required_features": [],
+            "persona_subject": True,
+        }
+        chat_provider = FakeChatProvider(
+            ["I can prepare that image."],
+            task_outputs={CAPABILITY_PLANNING: {"requests": [planned]}},
+        )
+        image_provider = FakeImageProvider()
+        with tempfile.TemporaryDirectory() as tmp, TestApp(Path(tmp), chat_provider=chat_provider) as running:
+            user_id = running.create_and_login()
+            running.services.providers.media_providers["local-image"] = image_provider
+            running.client.put(
+                "/api/v1/settings",
+                json={"preferences": {"image_provider": "local/comfyui"}},
+            )
+            workspace, persona = self._identity_persona(running)
+            profile = running.client.get(f"/api/v1/personas/{persona['id']}/visual-identity").json()
+            self.assertEqual(profile["conditioning_fallback"], "allow_unconditioned")
+            running.client.get("/api/v1/media-catalog")
+            chat = running.client.post(
+                "/api/v1/chats",
+                json={
+                    "workspace_id": workspace["id"],
+                    "persona_id": persona["id"],
+                    "title": "Fallback identity generation",
+                    "memory_mode": "off",
+                },
+            ).json()
+
+            turn = running.client.post(
+                f"/api/v1/chats/{chat['id']}/turns",
+                json={"text": "Send me a casual selfie", "memory_mode": "off"},
+            ).json()
+            running.wait_job(turn["job"]["id"])
+            pending = running.client.get("/api/v1/capability-requests", params={"chat_id": chat["id"]}).json()["items"][
+                0
+            ]
+            plan = pending["media_plan"]
+            self.assertEqual(plan["status"], "ready")
+            self.assertEqual(plan["requirements"]["required_features"], ["identity_control"])
+            self.assertEqual(plan["identity_conditioning"]["status"], "unconditioned")
+            self.assertEqual(plan["identity_conditioning"]["claim_status"], "unverified")
+            self.assertIn("reference will not be applied", " ".join(plan["explanation"]["warnings"]))
+
+            approved = running.client.post(f"/api/v1/capability-requests/{pending['id']}/approval")
+            self.assertEqual(approved.status_code, 200, approved.text)
+            completed = running.wait_job(approved.json()["job_id"])
+            self.assertEqual(completed["status"], "completed", completed)
+            self.assertEqual(len(image_provider.requests), 1)
+            request = image_provider.requests[0]
+            self.assertIn("short copper hair", request.prompt)
+            self.assertIsNone(request.options["local_settings"]["identity_reference_path"])
+            capability = running.client.get(f"/api/v1/capability-requests/{pending['id']}").json()
+            result = capability["result"]["identityConditioning"]
+            self.assertEqual(result["status"], "unconditioned")
+            self.assertEqual(result["claim_status"], "unverified")
+            self.assertNotIn("identityWorkflow", capability["result"])
+            self.assertIn("approved persona reference was not applied", capability["result"]["text"])
+            self.assertIn("resemblance is not guaranteed", capability["result"]["text"])
+            media_status = running.client.get(f"/api/v1/media/{capability['result']['mediaId']}/identity-status").json()
+            self.assertEqual(media_status["claim_status"], "unverified")
+            self.assertEqual(media_status["conditioning"]["status"], "unconditioned")
+
+            required = running.client.put(
+                f"/api/v1/personas/{persona['id']}/visual-identity",
+                json={
+                    "appearance_description": "short copper hair and green eyes",
+                    "acceptance_threshold": 0.78,
+                    "max_generation_attempts": 2,
+                    "failure_policy": "block_claim",
+                    "conditioning_fallback": "require_conditioning",
+                },
+            )
+            self.assertEqual(required.status_code, 200, required.text)
+            planned["prompt"] = "a strict selfie of the selected persona"
+            second_turn = running.client.post(
+                f"/api/v1/chats/{chat['id']}/turns",
+                json={"text": "Try another selfie", "memory_mode": "off"},
+            ).json()
+            running.wait_job(second_turn["job"]["id"])
+            requests = running.client.get("/api/v1/capability-requests", params={"chat_id": chat["id"]}).json()["items"]
+            strict = next(item for item in requests if item["arguments"]["prompt"] == planned["prompt"])
+            self.assertEqual(strict["media_plan"]["status"], "blocked")
+            self.assertEqual(strict["media_plan"]["identity_conditioning"]["persona_id"], persona["id"])
+
+            alternate = running.client.post(
+                "/api/v1/personas",
+                json={"workspace_id": workspace["id"], "name": "Different persona"},
+            ).json()
+            switched = running.client.put(
+                f"/api/v1/chats/{chat['id']}",
+                json={"persona_id": alternate["id"]},
+            )
+            self.assertEqual(switched.status_code, 200, switched.text)
+            changed_persona = running.client.post(f"/api/v1/capability-requests/{strict['id']}/replan")
+            self.assertEqual(changed_persona.status_code, 409, changed_persona.text)
+            self.assertIn("persona changed", changed_persona.text.lower())
+            restored = running.client.put(
+                f"/api/v1/chats/{chat['id']}",
+                json={"persona_id": persona["id"]},
+            )
+            self.assertEqual(restored.status_code, 200, restored.text)
+            with UnitOfWork(
+                running.services.runtime.session_factory,
+                running.services.runtime.secret_store,
+            ) as uow:
+                legacy_plan = uow.repo.media_execution_plan_for_capability(user_id, strict["id"])
+                legacy_plan.persona_id = None
+                legacy_plan.identity_conditioning_json = "{}"
+
+            allowed = running.client.put(
+                f"/api/v1/personas/{persona['id']}/visual-identity",
+                json={
+                    "appearance_description": "short copper hair and green eyes",
+                    "acceptance_threshold": 0.78,
+                    "max_generation_attempts": 2,
+                    "failure_policy": "block_claim",
+                    "conditioning_fallback": "allow_unconditioned",
+                },
+            )
+            self.assertEqual(allowed.status_code, 200, allowed.text)
+            profile = allowed.json()
+            replanned = running.client.post(f"/api/v1/capability-requests/{strict['id']}/replan")
+            self.assertEqual(replanned.status_code, 200, replanned.text)
+            self.assertEqual(replanned.json()["media_plan"]["status"], "ready")
+            self.assertEqual(replanned.json()["media_plan"]["identity_conditioning"]["status"], "unconditioned")
+            self.assertEqual(replanned.json()["media_plan"]["identity_conditioning"]["persona_id"], persona["id"])
+            history = running.client.get(f"/api/v1/capability-requests/{strict['id']}/events").json()["events"]
+            self.assertEqual(history[-1]["action"], "replanned")
+            self.assertEqual(history[-1]["detail"]["previous_plan_status"], "blocked")
+            self.assertEqual(history[-1]["detail"]["media_plan_status"], "ready")
+            self.assertEqual(history[-1]["detail"]["originating_persona_id_adopted"], persona["id"])
+            self.assertEqual(
+                running.client.post(f"/api/v1/capability-requests/{strict['id']}/replan").status_code,
+                409,
+            )
+            reference = profile["references"][0]
+            reference_path = running.services.identity.reference_path(user_id, reference["id"])
+            changed = BytesIO()
+            Image.new("RGB", (256, 256), (20, 40, 220)).save(changed, format="JPEG")
+            reference_path.write_bytes(changed.getvalue())
+            planned["prompt"] = "a tamper-checked selfie of the selected persona"
+            third_turn = running.client.post(
+                f"/api/v1/chats/{chat['id']}/turns",
+                json={"text": "Try one more selfie", "memory_mode": "off"},
+            ).json()
+            running.wait_job(third_turn["job"]["id"])
+            requests = running.client.get("/api/v1/capability-requests", params={"chat_id": chat["id"]}).json()["items"]
+            tampered = next(item for item in requests if item["arguments"]["prompt"] == planned["prompt"])
+            self.assertEqual(tampered["media_plan"]["status"], "blocked")
+            self.assertEqual(tampered["media_plan"]["block"]["code"], "identity_reference_changed")
+
     def test_identity_plan_revalidates_profile_revision_before_approval(self):
         provider = FakeChatProvider(
             ["I can prepare that."],

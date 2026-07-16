@@ -99,6 +99,16 @@ the operator-configured ComfyUI LAN endpoint and is never issued to the browser.
 Generated artifacts remain `unverified` until comparison passes. Rejected
 intermediate candidates stay owner-protected and are not rendered as persona
 output under `block_claim`.
+When the saved policy permits generation without an available conditioning
+workflow, Nice Assistant does not send the reference and labels both plan and
+result `unconditioned`/`unverified`. This compatibility path cannot bypass
+consent withdrawal, changed reference evidence, or stale reviewed state.
+Workflow setup may inspect ComfyUI `/object_info` through the same private-LAN
+URL policy and server-held authentication as other provider checks. Provider
+addresses, credentials, and raw provider errors are never returned to the
+browser; the bounded response contains only safe node/input/asset and structural
+compatibility facts. Structural compatibility is not execution or identity-match
+evidence.
 ComfyUI owns retention of successfully uploaded input files, so its input and
 history retention must be configured as part of the deployment's sensitive-data
 policy.

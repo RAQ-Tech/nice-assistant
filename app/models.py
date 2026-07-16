@@ -483,6 +483,10 @@ class PersonaVisualIdentity(Base):
             "failure_policy IN ('block_claim','show_unverified')",
             name="ck_visual_identity_failure_policy",
         ),
+        CheckConstraint(
+            "conditioning_fallback IN ('allow_unconditioned','require_conditioning')",
+            name="ck_visual_identity_conditioning_fallback",
+        ),
         UniqueConstraint("user_id", "persona_id", name="uq_visual_identity_owner_persona"),
         Index("idx_visual_identity_owner_status", "user_id", "status"),
     )
@@ -495,6 +499,7 @@ class PersonaVisualIdentity(Base):
     acceptance_threshold: Mapped[float] = mapped_column(Float, nullable=False, default=0.78)
     max_generation_attempts: Mapped[int] = mapped_column(Integer, nullable=False, default=2)
     failure_policy: Mapped[str] = mapped_column(Text, nullable=False, default="block_claim")
+    conditioning_fallback: Mapped[str] = mapped_column(Text, nullable=False, default="allow_unconditioned")
     revision: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
     last_validation_sequence: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     last_event_sequence: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
@@ -757,7 +762,7 @@ class CapabilityEvent(Base):
     __tablename__ = "capability_events"
     __table_args__ = (
         CheckConstraint(
-            "action IN ('requested','approved','denied','queued','started','completed','failed','cancelled','expired')",
+            "action IN ('requested','approved','denied','queued','started','completed','failed','cancelled','expired','replanned')",
             name="ck_capability_events_action",
         ),
         Index("idx_capability_events_request_created", "capability_request_id", "created_at"),

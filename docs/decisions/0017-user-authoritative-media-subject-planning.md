@@ -1,6 +1,6 @@
 # ADR 0017: User-authoritative media subject planning
 
-- Status: Accepted
+- Status: Accepted; fallback behavior partially superseded by ADR 0018
 - Date: 2026-07-15
 - Owners: Nice Assistant maintainers
 
@@ -26,8 +26,15 @@ preserved the reviewed persona reference.
   Persona-model prose is excluded so it cannot invent or expand a media subject.
 - The platform, not the Task Model, derives `identity_control`: it removes that
   feature for unrelated images and requires it for a valid persona subject.
-- Persona images continue to require the reviewed-reference workflow contract
-  from ADR 0012. There is no silent unconditioned fallback.
+- A narrow deterministic exclusion guard overrides an erroneous positive model
+  classification when the user explicitly says not to include the persona or
+  directly addresses the selected persona with equivalent wording. The guard
+  can only remove identity conditioning; it never infers that a request depicts
+  the persona, and generic scene exclusions such as "no background people" do
+  not activate it.
+- Persona images continue to prefer the reviewed-reference workflow contract
+  from ADR 0012. ADR 0018 permits only an explicit, saved, visibly disclosed
+  unconditioned fallback; it never represents that result as conditioned.
 - Blocked approval cards show hard requirements and per-resource rejection
   reasons and provide a direct route to Media Catalog configuration.
 
@@ -38,7 +45,9 @@ preserved the reviewed persona reference.
   identity.
 - Infer persona subjects with application keyword matching. Rejected because
   conversational references are semantic and keyword routing would recreate the
-  hidden heuristic boundary removed by ADR 0007.
+  hidden heuristic boundary removed by ADR 0007. The explicit negative guard is
+  deliberately narrower: it honors direct user exclusion and cannot add a
+  persona subject.
 - Continue trusting the Task Model's free choice of feature tags. Rejected
   because the production failure demonstrated that persona context can leak into
   an unrelated request.
@@ -46,14 +55,17 @@ preserved the reviewed persona reference.
 ## Consequences
 
 Ordinary images in persona chats can use ordinary catalog models. Genuine
-persona-image requests remain blocked until a tested identity-capable ComfyUI
-workflow and reviewed reference are ready. The operator can see exactly which
-hard requirement rejected each resource and where to configure it.
+persona-image requests use a configured identity-capable ComfyUI workflow when
+one is ready. Without one, the saved persona policy either permits a visibly
+unconditioned result or blocks with targeted setup and recheck actions. The
+operator can see exactly which requirement rejected each resource and where to
+configure it.
 
 ## Verification
 
 - Task-contract tests prove unrelated requests cannot retain
-  `identity_control`, while persona subjects always require it.
+  `identity_control`, explicit no-persona requests override an incorrect model
+  classification, and genuine persona subjects always require identity control.
 - API tests exercise both decisions in one persona chat and inspect the durable
   media plans.
 - Browser tests cover rejection details and the Media Catalog action.

@@ -553,6 +553,12 @@ class ApplicationRepository:
         self.session.flush()
         return row
 
+    def save_media_execution_plan(self, row, values: dict):
+        for key, value in values.items():
+            setattr(row, key, value)
+        self.session.flush()
+        return row
+
     def media_execution_plan_for_capability(self, user_id: str, capability_request_id: str):
         return self.session.scalar(
             select(MediaExecutionPlan).where(

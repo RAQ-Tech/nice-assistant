@@ -11,6 +11,7 @@ from app.task_contracts import (
     AvailableCapability,
     CapabilityPlanningTaskInput,
     TaskContractError,
+    explicitly_excludes_persona,
     is_explicit_text_only_request,
     task_definition,
 )
@@ -147,6 +148,26 @@ class TaskModelTests(unittest.TestCase):
             self.assertNotIn("prompt", runs[0])
             self.assertNotIn("output", runs[0])
 
+    def test_placeholder_title_output_uses_deterministic_title_instead(self):
+        provider = MultiModelProvider(task_outputs={TITLE_GENERATION: {"title": "New conversation."}})
+        with tempfile.TemporaryDirectory() as tmp, TestApp(Path(tmp), chat_provider=provider) as running:
+            running.create_and_login()
+            updated_profile(running.client, TITLE_GENERATION, model="task-model")
+            chat = running.client.post(
+                "/api/v1/chats",
+                json={"title": "New conversation", "model": "persona-model", "memory_mode": "off"},
+            ).json()
+            accepted = running.client.post(
+                f"/api/v1/chats/{chat['id']}/turns",
+                json={"text": "Help me plan a glass greenhouse", "model": "persona-model", "memory_mode": "off"},
+            ).json()
+            self.assertEqual(running.wait_job(accepted["job"]["id"])["status"], "completed")
+            title = running.client.get(f"/api/v1/chats/{chat['id']}").json()["chat"]["title"]
+            self.assertEqual(title, "Help me plan a glass greenhouse")
+            run = running.client.get("/api/v1/task-model-runs", params={"role": TITLE_GENERATION}).json()["items"][0]
+            self.assertEqual(run["status"], "fallback")
+            self.assertEqual(run["error"]["code"], "invalid_task_output")
+
     def test_primary_failure_uses_configured_fallback_model(self):
         provider = MultiModelProvider(
             failing_models={"task-model"},
@@ -254,6 +275,30 @@ class TaskModelTests(unittest.TestCase):
         ).requests[0]
         self.assertTrue(persona_image.persona_subject)
         self.assertEqual(persona_image.required_features, ("identity_control",))
+
+        explicitly_unrelated_input = CapabilityPlanningTaskInput(
+            user_text=(
+                "Could you make an image of a cozy glass greenhouse at sunrise? It doesn't need to include you."
+            ),
+            available_capabilities=(AvailableCapability("media.generate_image", "Generate image", "Create an image."),),
+            persona_selected=True,
+            available_features=("text_to_image", "identity_control"),
+        )
+        wrongly_personalized = definition.parse_output(
+            '{"requests":[{"capability_key":"media.generate_image","prompt":"a cozy glass greenhouse at sunrise","operation":"generate","domains":[],"content_tags":[],"required_features":["identity_control","text_to_image"],"persona_subject":true}]}',
+            explicitly_unrelated_input,
+            384,
+        ).requests[0]
+        self.assertFalse(wrongly_personalized.persona_subject)
+        self.assertEqual(wrongly_personalized.required_features, ("text_to_image",))
+
+    def test_explicit_persona_exclusion_guard_is_narrow(self):
+        self.assertTrue(explicitly_excludes_persona("It doesn't need to include you."))
+        self.assertTrue(explicitly_excludes_persona("Make it without the selected persona."))
+        self.assertFalse(explicitly_excludes_persona("Make a selfie of you in a greenhouse."))
+        self.assertFalse(explicitly_excludes_persona("Not just you: include your friend too."))
+        self.assertFalse(explicitly_excludes_persona("A candid portrait of you without you knowing."))
+        self.assertFalse(explicitly_excludes_persona("A portrait of you without people in the background."))
 
     def test_profile_validation_prevents_unsupported_deterministic_fallback(self):
         with tempfile.TemporaryDirectory() as tmp, TestApp(Path(tmp)) as running:

@@ -2,15 +2,17 @@ import { api, type ApiClient } from './api';
 import { el, errorMessage, markdown } from './dom';
 import { extractImageUrl, extractVideoUrl } from './media';
 import { machine, state, type ClientStateMachine } from './state';
-import type { AppState, CapabilityRequest } from './types';
+import type { AppState, CapabilityRequest, IdentitySetupIntent } from './types';
 
 export class CapabilityController {
+  private readonly replanningRequestIds = new Set<string>();
+
   constructor(
     private readonly renderApp: () => void,
     private readonly appState: AppState = state,
     private readonly stateMachine: ClientStateMachine = machine,
     private readonly client: ApiClient = api,
-    private readonly openMediaCatalog: () => void = () => undefined,
+    private readonly openIdentitySetup: (intent: IdentitySetupIntent) => void = () => undefined,
   ) {}
 
   node(request: CapabilityRequest): HTMLElement {
@@ -22,6 +24,11 @@ export class CapabilityController {
     const plan = request.media_plan;
     const identityResult = request.result?.identityConditioning;
     const identityWorkflow = request.result?.identityWorkflow;
+    const planBlocked = plan?.status === 'blocked';
+    const identityBlocked = Boolean(planBlocked && plan.requirements.required_features.includes('identity_control'));
+    const identityProfileBlocked = Boolean(identityBlocked && isVisualIdentityBlock(plan?.block?.code));
+    const unconditioned = plan?.identity_conditioning?.status === 'unconditioned';
+    const approvalBlocked = this.appState.phase !== 'idle';
     const body = resultText ? el('div', { class: 'capability-result', html: markdown(resultText) }) : null;
     body?.querySelectorAll<HTMLImageElement>('img').forEach((image) => {
       image.addEventListener('click', () => {
@@ -52,9 +59,7 @@ export class CapabilityController {
             plan.identity_conditioning
               ? el('div', {
                   class: 'meta',
-                  textContent: plan.identity_conditioning.status === 'ready'
-                    ? 'Uses the reviewed persona reference for conditioning; the result remains unverified until comparison.'
-                    : 'Persona identity conditioning is not ready for this request.',
+                  textContent: identityConditioningMessage(plan.identity_conditioning.status),
                 })
               : null,
             ...plan.explanation.warnings.map((warning) => el('div', { class: 'meta', textContent: warning })),
@@ -76,11 +81,13 @@ export class CapabilityController {
       identityResult
         ? el('p', {
             class: 'meta',
-            textContent: identityResult.claim_status === 'verified'
-              ? `Persona identity verified${identityWorkflow?.attempts ? ` after ${identityWorkflow.attempts} attempt${identityWorkflow.attempts === 1 ? '' : 's'}` : ''}.`
-              : identityResult.verification_status === 'failed'
-                ? 'Persona identity comparison did not pass; this result is explicitly unverified.'
-                : 'Persona reference conditioning was applied, but the verifier was unavailable or inconclusive.',
+            textContent: identityResult.status === 'unconditioned'
+              ? 'The persona reference was not applied. Resemblance is not guaranteed; this result is explicitly unconditioned and unverified.'
+              : identityResult.claim_status === 'verified'
+                ? `Persona identity verified${identityWorkflow?.attempts ? ` after ${identityWorkflow.attempts} attempt${identityWorkflow.attempts === 1 ? '' : 's'}` : ''}.`
+                : identityResult.verification_status === 'failed'
+                  ? 'Persona identity comparison did not pass; this result is explicitly unverified.'
+                  : 'Persona reference conditioning was applied, but the verifier was unavailable or inconclusive.',
           })
         : null,
       body,
@@ -96,19 +103,39 @@ export class CapabilityController {
         : null,
       request.status === 'pending_confirmation'
         ? el('div', { class: 'capability-actions' }, [
-            el('button', {
-              class: 'send-btn',
-              textContent: plan?.status === 'blocked' ? 'Plan unavailable' : `Generate ${kind}`,
-              disabled: plan?.status === 'blocked',
-              'data-testid': 'approve-capability',
-              onclick: () => void this.approve(request),
-            }),
-            plan?.status === 'blocked'
+            planBlocked
+              ? el('button', {
+                  class: 'send-btn',
+                  textContent: identityProfileBlocked
+                    ? 'Review visual identity'
+                    : identityBlocked
+                      ? 'Set up identity control'
+                      : 'Try plan again',
+                  'data-testid': 'configure-capability',
+                  disabled: this.replanningRequestIds.has(request.id),
+                  onclick: identityBlocked
+                    ? () => this.openIdentitySetup(this.identitySetupIntent(request))
+                    : () => void this.replan(request),
+                })
+              : el('button', {
+                  class: 'send-btn',
+                  textContent: approvalBlocked
+                    ? approvalWaitLabel(this.appState.phase)
+                    : unconditioned
+                      ? `Generate ${kind} without identity matching`
+                      : `Generate ${kind}`,
+                  disabled: approvalBlocked,
+                  title: approvalBlocked ? approvalWaitMessage(this.appState.phase) : undefined,
+                  'data-testid': 'approve-capability',
+                  onclick: () => void this.approve(request),
+                }),
+            identityBlocked
               ? el('button', {
                   class: 'pill-btn',
-                  textContent: 'Open Media Catalog',
-                  'data-testid': 'configure-capability',
-                  onclick: this.openMediaCatalog,
+                  textContent: this.replanningRequestIds.has(request.id) ? 'Checking…' : 'Try plan again',
+                  disabled: this.replanningRequestIds.has(request.id),
+                  'data-testid': 'retry-capability-plan',
+                  onclick: () => void this.replan(request),
                 })
               : null,
             el('button', {
@@ -166,6 +193,37 @@ export class CapabilityController {
     }
   }
 
+  private async replan(request: CapabilityRequest): Promise<void> {
+    if (this.replanningRequestIds.has(request.id)) return;
+    this.replanningRequestIds.add(request.id);
+    this.renderApp();
+    try {
+      const replacement = await this.client.replanCapability(request.id);
+      this.appState.capabilityRequests = [
+        ...this.appState.capabilityRequests.filter((item) => item.id !== request.id && item.id !== replacement.id),
+        replacement,
+      ].sort((left, right) => left.requested_at - right.requested_at);
+    } catch (error) {
+      this.appState.uiError = errorMessage(error, 'Unable to check the image plan again.');
+    } finally {
+      this.replanningRequestIds.delete(request.id);
+      this.renderApp();
+    }
+  }
+
+  private identitySetupIntent(request: CapabilityRequest): IdentitySetupIntent {
+    return {
+      capability_request_id: request.id,
+      chat_id: request.chat_id,
+      persona_id: request.media_plan?.identity_conditioning?.persona_id
+        ?? this.appState.currentChat?.persona_id
+        ?? null,
+      prompt: typeof request.arguments.prompt === 'string' ? request.arguments.prompt : '',
+      required_features: [...(request.media_plan?.requirements.required_features ?? [])],
+      block_code: request.media_plan?.block?.code ?? null,
+    };
+  }
+
   private async deny(request: CapabilityRequest): Promise<void> {
     try {
       this.upsert(await this.client.denyCapability(request.id));
@@ -205,4 +263,35 @@ function statusLabel(status: CapabilityRequest['status']): string {
     denied: 'Declined',
     expired: 'Expired',
   }[status];
+}
+
+function identityConditioningMessage(status: NonNullable<NonNullable<CapabilityRequest['media_plan']>['identity_conditioning']>['status']): string {
+  if (status === 'ready' || status === 'conditioned') {
+    return 'Uses the reviewed persona reference for conditioning; the result remains unverified until comparison.';
+  }
+  if (status === 'unconditioned') {
+    return 'No identity workflow will be applied. The image may not resemble the persona and will be labeled unconditioned.';
+  }
+  return 'Persona identity conditioning is not ready for this request.';
+}
+
+function isVisualIdentityBlock(code: string | null | undefined): boolean {
+  return [
+    'identity_persona_required',
+    'identity_profile_unavailable',
+    'identity_reference_unavailable',
+    'identity_reference_changed',
+  ].includes(code ?? '');
+}
+
+function approvalWaitLabel(phase: AppState['phase']): string {
+  if (phase === 'speaking') return 'Wait for audio to finish';
+  if (phase === 'error') return 'Resolve the current error first';
+  return 'Wait for the current action';
+}
+
+function approvalWaitMessage(phase: AppState['phase']): string {
+  if (phase === 'speaking') return 'Stop or finish the current audio before starting image generation.';
+  if (phase === 'error') return 'Dismiss the current error before starting image generation.';
+  return 'Finish or cancel the current action before starting image generation.';
 }

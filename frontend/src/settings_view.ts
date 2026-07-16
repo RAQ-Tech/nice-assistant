@@ -19,6 +19,7 @@ import { state } from './state';
 import { TaskModelSettingsView } from './task_model_settings_view';
 import type {
   AppState,
+  IdentitySetupIntent,
   Memory,
   Persona,
   ProviderCheckResult,
@@ -51,8 +52,26 @@ export class SettingsView {
     private readonly dialogs: Dialogs,
     private readonly appState: AppState = state,
     private readonly client: ApiClient = api,
+    private readonly navigateSettings: (section: SettingsSection) => void = (section) => {
+      appState.settingsSection = section;
+      renderApp();
+    },
   ) {
-    this.identityView = new IdentitySettingsView(renderApp, appState, client, dialogs);
+    this.mediaCatalogView = new MediaCatalogSettingsView(renderApp, appState, client, dialogs, close);
+    this.identityView = new IdentitySettingsView(
+      renderApp,
+      appState,
+      client,
+      dialogs,
+      (personaId) => this.startIdentitySetup({
+        capability_request_id: null,
+        chat_id: appState.currentChat?.id ?? null,
+        persona_id: personaId,
+        prompt: '',
+        required_features: ['identity_control'],
+        block_code: null,
+      }),
+    );
     this.everydayView = new EverydaySettingsView(
       appState,
       (key, value, shouldRender) => this.set(key, value, shouldRender),
@@ -66,8 +85,23 @@ export class SettingsView {
       () => this.providerControl('ollama'),
     );
     this.taskModelView = new TaskModelSettingsView(renderApp, appState, client);
-    this.mediaCatalogView = new MediaCatalogSettingsView(renderApp, appState, client, dialogs);
     this.operationsView = new OperationsSettingsView(renderApp, appState, client, dialogs);
+  }
+
+  startIdentitySetup(intent: IdentitySetupIntent): void {
+    if (isVisualIdentityBlock(intent.block_code)) {
+      this.appState.mediaCatalogIdentitySetupIntent = null;
+      if (intent.persona_id && this.appState.personas.some((item) => item.id === intent.persona_id)) {
+        this.appState.identitySelectedPersonaId = intent.persona_id;
+      }
+      this.navigateSettings('Visual Identity');
+      void this.identityView.refresh();
+      return;
+    }
+    this.appState.mediaCatalogIdentitySetupIntent = intent;
+    this.mediaCatalogView.openIdentitySetup();
+    this.navigateSettings('Media Catalog');
+    void this.mediaCatalogView.refresh();
   }
 
   node(): HTMLElement {
@@ -698,6 +732,15 @@ function normalizeSection(value: string): SettingsSection {
 
 function slug(value: string): string {
   return value.toLowerCase().replace(/\s+/g, '-');
+}
+
+function isVisualIdentityBlock(code: string | null | undefined): boolean {
+  return [
+    'identity_persona_required',
+    'identity_profile_unavailable',
+    'identity_reference_unavailable',
+    'identity_reference_changed',
+  ].includes(code ?? '');
 }
 
 function conceptTip(label: string, help: string): HTMLElement {

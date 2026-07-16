@@ -3,7 +3,7 @@ import { clientId } from './client_id';
 import { errorMessage } from './dom';
 import { waitForJob } from './media';
 import { modelSettings } from './settings';
-import { machine, state, type ClientStateMachine } from './state';
+import { clearIdentitySetupContextForChat, machine, state, type ClientStateMachine } from './state';
 import type { AppState, Chat, Job, Message, TurnEvent } from './types';
 import type { PlaybackController } from './playback';
 
@@ -38,6 +38,7 @@ export class ChatController {
         this.client.chat(chatId),
         this.client.capabilityRequests(chatId),
       ]);
+      clearIdentitySetupContextForChat(this.appState, detail.chat.id);
       this.appState.currentChat = detail.chat;
       this.appState.messages = detail.messages;
       this.appState.capabilityRequests = capabilities.items;
@@ -65,6 +66,7 @@ export class ChatController {
       title: 'New chat',
     });
     this.appState.chats = [chat, ...this.appState.chats.filter((item) => item.id !== chat.id)];
+    clearIdentitySetupContextForChat(this.appState, chat.id);
     this.appState.currentChat = chat;
     this.appState.messages = [];
     this.appState.capabilityRequests = [];

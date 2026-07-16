@@ -169,12 +169,17 @@ enable private reference storage, add an uploaded or generated image, and approv
 it. This reference workflow does not require CompreFace. Configure an eligible
 identity-aware ComfyUI workflow in Media Catalog before expecting a reference to
 influence new images; the Visual Identity readiness card reports that boundary
-separately.
+separately. The visible `When reference-aware generation is unavailable` policy
+controls whether a request uses an explicitly warned ordinary image plan or stays
+blocked until conditioning is configured. It does not change consent or reference
+review requirements.
 
 CompreFace is an optional separate LAN comparison service. Deploy it only when
-automatic post-generation comparison, retry, or blocking is wanted, create a
-verification API key there, then store its base URL and key under Advanced
-identity settings. The adapter uses stateless two-image verification; do not
+automatic post-generation comparison or retry is wanted, create a verification
+API key there, then store its base URL and key under Advanced identity settings.
+The separate visible comparison-failure policy determines whether a measured
+mismatch is shown as unverified or withheld. The adapter uses stateless
+two-image verification; do not
 create duplicate persona subjects for this integration. Keep comparison off
 until its readiness check succeeds. The default threshold is an operator
 starting point, not a universal identity guarantee, and should be reviewed
@@ -187,11 +192,13 @@ Queued/running identity validations also become safe `interrupted` errors after
 an unclean restart. Full backups include the identity-reference directory;
 metadata-only backups include profiles/audit rows but not the images.
 
-Identity-aware generation is configured in Settings -> Media Catalog, not in an
-end-user test lab. Add and verify a ComfyUI API-format workflow containing the
-actual identity extension nodes, declare the `identity_control` feature, and set
-`default_settings.identity_image_bindings` to exact node/input pairs already in
-the inline `workflow_patch`. Example:
+Identity-aware generation is configured with the Identity Control card in
+Settings -> Media Catalog. Import a ComfyUI API-format workflow containing the
+actual identity extension nodes. The setup checks the configured provider's
+`/object_info`, reports missing node classes or selected assets, and lets the
+operator select the exact image input and compatible catalog model. Saving
+declares `identity_control` and stores `default_settings.identity_image_bindings`
+as exact node/input pairs already in the inline `workflow_patch`. Example:
 
 Before adding the catalog resource, install and test one real identity system in
 ComfyUI, including its required model assets (for example IPAdapter plus CLIP
@@ -199,7 +206,13 @@ Vision, InstantID, PuLID, or PhotoMaker). Installed node classes without their
 model assets are not ready. Export the tested graph in API format, identify the
 `LoadImage`-compatible input that receives the reviewed reference, then add the
 workflow for `local-image` and `comfyui`, mark it compatible with the enabled base
-model, enable it, and run a preview requiring `identity_control`.
+model, and enable it. The setup's provider-compatible result proves only that the
+current node schema and selected assets are visible, all provider-required inputs
+and typed links form an acyclic output graph, and the chosen reference input has
+a structural path through a recognized identity application node to an output.
+Unknown custom semantics remain a draft. A real approved persona-chat generation
+remains the live execution acceptance test and identity comparison remains the
+only match evidence.
 
 Nice Assistant does not install provider extensions or model assets and does not
 claim identity readiness until this real workflow contract is complete.
@@ -215,7 +228,8 @@ claim identity readiness until this real workflow contract is complete.
 ```
 
 The example node is illustrative; the operator must export and test the graph
-against the deployed custom nodes. Nice Assistant will not infer missing inputs.
+against the deployed custom nodes. Nice Assistant detects candidate file inputs
+but never invents or silently applies a binding.
 Plan previews without a persona are blocked for execution by design. Test through
 a persona chat with active consent and an approved reference. The resulting
 artifact is compared after generation. Below-threshold results may rerun the
@@ -269,6 +283,9 @@ interrupted errors.
 Migration `0015_media_provider_bootstrap` adds no tables. It restores a missing
 starter media resource only for an enabled provider whose corresponding catalog
 kind is empty, leaving every existing operator resource unchanged.
+Migration `0016_identity_fallback` adds the explicit
+`allow_unconditioned`/`require_conditioning` policy to visual-identity profiles;
+existing rows use the compatibility-preserving warned fallback.
 Schema migrations are
 forward-only. Rollback means
 stopping the service,

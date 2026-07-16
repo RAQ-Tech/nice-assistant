@@ -39,6 +39,7 @@ function profile(enabled = true): VisualIdentityProfile {
     acceptance_threshold: 0.78,
     max_generation_attempts: 2,
     failure_policy: 'block_claim',
+    conditioning_fallback: 'allow_unconditioned',
     revision: enabled ? 1 : 0,
     consent_granted_at: enabled ? 1 : null,
     consent_withdrawn_at: null,
@@ -77,6 +78,7 @@ function setup(enabled = true) {
     identityValidations: vi.fn().mockResolvedValue({ items: [] }),
     identityHistory: vi.fn().mockResolvedValue({ items: [] }),
     grantIdentityConsent: vi.fn().mockResolvedValue(currentProfile),
+    updateVisualIdentity: vi.fn().mockImplementation((_personaId: string, updated: VisualIdentityProfile) => Promise.resolve({ ...updated })),
     mediaUrl: vi.fn((id: string) => `/api/v1/media/${id}`),
   } as unknown as ApiClient;
   const dialogs = {
@@ -92,17 +94,51 @@ function setup(enabled = true) {
 }
 
 describe('Visual identity settings', () => {
-  it('explains readiness and keeps provider plumbing in a closed advanced section', () => {
+  it('explains readiness, exposes behavior controls, and keeps provider plumbing advanced', () => {
     const { root } = setup();
     expect(root.textContent).toContain('Keep each persona visually recognizable');
     expect(root.textContent).toContain('ComfyUI needs an identity model plus a bound workflow in Media Catalog');
     expect(root.textContent).toContain('IPAdapter, InstantID, PuLID, or PhotoMaker');
-    const blocking = [...root.querySelectorAll('.settings-readiness-row')]
-      .find((row) => row.textContent?.includes('Automatic blocking'));
-    expect(blocking?.textContent).toContain('Off');
+    const fallback = [...root.querySelectorAll('.settings-readiness-row')]
+      .find((row) => row.textContent?.includes('When identity control is unavailable'));
+    expect(fallback?.textContent).toContain('Allow a clearly labeled unconditioned image');
+    const comparison = [...root.querySelectorAll('.settings-readiness-row')]
+      .find((row) => row.textContent?.includes('When comparison fails'));
+    expect(comparison?.textContent).toContain('Hide the failed image');
+    expect(root.textContent).toContain('Identity generation behavior');
+    expect(root.textContent).toContain('Generate and label an unconditioned image');
     expect(root.textContent).not.toContain('Protected media ID');
     expect(root.querySelectorAll('.info-tip-trigger').length).toBeGreaterThan(4);
     expect((root.querySelector('[data-testid="identity-advanced-settings"]') as HTMLDetailsElement).open).toBe(false);
+  });
+
+  it('saves conditioning fallback separately from comparison failure behavior', async () => {
+    const { client, root } = setup();
+    const fallbackRow = [...root.querySelectorAll('.setting-row')]
+      .find((row) => row.textContent?.includes('When identity control is unavailable')) as HTMLElement;
+    const fallback = fallbackRow.querySelector('select') as HTMLSelectElement;
+    fallback.value = 'require_conditioning';
+    fallback.dispatchEvent(new Event('change', { bubbles: true }));
+    const comparisonRow = [...root.querySelectorAll('.setting-row')]
+      .find((row) => row.textContent?.includes('When optional comparison fails')) as HTMLElement;
+    const comparison = comparisonRow.querySelector('select') as HTMLSelectElement;
+    comparison.value = 'show_unverified';
+    comparison.dispatchEvent(new Event('change', { bubbles: true }));
+    (root.querySelector('[data-testid="identity-behavior-save"]') as HTMLButtonElement).click();
+
+    await vi.waitFor(() => expect(client.updateVisualIdentity).toHaveBeenCalled());
+    expect(client.updateVisualIdentity).toHaveBeenCalledWith('nova', expect.objectContaining({
+      conditioning_fallback: 'require_conditioning',
+      failure_policy: 'show_unverified',
+    }));
+  });
+
+  it('turns readiness summaries into direct setup actions', () => {
+    const { root } = setup();
+    expect((root.querySelector('[data-testid="identity-configure-generation"]') as HTMLButtonElement).disabled).toBe(false);
+    (root.querySelector('[data-testid="identity-configure-comparison"]') as HTMLButtonElement).click();
+    expect((root.querySelector('[data-testid="identity-advanced-settings"]') as HTMLDetailsElement).open).toBe(true);
+    expect(root.textContent).toContain('Optional identity comparison service');
   });
 
   it('selects a generated image through thumbnails instead of requiring a database ID', async () => {

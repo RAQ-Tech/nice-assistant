@@ -43,7 +43,7 @@ class DatabaseFoundationTests(unittest.TestCase):
             journal_mode = conn.execute("PRAGMA journal_mode").fetchone()[0]
             conn.close()
 
-            self.assertEqual(version, "0015_media_provider_bootstrap")
+            self.assertEqual(version, "0016_identity_fallback")
             self.assertIn("setting_values", tables)
             self.assertIn("conversation_turns", tables)
             self.assertIn("conversation_summaries", tables)
@@ -570,6 +570,72 @@ class DatabaseFoundationTests(unittest.TestCase):
             self.assertEqual([tuple(row) for row in imported], [("local-image", "comfyui", "late.safetensors")])
             curated = conn.execute("SELECT name,external_id FROM media_catalog_resources WHERE user_id='u2'").fetchall()
             self.assertEqual([tuple(row) for row in curated], [("Curated model", "curated.safetensors")])
+            conn.close()
+
+    def test_identity_fallback_migration_preserves_profiles_and_sets_a_truthful_default(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "identity-fallback.db"
+            config = Config()
+            config.set_main_option("script_location", str(Path(__file__).resolve().parents[1] / "migrations"))
+            config.set_main_option("sqlalchemy.url", database.sqlite_url(path))
+            engine = database.build_engine(path)
+            with engine.begin() as connection:
+                config.attributes["connection"] = connection
+                command.upgrade(config, "0015_media_provider_bootstrap")
+            engine.dispose()
+            conn = database.connect_sqlite(path)
+            conn.execute("INSERT INTO users(id,username,password_hash,is_admin,created_at) VALUES('u','owner','h',1,1)")
+            conn.execute("INSERT INTO workspaces(id,user_id,name,created_at) VALUES('w','u','World',1)")
+            conn.execute(
+                "INSERT INTO personas(id,workspace_id,name,traits_json,created_at) VALUES('p','w','Avery','{}',1)"
+            )
+            conn.execute("INSERT INTO persona_workspace_links(persona_id,workspace_id) VALUES('p','w')")
+            conn.execute(
+                "INSERT INTO persona_visual_identities("
+                "id,user_id,persona_id,status,consent_status,appearance_description,acceptance_threshold,"
+                "max_generation_attempts,failure_policy,revision,last_validation_sequence,last_event_sequence,"
+                "created_at,updated_at"
+                ") VALUES('identity','u','p','draft','granted','green eyes',0.78,2,'block_claim',3,0,0,1,1)"
+            )
+            conn.execute(
+                "INSERT INTO chats(id,user_id,workspace_id,persona_id,title,created_at,updated_at) "
+                "VALUES('c','u','w','p','Identity setup',1,1)"
+            )
+            conn.execute(
+                "INSERT INTO capability_requests("
+                "id,user_id,chat_id,capability_key,arguments_json,status,permission_mode,idempotency_key,requested_at"
+                ") VALUES('cap','u','c','media.generate_image','{}','pending_confirmation','confirm','fallback-plan',1)"
+            )
+            conn.execute(
+                "INSERT INTO capability_events("
+                "id,user_id,capability_request_id,action,from_status,to_status,detail_json,created_at"
+                ") VALUES('event','u','cap','requested',NULL,'pending_confirmation','{}',1)"
+            )
+            conn.commit()
+            conn.close()
+
+            engine = database.build_engine(path)
+            with engine.begin() as connection:
+                config.attributes["connection"] = connection
+                command.upgrade(config, "head")
+            engine.dispose()
+            conn = database.connect_sqlite(path)
+            profile = conn.execute(
+                "SELECT appearance_description,revision,conditioning_fallback "
+                "FROM persona_visual_identities WHERE id='identity'"
+            ).fetchone()
+            self.assertEqual(tuple(profile), ("green eyes", 3, "allow_unconditioned"))
+            self.assertEqual(
+                conn.execute("SELECT action FROM capability_events WHERE id='event'").fetchone()[0],
+                "requested",
+            )
+            conn.execute(
+                "INSERT INTO capability_events("
+                "id,user_id,capability_request_id,action,from_status,to_status,detail_json,created_at"
+                ") VALUES('replan-event','u','cap','replanned','pending_confirmation','pending_confirmation','{}',2)"
+            )
+            with self.assertRaises(sqlite3.IntegrityError):
+                conn.execute("UPDATE persona_visual_identities SET conditioning_fallback='pretend' WHERE id='identity'")
             conn.close()
 
     def test_persona_identity_migration_preserves_existing_persona_media_and_jobs(self):

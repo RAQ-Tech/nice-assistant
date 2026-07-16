@@ -172,6 +172,38 @@ class ProviderCheck(StrictModel):
     settings: dict = Field(default_factory=dict)
 
 
+class ComfyUIWorkflowInspection(StrictModel):
+    workflow_patch: dict
+    settings: dict = Field(default_factory=dict)
+
+
+class ComfyUIIdentityInputCandidate(BaseModel):
+    node_id: str
+    input_name: str
+    label: str
+
+
+class ComfyUIAssetCheck(BaseModel):
+    node_id: str
+    node_type: str
+    input_name: str
+    value: str
+    available: bool
+
+
+class ComfyUIWorkflowInspectionRepresentation(BaseModel):
+    provider: Literal["comfyui"]
+    status: Literal["provider_compatible", "incompatible", "invalid", "unreachable", "error"]
+    provider_compatible: bool
+    live_tested: Literal[False]
+    message: str
+    identity_input_candidates: list[ComfyUIIdentityInputCandidate]
+    detected_node_types: list[str]
+    missing_node_types: list[str]
+    asset_checks: list[ComfyUIAssetCheck]
+    warnings: list[str]
+
+
 class MediaJobCreate(StrictModel):
     prompt: str = Field(min_length=1, max_length=100_000)
     chat_id: str | None = None
@@ -515,7 +547,7 @@ class MediaPlanBlock(BaseModel):
 
 class MediaIdentityConditioningRepresentation(BaseModel):
     required: bool
-    status: Literal["ready", "blocked", "conditioned"]
+    status: Literal["ready", "blocked", "conditioned", "unconditioned"]
     mode: str | None = None
     persona_id: str | None = None
     profile_id: str | None = None
@@ -523,6 +555,7 @@ class MediaIdentityConditioningRepresentation(BaseModel):
     reference_id: str | None = None
     reference_sha256: str | None = None
     workflow_resource_id: str | None = None
+    conditioning_fallback: Literal["allow_unconditioned", "require_conditioning"] | None = None
     appearance_description_included: bool = False
     verification_status: Literal["not_evaluated"] = "not_evaluated"
     claim_status: Literal["unverified"] | None = None
@@ -1049,6 +1082,18 @@ def capability_request(request_id: str, request: Request, context: AuthContext =
     return value
 
 
+@router.post(
+    "/capability-requests/{request_id}/replan",
+    response_model=CapabilityRequestRepresentation,
+    tags=["capabilities"],
+)
+def replan_capability(request_id: str, request: Request, context: AuthContext = Depends(current_user)):
+    value = services(request).capabilities.replan(context.user_id, request_id)
+    if not value:
+        raise NotFoundError("capability request not found")
+    return value
+
+
 @router.get(
     "/capability-requests/{request_id}/events",
     response_model=CapabilityHistoryResponse,
@@ -1269,6 +1314,23 @@ def provider_check(body: ProviderCheck, request: Request, context: AuthContext =
     if value is None:
         raise NotFoundError("unknown provider")
     return value
+
+
+@router.post(
+    "/media-catalog/identity-workflows/inspect",
+    response_model=ComfyUIWorkflowInspectionRepresentation,
+    tags=["media-catalog"],
+)
+def inspect_comfyui_identity_workflow(
+    body: ComfyUIWorkflowInspection,
+    request: Request,
+    context: AuthContext = Depends(current_user),
+):
+    return services(request).provider_service.inspect_comfyui_workflow(
+        context.user_id,
+        body.workflow_patch,
+        body.settings,
+    )
 
 
 @router.post(

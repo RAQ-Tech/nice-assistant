@@ -59,8 +59,9 @@ denial, idempotency, audit events, linked job submission, and terminal results.
 and capability-planning roles, strict structured outputs, budgets, readiness,
 fallback, and content-free run audit records.
 `MediaCatalogService` owns resource metadata, compatibility, deterministic plan
-construction, immutable plan snapshots, and approval-time resource revalidation;
-the pure selection policy is isolated in `media_planner.py`.
+construction, immutable reviewed snapshots, explicit rechecks of never-ready
+blocked plans, and approval-time resource revalidation; the pure selection
+policy is isolated in `media_planner.py`.
 Capability Task Models declare whether the requested image actually depicts the
 selected persona. The platform derives the hard `identity_control` feature from
 that typed decision so persona-model prose cannot make unrelated images require
@@ -73,8 +74,11 @@ from direct-action settings. See ADR 0016.
 reference storage, review/deletion audit, queued comparisons, and truthful media
 claim state. `IdentityVerificationProvider` is a separate stateless LAN-service
 boundary; the initial CompreFace adapter does not enroll provider-side subjects.
-For `identity_control` plans, `MediaCatalogService` binds the chat persona,
-reviewed profile/reference snapshot, and exact ComfyUI workflow inputs. The
+For `identity_control` plans, `MediaCatalogService` first prefers the chat
+persona's reviewed profile/reference snapshot and exact ComfyUI workflow inputs.
+If only conditioning configuration is unavailable and the snapshotted policy
+allows it, the service creates a disclosed `unconditioned` plan instead; consent,
+reference-integrity, and stale-revision failures do not fall back. The
 ComfyUI adapter uploads reference/source/mask images and injects only declared
 inputs. `MediaService` links every candidate to the immutable plan, invokes the
 same `IdentityService` comparison rule inline, and durably records bounded
@@ -177,6 +181,9 @@ validation, and correction attempt records without reconstructing existing
 conversation, plan, job, or media tables.
 Migration `0015_media_provider_bootstrap` repairs only missing starter catalog
 kinds for already-enabled providers and does not alter existing resources.
+Migration `0016_identity_fallback` adds the explicit conditioning-unavailable
+policy to existing persona visual-identity profiles without changing references,
+media, or completed plans.
 
 ## Browser application
 
@@ -194,8 +201,11 @@ Task Models, Media Catalog, and Operations views own their typed interaction and
 API workflows; the settings shell only composes them. Provider execution remains
 outside the view layer.
 The focused visual-identity settings module provides consent, reference review,
-provider readiness, validation, and correction history without moving biometric
-decisions into general browser state or persona prompts.
+separate generation-unavailable and comparison-failure policy controls, provider
+readiness, validation, and correction history without moving biometric decisions
+into general browser state or persona prompts. The Media Catalog view owns the
+guided ComfyUI workflow import/inspection/binding interaction, while only the
+provider service talks to `/object_info`.
 
 ## Turn events and cancellation
 

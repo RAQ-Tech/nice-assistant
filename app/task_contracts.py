@@ -5,7 +5,7 @@ import json
 import re
 from typing import Any, Callable
 
-from app.chat import generate_chat_title_from_first_user_message
+from app.chat import chat_title_needs_autogeneration, generate_chat_title_from_first_user_message
 from app.identity_conditioning import IDENTITY_CONTROL_FEATURE
 
 
@@ -27,6 +27,18 @@ _EXPLICIT_TEXT_ONLY_PREFIX = re.compile(
     re.IGNORECASE,
 )
 
+_EXPLICIT_PERSONA_EXCLUSION = re.compile(
+    r"(?:"
+    r"\bexcluding\s+(?:you|the\s+(?:selected\s+)?persona)\b|"
+    r"\bwithout\s+(?:(?:including|showing|depicting|featuring)\s+)?"
+    r"the\s+(?:selected\s+)?persona\b|"
+    r"\bwithout\s+you\s*(?:[.!?,;:]|$)|"
+    r"\b(?:do\s+not|don't|does\s+not|doesn't|needn't)\s+(?:need\s+to\s+)?"
+    r"(?:include|show|depict|feature)\s+(?:you|the\s+(?:selected\s+)?persona)\b"
+    r")",
+    re.IGNORECASE,
+)
+
 
 def is_explicit_text_only_request(user_text: str) -> bool:
     """Return true for an unambiguous leading literal-response contract.
@@ -36,6 +48,12 @@ def is_explicit_text_only_request(user_text: str) -> bool:
     """
 
     return bool(_EXPLICIT_TEXT_ONLY_PREFIX.match(str(user_text or "")))
+
+
+def explicitly_excludes_persona(user_text: str) -> bool:
+    """Honor a narrow, explicit request not to depict the selected persona."""
+
+    return bool(_EXPLICIT_PERSONA_EXCLUSION.search(str(user_text or "")))
 
 
 class TaskContractError(ValueError):
@@ -177,7 +195,10 @@ def _system_prompt(role: str) -> str:
         "Return only data matching the supplied JSON schema. Do not add prose or markdown. "
     )
     if role == TITLE_GENERATION:
-        return shared + "Create a short, specific conversation title without quotes."
+        return shared + (
+            "Create a short, specific conversation title without quotes. Never return a placeholder such as "
+            "New chat, New conversation, or Untitled chat."
+        )
     if role == CONVERSATION_SUMMARY:
         return shared + (
             "Summarize conversation context as factual notes. Preserve decisions, user corrections, preferences, "
@@ -251,7 +272,10 @@ def _title_schema(_task_input: TitleTaskInput) -> dict:
 
 
 def _parse_title(raw: str, _task_input: TitleTaskInput, _max_output_tokens: int) -> TitleTaskOutput:
-    return TitleTaskOutput(_bounded_text(_strict_object(raw, {"title"})["title"], label="title", max_chars=80))
+    title = _bounded_text(_strict_object(raw, {"title"})["title"], label="title", max_chars=80)
+    if chat_title_needs_autogeneration(title):
+        raise TaskContractError("task model returned a placeholder title")
+    return TitleTaskOutput(title)
 
 
 def _summary_schema(_task_input: SummaryTaskInput) -> dict:
@@ -445,6 +469,8 @@ def _parse_capabilities(
         persona_subject = value.get("persona_subject")
         if not isinstance(persona_subject, bool):
             raise TaskContractError("task model returned an invalid persona subject flag")
+        if persona_subject and explicitly_excludes_persona(task_input.user_text):
+            persona_subject = False
         if persona_subject and (key != "media.generate_image" or not task_input.persona_selected):
             raise TaskContractError("task model assigned a selected persona to an invalid capability request")
         required_features = tuple(feature for feature in required_features if feature != IDENTITY_CONTROL_FEATURE)

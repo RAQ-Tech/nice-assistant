@@ -1,5 +1,6 @@
 import type { ApiClient } from './api';
 import { el, errorMessage } from './dom';
+import { IdentityWorkflowSetupView } from './identity_workflow_setup_view';
 import { inputField, selectField, textareaField, toggleField } from './settings_controls';
 import type { SettingsDialogs } from './settings_contracts';
 import { advancedSettings, operatorEditor, readinessRow, settingsCard, settingsHeading, settingsIntro, titleCase } from './settings_ui';
@@ -16,6 +17,7 @@ export class MediaCatalogSettingsView {
   private readonly dirtyResourceIds = new Set<string>();
   private readonly resourceVersions = new Map<string, number>();
   private readonly openResourceIds = new Set<string>();
+  private readonly identitySetup: IdentityWorkflowSetupView;
   private requirements: MediaPlanRequirements = {
     kind: 'image',
     operation: 'generate',
@@ -23,13 +25,26 @@ export class MediaCatalogSettingsView {
     content_tags: [],
     required_features: [],
   };
-
   constructor(
     private readonly renderApp: () => void,
     private readonly appState: AppState,
     private readonly client: ApiClient,
     private readonly dialogs: SettingsDialogs,
-  ) {}
+    private readonly finishIdentitySetup: () => void = () => undefined,
+  ) {
+    this.identitySetup = new IdentityWorkflowSetupView(
+      renderApp,
+      appState,
+      client,
+      dialogs,
+      finishIdentitySetup,
+      () => this.refresh(),
+    );
+  }
+
+  openIdentitySetup(): void {
+    this.identitySetup.open();
+  }
 
   nodes(): HTMLElement[] {
     const catalog = this.appState.mediaCatalog;
@@ -63,6 +78,7 @@ export class MediaCatalogSettingsView {
           'This is an operator estimate used during planning. Live GPU admission remains the responsibility of GPU Coordination.',
         ),
       ]),
+      this.identitySetup.node(),
       this.policyCard(),
       settingsCard([
         settingsHeading(

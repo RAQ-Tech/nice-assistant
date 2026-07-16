@@ -37,6 +37,7 @@ export class IdentitySettingsView {
     private readonly appState: AppState,
     private readonly client: ApiClient,
     private readonly dialogs: IdentityDialogs,
+    private readonly openIdentitySetup: (personaId: string) => void = () => undefined,
   ) {
     this.mediaPicker = new IdentityMediaPicker(renderApp, client);
   }
@@ -97,14 +98,14 @@ export class IdentitySettingsView {
     const validations = this.appState.identityValidations[profile.persona_id] ?? [];
     const events = this.appState.identityEvents[profile.persona_id] ?? [];
     return el('div', { class: 'identity-profile-stack', 'data-testid': 'identity-profile-stack' }, [
-      identityReadinessCard(profile, name, enabled),
+      identityReadinessCard(profile, name, enabled, () => this.openIdentitySetup(profile.persona_id), () => { this.advancedOpen = true; this.renderApp(); }),
       enabled ? this.referenceManager(profile, name) : this.enablementCard(profile.persona_id, name),
       enabled ? this.appearanceCard(profile, name) : null,
+      enabled ? this.generationPolicyCard(profile) : null,
       advancedSettings(
         'Advanced identity controls and diagnostics',
         `These controls tune comparison and troubleshooting. They are not required to store ${name}’s reference image, and a verifier cannot make generated images look more like the reference.`,
         [
-          this.generationPolicyCard(profile),
           this.providerCard(this.appState.identitySettings),
           this.validationManager(profile, validations),
           this.auditCard(events),
@@ -218,28 +219,41 @@ export class IdentitySettingsView {
   }
 
   private generationPolicyCard(profile: VisualIdentityProfile): HTMLElement {
+    const fallbackLabels: Record<VisualIdentityProfile['conditioning_fallback'], string> = {
+      allow_unconditioned: 'Generate and label an unconditioned image',
+      require_conditioning: 'Block until identity control is ready',
+    };
     const failureLabels: Record<string, string> = {
       show_unverified: 'Show the image with an “unverified” label',
       block_claim: 'Hide the image when comparison fails',
     };
     return el('div', { class: 'persona-card' }, [
       settingsHeading(
-        'Generation and comparison behavior',
-        'These controls matter only when optional post-generation comparison is configured.',
+        'Identity generation behavior',
+        'Choose separately what happens before generation when identity control is unavailable and after generation when optional comparison fails.',
       ),
+      field('When identity control is unavailable', select(
+        profile.conditioning_fallback ?? 'allow_unconditioned',
+        ['allow_unconditioned', 'require_conditioning'],
+        (value) => {
+          profile.conditioning_fallback = value as VisualIdentityProfile['conditioning_fallback'];
+        },
+        (value) => fallbackLabels[value as VisualIdentityProfile['conditioning_fallback']] ?? value,
+      ), 'Allowing fallback never claims a match: the resulting image is explicitly labeled unconditioned and may not resemble the persona.'),
+      field('When optional comparison fails', select(profile.failure_policy, ['show_unverified', 'block_claim'], (value) => {
+        profile.failure_policy = value as VisualIdentityProfile['failure_policy'];
+      }, (value) => failureLabels[value] ?? value), 'This applies only after a configured comparison service evaluates a generated image.'),
       field('Maximum generation attempts', input(String(profile.max_generation_attempts), (value) => {
         profile.max_generation_attempts = Math.round(boundedNumber(value, 1, 10, profile.max_generation_attempts));
       }, 'number'), 'The maximum number of bounded generation or correction attempts for one request.'),
-      field('When comparison fails', select(profile.failure_policy, ['show_unverified', 'block_claim'], (value) => {
-        profile.failure_policy = value as VisualIdentityProfile['failure_policy'];
-      }, (value) => failureLabels[value] ?? value), 'Choose whether a failed comparison is shown honestly or withheld.'),
       field('Comparison threshold', input(String(profile.acceptance_threshold), (value) => {
         profile.acceptance_threshold = boundedNumber(value, 0, 1, profile.acceptance_threshold);
       }, 'number'), 'A higher score is stricter. Calibrate this with representative generated images before enabling blocking.'),
       el('button', {
         class: 'pill-btn',
-        textContent: 'Save advanced controls',
+        textContent: 'Save identity behavior',
         disabled: this.appState.identityBusy,
+        'data-testid': 'identity-behavior-save',
         onclick: () => void this.saveProfile(profile),
       }),
     ]);

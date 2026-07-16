@@ -140,6 +140,64 @@ class CapabilityService:
             row = uow.repo.capability_request(user_id, request_id)
             return self._response(uow.repo, row) if row else None
 
+    def replan(self, user_id: str, request_id: str) -> dict | None:
+        """Refresh a still-pending coordinator plan after operator settings change."""
+        with self._uow() as uow:
+            row = uow.repo.capability_request(user_id, request_id)
+            if not row:
+                return None
+            if row.status != "pending_confirmation":
+                raise ConflictError(f"capability request is {row.status}")
+            current = uow.repo.media_execution_plan_for_capability(user_id, row.id)
+            if not current or current.source != "coordinator":
+                raise ConflictError("Only a pending coordinated media plan can be refreshed.")
+            previous_plan_status = current.status
+            arguments = _json_object(row.arguments_json)
+            definition = self.registry.by_key(row.capability_key)
+            chat = uow.repo.chat(user_id, row.chat_id) if row.chat_id else None
+            requirements = {
+                "kind": definition.kind,
+                "operation": arguments.get("operation") or "generate",
+                "domains": arguments.get("domains") or [],
+                "content_tags": arguments.get("content_tags") or [],
+                "required_features": arguments.get("required_features") or [],
+            }
+            persona_id = chat.persona_id if chat else None
+            adopted_legacy_persona_id = None
+            if "identity_control" in requirements["required_features"]:
+                if current.persona_id and (not chat or chat.persona_id != current.persona_id):
+                    raise ConflictError(
+                        "The chat persona changed after this identity request was planned. Create a new request."
+                    )
+                if current.persona_id:
+                    persona_id = current.persona_id
+                elif not persona_id:
+                    raise ConflictError(
+                        "The legacy blocked identity plan has no chat persona to adopt. Create a new request."
+                    )
+                else:
+                    adopted_legacy_persona_id = persona_id
+            plan = self.media_catalog.replan_coordinator_plan(
+                uow.repo,
+                user_id,
+                row.id,
+                requirements,
+                persona_id=persona_id,
+            )
+            uow.repo.add_capability_event(
+                row,
+                "replanned",
+                from_status=row.status,
+                to_status=row.status,
+                detail={
+                    "previous_plan_status": previous_plan_status,
+                    "media_plan_status": plan.status,
+                    "block_code": plan.block_code,
+                    "originating_persona_id_adopted": adopted_legacy_persona_id,
+                },
+            )
+            return self._response(uow.repo, row)
+
     def events(self, user_id: str, request_id: str) -> list[dict] | None:
         with self._uow() as uow:
             row = uow.repo.capability_request(user_id, request_id)
