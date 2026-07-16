@@ -17,15 +17,13 @@ from tests.support import FakeChatProvider, TestApp
 
 
 class AsyncJobTests(unittest.TestCase):
-    def test_title_and_capability_followups_start_independently_after_reply_delivery(self):
-        planning_gate = threading.Event()
+    def test_title_and_capability_followups_are_distinct_jobs_after_reply_delivery(self):
         provider = FakeChatProvider(
             ["The reply arrives first."],
             task_outputs={
                 TITLE_GENERATION: {"title": "Independent Followups"},
                 CAPABILITY_PLANNING: {"requests": []},
             },
-            task_gates={CAPABILITY_PLANNING: planning_gate},
         )
         with (
             tempfile.TemporaryDirectory() as tmp,
@@ -58,15 +56,18 @@ class AsyncJobTests(unittest.TestCase):
             self.assertEqual(primary["status"], "completed")
             self.assertEqual(primary["result"]["text"], "The reply arrives first.")
             self.assertEqual(len(primary["result"]["followup_job_ids"]), 2)
-            self.assertTrue(provider.task_started[CAPABILITY_PLANNING].wait(5))
+            self.assertNotEqual(
+                primary["result"]["title_job_id"],
+                primary["result"]["capability_planning_job_id"],
+            )
             title_job = running.wait_job(primary["result"]["title_job_id"])
             self.assertEqual(title_job["status"], "completed")
-            capability_job = running.client.get(
-                f"/api/v1/jobs/{primary['result']['capability_planning_job_id']}"
-            ).json()
-            self.assertIn(capability_job["status"], {"queued", "running"})
-            planning_gate.set()
-            running.wait_job(primary["result"]["capability_planning_job_id"])
+            capability_job = running.wait_job(primary["result"]["capability_planning_job_id"])
+            self.assertEqual(capability_job["status"], "completed")
+            self.assertEqual(
+                {provider._task_role(request) for request in provider.task_requests},
+                {TITLE_GENERATION, CAPABILITY_PLANNING},
+            )
 
     def test_persona_reply_completes_before_nonessential_capability_planning(self):
         planning_gate = threading.Event()
