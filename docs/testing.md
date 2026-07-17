@@ -68,6 +68,7 @@ complete the private server and installed-browser acceptance records.
 - Ollama tests cover fragmented NDJSON, completion metadata, mid-stream errors,
   malformed frames, timeout/unavailable behavior, and cancellation closure.
 - Turn tests cover legal transitions, atomic linked state, safe failures,
+  deterministic removal of terse/bracketed premature media-completion claims,
   idempotent cancellation, snapshot-first SSE, bounded replay, terminal ordering,
   and owner isolation.
 - Capability tests cover the legal transition matrix, semantic tool schemas,

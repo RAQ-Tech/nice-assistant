@@ -62,6 +62,10 @@ _NON_ACTION_MEDIA_CONTEXT = re.compile(
 _PREMATURE_MEDIA_COMPLETION = re.compile(
     r"(?:"
     r"!\[[^\]]*\]\([^)]+\)|"
+    r"\[(?:image|picture|photo|selfie|portrait)\s+"
+    r"(?:is\s+|has\s+been\s+)?(?:ready|sent|attached|uploaded|generated|created|verified|matched)\]|"
+    r"\b(?:image|picture|photo|selfie|portrait)\s+"
+    r"(?:is\s+|has\s+been\s+)?(?:ready|sent|attached|uploaded|generated|created|verified|matched)\b|"
     r"\bhere(?:'s|\s+is)\s+(?:(?:your|the|an?)\s+)?(?:image|picture|photo|selfie|portrait)\b|"
     r"\b(?:i(?:'ve|\s+have)?|we(?:'ve|\s+have)?)\s+(?:already\s+)?"
     r"(?:sent|attached|uploaded|made|generated|created|took|taken|verified|matched)\s+"
@@ -71,7 +75,11 @@ _PREMATURE_MEDIA_COMPLETION = re.compile(
     r")",
     re.IGNORECASE,
 )
-_MEDIA_INTENT_PROMISE = re.compile(r"\b(?:i(?:'ll|\s+will|\s+can)|let\s+me)\b", re.IGNORECASE)
+_MEDIA_INTENT_PROMISE = re.compile(
+    r"\b(?:i(?:['’]ll|\s+will)|let\s+me)\s+"
+    r"(?:try\s+to\s+)?(?:make|generate|create|draw|paint|render|take|send|start|work\s+on)\b",
+    re.IGNORECASE,
+)
 
 
 def is_explicit_text_only_request(user_text: str) -> bool:
@@ -111,7 +119,7 @@ def guard_premature_media_completion_claim(user_text: str, assistant_text: str) 
     if safe and _MEDIA_INTENT_PROMISE.search(safe):
         return safe, True
     fallback = "I’ll try to make that picture for you."
-    return (f"{safe}\n\n{fallback}" if safe else fallback), True
+    return fallback, True
 
 
 def explicitly_excludes_persona(user_text: str) -> bool:
