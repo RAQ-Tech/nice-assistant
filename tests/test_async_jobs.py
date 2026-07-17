@@ -8,7 +8,7 @@ from types import SimpleNamespace
 
 from sqlalchemy import func, select
 
-from app.job_service import LEGAL_TRANSITIONS, InvalidJobTransition, transition_job, transition_turn
+from app.job_service import JobExecution, LEGAL_TRANSITIONS, InvalidJobTransition, transition_job, transition_turn
 from app.models import MediaFile
 from app.provider_contracts import ChatToolCall, MediaArtifact, ProviderError
 from app.repositories import UnitOfWork
@@ -17,6 +17,107 @@ from tests.support import FakeChatProvider, TestApp
 
 
 class AsyncJobTests(unittest.TestCase):
+    def test_shutdown_terminalizes_a_pending_job_accepted_just_before_the_gate_closes(self):
+        with tempfile.TemporaryDirectory() as tmp, TestApp(Path(tmp)) as running:
+            user_id = running.create_and_login()
+            jobs = running.services.jobs
+            with jobs._uow() as uow:
+                active_job = uow.repo.add_job(
+                    user_id=user_id,
+                    chat_id=None,
+                    turn_id=None,
+                    kind="task_model",
+                    progress="Queued",
+                )
+                pending_job = uow.repo.add_job(
+                    user_id=user_id,
+                    chat_id=None,
+                    turn_id=None,
+                    kind="task_model",
+                    progress="Queued",
+                )
+
+            active_started = threading.Event()
+            pending_accepted = threading.Event()
+            release_pending_submit = threading.Event()
+            pending_cancel_count = 0
+            original_submit = jobs.queue.submit
+            stopped_queue = jobs.queue
+            original_coordinator_cancel = running.services.resource_coordination.cancel
+            coordinator_cancellations = []
+
+            def active_execute(token):
+                active_started.set()
+                while True:
+                    token.raise_if_cancelled()
+                    time.sleep(0.01)
+
+            def pending_cancel(_repo):
+                nonlocal pending_cancel_count
+                pending_cancel_count += 1
+
+            def controlled_submit(queue_job):
+                submitted = original_submit(queue_job)
+                if queue_job.metadata.get("async_job_id") == pending_job.id:
+                    pending_accepted.set()
+                    self.assertTrue(release_pending_submit.wait(timeout=2))
+                return submitted
+
+            def recording_coordinator_cancel(job_id):
+                coordinator_cancellations.append(job_id)
+                return original_coordinator_cancel(job_id)
+
+            jobs.queue.submit = controlled_submit
+            running.services.resource_coordination.cancel = recording_coordinator_cancel
+            jobs.submit(
+                job_id=active_job.id,
+                job_type="task_model",
+                user_id=user_id,
+                chat_id=None,
+                turn_id=None,
+                latency_class="standard",
+                model_key="task:active",
+                execution=JobExecution(execute=active_execute),
+            )
+            self.assertTrue(active_started.wait(timeout=1))
+
+            submit_thread = threading.Thread(
+                target=lambda: jobs.submit(
+                    job_id=pending_job.id,
+                    job_type="task_model",
+                    user_id=user_id,
+                    chat_id=None,
+                    turn_id=None,
+                    latency_class="standard",
+                    model_key="task:pending",
+                    execution=JobExecution(execute=lambda _token: None, on_cancel=pending_cancel),
+                )
+            )
+            stop_thread = threading.Thread(target=jobs.stop)
+            submit_thread.start()
+            self.assertTrue(pending_accepted.wait(timeout=1))
+            stop_thread.start()
+            try:
+                stop_thread.join(timeout=0.05)
+                self.assertTrue(stop_thread.is_alive())
+            finally:
+                release_pending_submit.set()
+                submit_thread.join(timeout=2)
+                stop_thread.join(timeout=2)
+
+            self.assertFalse(submit_thread.is_alive())
+            self.assertFalse(stop_thread.is_alive())
+            pending = running.client.get(f"/api/v1/jobs/{pending_job.id}").json()
+            self.assertEqual(pending["status"], "cancelled")
+            self.assertTrue(pending["cancel_requested"])
+            self.assertEqual(pending_cancel_count, 1)
+            self.assertEqual(coordinator_cancellations.count(pending_job.id), 1)
+            self.assertNotIn(pending_job.id, jobs._tokens)
+            self.assertNotIn(pending_job.id, jobs._done)
+            self.assertNotIn(pending_job.id, jobs._executions)
+            self.assertEqual(stopped_queue.stopped_pending_jobs(), [])
+            self.assertIsNone(jobs.queue)
+
     def test_title_and_capability_followups_are_distinct_jobs_after_reply_delivery(self):
         provider = FakeChatProvider(
             ["The reply arrives first."],

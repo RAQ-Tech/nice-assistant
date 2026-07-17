@@ -1,7 +1,9 @@
 import threading
 import unittest
+from unittest.mock import Mock
 
 from app.job_queue import JobQueue, new_job
+from app.job_service import JobExecution, JobService
 
 
 class JobQueueIsolationTests(unittest.TestCase):
@@ -235,6 +237,316 @@ class JobQueueIsolationTests(unittest.TestCase):
             interactive_running.wait(timeout=1)
             media_running.wait(timeout=1)
             queue.stop()
+
+    def test_stopped_queue_rejects_new_work(self):
+        queue = JobQueue(worker_counts={"interactive": 1, "media": 0})
+        queue.stop()
+
+        with self.assertRaisesRegex(RuntimeError, "job queue stopped"):
+            queue.submit(
+                new_job(
+                    job_type="chat",
+                    user_id="u1",
+                    chat_id=None,
+                    estimated_vram_mb=0,
+                    latency_class="interactive",
+                    execute=lambda: None,
+                )
+            )
+
+    def test_stop_returns_the_exact_pending_jobs_until_the_owner_acknowledges_them(self):
+        queue = JobQueue(
+            worker_counts={"interactive": 1, "media": 0},
+            admission_check=lambda _job: False,
+        )
+        first = queue.submit(
+            new_job(
+                job_type="chat",
+                user_id="u1",
+                chat_id=None,
+                estimated_vram_mb=0,
+                latency_class="interactive",
+                execute=lambda: None,
+            )
+        )
+        second = queue.submit(
+            new_job(
+                job_type="chat",
+                user_id="u1",
+                chat_id=None,
+                estimated_vram_mb=0,
+                latency_class="interactive",
+                execute=lambda: None,
+            )
+        )
+
+        stopped = queue.stop()
+
+        self.assertEqual([job.id for job in stopped], [first.id, second.id])
+        self.assertEqual(
+            [job.id for job in queue.stopped_pending_jobs()],
+            [first.id, second.id],
+        )
+        queue.acknowledge_stopped_pending(first.id)
+        self.assertEqual([job.id for job in queue.stopped_pending_jobs()], [second.id])
+
+
+class JobServiceLifecycleTests(unittest.TestCase):
+    def _service(self, *, resource_coordinator=None):
+        return JobService(
+            session_factory=None,
+            secret_store=None,
+            broker=Mock(),
+            logger=Mock(),
+            worker_counts={"interactive": 1, "media": 0},
+            resource_coordinator=resource_coordinator,
+        )
+
+    def test_stop_rejects_a_concurrent_followup_submission(self):
+        service = self._service()
+        service.start()
+        queue = service.queue
+        shutdown_started = threading.Event()
+        release_shutdown = threading.Event()
+        original_join = queue.join_stopped_workers
+
+        def controlled_join(*, wait=True):
+            shutdown_started.set()
+            self.assertTrue(release_shutdown.wait(timeout=2))
+            return original_join(wait=wait)
+
+        queue.join_stopped_workers = controlled_join
+        stop_thread = threading.Thread(target=service.stop)
+        stop_thread.start()
+        try:
+            self.assertTrue(shutdown_started.wait(timeout=1))
+            with self.assertRaisesRegex(RuntimeError, "not accepting submissions"):
+                service.submit(
+                    job_id="late-followup",
+                    job_type="image",
+                    user_id="u1",
+                    chat_id="c1",
+                    turn_id=None,
+                    latency_class="standard",
+                    model_key="image:test",
+                    execution=JobExecution(execute=lambda _token: None),
+                )
+            self.assertNotIn("late-followup", service._tokens)
+            self.assertNotIn("late-followup", service._done)
+            self.assertNotIn("late-followup", service._executions)
+        finally:
+            release_shutdown.set()
+            stop_thread.join(timeout=2)
+        self.assertFalse(stop_thread.is_alive())
+
+    def test_queue_rejection_discards_registered_submission_state(self):
+        service = self._service()
+        service.start()
+        service.queue.stop()
+        try:
+            with self.assertRaisesRegex(RuntimeError, "job queue stopped"):
+                service.submit(
+                    job_id="rejected",
+                    job_type="image",
+                    user_id="u1",
+                    chat_id="c1",
+                    turn_id=None,
+                    latency_class="standard",
+                    model_key="image:test",
+                    execution=JobExecution(execute=lambda _token: None),
+                )
+            self.assertNotIn("rejected", service._tokens)
+            self.assertNotIn("rejected", service._done)
+            self.assertNotIn("rejected", service._executions)
+        finally:
+            service.stop()
+
+    def test_overlapping_stop_waits_for_the_same_shutdown(self):
+        service = self._service()
+        service.start()
+        queue = service.queue
+        shutdown_started = threading.Event()
+        release_shutdown = threading.Event()
+        original_join = queue.join_stopped_workers
+
+        def controlled_join(*, wait=True):
+            shutdown_started.set()
+            self.assertTrue(release_shutdown.wait(timeout=2))
+            return original_join(wait=wait)
+
+        queue.join_stopped_workers = controlled_join
+        first_stop = threading.Thread(target=service.stop)
+        second_stop = threading.Thread(target=service.stop)
+        first_stop.start()
+        self.assertTrue(shutdown_started.wait(timeout=1))
+        second_stop.start()
+        try:
+            second_stop.join(timeout=0.05)
+            self.assertTrue(second_stop.is_alive())
+        finally:
+            release_shutdown.set()
+            first_stop.join(timeout=2)
+            second_stop.join(timeout=2)
+        self.assertFalse(first_stop.is_alive())
+        self.assertFalse(second_stop.is_alive())
+        self.assertIsNone(service.queue)
+
+    def test_start_waits_for_an_in_progress_stop(self):
+        service = self._service()
+        service.start()
+        old_queue = service.queue
+        shutdown_started = threading.Event()
+        release_shutdown = threading.Event()
+        original_join = old_queue.join_stopped_workers
+
+        def controlled_join(*, wait=True):
+            shutdown_started.set()
+            self.assertTrue(release_shutdown.wait(timeout=2))
+            return original_join(wait=wait)
+
+        old_queue.join_stopped_workers = controlled_join
+        stop_thread = threading.Thread(target=service.stop)
+        start_thread = threading.Thread(target=service.start)
+        stop_thread.start()
+        self.assertTrue(shutdown_started.wait(timeout=1))
+        start_thread.start()
+        try:
+            start_thread.join(timeout=0.05)
+            self.assertTrue(start_thread.is_alive())
+        finally:
+            release_shutdown.set()
+            stop_thread.join(timeout=2)
+            start_thread.join(timeout=2)
+        self.assertFalse(stop_thread.is_alive())
+        self.assertFalse(start_thread.is_alive())
+        self.assertIsNotNone(service.queue)
+        self.assertIsNot(service.queue, old_queue)
+        service.stop()
+
+    def test_failed_shutdown_retains_the_old_queue_and_blocks_restart_until_retry(self):
+        service = self._service()
+        service.start()
+        old_queue = service.queue
+        original_join = old_queue.join_stopped_workers
+        attempts = 0
+
+        def fail_once(*, wait=True):
+            nonlocal attempts
+            attempts += 1
+            if attempts == 1:
+                raise RuntimeError("simulated shutdown timeout")
+            return original_join(wait=wait)
+
+        old_queue.join_stopped_workers = fail_once
+        with self.assertRaisesRegex(RuntimeError, "simulated shutdown timeout"):
+            service.stop()
+
+        self.assertIs(service.queue, old_queue)
+        with self.assertRaisesRegex(RuntimeError, "cannot restart after a failed shutdown"):
+            service.start()
+
+        service.stop()
+        self.assertIsNone(service.queue)
+        service.start()
+        self.assertIsNot(service.queue, old_queue)
+        service.stop()
+
+    def test_stopped_pending_job_is_terminalized_and_releases_coordination_once(self):
+        coordinator = Mock()
+        coordinator.can_start.return_value = False
+        coordinator.enabled = False
+        service = self._service(resource_coordinator=coordinator)
+        service._cancel_terminal = Mock()
+        service.start()
+        service.submit(
+            job_id="accepted-pending",
+            job_type="image",
+            user_id="u1",
+            chat_id="c1",
+            turn_id=None,
+            latency_class="standard",
+            model_key="image:test",
+            execution=JobExecution(execute=lambda _token: None),
+        )
+
+        service.stop()
+
+        service._cancel_terminal.assert_called_once_with("accepted-pending", None, None)
+        coordinator.cancel.assert_called_once_with("accepted-pending")
+        self.assertNotIn("accepted-pending", service._tokens)
+        self.assertNotIn("accepted-pending", service._done)
+        self.assertNotIn("accepted-pending", service._executions)
+
+    def test_queue_is_closed_before_coordinator_cancellation_can_wake_pending_work(self):
+        cancel_started = threading.Event()
+        release_cancel = threading.Event()
+        job_selected = threading.Event()
+
+        class WakeOnCancelCoordinator:
+            enabled = True
+
+            def __init__(self):
+                self.admitted = False
+                self.cancelled = []
+                self.wake_queue = lambda: None
+
+            def bind_queue_wake(self, callback):
+                self.wake_queue = callback
+
+            def can_start(self, _job):
+                return self.admitted
+
+            def reserve(self, _job):
+                job_selected.set()
+                return None
+
+            def register(self, *_args, **_kwargs):
+                return None
+
+            def cancel(self, job_id):
+                self.cancelled.append(job_id)
+                self.admitted = True
+                self.wake_queue()
+                cancel_started.set()
+                self.assert_release()
+
+            def assert_release(self):
+                if not release_cancel.wait(timeout=2):
+                    raise AssertionError("coordinator cancellation was not released")
+
+            def execution_started(self, _job_id):
+                return None
+
+            def complete(self, _queue_job_id, _job_id):
+                return None
+
+        coordinator = WakeOnCancelCoordinator()
+        service = self._service(resource_coordinator=coordinator)
+        service._cancel_terminal = Mock()
+        service.start()
+        service.submit(
+            job_id="blocked-pending",
+            job_type="task_model",
+            user_id="u1",
+            chat_id="c1",
+            turn_id=None,
+            latency_class="standard",
+            model_key="task:test",
+            execution=JobExecution(execute=lambda _token: None),
+        )
+        stop_thread = threading.Thread(target=service.stop)
+        stop_thread.start()
+        try:
+            self.assertTrue(cancel_started.wait(timeout=1))
+            self.assertFalse(job_selected.wait(timeout=1))
+        finally:
+            release_cancel.set()
+            stop_thread.join(timeout=2)
+
+        self.assertFalse(stop_thread.is_alive())
+        self.assertFalse(job_selected.is_set())
+        self.assertEqual(coordinator.cancelled, ["blocked-pending"])
+        service._cancel_terminal.assert_called_once_with("blocked-pending", None, None)
 
 
 if __name__ == "__main__":

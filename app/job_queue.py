@@ -92,6 +92,7 @@ class JobQueue:
         self._active_by_lane: Dict[str, int] = {}
         self._active_ordering_keys: set[str] = set()
         self._workers: List[threading.Thread] = []
+        self._stopped_pending: List[Job] = []
         for lane, count in self.worker_counts.items():
             for idx in range(count):
                 worker = threading.Thread(
@@ -117,6 +118,8 @@ class JobQueue:
 
     def submit(self, job: Job) -> Job:
         with self._cv:
+            if self._stop:
+                raise RuntimeError("job queue stopped")
             self._pending.append(job)
             self._cv.notify_all()
         return job
@@ -127,6 +130,8 @@ class JobQueue:
             job.group_id = group_id
             job.group_index = idx
         with self._cv:
+            if self._stop:
+                raise RuntimeError("job queue stopped")
             self._pending.extend(jobs)
             self._cv.notify_all()
         return jobs
@@ -162,21 +167,44 @@ class JobQueue:
                 return True
         return False
 
-    def stop(self):
+    def close_and_detach_pending(self) -> List[Job]:
+        """Atomically reject new work and detach jobs no worker has selected."""
         with self._cv:
             self._stop = True
             pending = list(self._pending)
             self._pending.clear()
+            self._stopped_pending.extend(pending)
             for job in pending:
                 job.mark_done(error=RuntimeError("job queue stopped"))
             self._cv.notify_all()
+        return pending
+
+    def join_stopped_workers(self, wait=True) -> List[Job]:
+        """Join workers after the owner has cancelled and terminalized detached work."""
         for worker in self._workers:
             worker.join(timeout=10)
-
-    def shutdown(self, wait=True):
-        self.stop()
         if wait and not self.wait_until_idle(timeout=10):
             raise RuntimeError("job queue did not become idle")
+        return self.stopped_pending_jobs()
+
+    def stop(self) -> List[Job]:
+        pending = self.close_and_detach_pending()
+        self.join_stopped_workers(wait=False)
+        return pending
+
+    def shutdown(self, wait=True) -> List[Job]:
+        self.close_and_detach_pending()
+        return self.join_stopped_workers(wait=wait)
+
+    def stopped_pending_jobs(self) -> List[Job]:
+        """Return accepted jobs removed by shutdown but not yet acknowledged."""
+        with self._cv:
+            return list(self._stopped_pending)
+
+    def acknowledge_stopped_pending(self, job_id: str) -> None:
+        """Forget one stopped job after its owner terminalizes durable state."""
+        with self._cv:
+            self._stopped_pending = [job for job in self._stopped_pending if job.id != job_id]
 
     def wait_until_idle(self, timeout: Optional[float] = None) -> bool:
         """Wait until no queued or executing work remains."""

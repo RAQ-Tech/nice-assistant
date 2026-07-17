@@ -222,7 +222,18 @@ Start development and installed deployments with `python -m app.asgi`. Uvicorn i
 the only listener. Application lifespan starts database migrations/recovery and
 the separate interactive/media queue lanes, then cancels live provider tokens,
 joins workers, expires event subscribers, and disposes the SQLAlchemy engine on
-shutdown.
+shutdown. Shutdown closes the job-submission gate before cancellation begins;
+a follow-up that races with teardown is rejected and recorded through its
+normal submission-failure path instead of being stranded in a stopped queue.
+Work accepted immediately before the gate closes is durably cancelled if it is
+still pending when workers stop, including its owning turn/capability callback
+and process-local bookkeeping. The queue atomically closes and detaches pending
+work before provider tokens or coordinator leases are cancelled, so a
+coordinator wake cannot start detached work during teardown. If a worker does
+not become idle or pending
+cleanup fails, the stopped queue is retained and restart remains blocked; an
+explicit stop retry must prove the same queue idle and finish cleanup before a
+new queue can start.
 
 For browser development, run `npm run backend:dev` and `npm run dev` in separate
 terminals. Production images build `frontend/src` in a pinned Node stage and copy

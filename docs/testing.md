@@ -165,8 +165,16 @@ acceptance.
   the lease until release finishes, synchronous job waits include that
   finalizer, observe mode never releases, and work cancelled before execution
   cannot release a provider. Cancellation after execution still performs
-  post-provider cleanup exactly once. Deterministic fakes replace live GPU
-  services in CI.
+  post-provider cleanup exactly once. Queue lifecycle tests also prove that
+  concurrent teardown rejects late follow-up submissions and clears rejected
+  token/execution bookkeeping rather than leaving work in a stopped queue.
+  They cover the opposite interleaving too: a submission accepted immediately
+  before the gate closes is durably cancelled exactly once and releases its
+  coordinator ownership. A deterministic coordinator-wake test proves
+  cancellation cannot make detached pending work start during teardown. Failed
+  shutdown retains the old queue, blocks restart, and permits a stop retry to
+  clear the failure only after that queue is idle.
+  Deterministic fakes replace live GPU services in CI.
 - Context tests cover multi-worker causal ordering, independent chats, explicit
   provider allocation, budget accounting, exact memory deduplication, oversized
   protected content, durable summaries, and degraded summary fallback.

@@ -151,33 +151,142 @@ class JobService:
         self._done: dict[str, threading.Event] = {}
         self._executions: dict[str, JobExecution] = {}
         self._lock = threading.Lock()
+        self._lifecycle_cv = threading.Condition()
+        self._accepting_submissions = False
+        self._stopping = False
+        self._shutdown_error: BaseException | None = None
 
     def _uow(self):
         return UnitOfWork(self.session_factory, self.secret_store)
 
     def start(self) -> None:
-        if self.queue is None:
-            self.queue = JobQueue(
-                worker_counts=self.worker_counts,
-                admission_check=(self.resource_coordinator.can_start if self.resource_coordinator else None),
-                on_selected=(self.resource_coordinator.reserve if self.resource_coordinator else None),
-                serialize_resources=(lambda: self.resource_coordinator.enabled) if self.resource_coordinator else None,
-            )
-            if self.resource_coordinator:
-                self.resource_coordinator.bind_queue_wake(self.queue.wake)
+        with self._lifecycle_cv:
+            while self._stopping:
+                self._lifecycle_cv.wait()
+            if self._shutdown_error is not None:
+                raise RuntimeError("job service cannot restart after a failed shutdown") from self._shutdown_error
+            if self.queue is None:
+                self.queue = JobQueue(
+                    worker_counts=self.worker_counts,
+                    admission_check=(self.resource_coordinator.can_start if self.resource_coordinator else None),
+                    on_selected=(self.resource_coordinator.reserve if self.resource_coordinator else None),
+                    serialize_resources=(lambda: self.resource_coordinator.enabled)
+                    if self.resource_coordinator
+                    else None,
+                )
+                if self.resource_coordinator:
+                    self.resource_coordinator.bind_queue_wake(self.queue.wake)
+            self._accepting_submissions = True
 
     def stop(self) -> None:
-        with self._lock:
-            tokens = list(self._tokens.values())
-            job_ids = list(self._tokens)
-        for token in tokens:
-            token.cancel()
-        if self.resource_coordinator:
-            for job_id in job_ids:
-                self.resource_coordinator.cancel(job_id)
-        if self.queue:
-            self.queue.shutdown(wait=True)
-            self.queue = None
+        with self._lifecycle_cv:
+            if self._stopping:
+                while self._stopping:
+                    self._lifecycle_cv.wait()
+                if self._shutdown_error is not None:
+                    raise RuntimeError("job service shutdown failed") from self._shutdown_error
+                return
+            self._accepting_submissions = False
+            self._stopping = True
+            queue = self.queue
+        failure = None
+        queue_closed = queue is None
+        try:
+            if queue:
+                try:
+                    queue.close_and_detach_pending()
+                    queue_closed = True
+                except BaseException as exc:  # noqa: BLE001 - cancellation is unsafe until the queue is frozen
+                    failure = exc
+            if queue_closed:
+                with self._lock:
+                    tokens = list(self._tokens.values())
+                    job_ids = list(self._tokens)
+                coordinator_failures = set()
+                for token in tokens:
+                    token.cancel()
+                if self.resource_coordinator:
+                    for job_id in job_ids:
+                        try:
+                            self.resource_coordinator.cancel(job_id)
+                        except BaseException as exc:  # noqa: BLE001 - retry against the retained queue
+                            coordinator_failures.add(job_id)
+                            if failure is None:
+                                failure = exc
+                            else:
+                                self.logger.error(
+                                    "additional coordinator cancellation failed job_id=%s error=%s",
+                                    job_id,
+                                    exc.__class__.__name__,
+                                )
+                try:
+                    if queue:
+                        self._finalize_stopped_pending(queue, coordinator_failures)
+                except BaseException as exc:  # noqa: BLE001 - durable cleanup must make shutdown fail closed
+                    if failure is None:
+                        failure = exc
+                    else:
+                        self.logger.error(
+                            "stopped job cleanup also failed error=%s",
+                            exc.__class__.__name__,
+                        )
+                try:
+                    if queue:
+                        queue.join_stopped_workers(wait=True)
+                except BaseException as exc:  # noqa: BLE001 - retain failed lifecycle state before propagating
+                    if failure is None:
+                        failure = exc
+                    else:
+                        self.logger.error(
+                            "queue worker join also failed error=%s",
+                            exc.__class__.__name__,
+                        )
+        except BaseException as exc:  # noqa: BLE001 - lifecycle state must fail closed on every teardown error
+            if failure is None:
+                failure = exc
+        finally:
+            with self._lifecycle_cv:
+                if failure is None:
+                    if self.queue is queue:
+                        self.queue = None
+                    self._shutdown_error = None
+                else:
+                    self._shutdown_error = failure
+                self._stopping = False
+                self._lifecycle_cv.notify_all()
+        if failure is not None:
+            raise failure
+
+    def _finalize_stopped_pending(self, queue: JobQueue, coordinator_failures: set[str]) -> None:
+        for queue_job in queue.stopped_pending_jobs():
+            job_id = str(queue_job.metadata.get("async_job_id") or "")
+            turn_id = queue_job.metadata.get("turn_id")
+            if not job_id:
+                queue.acknowledge_stopped_pending(queue_job.id)
+                continue
+            with self._lock:
+                token = self._tokens.get(job_id)
+                execution = self._executions.get(job_id)
+                done = self._done.get(job_id)
+            if token:
+                token.cancel()
+            self._cancel_terminal(
+                job_id,
+                str(turn_id) if turn_id else None,
+                execution.on_cancel if execution else None,
+            )
+            if job_id in coordinator_failures:
+                continue
+            with self._lock:
+                if self._tokens.get(job_id) is token:
+                    self._tokens.pop(job_id, None)
+                if self._executions.get(job_id) is execution:
+                    self._executions.pop(job_id, None)
+                if self._done.get(job_id) is done:
+                    self._done.pop(job_id, None)
+            if done:
+                done.set()
+            queue.acknowledge_stopped_pending(queue_job.id)
 
     def submit(
         self,
@@ -194,14 +303,8 @@ class JobService:
         resource_request=None,
         ordering_key: str | None = None,
     ) -> None:
-        if self.queue is None:
-            raise RuntimeError("job service is not started")
         token = CancellationToken()
         done = threading.Event()
-        with self._lock:
-            self._tokens[job_id] = token
-            self._done[job_id] = done
-            self._executions[job_id] = execution
 
         coordinated_resource = job_type in {"chat", "text", "task_model", "memory_extraction"}
         coordinated_resource = coordinated_resource or resource_request is not None
@@ -220,14 +323,33 @@ class JobService:
             },
             execute=lambda: self._run(queue_job.id, job_id, turn_id, token, execution),
         )
-        if self.resource_coordinator:
-            self.resource_coordinator.register(
-                job_id,
-                resource_request,
-                on_wait=lambda progress: self._admission_wait(job_id, progress),
-                on_reject=lambda code, message: self._admission_reject(job_id, code, message, execution),
-            )
-        self.queue.submit(queue_job)
+        with self._lifecycle_cv:
+            queue = self.queue
+            if not self._accepting_submissions or queue is None:
+                raise RuntimeError("job service is not accepting submissions")
+            with self._lock:
+                self._tokens[job_id] = token
+                self._done[job_id] = done
+                self._executions[job_id] = execution
+            try:
+                if self.resource_coordinator:
+                    self.resource_coordinator.register(
+                        job_id,
+                        resource_request,
+                        on_wait=lambda progress: self._admission_wait(job_id, progress),
+                        on_reject=lambda code, message: self._admission_reject(job_id, code, message, execution),
+                    )
+                queue.submit(queue_job)
+            except Exception:
+                if self.resource_coordinator:
+                    self.resource_coordinator.cancel(job_id)
+                with self._lock:
+                    self._tokens.pop(job_id, None)
+                    self._executions.pop(job_id, None)
+                    failed_done = self._done.pop(job_id, None)
+                if failed_done:
+                    failed_done.set()
+                raise
 
     def _run(
         self,
@@ -277,14 +399,16 @@ class JobService:
             )
             return None
         finally:
-            if self.resource_coordinator:
-                self.resource_coordinator.complete(queue_job_id, job_id)
-            with self._lock:
-                self._tokens.pop(job_id, None)
-                self._executions.pop(job_id, None)
-                done = self._done.get(job_id)
-            if done:
-                done.set()
+            try:
+                if self.resource_coordinator:
+                    self.resource_coordinator.complete(queue_job_id, job_id)
+            finally:
+                with self._lock:
+                    self._tokens.pop(job_id, None)
+                    self._executions.pop(job_id, None)
+                    done = self._done.get(job_id)
+                if done:
+                    done.set()
 
     def _begin(self, job_id: str, turn_id: str | None, on_start=None) -> bool:
         with self._uow() as uow:
@@ -360,7 +484,7 @@ class JobService:
                     transition_turn(turn, "cancelled", code="cancelled", message="Request cancelled.")
                     event = turn_response(turn, job_id, self.broker.accumulated_text(turn_id))
                     changed = True
-            if on_cancel:
+            if on_cancel and changed:
                 on_cancel(uow.repo)
         if turn_id and changed:
             self.broker.publish(turn_id, "turn.cancelled", event or {"id": turn_id, "status": "cancelled"})
