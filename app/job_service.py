@@ -463,10 +463,12 @@ class JobService:
         deadline = time.monotonic() + timeout
         while time.monotonic() < deadline:
             current = self.get(user_id, job_id)
-            if not current or current["status"] in TERMINAL_STATES:
+            if not current:
                 return current
             with self._lock:
                 event = self._done.get(job_id)
+            if current["status"] in TERMINAL_STATES and (not event or event.is_set()):
+                return current
             if event:
                 event.wait(timeout=min(0.25, max(0.0, deadline - time.monotonic())))
             else:

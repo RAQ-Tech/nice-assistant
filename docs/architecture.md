@@ -148,9 +148,11 @@ residency/readiness claim. When resource coordination is enabled, measured free
 capacity gates catalog-planned local image work against that estimate. Managed
 release requires endpoint-specific exclusive authorization and is remeasured;
 the same authorization permits post-job media reclamation before a waiting chat
-can start. The process lease cannot serialize external clients. ComfyUI editing uses
-explicit owner-selected source/mask IDs; the task model stays generation-only
-until attachments have a typed resolver. See `docs/persona-visual-identity.md`
+can start. Synchronous job waits do not return a terminal result until this
+in-process finalizer has completed. The process lease cannot serialize external
+clients. ComfyUI editing uses explicit owner-selected source/mask IDs; the task
+model stays generation-only until attachments have a typed resolver. See
+`docs/persona-visual-identity.md`
 and ADRs 0010–0013.
 
 ## Compatibility

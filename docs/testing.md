@@ -114,10 +114,11 @@ complete the private server and installed-browser acceptance records.
   cancellation, durable content-free audit, non-blocking media admission, and
   chat-priority serialization. They also prove that unknown-demand local image
   work receives no false capacity admission, managed post-job cleanup retains
-  the lease until release finishes, observe mode never releases, and work
-  cancelled before execution cannot release a provider while running
-  cancellation still performs post-provider cleanup exactly once. Deterministic
-  fakes replace live GPU services in CI.
+  the lease until release finishes, synchronous job waits include that
+  finalizer, observe mode never releases, and work cancelled before execution
+  cannot release a provider. Cancellation after execution still performs
+  post-provider cleanup exactly once. Deterministic fakes replace live GPU
+  services in CI.
 - Context tests cover multi-worker causal ordering, independent chats, explicit
   provider allocation, budget accounting, exact memory deduplication, oversized
   protected content, durable summaries, and degraded summary fallback.
