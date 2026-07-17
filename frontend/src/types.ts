@@ -55,6 +55,7 @@ export interface Persona {
   workspace_ids: Id[];
   name: string;
   avatar_url: string | null;
+  allow_image_sends?: boolean;
   system_prompt: string | null;
   personality_details: string | null;
   traits: Partial<PersonaTraits>;
@@ -564,7 +565,6 @@ export interface Settings extends Record<string, SettingScalar | Record<string, 
   stt_language: string;
   stt_store_recordings: boolean;
   image_provider: string;
-  image_confirmation_policy: 'auto_explicit_request' | 'always_ask';
   chat_blur_images: boolean;
   image_size: string;
   image_quality: string;

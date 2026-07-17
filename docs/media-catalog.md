@@ -62,7 +62,7 @@ compared with the selected plan's estimate and configured reserve. The estimate
 does not become telemetry, and external services continue to own model loading
 and GPU residency.
 
-## Planning and approval
+## Planning and execution
 
 For a model-requested capability, the coordinator:
 
@@ -72,20 +72,21 @@ For a model-requested capability, the coordinator:
 3. rejects selections that exceed the configured VRAM budget;
 4. selects only explicitly compatible LoRAs and, when relevant, a compatible
    ComfyUI workflow; and
-5. persists an immutable, explainable plan with resource revisions before the
-   browser presents the approval card.
+5. persists an immutable, explainable plan with resource revisions before any
+   provider work begins.
 
-The approval card shows the selected resources, reasoning, estimates, warnings,
-and blocked state. Approval revalidates every selected resource. Editing,
-disabling, or deleting a selected resource makes the old plan stale and prevents
-execution; the system does not silently re-plan after the user has reviewed it.
-Blocked cards also show the hard requirements and per-resource rejection reasons.
-Their active remediation action carries the request/persona context into the
-Identity Control setup and can explicitly recheck a still-pending blocked plan.
-Rechecking retains the plan's originating persona and rejects a changed chat
-persona. Legacy blocked plans without the newer persona snapshot adopt the
-current chat persona once and record that recovery in the replan audit.
-Persona-chat planning derives
+For an explicit conversational image request, a ready plan is revalidated and
+queued automatically. Editing, disabling, or deleting a selected resource makes
+the plan stale and produces a compact retryable attachment failure; execution
+never silently substitutes a resource. Video retains explicit approval, and its
+saved plan is revalidated after approval and before submission. Selected
+resources, reasoning, estimates, warnings, and rejection reasons remain
+available through collapsed attachment Details and authenticated diagnostics.
+A blocked image plan does not become a pending approval card. It becomes a
+retryable failed attachment, and retry creates a new request and plan from
+current settings. Initial planning always retains the persona that originated
+the turn even if the chat switches personas while the Task Model is still
+running. Persona-chat planning derives
 `identity_control` from the Task Model's typed `persona_subject` decision; the
 user's requested subject is authoritative and persona reply prose cannot expand
 it. See ADR 0017.
@@ -99,10 +100,10 @@ select an ordinary model while preserving a durable `unconditioned` snapshot
 and an explicit resemblance warning. That policy is the default even when no
 profile exists; unconditioned execution does not transmit or use identity
 references and therefore does not require consent or a reference. `require_conditioning`
-remains blocked. Approval revalidates the saved policy and any snapshotted
-profile revision. Conditioned candidates still require current consent and
-reference evidence, may be compared inline, and keep every
-generation/comparison/correction attempt durable.
+remains blocked. Execution revalidates the saved policy and any snapshotted
+profile revision immediately before provider submission. Conditioned candidates
+still require current consent and reference evidence, may be compared inline,
+and keep every generation/comparison/correction attempt durable.
 
 ComfyUI plans execute `generate`, `inpaint`, `outpaint`, and `image_to_image`
 only when their exact inputs are configured. Automatic1111 and cloud media
@@ -142,7 +143,7 @@ media, or completed plans.
 Resource metadata and plans are owner-scoped. Prompts remain in their existing
 capability request; execution plans store semantic requirements and selected
 resource snapshots but do not duplicate the prompt. Content tags describe
-technical fitness and never bypass capability approval, provider policy, or
+technical fitness and never bypass capability permission, provider policy, or
 future identity/consent rules.
 
 ## Deliberate boundaries

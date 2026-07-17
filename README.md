@@ -27,7 +27,10 @@ deliberately still later roadmap work.
 - `<persistent-data-path>` -> `/data`
 - `<archive-storage-path>` -> `/archives`
 
-On container startup, the image automatically syncs project files into `/data/project` so the working source files live on your appdata share instead of only inside the image.
+On container startup, application code runs from the selected image at
+`/opt/nice-assistant`. The `/data` mapping stores the database, settings, and
+artifacts only. An older `/data/project` directory is left untouched but is no
+longer executed, preventing mixed code after an update or rollback.
 
 When this repository gets new commits on `main`, the GitHub Actions workflow publishes a refreshed `:latest` image to GHCR. In Unraid, using the repository above lets the **Update** button pull and redeploy that new image.
 
@@ -57,8 +60,8 @@ server session and never grants a general remote shell.
 - `CONTEXT_SUMMARY_TRIGGER_RATIO=0.75`
 - `CONTEXT_MAX_COMPACTION_PASSES=2`
 - `MEMORY_CANDIDATE_LIMIT=5`
-- `PROJECT_ROOT=/data/project`
-- `SYNC_PROJECT_ON_START=1` (set to `0` to keep local edits and skip overwrite from image)
+- `NICE_ASSISTANT_DEVELOPMENT_PROJECT_SYNC=0` (development-only escape hatch;
+  production must keep the image-authoritative default)
 - `AUTOMATIC1111_BASE_URL=http://127.0.0.1:7860` (default local image endpoint for `image_provider=local`)
 - `COMFYUI_BASE_URL=http://127.0.0.1:8188` (default local image endpoint when local backend is ComfyUI)
 - `NICE_ASSISTANT_ALLOWED_ORIGINS` (comma-separated exact HTTPS reverse-proxy origins)
@@ -120,11 +123,15 @@ server, proxy, bridge, and second listener have been removed.
 - Typed platform capability planning plus a deterministic intent gate auto-runs
   only clear ordinary image requests; stories, discussion, hypotheticals, and
   quoted instructions create no job
+- A persisted `Allow persona to send images` control decides whether each
+  persona may fulfill those conversational requests; direct user image actions
+  remain available, and images never require a second approval
 - Reload-safe picture-message attachments provide compact progress, scoped
   cancel/retry, protected results, optional collapsed Details, and a persisted
-  blur toggle that defaults off
-- Owner-scoped capability approval, denial, cancellation, idempotent explicit
-  actions, audit history, and protected results
+  blur toggle that defaults off; generated images and avatars share one
+  click-to-enlarge in-app viewer
+- Owner-scoped capability admission, video approval/denial, cancellation,
+  idempotent explicit actions, audit history, and protected results
 - Separate Task Model roles for titles, summaries, reviewable memory extraction,
   and semantic capability planning, with per-user models, budgets, readiness,
   fallback, and content-free run audits in Settings
@@ -341,8 +348,9 @@ For iPhone/Android browsers, microphone capture usually requires **HTTPS** (or l
 SSE disconnect does not cancel a turn. Turn and direct-job cancellation uses an
 explicit `DELETE /api/v1/jobs/:id`; capability cards cancel through
 `DELETE /api/v1/capability-requests/:id`.
-Clear ordinary image actions auto-run under the saved default; `always_ask`,
-video, and consequential capabilities retain approval. Direct and planned chat
-media use the same audited capability and durable attachment path.
+Clear ordinary image actions auto-run when the selected persona permits
+conversational image sending. Video and consequential capabilities retain
+approval. Direct and planned chat media use the same audited capability and
+durable attachment path.
 Replay via `Last-Event-ID` is bounded and survives only while the process and
 short retention window remain alive; final turn/job state is durable in SQLite.

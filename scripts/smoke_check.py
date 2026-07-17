@@ -50,9 +50,22 @@ class _FakeOllamaHandler(BaseHTTPRequestHandler):
         if self.path == "/api/tags":
             self._write_json({"models": [{"name": "smoke-model"}]})
             return
+        if self.path == "/sdapi/v1/options":
+            self._write_json({"sd_model_checkpoint": "smoke-model.safetensors"})
+            return
         self.send_error(404)
 
     def do_POST(self):  # noqa: N802 - stdlib handler contract
+        if self.path == "/sdapi/v1/txt2img":
+            self.rfile.read(int(self.headers.get("Content-Length") or 0))
+            self._write_json(
+                {
+                    "images": [
+                        "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII="
+                    ]
+                }
+            )
+            return
         if self.path != "/api/chat":
             self.send_error(404)
             return

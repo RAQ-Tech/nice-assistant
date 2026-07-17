@@ -1,6 +1,7 @@
 # ADR 0012: Reviewed-reference persona identity conditioning
 
-- Status: Accepted; setup-flow decision partially superseded by ADR 0018
+- Status: Accepted; setup flow superseded by ADR 0018 and image approval path
+  superseded by ADR 0023
 - Date: 2026-07-14
 - Owners: Nice Assistant maintainers
 
@@ -30,11 +31,11 @@ part of its core contract.
 - Planning binds the chat persona, active consented profile revision, primary
   approved reference ID and digest, appearance-description snapshot, selected
   workflow revision, and bindings into the durable media plan. Missing consent,
-  persona, reference, file, or executable binding blocks approval with a specific
-  safe reason.
-- Approval revalidates the profile revision, review state, reference digest,
-  file content, and selected resources. Nice Assistant never silently switches
-  references or re-plans after the user reviews an approval card.
+  persona, reference, file, or executable binding prevents execution with a
+  specific safe reason.
+- Pre-submission validation rechecks the profile revision, review state,
+  reference digest, file content, and selected resources. Nice Assistant never
+  silently switches references or resources after persisting the plan.
 - Execution adds the appearance description to the provider prompt, uploads the
   reviewed normalized JPEG to ComfyUI, injects the returned input name only into
   the declared bindings, and then submits the workflow. Cancellation is checked
@@ -80,11 +81,11 @@ delete-input contract.
 - Migration `0013_identity_generation` preserves old plans/media and adds the
   generated-media plan link.
 - Catalog tests cover binding validation, persona/profile/reference blocking,
-  immutable snapshots, stale approval, prompt composition, protected provenance,
+  immutable snapshots, stale pre-submission validation, prompt composition, protected provenance,
   and unverified claim state.
 - Adapter tests cover multipart upload, exact workflow injection, digest checks,
   and cancellation before upload.
-- Browser tests ensure the approval card distinguishes conditioning from
-  verification.
+- Browser tests ensure compact attachment state distinguishes conditioning from
+  verification without restoring per-image approval.
 - Complete verification, process smoke, image build, and installed-container
   smoke are required before publication.

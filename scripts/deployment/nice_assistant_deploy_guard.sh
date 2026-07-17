@@ -108,6 +108,13 @@ write_definition() {
   chmod 600 "$DEFINITION_FILE"
 }
 
+save_previous_definition() {
+  local target=$1 temporary="${1}.tmp"
+  cp -- "$DEFINITION_FILE" "$temporary"
+  chmod 600 "$temporary"
+  mv -f -- "$temporary" "$target"
+}
+
 create_payload() {
   local definition=$1 image=$2 target=$3 image_labels
   image_labels=$("$DOCKER" image inspect "$image" --format '{{json .Config.Labels}}') || return 1
@@ -222,36 +229,137 @@ validate_template() {
 }
 
 write_state() {
-  local rollback_container=$1 previous_digest=$2 deployed_digest=$3 compatible=$4
+  local rollback_container=$1 previous_digest=$2 deployed_digest=$3 compatible=$4 previous_definition=$5
+  local temporary="${STATE_FILE}.tmp"
   "$JQ" -n \
     --arg rollback_container "$rollback_container" \
     --arg previous_digest "$previous_digest" \
     --arg deployed_digest "$deployed_digest" \
+    --arg previous_definition "$previous_definition" \
     --argjson database_compatible "$compatible" \
-    '{rollback_container:$rollback_container,previous_digest:$previous_digest,deployed_digest:$deployed_digest,database_compatible:$database_compatible}' \
-    >"$STATE_FILE"
-  chmod 600 "$STATE_FILE"
+    '{state_version:2,rollback_container:$rollback_container,previous_digest:$previous_digest,deployed_digest:$deployed_digest,database_compatible:$database_compatible,previous_definition:$previous_definition}' \
+    >"$temporary"
+  chmod 600 "$temporary"
+  mv -f -- "$temporary" "$STATE_FILE"
+}
+
+previous_definition_path() {
+  local name=$1 path
+  [[ "$name" =~ ^previous-container-definition\.[0-9]{14}\.json$ ]] || return 1
+  path="$NICE_DEPLOY_STATE_DIR/$name"
+  [[ -f "$path" ]] || return 1
+  [[ $(stat -c '%u' "$path") == 0 && $(stat -c '%a' "$path") == 600 ]] || return 1
+  printf '%s\n' "$path"
+}
+
+remove_previous_definition() {
+  local name=$1
+  [[ "$name" =~ ^previous-container-definition\.[0-9]{14}\.json$ ]] || return 0
+  rm -f -- "$NICE_DEPLOY_STATE_DIR/$name"
+}
+
+cleanup_previous_definitions_except() {
+  local keep=$1 path name
+  for path in "$NICE_DEPLOY_STATE_DIR"/previous-container-definition.*.json; do
+    [[ -f "$path" ]] || continue
+    name=${path##*/}
+    [[ "$name" =~ ^previous-container-definition\.[0-9]{14}\.json$ ]] || continue
+    [[ "$name" == "$keep" ]] && continue
+    rm -f -- "$path" || return 1
+  done
+}
+
+is_guard_rollback_name() {
+  local name=$1 suffix
+  case "$name" in
+    "$NICE_CONTAINER_NAME".rollback.*) ;;
+    *) return 1 ;;
+  esac
+  suffix=${name#"${NICE_CONTAINER_NAME}.rollback."}
+  [[ "$suffix" =~ ^[0-9]{14}$ ]]
+}
+
+remove_guard_rollback_container() {
+  local name=$1 running
+  is_guard_rollback_name "$name" || return 0
+  container_exists "$name" || return 0
+  running=$("$DOCKER" container inspect --format '{{.State.Running}}' "$name") ||
+    return 1
+  if [[ "$running" == true ]]; then
+    "$DOCKER" stop --time 30 "$name" >/dev/null || return 1
+  fi
+  "$DOCKER" rm "$name" >/dev/null || return 1
+}
+
+cleanup_guard_rollback_containers() {
+  local id name containers
+  containers=$("$DOCKER" container ls -aq --filter "name=${NICE_CONTAINER_NAME}.rollback.") ||
+    return 1
+  while IFS= read -r id; do
+    [[ -n "$id" ]] || continue
+    name=$("$DOCKER" container inspect --format '{{.Name}}' "$id") || return 1
+    name=${name#/}
+    remove_guard_rollback_container "$name" || return 1
+  done <<<"$containers"
 }
 
 perform_rollback() {
   [[ -f "$STATE_FILE" ]] || die "no guarded rollback is available" 69
-  local rollback_container previous_digest compatible failed_name
-  rollback_container=$("$JQ" -er '.rollback_container' "$STATE_FILE")
+  local rollback_container previous_digest compatible failed_name previous_definition previous_definition_file
+  local rollback_payload rollback_response rollback_inspect before after recreated
+  rollback_container=$("$JQ" -r '.rollback_container // empty' "$STATE_FILE")
   previous_digest=$("$JQ" -er '.previous_digest' "$STATE_FILE")
   compatible=$("$JQ" -er '.database_compatible' "$STATE_FILE")
+  previous_definition=$("$JQ" -r '.previous_definition // empty' "$STATE_FILE")
   [[ "$compatible" == true ]] || die "database restore approval is required before rollback" 76
   validate_digest "$previous_digest"
-  container_exists "$rollback_container" || die "the guarded rollback container is unavailable" 69
+  [[ -z "$rollback_container" ]] || is_guard_rollback_name "$rollback_container" ||
+    die "the guarded rollback container name is invalid" 69
+  recreated=false
+  previous_definition_file=
+  if [[ -z "$rollback_container" ]] || ! container_exists "$rollback_container"; then
+    previous_definition_file=$(previous_definition_path "$previous_definition") ||
+      die "the guarded rollback definition is unavailable" 69
+    "$DOCKER" image inspect "$previous_digest" >/dev/null 2>&1 ||
+      "$DOCKER" pull "$previous_digest" >/dev/null ||
+      die "the prior immutable image is unavailable" 69
+    rollback_payload="$NICE_DEPLOY_STATE_DIR/rollback-payload.json"
+    rollback_response="$NICE_DEPLOY_STATE_DIR/rollback-response.json"
+    create_payload "$previous_definition_file" "$previous_digest" "$rollback_payload" ||
+      die "the guarded rollback definition could not be prepared" 70
+    recreated=true
+  fi
   failed_name="${NICE_CONTAINER_NAME}.failed.$(date -u +%Y%m%d%H%M%S)"
   if container_exists "$NICE_CONTAINER_NAME"; then
     "$DOCKER" stop --time 30 "$NICE_CONTAINER_NAME" >/dev/null || true
     "$DOCKER" rename "$NICE_CONTAINER_NAME" "$failed_name"
   fi
-  "$DOCKER" rename "$rollback_container" "$NICE_CONTAINER_NAME"
-  "$DOCKER" start "$NICE_CONTAINER_NAME" >/dev/null
-  if ! wait_healthy "$NICE_CONTAINER_NAME"; then
+  if [[ "$recreated" == true ]]; then
+    if ! create_container_from_payload "$NICE_CONTAINER_NAME" "$rollback_payload" "$rollback_response"; then
+      if container_exists "$failed_name"; then
+        "$DOCKER" rename "$failed_name" "$NICE_CONTAINER_NAME"
+        "$DOCKER" start "$NICE_CONTAINER_NAME" >/dev/null || true
+      fi
+      die "container rollback could not recreate the prior container; operator recovery is required" 70
+    fi
+  else
+    "$DOCKER" rename "$rollback_container" "$NICE_CONTAINER_NAME"
+  fi
+  rollback_inspect="$NICE_DEPLOY_STATE_DIR/rollback-inspect.json"
+  if ! "$DOCKER" start "$NICE_CONTAINER_NAME" >/dev/null ||
+    ! wait_healthy "$NICE_CONTAINER_NAME" ||
+    [[ $(current_repo_digest "$NICE_CONTAINER_NAME") != "$previous_digest" ]] ||
+    { [[ "$recreated" == true ]] &&
+      { ! "$DOCKER" container inspect "$NICE_CONTAINER_NAME" >"$rollback_inspect" ||
+        ! before=$(normalized_config "$previous_definition_file") ||
+        ! after=$(normalized_config "$rollback_inspect") ||
+        [[ "$before" != "$after" ]]; }; }; then
     "$DOCKER" stop --time 30 "$NICE_CONTAINER_NAME" >/dev/null || true
-    "$DOCKER" rename "$NICE_CONTAINER_NAME" "$rollback_container"
+    if [[ "$recreated" == true ]]; then
+      "$DOCKER" rm "$NICE_CONTAINER_NAME" >/dev/null || true
+    else
+      "$DOCKER" rename "$NICE_CONTAINER_NAME" "$rollback_container"
+    fi
     if container_exists "$failed_name"; then
       "$DOCKER" rename "$failed_name" "$NICE_CONTAINER_NAME"
       "$DOCKER" start "$NICE_CONTAINER_NAME" >/dev/null || true
@@ -261,7 +369,12 @@ perform_rollback() {
   container_exists "$failed_name" && "$DOCKER" rm "$failed_name" >/dev/null
   update_template_image "$previous_digest" ||
     die "container rollback succeeded but the Unraid template could not be updated" 70
+  cleanup_guard_rollback_containers ||
+    die "container rollback succeeded but an obsolete rollback container could not be removed" 70
   rm -f "$STATE_FILE"
+  remove_previous_definition "$previous_definition"
+  cleanup_previous_definitions_except "" ||
+    die "container rollback succeeded but obsolete rollback state could not be removed" 70
 }
 
 inspect_action() {
@@ -295,6 +408,7 @@ validate_definition_action() {
 
 deploy_action() {
   local digest=$1 revision previous_digest old_revision new_revision compatible rollback_name payload response candidate_inspect before after
+  local deployment_stamp previous_definition_name previous_definition_file
   validate_digest "$digest"
   container_exists "$NICE_CONTAINER_NAME" || die "Nice Assistant container is unavailable" 69
   [[ $("$DOCKER" container inspect --format '{{.State.Running}}' "$NICE_CONTAINER_NAME") == true ]] ||
@@ -312,17 +426,15 @@ deploy_action() {
   compatible=false
   [[ "$old_revision" == "$new_revision" ]] && compatible=true
   write_definition
+  deployment_stamp=$(date -u +%Y%m%d%H%M%S)
+  previous_definition_name="previous-container-definition.${deployment_stamp}.json"
+  previous_definition_file="$NICE_DEPLOY_STATE_DIR/$previous_definition_name"
+  save_previous_definition "$previous_definition_file"
   payload="$NICE_DEPLOY_STATE_DIR/create-payload.json"
   response="$NICE_DEPLOY_STATE_DIR/create-response.json"
   create_payload "$DEFINITION_FILE" "$digest" "$payload"
 
-  if [[ -f "$STATE_FILE" ]]; then
-    local obsolete
-    obsolete=$("$JQ" -r '.rollback_container // empty' "$STATE_FILE")
-    [[ -n "$obsolete" ]] && container_exists "$obsolete" && "$DOCKER" rm "$obsolete" >/dev/null
-  fi
-
-  rollback_name="${NICE_CONTAINER_NAME}.rollback.$(date -u +%Y%m%d%H%M%S)"
+  rollback_name="${NICE_CONTAINER_NAME}.rollback.${deployment_stamp}"
   "$DOCKER" stop --time 30 "$NICE_CONTAINER_NAME" >/dev/null
   "$DOCKER" rename "$NICE_CONTAINER_NAME" "$rollback_name"
   if ! create_container_from_payload "$NICE_CONTAINER_NAME" "$payload" "$response"; then
@@ -331,9 +443,10 @@ deploy_action() {
       die "candidate creation failed and the prior container could not restart" 70
     wait_healthy "$NICE_CONTAINER_NAME" ||
       die "candidate creation failed and the prior container did not recover" 70
+    remove_previous_definition "$previous_definition_name"
     die "candidate container could not be created; prior container restored" 70
   fi
-  write_state "$rollback_name" "$previous_digest" "$digest" "$compatible"
+  write_state "$rollback_name" "$previous_digest" "$digest" "$compatible" "$previous_definition_name"
 
   candidate_inspect="$NICE_DEPLOY_STATE_DIR/candidate-inspect.json"
   if ! "$DOCKER" start "$NICE_CONTAINER_NAME" >/dev/null ||
@@ -353,6 +466,11 @@ deploy_action() {
     die "candidate failed after a schema change; database restore requires operator approval" 76
   fi
 
+  cleanup_guard_rollback_containers ||
+    die "candidate passed acceptance but an obsolete rollback container could not be removed" 70
+  write_state "" "$previous_digest" "$digest" "$compatible" "$previous_definition_name"
+  cleanup_previous_definitions_except "$previous_definition_name" ||
+    die "candidate passed acceptance but obsolete rollback state could not be removed" 70
   "$JQ" -n --arg digest "$digest" --arg revision "$revision" --argjson database_compatible "$compatible" \
     '{ok:true,action:"deploy",digest:$digest,revision:$revision,database_compatible:$database_compatible}'
 }

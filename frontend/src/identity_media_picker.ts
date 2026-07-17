@@ -18,7 +18,11 @@ export class IdentityMediaPicker {
   private loading = false;
   private error = '';
 
-  constructor(private readonly renderApp: () => void, private readonly client: ApiClient) {}
+  constructor(
+    private readonly renderApp: () => void,
+    private readonly client: ApiClient,
+    private readonly openPreview: (url: string) => void = () => undefined,
+  ) {}
 
   isOpen(mode: IdentityMediaPickerMode): boolean {
     return this.mode === mode;
@@ -48,7 +52,14 @@ export class IdentityMediaPicker {
         : null,
       el('div', { class: 'identity-media-grid' }, this.items.map((item) =>
         el('div', { class: 'identity-media-option' }, [
-          el('img', { src: item.content_url, alt: 'Generated image available for selection', loading: 'lazy' }),
+          el('button', {
+            class: 'identity-media-preview-button',
+            title: 'Open larger view',
+            'aria-label': 'Open generated image preview',
+            onclick: () => this.openPreview(item.content_url),
+          }, [
+            el('img', { src: item.content_url, alt: 'Generated image available for selection', loading: 'lazy' }),
+          ]),
           el('div', { class: 'meta', textContent: formatDate(item.created_at) }),
           el('button', {
             class: 'pill-btn',

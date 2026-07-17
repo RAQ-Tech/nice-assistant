@@ -661,6 +661,8 @@ class ApplicationRepository:
         if "traits" in values:
             row.traits_json = json.dumps(values.get("traits") or {})
         row.default_model = values.get("default_model", row.default_model)
+        if "allow_image_sends" in values:
+            row.allow_image_sends = int(bool(values["allow_image_sends"]))
         for field in (
             "preferred_voice",
             "preferred_tts_model",

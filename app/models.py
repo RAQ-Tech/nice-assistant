@@ -41,6 +41,7 @@ class Persona(Base):
     personality_details: Mapped[str | None] = mapped_column(Text)
     traits_json: Mapped[str] = mapped_column(Text, default="{}")
     default_model: Mapped[str | None] = mapped_column(Text)
+    allow_image_sends: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
     preferred_voice: Mapped[str | None] = mapped_column(Text)
     preferred_tts_model: Mapped[str | None] = mapped_column(Text)
     preferred_tts_speed: Mapped[str | None] = mapped_column(Text)

@@ -138,6 +138,9 @@ browser workflow and published.
   authorization; preserve the optional Unraid template separately.
 - [x] Require a verified application backup and candidate migration drill before
   deployment; never automatically restore a database or touch another service.
+- [x] Leave one Nice Assistant container after successful acceptance; retain the
+  prior immutable digest and root-only definition for compatible rollback
+  instead of a standing duplicate.
 - [x] Complete the one supervised server sign-in, install the key restriction,
   and record private definition-probe evidence.
 - [x] Exercise the guard against the target container and complete all three
@@ -146,9 +149,10 @@ browser workflow and published.
 ### Phase 0 - reset the product contract
 
 - [x] Add a superseding ADR for low-risk companion capabilities. Treat an
-  explicit user image request as permission to run by default while retaining
-  durable audit, cancellation, and an advanced `Ask before generating images`
-  policy.
+  explicit user image request as permission to run while retaining durable
+  audit and cancellation. The later regression repair removed redundant
+  per-image approval entirely and replaced it with a per-persona image-send
+  permission; see ADR 0023.
 - [x] Preserve confirmation for destructive, externally consequential, or
   explicitly strict actions; do not generalize image auto-run into blanket tool
   autonomy.
@@ -221,8 +225,9 @@ survive reload, and do not block a new conversation turn.
 - [x] Give the persona truthful capability state: it may say it is making an
   image after admission, but may only present it as sent after a durable result
   exists.
-- [x] Auto-queue normal explicit image requests under the default policy. Add an
-  advanced, persisted confirmation policy for operators who want it.
+- [x] Auto-queue normal explicit image requests when the selected persona
+  permits conversational image sending. Do not retain a redundant per-image
+  confirmation policy.
 - [x] Keep identity status as attachment metadata. Show only a subtle
   `Identity not verified` indicator when material; put evidence and provenance
   behind Details.
@@ -249,6 +254,9 @@ actual job state.
   state.
 - [x] Keep fullscreen preview opt-in and image-focused, with technical details
   elsewhere.
+- [x] Repair the shared full-image layer so avatar, chat, persona-settings,
+  Visual Identity, and generated-image-picker thumbnails enlarge above the
+  current app instead of behind it or in a separate browser window.
 
 **Exit gate:** success looks like receiving a picture message, failure occupies
 one compact row, and blur behavior is consistent across every image source.
@@ -320,6 +328,13 @@ one attachment, and the real provider had already completed the same ordinary
 request through the durable picture-message path. A Linux CI race discovered
 during that promotion was also repaired so synchronous job waits include
 post-job resource finalization.
+
+The 2026-07-17 corrective slice also found that an Unraid `latest` redeploy had
+reused a stale local image. That older revision required approval and inserted
+completed images only into transient browser state. Migration
+`0018_human_image_delivery` recovers eligible historical outputs, removes image
+approval, and makes the packaged container source authoritative so a persistent
+source directory cannot mix application revisions.
 
 ## Required installed-browser journeys
 

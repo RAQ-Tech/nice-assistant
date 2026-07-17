@@ -43,15 +43,22 @@ export class ChatRenderer {
     const audioError = this.appState.messageAudioErrors[message.id];
     return el('div', { class: `msg-wrap ${isUser ? 'user' : ''}`, 'data-testid': `message-${message.role}` }, [
       !isUser && message.role === 'assistant'
-        ? el('img', {
-            class: 'msg-avatar',
-            src: persona?.avatar_url || DEFAULT_PERSONA_AVATAR,
-            alt: `${personaName} avatar`,
+        ? el('button', {
+            class: 'image-preview-trigger msg-avatar-trigger',
+            type: 'button',
+            title: `View ${personaName}'s full-size avatar`,
+            'aria-label': `View ${personaName}'s full-size avatar`,
             onclick: () => {
               this.appState.personaAvatarPreview = persona?.avatar_url || DEFAULT_PERSONA_AVATAR;
               this.renderApp();
             },
-          })
+          }, [
+            el('img', {
+              class: 'msg-avatar',
+              src: persona?.avatar_url || DEFAULT_PERSONA_AVATAR,
+              alt: `${personaName} avatar`,
+            }),
+          ])
         : null,
       el('article', { class: `msg ${isUser ? 'user' : 'assistant'}` }, [
         el('small', { textContent: roleLabel }),
@@ -121,19 +128,33 @@ export class ChatRenderer {
     root.querySelectorAll<HTMLImageElement>('.msg-inline-image').forEach((image) => {
       const key = image.src;
       const blur = Boolean(this.appState.settings?.chat_blur_images);
-      if (blur && !this.appState.revealedImages[key]) {
-        image.classList.add('image-blurred');
-        image.title = 'Tap to reveal image';
-      } else image.title = 'Open image preview';
-      image.addEventListener('click', () => {
+      const activate = () => {
         if (blur && !this.appState.revealedImages[key]) {
           this.appState.revealedImages[key] = true;
           image.classList.remove('image-blurred');
           image.title = 'Open image preview';
+          image.setAttribute('aria-label', 'Open image preview');
           return;
         }
         this.appState.chatImagePreview = key;
         this.renderApp();
+      };
+      image.tabIndex = 0;
+      image.setAttribute('role', 'button');
+      if (blur && !this.appState.revealedImages[key]) {
+        image.classList.add('image-blurred');
+        image.title = 'Tap to reveal image';
+        image.setAttribute('aria-label', 'Reveal image');
+      } else {
+        image.title = 'Open image preview';
+        image.setAttribute('aria-label', 'Open image preview');
+      }
+      image.addEventListener('click', activate);
+      image.addEventListener('keydown', (event) => {
+        if (event.key === 'Enter' || event.key === ' ') {
+          event.preventDefault();
+          activate();
+        }
       });
     });
   }

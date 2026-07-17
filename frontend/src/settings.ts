@@ -28,7 +28,6 @@ export const SETTINGS_DEFAULTS: Settings = {
   stt_language: 'auto',
   stt_store_recordings: false,
   image_provider: 'disabled',
-  image_confirmation_policy: 'auto_explicit_request',
   chat_blur_images: false,
   image_size: '1024x1024',
   image_quality: 'none',
@@ -97,7 +96,6 @@ export const SETTINGS_SECTION_KEYS: Record<SettingsSection, readonly (keyof Sett
   STT: ['stt_provider', 'stt_language', 'stt_store_recordings'],
   'Image Generation': [
     'image_provider',
-    'image_confirmation_policy',
     'chat_blur_images',
     'image_size',
     'image_quality',
@@ -147,6 +145,7 @@ const VIDEO_SIZES: Record<string, readonly string[]> = {
 export function normalizeSettings(wire: SettingsWire): Settings {
   const preferences = { ...wire.preferences };
   delete preferences.image_prompt_generation;
+  delete preferences.image_confirmation_policy;
   const rawImageProvider = String(preferences.image_provider ?? '').trim().toLowerCase();
   if (rawImageProvider === 'local/automatic1111') {
     preferences.image_provider = 'local';

@@ -64,10 +64,17 @@ and Workspaces now use the same approachable structure:
   image resources exist, so conversational planning becomes available without
   overwriting an operator-curated catalog. Legacy local-provider aliases are
   shown and saved in their canonical `local` plus backend form.
-- Image Generation exposes the everyday automatic-versus-always-ask choice and
-  the same persisted blur preference available in chat controls. Its readiness
-  summary separates provider reachability, basic generation, and optional
-  identity enhancement so missing identity setup never reads as a basic block.
+- Image Generation exposes the same persisted blur preference available in chat
+  controls. Its readiness summary separates provider reachability, basic
+  generation, and optional identity enhancement so missing identity setup never
+  reads as a basic block. Redundant per-image approval is not an everyday
+  setting.
+- Each persona editor exposes `Allow persona to send images`, defaulting on.
+  Turning it off withholds conversational picture fulfillment for that persona
+  without disabling direct user image actions or authorizing unsolicited work.
+- Persona avatars and Visual Identity thumbnails open the same in-app
+  full-image viewer used by chat pictures; they never launch a separate browser
+  window.
 - The chat control popover keeps speech, `Blur images`, and `Stop audio` in the
   common path. Workspace, model, memory mode, client state, and visualization are
   preserved under `Chat details`; they are not removed or made read-only.
@@ -75,8 +82,8 @@ and Workspaces now use the same approachable structure:
 Provider tuning still controls direct actions. Media Catalog remains the
 operator source of truth for planned conversational generation. Technical plans
 and rejected-resource reasons are collapsed Details rather than default chat
-content; blocked `always_ask` requests retain a focused recheck or correct
-identity remediation. Visual Identity keeps both runtime policies editable: whether to
+content; failed planned requests retain a focused retry or correct identity
+remediation. Visual Identity keeps both runtime policies editable: whether to
 generate with a warning while conditioning is unavailable, and what to do after
 a real comparison failure. The Media Catalog setup imports API-format workflow
 JSON, reports missing ComfyUI nodes/assets, and creates an explicit reference

@@ -69,11 +69,13 @@ generation or make an image resemble that reference.
 `allow_unconditioned` keeps image generation available when no compatible
 identity workflow is configured. This is the effective default even before a
 visual-identity profile, consent grant, or reference exists. The durable plan
-and result are labeled `unconditioned` and `unverified`, and the approval card
-states that no persona identity reference will be applied and resemblance is
-not guaranteed. Unconditioned execution never transmits or uses a reference;
+and result are labeled `unconditioned` and `unverified`. Compact attachment
+Details state that no persona identity reference was applied and resemblance is
+not guaranteed. The explicit image request runs without a second approval.
+Unconditioned execution never transmits or uses a reference;
 saved appearance guidance is included only from an active, consented profile.
-`require_conditioning` keeps the request blocked until setup is complete.
+`require_conditioning` prevents execution and produces a compact retryable
+failure until setup is complete.
 
 The appearance description is snapshotted into identity-aware plans
 and added to the generation prompt. The approved primary reference is separately

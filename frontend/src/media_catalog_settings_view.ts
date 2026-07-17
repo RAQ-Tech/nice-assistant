@@ -471,7 +471,7 @@ export class MediaCatalogSettingsView {
   }
 
   private async deleteResource(resource: MediaCatalogResource): Promise<void> {
-    if (!(await this.dialogs.confirm('Delete media resource', `Delete ${resource.name}? Existing plans remain auditable but cannot be approved.`, 'Delete'))) return;
+    if (!(await this.dialogs.confirm('Delete media resource', `Delete ${resource.name}? Existing plans remain auditable but cannot run.`, 'Delete'))) return;
     this.appState.mediaCatalogBusy = true;
     this.renderApp();
     try {

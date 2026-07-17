@@ -1,7 +1,11 @@
 import type { ApiClient } from './api';
 import { el, errorMessage, formatBytes, formatDate } from './dom';
 import { IdentityMediaPicker } from './identity_media_picker';
-import { identityReadinessCard } from './identity_settings_components';
+import {
+  identityAuditCard,
+  identityImageButton,
+  identityReadinessCard,
+} from './identity_settings_components';
 import {
   advancedSettings,
   boundedNumber,
@@ -39,7 +43,7 @@ export class IdentitySettingsView {
     private readonly dialogs: IdentityDialogs,
     private readonly openIdentitySetup: (personaId: string) => void = () => undefined,
   ) {
-    this.mediaPicker = new IdentityMediaPicker(renderApp, client);
+    this.mediaPicker = new IdentityMediaPicker(renderApp, client, (url) => this.openImage(url));
   }
 
   async refresh(): Promise<void> {
@@ -108,7 +112,7 @@ export class IdentitySettingsView {
         [
           this.providerCard(this.appState.identitySettings),
           this.validationManager(profile, validations),
-          this.auditCard(events),
+          identityAuditCard(events),
           enabled ? this.dangerCard(profile.persona_id, name) : null,
         ],
         {
@@ -328,11 +332,13 @@ export class IdentitySettingsView {
         : null,
       validations.length ? el('div', { class: 'identity-validation-list' }, validations.map((validation) =>
         el('div', { class: 'identity-validation-card' }, [
-          el('img', {
-            class: 'identity-validation-thumb',
-            src: this.client.mediaUrl(validation.candidate_media_id),
-            alt: `Compared with ${name}`,
-          }),
+          identityImageButton(
+            this.client.mediaUrl(validation.candidate_media_id),
+            `Open compared image for ${name}`,
+            `Compared with ${name}`,
+            'identity-validation-thumb',
+            (url) => this.openImage(url),
+          ),
           el('div', {}, [
             el('strong', { textContent: validation.claim_status === 'verified' ? 'Looks like the persona' : title(validation.claim_status) }),
             el('div', {
@@ -352,11 +358,13 @@ export class IdentitySettingsView {
       : (reference.review_status === 'pending' ? 'Needs your approval' : 'Rejected reference');
     return el('div', { class: 'identity-reference-card', 'data-testid': `identity-reference-${reference.id}` }, [
       reference.content_url
-        ? el('button', {
-            class: 'identity-thumb-button',
-            title: 'Open larger view',
-            onclick: () => window.open(reference.content_url as string, '_blank', 'noopener'),
-          }, [el('img', { class: 'identity-reference-thumb', src: reference.content_url, alt: `${name} reference` })])
+        ? identityImageButton(
+            reference.content_url,
+            `Open ${name} reference image`,
+            `${name} reference`,
+            'identity-reference-thumb',
+            (url) => this.openImage(url),
+          )
         : el('div', { class: 'identity-reference-thumb missing', textContent: 'Unavailable' }),
       el('div', { class: 'identity-reference-detail' }, [
         el('strong', { textContent: status }),
@@ -375,20 +383,6 @@ export class IdentitySettingsView {
           el('button', { class: 'icon-btn danger', textContent: 'Delete', onclick: () => void this.deleteReference(reference.id) }),
         ]),
       ]),
-    ]);
-  }
-
-  private auditCard(events: AppState['identityEvents'][string]): HTMLElement {
-    return el('div', { class: 'persona-card' }, [
-      settingsHeading('Activity history', 'An owner-scoped audit of reference, profile, and comparison changes.'),
-      events.length
-        ? el('div', { class: 'identity-audit-list' }, events.slice(0, 30).map((event) =>
-            el('div', { class: 'manager-row' }, [
-              el('strong', { textContent: title(event.action) }),
-              el('span', { class: 'meta', textContent: formatDate(event.created_at) }),
-            ]),
-          ))
-        : el('div', { class: 'meta', textContent: 'No visual identity activity has been recorded.' }),
     ]);
   }
 
@@ -414,6 +408,11 @@ export class IdentitySettingsView {
       const personaId = this.appState.identitySelectedPersonaId;
       if (personaId) await this.reloadPersona(personaId);
     });
+  }
+
+  private openImage(url: string): void {
+    this.appState.chatImagePreview = url;
+    this.renderApp();
   }
 
   private async checkProvider(): Promise<void> {

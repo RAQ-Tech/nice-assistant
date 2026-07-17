@@ -37,8 +37,8 @@ npm run frontend:e2e
 - `client_id.ts`: transient optimistic-message identifiers. It uses
   `crypto.randomUUID` when available, `crypto.getRandomValues` on direct-LAN
   HTTP, and a non-security monotonic fallback only when Web Crypto is absent.
-- `capabilities.ts`: durable model-request cards, explicit approval/denial,
-  progress polling, cancellation, and protected result rendering.
+- `capabilities.ts`: compact durable media state, video approval/denial, image
+  retry, progress polling, cancellation, and protected result rendering.
 - `settings.ts` and `settings_view.ts`: canonical settings envelope,
   normalization, Memory v2 review, personas, workspaces, explicit memory bulk
   actions, and composition of focused settings views.
@@ -102,12 +102,16 @@ interruption, not streaming speech, VAD, or automatic realtime barge-in.
 Platform-planned media capabilities never open a browser confirmation modal as
 an ephemeral side effect. The browser reloads durable attachments with each chat
 and renders compact lifecycle state beneath the assistant message. Ordinary
-explicit image requests auto-run under the saved policy; `always_ask`, strict
-identity, video, and consequential capabilities retain approval/denial. Plans and
-warnings remain in collapsed Details and authenticated diagnostics rather than a
-large default card. Existing user-clicked media actions use the same durable
-attachment service. The operator-only Settings surface edits explicit resource
-metadata and previews semantic plans; it is not a persona-facing model lab.
+explicit image requests auto-run when the selected persona permits image
+sending; strict identity/readiness blocks render as compact retryable failures,
+while video and consequential capabilities retain approval/denial. Plans and
+warnings remain in collapsed Details and authenticated diagnostics rather than
+a large default card. Existing user-clicked media actions use the same durable
+attachment service. Avatars, chat pictures, Visual Identity references and
+comparison images, and generated-image picker thumbnails all open the same
+layered in-app viewer; image, backdrop, close button, and Escape close it. The
+operator-only Settings surface edits explicit resource metadata and previews
+semantic plans; it is not a persona-facing model lab.
 
 Visual identity remains operator reviewed. Browser state distinguishes profile,
 consent, reference, validation, and claim states; it never converts a provider

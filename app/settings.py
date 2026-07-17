@@ -42,10 +42,10 @@ def normalize_media_preferences(value):
     """Canonicalize persisted media preferences and human-experience defaults."""
 
     preferences = dict(value or {}) if isinstance(value, dict) else {}
-    confirmation = str(preferences.get("image_confirmation_policy") or "auto_explicit_request").strip()
-    preferences["image_confirmation_policy"] = (
-        confirmation if confirmation in {"auto_explicit_request", "always_ask"} else "auto_explicit_request"
-    )
+    # Image consent is now expressed by the user's explicit request and the
+    # selected persona's durable permission. Ignore the retired per-image
+    # confirmation preference when an older browser submits it.
+    preferences.pop("image_confirmation_policy", None)
     preferences["chat_blur_images"] = truthy(preferences.get("chat_blur_images", False))
     if "image_provider" in preferences:
         provider = str(preferences.get("image_provider") or "disabled").strip().lower()

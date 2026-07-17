@@ -79,7 +79,7 @@ export class IdentityWorkflowSetupView {
       intent?.capability_request_id
         ? el('div', {
             class: 'settings-warning',
-            textContent: `The blocked image request for ${personaName} requires identity_control. Import and check a compatible workflow here, then retry that exact request.`,
+            textContent: `The failed image request for ${personaName} requires identity_control. Import and check a compatible workflow here, then retry that image.`,
           })
         : intent
           ? el('div', {
@@ -106,10 +106,10 @@ export class IdentityWorkflowSetupView {
         intent?.capability_request_id
           ? el('button', {
               class: 'send-btn',
-              textContent: this.appState.mediaCatalogBusy ? 'Checking plan…' : 'Retry this image plan',
+              textContent: this.appState.mediaCatalogBusy ? 'Starting retry…' : 'Retry this image',
               disabled: this.appState.mediaCatalogBusy,
               'data-testid': 'identity-workflow-retry-plan',
-              onclick: () => void this.retryPlan(),
+              onclick: () => void this.retryImage(),
             })
           : null,
       ]),
@@ -150,7 +150,7 @@ export class IdentityWorkflowSetupView {
     this.liveTestWarningNode = inspection?.provider_compatible && !inspection.live_tested
       ? el('div', {
           class: 'settings-warning',
-          textContent: 'Provider-compatible, not generation-tested: no image has been generated yet. The first approved persona request remains the live execution test.',
+          textContent: 'Provider-compatible, not generation-tested: no image has been generated yet. The first persona image request remains the live execution test.',
         })
       : null;
     this.saveButton = el('button', {
@@ -329,7 +329,7 @@ export class IdentityWorkflowSetupView {
       await this.refreshCatalog();
       this.dialogs.info(
         'Identity control added',
-        'ComfyUI reported compatible nodes, configured workflow assets, and a reference input. Nice Assistant recorded your selected catalog model as an explicit pairing; that pairing and generation are not live-tested until the next approved persona image runs.',
+        'ComfyUI reported compatible nodes, configured workflow assets, and a reference input. Nice Assistant recorded your selected catalog model as an explicit pairing; that pairing and generation are not live-tested until the next requested persona image runs.',
       );
     } catch (error) {
       this.appState.settingsError = errorMessage(error, 'Unable to save the identity workflow.');
@@ -339,35 +339,34 @@ export class IdentityWorkflowSetupView {
     }
   }
 
-  private async retryPlan(): Promise<void> {
+  private async retryImage(): Promise<void> {
     const intent = this.appState.mediaCatalogIdentitySetupIntent;
     if (!intent?.capability_request_id) return;
     this.appState.mediaCatalogBusy = true;
     this.appState.settingsError = '';
     this.renderApp();
     try {
-      const replacement = await this.client.replanCapability(intent.capability_request_id);
+      const replacement = await this.client.retryCapability(intent.capability_request_id);
       this.appState.capabilityRequests = [
         ...this.appState.capabilityRequests.filter((item) =>
           item.id !== intent.capability_request_id && item.id !== replacement.id
         ),
         replacement,
       ].sort((left, right) => left.requested_at - right.requested_at);
-      if (replacement.media_plan?.status === 'ready') {
+      if (['queued', 'running', 'completed'].includes(replacement.status)) {
         this.appState.mediaCatalogIdentitySetupIntent = null;
         this.dialogs.info(
-          'Image plan ready',
-          replacement.media_plan.identity_conditioning?.status === 'unconditioned'
-            ? 'The replacement plan is ready without identity matching and will say so before generation.'
-            : 'The replacement plan is ready. Review and approve it back in the chat.',
+          'Image retry started',
+          'The image is now running under the current settings. Return to the chat to follow its compact progress.',
         );
         this.finishSetup();
       } else {
-        this.appState.settingsError = replacement.media_plan?.block?.message
-          || 'The replacement plan is still blocked. Review the identity control status below.';
+        this.appState.settingsError = replacement.error?.message
+          || replacement.media_plan?.block?.message
+          || 'The image still cannot start. Review the identity control status below.';
       }
     } catch (error) {
-      this.appState.settingsError = errorMessage(error, 'Unable to retry the original image plan.');
+      this.appState.settingsError = errorMessage(error, 'Unable to retry the image.');
     } finally {
       this.appState.mediaCatalogBusy = false;
       this.renderApp();

@@ -62,13 +62,17 @@ pwsh -File scripts/deployment/invoke_guarded_deploy.ps1 -Action health
 ```
 
 `deploy` verifies a fresh backup and candidate migration drill before stopping
-the current container. It retains the prior digest/container, recreates only
-Nice Assistant, and checks effective configuration, Docker health, `/health`,
-`/ready`, revision, digest, and bounded startup logs. Compatible container-only
-failures roll back automatically. A schema-changing failure stops for operator
-approval; the guard never restores a database. Browser acceptance is performed
-from the signed-in laptop after server acceptance and is required before a
-milestone is considered promoted.
+the current container. The prior container exists under a temporary
+guard-owned rollback name only while the candidate is being accepted. After
+success, the guard removes that stopped duplicate and retains the prior
+immutable digest plus a root-only effective container definition; a compatible
+later rollback recreates that definition. Legacy state with an existing stopped
+rollback container remains usable. The guard recreates only Nice Assistant and
+checks effective configuration, Docker health, `/health`, `/ready`, revision,
+digest, and bounded startup logs. A schema-changing failure stops for operator
+approval; the guard never restores a database, prunes images, or touches another
+service. Browser acceptance is performed from the signed-in laptop after server
+acceptance and is required before a milestone is considered promoted.
 
 ## Operational requirements
 
@@ -134,6 +138,13 @@ only generated `web` assets into the Python runtime. Never edit `web/app.js` or
 `web/styles.css` directly; regenerate them with `npm run frontend:build` and
 commit source and generated output together.
 
+Installed containers execute `/opt/nice-assistant` directly. `/data/project`
+from older installations is ignored and is not deleted automatically. Keep
+`NICE_ASSISTANT_DEVELOPMENT_PROJECT_SYNC=0` in production; legacy
+`PROJECT_ROOT` and `SYNC_PROJECT_ON_START` variables no longer select the
+runtime source. Deploy and verify an immutable digest because a locally cached
+mutable tag is not proof of the running revision.
+
 The Step 9 cutover removes `/api` compatibility routes. Before deployment,
 migration `0007_browser_v1_cutover` changes stored media links to protected
 media IDs. Roll back by restoring the pre-migration database and prior image as
@@ -152,10 +163,10 @@ Provider cancellation is cooperative, so a provider incapable of interruption
 may consume resources until its request returns even though the late result is
 discarded.
 
-High-confidence explicit image requests start under the saved
-`auto_explicit_request` policy. `always_ask` image requests, video, and
-consequential capabilities remain pending until an authenticated user approves
-or denies them. Stories, quoted instructions, explanations, and ambiguous media
+High-confidence explicit image requests start automatically when the selected
+persona permits conversational image sending. Video and consequential
+capabilities remain pending until an authenticated user approves or denies
+them. Stories, quoted instructions, explanations, and ambiguous media
 discussion create no job. Direct media buttons create explicit capability
 records and durable chat attachments. `Idempotency-Key` is supported on media-job creation; reuse
 with a different payload returns a conflict. Operators can inspect durable
@@ -192,8 +203,8 @@ external IDs, controlled strengths, compatibility, priority, defaults, and
 estimated VRAM/load cost. The planning budget is not live GPU telemetry and a
 zero estimate is unknown. Keep resources disabled until their exact external ID
 and adapter path have been verified. Editing a selected resource revision makes
-an already-presented capability plan stale; deny/recreate the request rather
-than expecting approval to choose a substitute. Direct media buttons retain the
+an already-persisted capability plan stale; retry the request rather than
+expecting execution to choose a substitute. Direct media buttons retain the
 legacy provider setting and are recorded as manual catalog bypasses.
 
 GPU coordination lives under Settings -> GPU Coordination and is disabled by
@@ -365,9 +376,15 @@ Migration `0016_identity_fallback` adds the explicit
 `allow_unconditioned`/`require_conditioning` policy to visual-identity profiles;
 existing rows use the compatibility-preserving warned fallback.
 Migration `0017_chat_attachments` adds reload-safe media attachments, linked
-retries, and the two image experience preferences. Startup marks interrupted
-queued/running attachments failed and retryable; it never duplicates or silently
-resumes provider work.
+retries and the initial image experience preferences. Migration
+`0018_human_image_delivery` adds the persona image-send permission, removes
+per-image approval, and recovers only proven, existing legacy chat outputs.
+The migration also repairs existing generated image/video files to
+host-readable `0644` where supported; identity references, databases, and
+secrets remain private.
+Startup first reconciles an already-persisted generated artifact, then marks
+truly interrupted queued/running attachments failed and retryable; it never
+restarts provider work.
 Schema migrations are
 forward-only. Rollback means
 stopping the service,

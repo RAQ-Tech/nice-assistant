@@ -31,7 +31,10 @@ class BrowserApiContractTests(unittest.TestCase):
             "tts_format": "wav",
             "openai_api_key": "sk-contract123456",
             "onboarding_done": True,
-            "preferences": {"general_auto_logout": True},
+            "preferences": {
+                "general_auto_logout": True,
+                "image_confirmation_policy": "always_ask",
+            },
         }
         saved = self.client.put("/api/v1/settings", json=settings_payload)
         self.assertEqual(saved.status_code, 200, saved.text)
@@ -41,7 +44,6 @@ class BrowserApiContractTests(unittest.TestCase):
             returned["preferences"],
             {
                 "general_auto_logout": True,
-                "image_confirmation_policy": "auto_explicit_request",
                 "chat_blur_images": False,
             },
         )
@@ -58,8 +60,21 @@ class BrowserApiContractTests(unittest.TestCase):
         )
         self.assertEqual(persona.status_code, 200, persona.text)
         persona_id = persona.json()["id"]
+        self.assertTrue(persona.json()["allow_image_sends"])
+        persona = self.client.put(
+            f"/api/v1/personas/{persona_id}",
+            json={
+                "workspace_id": workspace_id,
+                "name": "Guide",
+                "traits": {"warmth": 70},
+                "allow_image_sends": False,
+            },
+        )
+        self.assertEqual(persona.status_code, 200, persona.text)
+        self.assertFalse(persona.json()["allow_image_sends"])
         listed_persona = self.client.get("/api/v1/personas").json()["items"][0]
         self.assertEqual(listed_persona["workspace_ids"], [workspace_id])
+        self.assertFalse(listed_persona["allow_image_sends"])
 
         chat = self.client.post(
             "/api/v1/chats",

@@ -63,8 +63,11 @@ The guard cannot execute an arbitrary command, accept a mutable tag, restore a
 database, downgrade a schema, alter credentials, expose a port, or target a
 different container. Installation is deliberately supervised and authorizes
 the key only after a stopped-probe comparison proves the captured Docker
-definition preserves the working container configuration. The laptop client
-uses a dedicated key, strict host-key checking, `BatchMode`, and
+definition preserves the working container configuration. Successful deployment
+removes its temporary stopped rollback container and keeps only the prior
+approved digest and root-only definition. Cleanup matches exact guard-owned
+rollback names and never prunes Docker images or containers generally. The
+laptop client uses a dedicated key, strict host-key checking, `BatchMode`, and
 `IdentitiesOnly`; exact addresses and fingerprints remain outside Git.
 
 ## Capability permissions
@@ -73,10 +76,11 @@ Persona-model output cannot directly start media generation and persona chat is
 not offered platform tools. A separately configured, typed capability-planning
 role may propose semantic prompt data. A separate conservative platform gate
 admits only clear ordinary image actions to audited `auto` execution under the
-owner's saved policy; stories, discussion, hypotheticals, quoted instructions,
-video, and consequential actions do not gain automatic authority. `always_ask`
-retains owner approval. Explicit UI actions are recorded separately, repeated
-actions can be idempotent, and all state changes produce durable audit events.
+selected persona's saved image-send permission; stories, discussion,
+hypotheticals, quoted instructions, video, and consequential actions do not gain
+automatic authority. The persona permission does not authorize unsolicited
+generation. Explicit UI actions are recorded separately, repeated actions can
+be idempotent, and all state changes produce durable audit events.
 Capability, event, attachment, job, and artifact lookups are owner-scoped. Tool
 results returned to future model context contain only safe status, error, and
 protected artifact identifiers.
@@ -87,8 +91,9 @@ truthfulness boundary, not a content-safety or identity-verification substitute.
 The capability-planning schema cannot select providers, URLs, models, LoRAs,
 workflows, or resource controls. It can emit only server-advertised semantic
 requirements. The deterministic catalog service owns resource selection and
-persists an owner-scoped plan before approval. Approval rejects deleted,
-disabled, or revised selections rather than silently substituting a new resource.
+persists an owner-scoped plan before execution. Pre-submission validation rejects
+deleted, disabled, or revised selections rather than silently substituting a new
+resource. Video keeps an additional explicit approval boundary.
 Catalog content tags describe technical fitness; they do not bypass permission,
 provider restrictions, or later identity/consent controls.
 
@@ -123,9 +128,10 @@ or missing configuration stays `unverified`; a below-threshold comparison is
 `rejected`. Consent withdrawal deletes reference files and cancels active
 validation work while retaining tombstones needed to explain the deletion.
 
-Identity-aware generation is also consent gated. A pending media plan snapshots
+Identity-aware generation is also consent gated. A media plan snapshots
 the profile revision, approved reference ID/digest, and exact workflow binding;
-approval fails if any of them changed. The normalized reference and owner-selected edit source/mask are sent only to
+execution fails if any of them changed. The normalized reference and
+owner-selected edit source/mask are sent only to
 the operator-configured ComfyUI LAN endpoint and is never issued to the browser.
 Generated artifacts remain `unverified` until comparison passes. Rejected
 intermediate candidates stay owner-protected and are not rendered as persona
@@ -135,7 +141,7 @@ workflow, Nice Assistant does not send the reference and labels both plan and
 result `unconditioned`/`unverified`. This path may run without a profile,
 consent grant, or approved reference precisely because it neither reads nor
 sends identity evidence. A saved `require_conditioning` policy or a changed
-profile revision still invalidates a reviewed plan. Consent, reference digest,
+profile revision still invalidates a saved plan. Consent, reference digest,
 and reviewed-state checks remain mandatory whenever reference conditioning is
 actually selected.
 Workflow setup may inspect ComfyUI `/object_info` through the same private-LAN

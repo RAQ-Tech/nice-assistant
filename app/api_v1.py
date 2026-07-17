@@ -53,6 +53,7 @@ class PersonaWrite(StrictModel):
     personality_details: str | None = None
     traits: dict = Field(default_factory=dict)
     default_model: str | None = None
+    allow_image_sends: bool | None = None
     preferred_voice: str | None = None
     preferred_tts_model: str | None = None
     preferred_tts_speed: str | None = None
@@ -457,7 +458,7 @@ class CapabilityDefinitionRepresentation(BaseModel):
     tool_name: str
     title: str
     description: str
-    permission_mode: Literal["confirm", "explicit"]
+    permission_mode: Literal["confirm", "explicit", "auto"]
     available: bool
 
 

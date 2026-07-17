@@ -3,7 +3,7 @@ import { describe, expect, it, vi } from 'vitest';
 import type { ApiClient } from '../src/api';
 import { IdentitySettingsView } from '../src/identity_settings_view';
 import { createState } from '../src/state';
-import type { Persona, VisualIdentityProfile } from '../src/types';
+import type { IdentityReference, IdentityValidation, Persona, VisualIdentityProfile } from '../src/types';
 
 function persona(): Persona {
   return {
@@ -90,7 +90,7 @@ function setup(enabled = true) {
   const render = () => root.replaceChildren(...view.nodes());
   view = new IdentitySettingsView(render, appState, client, dialogs);
   render();
-  return { appState, client, dialogs, root };
+  return { appState, client, dialogs, root, render };
 }
 
 describe('Visual identity settings', () => {
@@ -142,7 +142,7 @@ describe('Visual identity settings', () => {
   });
 
   it('selects a generated image through thumbnails instead of requiring a database ID', async () => {
-    const { client, root } = setup();
+    const { appState, client, root } = setup();
     const attestation = root.querySelector('.identity-attestation input') as HTMLInputElement;
     attestation.checked = true;
     attestation.dispatchEvent(new Event('change', { bubbles: true }));
@@ -151,7 +151,10 @@ describe('Visual identity settings', () => {
     const picker = root.querySelector('[data-testid="identity-media-picker-reference"]') as HTMLElement;
     expect(picker).not.toBeNull();
     expect(picker.querySelector('img')?.getAttribute('src')).toBe('/api/v1/media/media-1');
-    const use = [...picker.querySelectorAll('button')].find((button) => button.textContent === 'Use as reference');
+    (picker.querySelector('[aria-label="Open generated image preview"]') as HTMLButtonElement).click();
+    expect(appState.chatImagePreview).toBe('/api/v1/media/media-1');
+    const refreshedPicker = root.querySelector('[data-testid="identity-media-picker-reference"]') as HTMLElement;
+    const use = [...refreshedPicker.querySelectorAll('button')].find((button) => button.textContent === 'Use as reference');
     expect(use?.disabled).toBe(false);
     use?.click();
     await vi.waitFor(() => expect(client.identityReferenceFromMedia).toHaveBeenCalledWith('nova', 'media-1'));
@@ -163,5 +166,57 @@ describe('Visual identity settings', () => {
     await vi.waitFor(() => expect(dialogs.confirm).toHaveBeenCalled());
     expect(dialogs.confirm.mock.calls[0]?.[1]).toContain('does not claim the persona is a real person giving consent');
     await vi.waitFor(() => expect(client.grantIdentityConsent).toHaveBeenCalledWith('nova'));
+  });
+
+  it('opens reference and comparison thumbnails in the shared in-app image viewer', () => {
+    const { appState, root, render } = setup();
+    appState.identityProfiles.nova!.references = [{
+      id: 'reference-1',
+      persona_id: 'nova',
+      source_media_id: null,
+      content_url: '/api/v1/identity-references/reference-1/content',
+      content_type: 'image/png',
+      byte_size: 1024,
+      width: 512,
+      height: 512,
+      sha256: 'abc123',
+      provenance: 'user_upload',
+      review_status: 'approved',
+      is_primary: true,
+      rejection_reason: null,
+      created_at: 1,
+      reviewed_at: 1,
+      deleted_at: null,
+    } satisfies IdentityReference];
+    appState.identityValidations.nova = [{
+      id: 'validation-1',
+      persona_id: 'nova',
+      candidate_media_id: 'media-1',
+      sequence_number: 1,
+      created_order: 1,
+      job_id: 'job-1',
+      matched_reference_id: 'reference-1',
+      provider: 'disabled',
+      status: 'passed',
+      failure_policy: 'show_unverified',
+      claim_status: 'verified',
+      score: 0.9,
+      threshold: 0.78,
+      source_face_count: 1,
+      target_face_count: 1,
+      provider_version: null,
+      request_id: null,
+      error: null,
+      created_at: 1,
+      started_at: 1,
+      completed_at: 2,
+    } satisfies IdentityValidation];
+    render();
+
+    (root.querySelector('[aria-label="Open Nova reference image"]') as HTMLButtonElement).click();
+    expect(appState.chatImagePreview).toBe('/api/v1/identity-references/reference-1/content');
+
+    (root.querySelector('[aria-label="Open compared image for Nova"]') as HTMLButtonElement).click();
+    expect(appState.chatImagePreview).toBe('/api/v1/media/media-1');
   });
 });

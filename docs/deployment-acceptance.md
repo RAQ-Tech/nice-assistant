@@ -39,6 +39,9 @@ For a guarded promotion, additionally record:
 - whether container-only rollback is database-compatible;
 - effective configuration, Docker health, `/health`, `/ready`, startup-log, and
   digest/revision acceptance;
+- confirmation that successful acceptance left one Nice Assistant container and
+  retained the prior immutable digest plus root-only definition rather than a
+  standing rollback duplicate;
 - automatic rollback result when a recoverable candidate failure is exercised;
 - the installed-browser journeys below after server acceptance.
 

@@ -288,16 +288,6 @@ export class EverydaySettingsView {
         true,
         'Local uses Automatic1111 or ComfyUI on your LAN. OpenAI sends the prompt to OpenAI.',
       ),
-      selectField(
-        'When you explicitly ask for a picture',
-        settings.image_confirmation_policy,
-        ['auto_explicit_request', 'always_ask'],
-        (value) => this.change('image_confirmation_policy', value as Settings['image_confirmation_policy']),
-        'image-confirmation-policy',
-        (value) => value === 'always_ask' ? 'Ask me again' : 'Make it automatically',
-        true,
-        'Automatic applies only to clear image-action requests. Stories, quoted instructions, and image discussion do not start a job.',
-      ),
       toggleField(
         'Blur pictures in chat',
         settings.chat_blur_images,

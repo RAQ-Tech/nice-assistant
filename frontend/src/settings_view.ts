@@ -344,8 +344,32 @@ export class SettingsView {
         ]),
         el('span', { class: 'meta', textContent: 'Edit' }),
       ]),
+      persona.avatar_url
+        ? el('button', {
+            class: 'persona-avatar-preview-button',
+            type: 'button',
+            title: `View ${persona.name}'s full-size avatar`,
+            'aria-label': `View ${persona.name}'s full-size avatar`,
+            onclick: () => {
+              this.appState.personaAvatarPreview = persona.avatar_url ?? '';
+              this.renderApp();
+            },
+          }, [
+            el('img', {
+              class: 'persona-avatar-preview',
+              src: persona.avatar_url,
+              alt: `${persona.name} avatar`,
+            }),
+          ])
+        : null,
       inputField('Name', persona.name, (value) => { persona.name = value; }, 'text', false, 'The name shown in chat and persona selectors.'),
       inputField('Avatar image URL', persona.avatar_url ?? '', (value) => { persona.avatar_url = value; }, 'url', false, 'A reachable image URL used as this persona’s avatar.'),
+      toggleField(
+        'Allow persona to send images',
+        persona.allow_image_sends !== false,
+        (value) => { persona.allow_image_sends = value; },
+        'Controls pictures requested through this persona’s conversation. Direct image actions remain available.',
+      ),
       selectField(
         'Default model',
         persona.default_model ?? '',
@@ -710,6 +734,7 @@ function personaInput(persona: Persona): PersonaInput {
     workspace_ids: workspaceIds,
     name: persona.name,
     avatar_url: persona.avatar_url,
+    allow_image_sends: persona.allow_image_sends !== false,
     system_prompt: persona.system_prompt,
     personality_details: persona.personality_details,
     traits: persona.traits,

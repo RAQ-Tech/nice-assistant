@@ -357,7 +357,7 @@ class MediaCatalogService:
             current = repo.media_catalog_resource(user_id, snapshot["id"])
             if not current or not current.enabled or current.revision != snapshot.get("revision"):
                 raise ConflictError(
-                    "A selected media resource changed after this request was planned. Create a new request before approval."
+                    "A selected media resource changed after this request was planned. Retry the request before execution."
                 )
         options = _json(row.execution_options_json, {})
         if not isinstance(options, dict):
@@ -713,11 +713,11 @@ class MediaCatalogService:
                     or identity.conditioning_fallback != "allow_unconditioned"
                 ):
                     raise ConflictError(
-                        "The persona identity profile changed after this request was planned. Create a new request before approval."
+                        "The persona identity profile changed after this request was planned. Retry the request before execution."
                     )
             elif identity:
                 raise ConflictError(
-                    "The persona identity profile changed after this request was planned. Create a new request before approval."
+                    "The persona identity profile changed after this request was planned. Retry the request before execution."
                 )
             options["_identity_conditioning"] = snapshot
             return
@@ -729,7 +729,7 @@ class MediaCatalogService:
             or identity.consent_status != "granted"
         ):
             raise ConflictError(
-                "The persona identity profile changed after this request was planned. Create a new request before approval."
+                "The persona identity profile changed after this request was planned. Retry the request before execution."
             )
         reference = repo.identity_reference(user_id, snapshot.get("reference_id"))
         if (
@@ -741,7 +741,7 @@ class MediaCatalogService:
             or not reference.local_path
         ):
             raise ConflictError(
-                "The approved identity reference changed after this request was planned. Create a new request before approval."
+                "The approved identity reference changed after this request was planned. Retry the request before execution."
             )
         try:
             content = read_identity_image_file(Path(reference.local_path), max_bytes=MAX_REFERENCE_BYTES)

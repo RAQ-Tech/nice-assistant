@@ -26,6 +26,38 @@ class TaskContractTests(unittest.TestCase):
         self.assertTrue(changed)
         self.assertEqual(guarded, "I'll make it now.")
 
+    def test_disabled_persona_image_sends_replace_promises_and_completion_claims(self):
+        for reply in (
+            "I can create that for you.",
+            "I'll make that picture now.",
+            "Here is that picture for you: [Image]",
+        ):
+            with self.subTest(reply=reply):
+                guarded, changed = guard_premature_media_completion_claim(
+                    "Create a picture of a garden.",
+                    reply,
+                    image_sends_allowed=False,
+                )
+
+                self.assertTrue(changed)
+                self.assertEqual(guarded, "Picture sending is turned off for this persona.")
+
+        video_reply, changed = guard_premature_media_completion_claim(
+            "Create a short video of a garden.",
+            "I'll create that video now.",
+            image_sends_allowed=False,
+        )
+        self.assertFalse(changed)
+        self.assertEqual(video_reply, "I'll create that video now.")
+
+        guarded, changed = guard_premature_media_completion_claim(
+            "Create an animated portrait image.",
+            "I'll make that animated image now.",
+            image_sends_allowed=False,
+        )
+        self.assertTrue(changed)
+        self.assertEqual(guarded, "Picture sending is turned off for this persona.")
+
 
 if __name__ == "__main__":
     unittest.main()

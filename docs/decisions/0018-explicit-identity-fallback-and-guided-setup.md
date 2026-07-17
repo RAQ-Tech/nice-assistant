@@ -1,6 +1,6 @@
 # ADR 0018: Explicit persona-identity fallback and guided setup
 
-- Status: Accepted
+- Status: Accepted; blocked-card and image-approval paths superseded by ADR 0023
 - Date: 2026-07-15
 - Owners: Nice Assistant maintainers
 
@@ -39,18 +39,15 @@ supporting capability prevent otherwise working image generation.
 - Unconditioned execution does not transmit or use a reference, so it does not
   require consent or approved reference state. A saved strict policy, a
   changed snapshotted profile revision, or a stale selected media resource still
-  blocks approval. Conditioned plans continue to require current consent,
+  prevents execution. Conditioned plans continue to require current consent,
   reviewed-reference digest, binding, and profile state.
 - `failure_policy` continues to govern a real comparison failure only. It does
   not describe or control missing generation conditioning. The browser exposes
   both policies directly and describes inactive saved comparison behavior when
   no verifier is configured.
-- A blocked, still-pending capability may be explicitly replanned against current
-  settings while retaining its originating persona. A changed chat persona
-  requires a new request. Legacy blocked plans created before persona snapshotting
-  may adopt the current chat persona once; that adoption is persisted and audited.
-  Replanning is user-visible and audited. Ready, approved, running, or completed
-  plans remain immutable after review.
+- ADR 0023 later replaced blocked pending image capabilities with compact failed,
+  retryable attachments. Retrying creates a linked request and a new plan from
+  current settings. The original plan remains immutable and auditable.
 - Media Catalog provides a focused Identity Control setup flow. It imports
   ComfyUI API-format workflow JSON, checks the configured provider's node schema,
   reports missing node types or selected assets, discovers candidate image
@@ -59,8 +56,8 @@ supporting capability prevent otherwise working image generation.
   can be proven from provider metadata. Unprovable custom semantics remain a
   draft. Structural/provider compatibility is not described as a successful live
   generation test or identity-match result.
-- A blocked card carries its request/persona context into that setup flow and
-  offers an actionable plan recheck instead of a disabled button.
+- A compact failed attachment can link to that setup flow and offers retry after
+  configuration instead of a disabled approval action.
 
 ## Alternatives considered
 
@@ -79,8 +76,8 @@ supporting capability prevent otherwise working image generation.
 ## Consequences
 
 Persona images work by default even on deployments without an identity extension,
-profile, consent grant, or reference, but the approval card and final media visibly
-disclose that no persona identity reference will be or was applied. Operators who require strict likeness can save
+profile, consent grant, or reference. Attachment Details and final media state
+visibly disclose that no persona identity reference was applied. Operators who require strict likeness can save
 `require_conditioning` and receive a targeted block until setup is complete.
 
 The catalog remains extension-neutral and hardware-agnostic. Nice Assistant can

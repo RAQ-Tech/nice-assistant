@@ -35,6 +35,7 @@ describe('everyday settings presentation', () => {
     const { root, settings, view } = setup({ image_provider: 'local', image_local_backend: 'comfyui' });
     root.append(...view.nodes('Image Generation', settings));
 
+    expect(root.textContent).not.toContain('When you explicitly ask for a picture');
     expect(root.textContent).toContain('Local image service');
     expect(root.textContent).toContain('Service address');
     expect(root.textContent).toContain('Additional JSON parameters');

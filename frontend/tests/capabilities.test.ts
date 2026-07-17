@@ -5,10 +5,13 @@ import { CapabilityController } from '../src/capabilities';
 import { ClientStateMachine, createState } from '../src/state';
 import type { CapabilityRequest } from '../src/types';
 
-function capability(status: CapabilityRequest['status'] = 'pending_confirmation'): CapabilityRequest {
+function capability(
+  status: CapabilityRequest['status'] = 'pending_confirmation',
+  kind: 'image' | 'video' = 'image',
+): CapabilityRequest {
   return {
     id: 'capability-1',
-    capability_key: 'media.generate_image',
+    capability_key: `media.generate_${kind}`,
     status,
     permission_mode: 'confirm',
     arguments: { prompt: 'a moonlit garden' },
@@ -30,20 +33,20 @@ function capability(status: CapabilityRequest['status'] = 'pending_confirmation'
 }
 
 describe('CapabilityController', () => {
-  it('renders approval explicitly and follows the durable request to completion', async () => {
+  it('renders video approval explicitly and follows the durable request to completion', async () => {
     const appState = createState();
     appState.session = { user_id: 'user-1', expires_at: null, ttl_seconds: 1, is_admin: false };
     appState.phase = 'idle';
-    appState.capabilityRequests = [capability()];
+    appState.capabilityRequests = [capability('pending_confirmation', 'video')];
     const completed = {
-      ...capability('completed'),
+      ...capability('completed', 'video'),
       result: {
-        text: 'Ready.\n\n![Generated image](/api/v1/media/media-1)',
-        mediaId: 'media-1',
+        text: 'Ready.\n\n[Download generated video](/api/v1/media/video-1)',
+        mediaId: 'video-1',
       },
     };
     const client = {
-      approveCapability: vi.fn().mockResolvedValue(capability('queued')),
+      approveCapability: vi.fn().mockResolvedValue(capability('queued', 'video')),
       capabilityRequest: vi.fn().mockResolvedValue(completed),
       cancelCapability: vi.fn(),
       denyCapability: vi.fn(),
@@ -63,9 +66,9 @@ describe('CapabilityController', () => {
   it('records a denial without starting a job', async () => {
     const appState = createState();
     appState.phase = 'idle';
-    appState.capabilityRequests = [capability()];
+    appState.capabilityRequests = [capability('pending_confirmation', 'video')];
     const client = {
-      denyCapability: vi.fn().mockResolvedValue(capability('denied')),
+      denyCapability: vi.fn().mockResolvedValue(capability('denied', 'video')),
     } as unknown as ApiClient;
     const controller = new CapabilityController(
       () => undefined,
@@ -81,7 +84,7 @@ describe('CapabilityController', () => {
     expect(client.denyCapability).toHaveBeenCalledWith('capability-1');
   });
 
-  it('keeps image approval available while voice playback is active', () => {
+  it('keeps video approval available while voice playback is active', () => {
     const appState = createState();
     appState.phase = 'speaking';
     const client = { approveCapability: vi.fn() } as unknown as ApiClient;
@@ -90,11 +93,11 @@ describe('CapabilityController', () => {
       appState,
       new ClientStateMachine(appState),
       client,
-    ).node(capability());
+    ).node(capability('pending_confirmation', 'video'));
 
     const approve = node.querySelector('[data-testid="approve-capability"]') as HTMLButtonElement;
     expect(approve.disabled).toBe(false);
-    expect(approve.textContent).toBe('Generate image');
+    expect(approve.textContent).toBe('Generate video');
     expect(client.approveCapability).not.toHaveBeenCalled();
   });
 
@@ -227,7 +230,7 @@ describe('CapabilityController', () => {
     expect(appState.capabilityRequests[0]?.media_plan?.status).toBe('ready');
   });
 
-  it('labels an allowed unconditioned persona plan before approval', () => {
+  it('never renders an approval action for a stray pending image request', () => {
     const appState = createState();
     appState.phase = 'idle';
     const request = capability();
@@ -266,7 +269,8 @@ describe('CapabilityController', () => {
     ).node(request);
 
     expect(node.textContent).toContain('No identity workflow will be applied');
-    expect(node.textContent).toContain('Generate image without identity matching');
+    expect(node.querySelector('[data-testid="approve-capability"]')).toBeNull();
+    expect(node.querySelector('[data-testid="deny-capability"]')).toBeNull();
   });
 
   it('does not route an unrelated resource failure to identity setup after unconditioned fallback', () => {

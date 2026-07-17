@@ -15,8 +15,7 @@ ENV PORT=3000 \
     ARCHIVE_DIR=/archives \
     AUDIO_HOT_LIMIT=200
 
-ENV PROJECT_ROOT=/data/project \
-    SYNC_PROJECT_ON_START=1
+ENV NICE_ASSISTANT_DEVELOPMENT_PROJECT_SYNC=0
 
 WORKDIR /opt/nice-assistant
 COPY . /opt/nice-assistant

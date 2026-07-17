@@ -36,10 +36,11 @@ startup.
 Deployment-guard changes additionally run `tests/test_deployment_guard.py`. The
 contract verifies shell syntax, exact forced-command and immutable-digest
 boundaries, effective configuration preservation, verified backup and candidate
-migration requirements, container-only rollback limits, and strict dedicated-key
-SSH behavior. Real installation must still run the guard's stopped-probe
-definition comparison. Promotion must then use the immutable GHCR digest and
-complete the private server and installed-browser acceptance records.
+migration requirements, single-container success cleanup, legacy and
+definition-based container-only rollback limits, and strict dedicated-key SSH
+behavior. Real installation must still run the guard's stopped-probe definition
+comparison. Promotion must then use the immutable GHCR digest and complete the
+private server and installed-browser acceptance records.
 
 ## Test layers
 
@@ -96,10 +97,17 @@ complete the private server and installed-browser acceptance records.
   positive model classification, configured workflows remain preferred,
   explicit fallback affects runtime, and only blocked pending plans can be replanned.
 - Picture-message contract tests prove clear image actions auto-run under the
-  default, `always_ask` still waits, story/discussion prompts create no request,
-  direct and planned jobs return durable transcript attachments, reload retains
-  lifecycle state, and failed/cancelled attachments create linked retries under
-  the current policy.
+  selected persona's saved permission, retired `always_ask` input cannot restore
+  image approval, story/discussion prompts create no request, a disabled persona
+  suppresses only conversational image planning, direct and planned jobs return
+  durable transcript attachments, reload retains lifecycle state, and
+  failed/cancelled attachments create linked automatic retries.
+- Media-recovery tests prove migration/startup recover only existing
+  owner/chat/plan-linked generated files, fail closed for strict identity
+  failures even without an attempt row, preserve `not_applicable` for ordinary
+  images, preserve `unconditioned` truthfully, never chmod outside generated
+  roots, and reconcile missing files across attachment, request, job, and audit
+  state.
 - ComfyUI workflow-inspection tests fake `/object_info` and cover detected image
   inputs, missing node classes/assets and required inputs, disconnected identity
   inputs, broken links, authentication, bounded provider metadata, and safe
@@ -137,7 +145,10 @@ complete the private server and installed-browser acceptance records.
   multipart identity-reference transport, and memory selection/bulk-action
   confirmation behavior. Durable attachment coverage verifies compact
   progress/errors, scoped retry/cancel, blur-off default, and
-  reveal-then-preview when enabled. Visual Identity coverage requires a plain-language
+  reveal-then-preview when enabled. Shared-viewer coverage verifies avatars,
+  chat images, Visual Identity references/comparisons, and picker thumbnails
+  remain above the app and close by image, backdrop, button, or Escape. Visual
+  Identity coverage requires a plain-language
   readiness view, visible editable generation/comparison policies,
   closed-by-default advanced diagnostics, fictional-persona
   rights wording, owner-protected thumbnail selection without opaque media ID

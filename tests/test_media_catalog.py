@@ -257,7 +257,7 @@ class MediaCatalogTests(unittest.TestCase):
             running.services.providers.media_providers["local-image"] = image_provider
             running.client.put(
                 "/api/v1/settings",
-                json={"preferences": {"image_confirmation_policy": "always_ask"}},
+                json={"preferences": {}},
             )
             running.client.put(
                 "/api/v1/identity-validation/settings",
@@ -310,8 +310,7 @@ class MediaCatalogTests(unittest.TestCase):
             pending = running.client.get("/api/v1/capability-requests", params={"chat_id": chat["id"]}).json()["items"][
                 0
             ]
-            approved = running.client.post(f"/api/v1/capability-requests/{pending['id']}/approval").json()
-            completed = running.wait_job(approved["job_id"])
+            completed = running.wait_job(pending["job_id"])
             self.assertEqual(completed["status"], "completed", completed)
             self.assertEqual(completed["result"]["identityWorkflow"]["attempts"], 2)
             self.assertEqual(completed["result"]["identityConditioning"]["claim_status"], "verified")
@@ -330,8 +329,7 @@ class MediaCatalogTests(unittest.TestCase):
             running.wait_job(second_turn["job"]["id"])
             requests = running.client.get("/api/v1/capability-requests", params={"chat_id": chat["id"]}).json()["items"]
             rejected_request = next(item for item in requests if item["id"] != pending["id"])
-            rejected = running.client.post(f"/api/v1/capability-requests/{rejected_request['id']}/approval").json()
-            rejected_job = running.wait_job(rejected["job_id"])
+            rejected_job = running.wait_job(rejected_request["job_id"])
             self.assertEqual(rejected_job["status"], "failed")
             self.assertIn("did not meet", rejected_job["error"])
             rejected_attempts = running.client.get(
@@ -673,9 +671,7 @@ class MediaCatalogTests(unittest.TestCase):
             self.assertEqual(conditioning["verification_status"], "not_evaluated")
             self.assertNotIn("short copper hair", str(pending["media_plan"]))
 
-            approved = running.client.post(f"/api/v1/capability-requests/{pending['id']}/approval")
-            self.assertEqual(approved.status_code, 200, approved.text)
-            completed = running.wait_job(approved.json()["job_id"])
+            completed = running.wait_job(pending["job_id"])
             self.assertEqual(completed["status"], "completed", completed)
             request = image_provider.requests[0]
             self.assertIn("short copper hair", request.prompt)
@@ -721,12 +717,7 @@ class MediaCatalogTests(unittest.TestCase):
             running.services.providers.media_providers["local-image"] = image_provider
             running.client.put(
                 "/api/v1/settings",
-                json={
-                    "preferences": {
-                        "image_provider": "local/comfyui",
-                        "image_confirmation_policy": "always_ask",
-                    }
-                },
+                json={"preferences": {"image_provider": "local/comfyui"}},
             )
             workspace, persona = self._identity_persona(running)
             profile = running.client.get(f"/api/v1/personas/{persona['id']}/visual-identity").json()
@@ -757,9 +748,8 @@ class MediaCatalogTests(unittest.TestCase):
             self.assertEqual(plan["identity_conditioning"]["claim_status"], "unverified")
             self.assertIn("No persona identity reference will be applied", " ".join(plan["explanation"]["warnings"]))
 
-            approved = running.client.post(f"/api/v1/capability-requests/{pending['id']}/approval")
-            self.assertEqual(approved.status_code, 200, approved.text)
-            completed = running.wait_job(approved.json()["job_id"])
+            self.assertEqual(pending["permission_mode"], "auto")
+            completed = running.wait_job(pending["job_id"])
             self.assertEqual(completed["status"], "completed", completed)
             self.assertEqual(len(image_provider.requests), 1)
             request = image_provider.requests[0]
@@ -795,35 +785,13 @@ class MediaCatalogTests(unittest.TestCase):
             running.wait_job(second_turn["job"]["id"])
             requests = running.client.get("/api/v1/capability-requests", params={"chat_id": chat["id"]}).json()["items"]
             strict = next(item for item in requests if item["arguments"]["prompt"] == planned["prompt"])
-            self.assertEqual(strict["status"], "pending_confirmation")
-            self.assertEqual(strict["permission_mode"], "confirm")
+            self.assertEqual(strict["status"], "failed")
+            self.assertEqual(strict["permission_mode"], "auto")
             self.assertEqual(strict["media_plan"]["status"], "blocked")
             self.assertEqual(strict["media_plan"]["identity_conditioning"]["persona_id"], persona["id"])
-
-            alternate = running.client.post(
-                "/api/v1/personas",
-                json={"workspace_id": workspace["id"], "name": "Different persona"},
-            ).json()
-            switched = running.client.put(
-                f"/api/v1/chats/{chat['id']}",
-                json={"persona_id": alternate["id"]},
-            )
-            self.assertEqual(switched.status_code, 200, switched.text)
-            changed_persona = running.client.post(f"/api/v1/capability-requests/{strict['id']}/replan")
-            self.assertEqual(changed_persona.status_code, 409, changed_persona.text)
-            self.assertIn("persona changed", changed_persona.text.lower())
-            restored = running.client.put(
-                f"/api/v1/chats/{chat['id']}",
-                json={"persona_id": persona["id"]},
-            )
-            self.assertEqual(restored.status_code, 200, restored.text)
-            with UnitOfWork(
-                running.services.runtime.session_factory,
-                running.services.runtime.secret_store,
-            ) as uow:
-                legacy_plan = uow.repo.media_execution_plan_for_capability(user_id, strict["id"])
-                legacy_plan.persona_id = None
-                legacy_plan.identity_conditioning_json = "{}"
+            self.assertEqual(strict["attachment"]["status"], "failed")
+            self.assertTrue(strict["attachment"]["retry_available"])
+            self.assertIsNone(strict["job_id"])
 
             allowed = running.client.put(
                 f"/api/v1/personas/{persona['id']}/visual-identity",
@@ -836,37 +804,14 @@ class MediaCatalogTests(unittest.TestCase):
                 },
             )
             self.assertEqual(allowed.status_code, 200, allowed.text)
-            profile = allowed.json()
-            replanned = running.client.post(f"/api/v1/capability-requests/{strict['id']}/replan")
-            self.assertEqual(replanned.status_code, 200, replanned.text)
-            self.assertEqual(replanned.json()["media_plan"]["status"], "ready")
-            self.assertEqual(replanned.json()["media_plan"]["identity_conditioning"]["status"], "unconditioned")
-            self.assertEqual(replanned.json()["media_plan"]["identity_conditioning"]["persona_id"], persona["id"])
-            history = running.client.get(f"/api/v1/capability-requests/{strict['id']}/events").json()["events"]
-            self.assertEqual(history[-1]["action"], "replanned")
-            self.assertEqual(history[-1]["detail"]["previous_plan_status"], "blocked")
-            self.assertEqual(history[-1]["detail"]["media_plan_status"], "ready")
-            self.assertEqual(history[-1]["detail"]["originating_persona_id_adopted"], persona["id"])
-            self.assertEqual(
-                running.client.post(f"/api/v1/capability-requests/{strict['id']}/replan").status_code,
-                409,
-            )
-            reference = profile["references"][0]
-            reference_path = running.services.identity.reference_path(user_id, reference["id"])
-            changed = BytesIO()
-            Image.new("RGB", (256, 256), (20, 40, 220)).save(changed, format="JPEG")
-            reference_path.write_bytes(changed.getvalue())
-            planned["prompt"] = "a tamper-checked selfie of the selected persona"
-            third_turn = running.client.post(
-                f"/api/v1/chats/{chat['id']}/turns",
-                json={"text": "Try one more selfie", "memory_mode": "off"},
-            ).json()
-            running.wait_job(third_turn["job"]["id"])
-            requests = running.client.get("/api/v1/capability-requests", params={"chat_id": chat["id"]}).json()["items"]
-            tampered = next(item for item in requests if item["arguments"]["prompt"] == planned["prompt"])
-            self.assertEqual(tampered["media_plan"]["status"], "ready")
-            self.assertEqual(tampered["media_plan"]["identity_conditioning"]["status"], "unconditioned")
-            self.assertIsNone(tampered["media_plan"]["identity_conditioning"]["reference_id"])
+            retried = running.client.post(f"/api/v1/capability-requests/{strict['id']}/retry")
+            self.assertEqual(retried.status_code, 200, retried.text)
+            replacement = retried.json()
+            self.assertEqual(replacement["permission_mode"], "auto")
+            self.assertEqual(replacement["media_plan"]["status"], "ready")
+            self.assertEqual(replacement["media_plan"]["identity_conditioning"]["status"], "unconditioned")
+            self.assertIsNotNone(replacement["job_id"])
+            self.assertEqual(running.wait_job(replacement["job_id"])["status"], "completed")
 
     def test_unconditioned_fallback_needs_no_saved_profile_consent_or_reference(self):
         planned = {
@@ -919,9 +864,7 @@ class MediaCatalogTests(unittest.TestCase):
             self.assertEqual(first["media_plan"]["identity_conditioning"]["status"], "unconditioned")
             self.assertIsNone(first["media_plan"]["identity_conditioning"]["profile_id"])
             self.assertIsNone(first["media_plan"]["identity_conditioning"]["reference_id"])
-            approved = running.client.post(f"/api/v1/capability-requests/{first['id']}/approval")
-            self.assertEqual(approved.status_code, 200, approved.text)
-            running.wait_job(approved.json()["job_id"])
+            running.wait_job(first["job_id"])
 
             saved = running.client.put(
                 f"/api/v1/personas/{persona['id']}/visual-identity",
@@ -948,9 +891,7 @@ class MediaCatalogTests(unittest.TestCase):
             self.assertEqual(second["media_plan"]["identity_conditioning"]["status"], "unconditioned")
             self.assertEqual(second["media_plan"]["identity_conditioning"]["profile_id"], saved["id"])
             self.assertFalse(second["media_plan"]["identity_conditioning"]["appearance_description_included"])
-            approved = running.client.post(f"/api/v1/capability-requests/{second['id']}/approval")
-            self.assertEqual(approved.status_code, 200, approved.text)
-            running.wait_job(approved.json()["job_id"])
+            running.wait_job(second["job_id"])
 
             self.assertEqual(len(image_provider.requests), 2)
             self.assertNotIn("private draft appearance text", image_provider.requests[1].prompt)
@@ -998,7 +939,7 @@ class MediaCatalogTests(unittest.TestCase):
             self.assertTrue(any("vram" in reason.lower() for reason in reasons), reasons)
             self.assertFalse(any("identity_control" in reason for reason in reasons), reasons)
 
-    def test_identity_plan_revalidates_profile_revision_before_approval(self):
+    def test_completed_identity_image_is_not_retroactively_changed_by_profile_update(self):
         provider = FakeChatProvider(
             ["I can prepare that."],
             task_outputs={
@@ -1068,6 +1009,10 @@ class MediaCatalogTests(unittest.TestCase):
             pending = running.client.get("/api/v1/capability-requests", params={"chat_id": chat["id"]}).json()["items"][
                 0
             ]
+            self.assertEqual(pending["permission_mode"], "auto")
+            self.assertEqual(running.wait_job(pending["job_id"])["status"], "completed")
+            completed = running.client.get(f"/api/v1/capability-requests/{pending['id']}").json()
+            media_id = completed["result"]["mediaId"]
             running.client.put(
                 f"/api/v1/personas/{persona['id']}/visual-identity",
                 json={
@@ -1077,9 +1022,11 @@ class MediaCatalogTests(unittest.TestCase):
                     "failure_policy": "block_claim",
                 },
             )
-            stale = running.client.post(f"/api/v1/capability-requests/{pending['id']}/approval")
-            self.assertEqual(stale.status_code, 409)
-            self.assertIn("identity profile changed", stale.text)
+            unchanged = running.client.get(f"/api/v1/capability-requests/{pending['id']}").json()
+            self.assertEqual(unchanged["status"], "completed")
+            self.assertEqual(unchanged["result"]["mediaId"], media_id)
+            approval = running.client.post(f"/api/v1/capability-requests/{pending['id']}/approval")
+            self.assertEqual(approval.status_code, 409, approval.text)
 
     def test_coordinator_plan_is_visible_before_approval_and_drives_execution(self):
         provider = FakeChatProvider(
@@ -1140,9 +1087,7 @@ class MediaCatalogTests(unittest.TestCase):
                 [item["id"] for item in pending["media_plan"]["selected_resources"]],
                 [model["id"], lora["id"]],
             )
-            approved = running.client.post(f"/api/v1/capability-requests/{pending['id']}/approval")
-            self.assertEqual(approved.status_code, 200, approved.text)
-            completed = running.wait_job(approved.json()["job_id"])
+            completed = running.wait_job(pending["job_id"])
             self.assertEqual(completed["status"], "completed")
             options = image_provider.requests[0].options
             self.assertEqual(options["backend"], "automatic1111")
@@ -1160,7 +1105,7 @@ class MediaCatalogTests(unittest.TestCase):
                 404,
             )
 
-    def test_blocked_and_stale_plans_cannot_be_approved(self):
+    def test_unsupported_operation_is_skipped_and_completed_plan_survives_catalog_edit(self):
         provider = FakeChatProvider(
             ["I can prepare that."],
             task_outputs={
@@ -1212,14 +1157,19 @@ class MediaCatalogTests(unittest.TestCase):
             running.wait_job(second["job"]["id"])
             requests = running.client.get("/api/v1/capability-requests", params={"chat_id": chat["id"]}).json()["items"]
             ready = next(item for item in requests if item["media_plan"]["status"] == "ready")
+            self.assertEqual(ready["permission_mode"], "auto")
+            self.assertEqual(running.wait_job(ready["job_id"])["status"], "completed")
+            selected_revision = ready["media_plan"]["selected_resources"][0]["revision"]
             updated = model_payload("Edited model", "editable.safetensors", operations=["generate", "inpaint"])
             self.assertEqual(
                 running.client.put(f"/api/v1/media-catalog/resources/{model['id']}", json=updated).status_code,
                 200,
             )
-            stale = running.client.post(f"/api/v1/capability-requests/{ready['id']}/approval")
-            self.assertEqual(stale.status_code, 409)
-            self.assertIn("changed after", stale.text)
+            completed = running.client.get(f"/api/v1/capability-requests/{ready['id']}").json()
+            self.assertEqual(completed["status"], "completed")
+            self.assertEqual(completed["media_plan"]["selected_resources"][0]["revision"], selected_revision)
+            approval = running.client.post(f"/api/v1/capability-requests/{ready['id']}/approval")
+            self.assertEqual(approval.status_code, 409, approval.text)
 
     def test_enabling_image_provider_after_catalog_initialization_restores_planning(self):
         with tempfile.TemporaryDirectory() as tmp, TestApp(Path(tmp)) as running:

@@ -30,11 +30,20 @@ ports, environment, network settings, restart policy, or secrets.
   drill against a copy, and changes only the configured Nice Assistant
   container. Candidate acceptance checks effective configuration, Docker
   health, `/health`, `/ready`, startup logs, digest, and source revision.
-- A failed candidate automatically returns to the stopped prior container only
-  when the migration drill proves the live database revision is unchanged. The
-  guard never restores a database, runs a downgrade, changes credentials, or
-  touches another container. Schema-changing recovery requires operator
-  approval.
+- During candidate acceptance, the prior container is stopped under a
+  guard-owned rollback name. A failed candidate automatically returns to it only
+  when the migration drill proves the live database revision is unchanged.
+- After successful acceptance, the stopped rollback container is removed. The
+  guard keeps the prior immutable digest and a root-owned, mode `0600` snapshot
+  of its effective container definition, so an approved compatible rollback can
+  recreate the prior container without leaving a second Nice Assistant instance
+  installed. Existing state files that still reference a legacy stopped
+  rollback container remain supported.
+- Cleanup is limited to exact guard-owned
+  `<container>.rollback.<UTC timestamp>` names and root-only definition files.
+  The guard never prunes or removes images, restores a database, runs a
+  downgrade, changes credentials, or touches another service. Schema-changing
+  recovery requires operator approval.
 - When an Unraid template is configured, installation preserves its original
   root-only copy and deployment changes only its single `Repository` value.
 - Installed-browser acceptance remains a separate authenticated laptop check.
@@ -55,15 +64,17 @@ ports, environment, network settings, restart policy, or secrets.
 The first installation needs one supervised root session and a confirmed SSH
 host key. A container without an approved repository digest or revision label
 cannot be enrolled. A schema-changing candidate may deploy successfully, but a
-later failure cannot be automatically rolled back. The prior digest, verified
-backup, captured definitions, migration report, and bounded logs remain private
-operator evidence.
+later failure cannot be automatically rolled back. Successful deployment leaves
+one Nice Assistant container; the prior digest, root-only prior definition,
+verified backup, migration report, and bounded logs remain private operator
+evidence.
 
 ## Verification
 
 - `tests/test_deployment_guard.py` checks shell syntax, the forced-command
   allowlist, exact digest policy, configuration preservation, backup/migration
-  gates, rollback boundary, key restrictions, and strict laptop SSH options.
+  gates, single-container success cleanup, legacy and definition-based rollback
+  paths, key restrictions, and strict laptop SSH options.
 - The installer must pass its stopped-probe definition comparison before it
   writes the authorized key.
 - Each production promotion additionally requires the public deployment

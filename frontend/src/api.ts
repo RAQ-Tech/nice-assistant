@@ -65,6 +65,7 @@ export interface PersonaInput {
   workspace_ids?: string[];
   name: string;
   avatar_url?: string | null;
+  allow_image_sends?: boolean;
   system_prompt?: string | null;
   personality_details?: string | null;
   traits?: Record<string, unknown>;

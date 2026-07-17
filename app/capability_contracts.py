@@ -93,9 +93,10 @@ class CapabilityRegistry:
                 title="Generate image",
                 description=(
                     "Request an image from the platform. Supply visual intent only; the platform applies its "
-                    "configured provider and settings. Clear user image actions follow the saved confirmation policy."
+                    "configured provider and settings. Admitted conversational image requests run automatically."
                 ),
                 kind="image",
+                permission_mode="auto",
             ),
             CapabilityDefinition(
                 key="media.generate_video",

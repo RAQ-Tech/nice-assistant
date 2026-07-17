@@ -43,7 +43,7 @@ class DatabaseFoundationTests(unittest.TestCase):
             journal_mode = conn.execute("PRAGMA journal_mode").fetchone()[0]
             conn.close()
 
-            self.assertEqual(version, "0017_chat_attachments")
+            self.assertEqual(version, "0018_human_image_delivery")
             self.assertIn("setting_values", tables)
             self.assertIn("conversation_turns", tables)
             self.assertIn("conversation_summaries", tables)
@@ -949,7 +949,6 @@ class DatabaseFoundationTests(unittest.TestCase):
                     "label": "Guide",
                     "speech_enabled": True,
                     "voice_speed": 1.25,
-                    "image_confirmation_policy": "auto_explicit_request",
                     "chat_blur_images": False,
                 },
             )

@@ -273,7 +273,7 @@ class MediaService:
         target = self.config.image_dir / filename
         cancellation.raise_if_cancelled()
         try:
-            write_artifact_atomic(target, artifact.content)
+            write_artifact_atomic(target, artifact.content, mode=0o644)
             cancellation.raise_if_cancelled()
             with self._uow() as uow:
                 media = uow.repo.add_media(
@@ -420,7 +420,7 @@ class MediaService:
         target = self.config.video_dir / filename
         cancellation.raise_if_cancelled()
         try:
-            write_artifact_atomic(target, artifact.content)
+            write_artifact_atomic(target, artifact.content, mode=0o644)
             cancellation.raise_if_cancelled()
             with self._uow() as uow:
                 media = uow.repo.add_media(

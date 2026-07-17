@@ -4,6 +4,7 @@
 - Date: 2026-07-16
 - Owners: Nice Assistant maintainers
 - Supersedes: the mandatory-confirmation rule in ADR 0007 for ordinary image generation
+- Superseded in part by: ADR 0023, which removes `always_ask` for images
 
 ## Context
 
@@ -22,8 +23,9 @@ consequential capabilities have different risk and permission boundaries.
 - An explicit user request to generate an ordinary image is permission to queue
   it under the saved `auto_explicit_request` policy. The typed Task Model may
   identify the action, but deterministic platform policy admits and audits it.
-- `always_ask` remains an advanced user preference and uses the existing
-  approval and denial endpoints.
+- Image generation has no redundant per-image approval path. ADR 0023 replaces
+  the former `always_ask` option with a per-persona conversational image
+  permission.
 - Auto-run is permitted only for high-confidence, explicit action intent.
   Stories, discussion, explanations, hypotheticals, and quoted instructions do
   not create a job.
@@ -58,8 +60,8 @@ is enabled.
 
 ## Verification
 
-- Contract tests prove explicit image actions auto-run under the default and
-  wait under `always_ask`.
+- Contract tests prove explicit image actions auto-run and cannot be returned
+  to per-image approval by an older saved setting.
 - Negative intent fixtures prove stories, explanations, hypotheticals, and
   quoted instructions create no image request.
 - Installed-browser acceptance proves no-profile generation, compact durable

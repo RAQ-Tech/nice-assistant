@@ -39,12 +39,6 @@ def _identity_state(kind: str, result: dict | None) -> str:
     return "unverified"
 
 
-def _blocked_identity_needs_confirmation(*, auto_execute: bool, plan, required_features: list[str]) -> bool:
-    """Keep an explicitly strict identity policy remediable instead of failing an auto request."""
-
-    return bool(auto_execute and plan.status == "blocked" and IDENTITY_CONTROL_FEATURE in required_features)
-
-
 def attachment_response(row) -> dict | None:
     if not row:
         return None
@@ -170,12 +164,19 @@ class CapabilityService:
             enabled.add("media.edit_image")
         return enabled
 
-    def planning_definitions(self, user_id: str) -> tuple[AvailableCapability, ...]:
+    def planning_definitions(
+        self,
+        user_id: str,
+        *,
+        allow_images: bool = True,
+    ) -> tuple[AvailableCapability, ...]:
         enabled = self._enabled_keys(user_id)
         return tuple(
             AvailableCapability(item.key, item.title, item.description)
             for item in self.registry.definitions()
-            if item.key in enabled and item.key != "media.edit_image"
+            if item.key in enabled
+            and item.key != "media.edit_image"
+            and (allow_images or item.key != "media.generate_image")
         )
 
     def planning_vocabulary(self, user_id: str) -> dict:
@@ -382,6 +383,7 @@ class CapabilityService:
         chat_id: str,
         turn_id: str,
         user_text: str,
+        originating_persona_id: str | None,
         planned: list[PlannedCapability],
     ) -> list[dict]:
         chat = repo.chat(user_id, chat_id)
@@ -390,15 +392,12 @@ class CapabilityService:
         turn = repo.turn_by_id(turn_id)
         if not turn or not turn.assistant_message_id:
             raise ConflictError("The assistant reply must be durable before media can be attached.")
-        settings = repo.settings(user_id) or {}
-        preferences = settings.get("preferences") or {}
-        image_policy = str(preferences.get("image_confirmation_policy") or "auto_explicit_request")
         prepared = []
         for index, request in enumerate(planned):
             definition = self.registry.by_key(request.capability_key)
             if not is_high_confidence_media_action_request(user_text):
                 continue
-            auto_execute = definition.kind == "image" and image_policy == "auto_explicit_request"
+            auto_execute = definition.kind == "image"
             status = "queued" if auto_execute else "pending_confirmation"
             permission_mode = "auto" if auto_execute else "confirm"
             requirements = self.registry.requirements(definition, {"prompt": request.prompt})
@@ -433,24 +432,19 @@ class CapabilityService:
                         "content_tags": requirements.content_tags,
                         "required_features": requirements.required_features,
                     },
-                    persona_id=chat.persona_id,
+                    persona_id=originating_persona_id,
                     ready_backends=self._ready_media_backends(repo, user_id, definition.kind),
                 )
-                if _blocked_identity_needs_confirmation(
-                    auto_execute=auto_execute,
-                    plan=plan,
-                    required_features=requirements.required_features,
-                ):
-                    row.status = "pending_confirmation"
-                    row.permission_mode = "confirm"
-                    row.permission_mode_effective = "confirm"
-                    auto_execute = False
                 repo.add_capability_event(
                     row,
                     "requested",
                     from_status=None,
                     to_status=row.status,
-                    detail={"source": "task_model", "media_plan_status": plan.status},
+                    detail={
+                        "source": "task_model",
+                        "media_plan_status": plan.status,
+                        "originating_persona_id": originating_persona_id,
+                    },
                 )
                 repo.add_chat_attachment(
                     user_id=user_id,
@@ -646,13 +640,9 @@ class CapabilityService:
             chat = uow.repo.chat(user_id, original.chat_id)
             if not chat:
                 raise NotFoundError("chat not found")
-            settings = uow.repo.settings(user_id) or {}
-            preferences = settings.get("preferences") or {}
-            auto_execute = (
-                str(preferences.get("image_confirmation_policy") or "auto_explicit_request") == "auto_explicit_request"
-            )
-            status = "queued" if auto_execute else "pending_confirmation"
-            permission_mode = "auto" if auto_execute else "confirm"
+            auto_execute = True
+            status = "queued"
+            permission_mode = "auto"
             arguments = _json_object(original.arguments_json)
             row, _created = uow.repo.add_capability_request(
                 user_id=user_id,
@@ -688,15 +678,6 @@ class CapabilityService:
                     capability_request_id=row.id,
                     kind=definition.kind,
                 )
-            if _blocked_identity_needs_confirmation(
-                auto_execute=auto_execute,
-                plan=plan,
-                required_features=list(arguments.get("required_features") or []),
-            ):
-                row.status = "pending_confirmation"
-                row.permission_mode = "confirm"
-                row.permission_mode_effective = "confirm"
-                auto_execute = False
             uow.repo.add_capability_event(
                 row,
                 "requested",
@@ -849,6 +830,8 @@ class CapabilityService:
             if not row:
                 return None
             definition = self.registry.by_key(row.capability_key)
+            if definition.kind == "image":
+                raise ConflictError("Image requests run without per-image approval. Retry this picture instead.")
             kind = definition.kind
             job = uow.repo.job_for_capability(row.id)
             values = _json_object(row.arguments_json)

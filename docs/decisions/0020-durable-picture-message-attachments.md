@@ -43,10 +43,11 @@ picture message.
 ## Consequences
 
 Migration `0017_chat_attachments` adds durable attachments, linked retries, and
-the effective `auto` permission audit while preserving the legacy constrained
-permission value for compatibility. Interrupted attachments become failed and
-retryable at startup. Direct manual-provider requests remain truthfully marked
-as manual plans; catalog-planned requests can select a ready fallback candidate.
+the effective `auto` permission audit. Migration `0018_human_image_delivery`
+backfills recoverable legacy chat outputs and reconciles an existing artifact
+before treating interrupted work as failed. Direct manual-provider requests
+remain truthfully marked as manual plans; catalog-planned requests can select a
+ready fallback candidate.
 
 ## Verification
 

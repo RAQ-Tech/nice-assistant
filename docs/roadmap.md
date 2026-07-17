@@ -56,7 +56,7 @@ safe restart recovery. Persona models no longer receive platform tools.
 
 Step 16 added an owner-managed catalog of model/LoRA/workflow resources,
 controlled semantic metadata, compatibility and revisions, operator VRAM/LoRA
-policy, deterministic explainable plans, approval-time stale-plan rejection,
+policy, deterministic explainable plans, pre-submission stale-plan rejection,
 real Automatic1111/ComfyUI LoRA forwarding, operator plan previews, and durable
 manual-bypass disclosure. It deliberately does not claim live GPU residency,
 adapter operations that are not implemented, or persona visual identity.
@@ -78,7 +78,7 @@ identity-aware generation workflows.
 
 Step 18B added platform-level `identity_control` intent guidance, explicit
 ComfyUI reference-image bindings, active-consent and reviewed-reference gates,
-immutable identity/profile/reference/workflow snapshots, approval-time digest
+immutable identity/profile/reference/workflow snapshots, pre-submission digest
 and revision checks, prompt plus reference composition, stage cancellation
 checks, generated-media plan provenance, and truthful conditioned-but-unverified
 browser/API state. It deliberately does not auto-validate, retry, inpaint, or

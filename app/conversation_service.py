@@ -202,6 +202,7 @@ class ConversationService:
             persona = repo.persona(user_id, requested_persona_id) if requested_persona_id else None
             if requested_persona_id and not persona:
                 raise NotFoundError("persona not found")
+            allow_persona_image_sends = bool(persona.allow_image_sends) if persona else True
             workspace_id = (
                 values.get("workspace_id") or chat.workspace_id or (persona.workspace_id if persona else None)
             )
@@ -265,19 +266,24 @@ class ConversationService:
 
         def execute(token):
             provider = self.providers.chat(provider_name)
-            planning_definitions = self.capabilities.planning_definitions(user_id)
-            application_instructions = (
-                [
-                    (
-                        "A separate platform coordinator handles optional media capabilities. Respond naturally, "
-                        "but do not claim an image was sent, taken, attached, matched, or verified. Only the "
-                        "platform may make those claims after a durable result exists. Do not choose providers, "
-                        "models, workflows, or LoRAs."
-                    )
-                ]
-                if planning_definitions
-                else []
+            planning_definitions = self.capabilities.planning_definitions(
+                user_id,
+                allow_images=allow_persona_image_sends,
             )
+            application_instructions = []
+            if planning_definitions:
+                application_instructions.append(
+                    "A separate platform coordinator handles optional media capabilities. Respond naturally, "
+                    "but do not claim an image was sent, taken, attached, matched, or verified. Only the "
+                    "platform may make those claims after a durable result exists. Do not choose providers, "
+                    "models, workflows, or LoRAs."
+                )
+            if not allow_persona_image_sends:
+                application_instructions.append(
+                    "Picture sending is disabled for this persona. Do not promise to make or send a picture. "
+                    "If the user asks for one conversationally, briefly explain that they can enable picture "
+                    "sending in this persona's settings."
+                )
             model_options = parse_model_options(values.get("model_settings") or {})
             plan = self.context.plan(
                 turn_id=turn.id,
@@ -322,7 +328,11 @@ class ConversationService:
                             {"turn_id": turn.id, "text": delta.text},
                         )
             raw_reply = "".join(chunks)
-            reply, media_claim_guarded = guard_premature_media_completion_claim(text, raw_reply)
+            reply, media_claim_guarded = guard_premature_media_completion_claim(
+                text,
+                raw_reply,
+                image_sends_allowed=allow_persona_image_sends,
+            )
             if guard_media_claims and reply:
                 self.broker.publish(
                     turn.id,
@@ -364,7 +374,10 @@ class ConversationService:
             return output
 
         def execute_capability_followup(token):
-            planning_definitions = self.capabilities.planning_definitions(user_id)
+            planning_definitions = self.capabilities.planning_definitions(
+                user_id,
+                allow_images=allow_persona_image_sends,
+            )
             if not planning_definitions or is_explicit_text_only_request(text):
                 return {"planned_capabilities": [], "task_run_id": None}
             planning_vocabulary = self.capabilities.planning_vocabulary(user_id)
@@ -401,6 +414,7 @@ class ConversationService:
                     chat_id=chat_id,
                     turn_id=turn.id,
                     user_text=text,
+                    originating_persona_id=requested_persona_id,
                     planned=planned_capabilities,
                 )
                 output["auto_capability_request_ids"] = [

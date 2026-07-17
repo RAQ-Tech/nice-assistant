@@ -236,7 +236,7 @@ class AsyncJobTests(unittest.TestCase):
                 count = uow.session.scalar(select(func.count()).select_from(MediaFile))
             self.assertEqual(count, 0)
 
-    def test_task_planner_creates_a_pending_capability_without_starting_media(self):
+    def test_task_planner_automatically_starts_an_admitted_image(self):
         provider = FakeChatProvider(
             ["I can make that for you."],
             task_outputs={
@@ -257,15 +257,17 @@ class AsyncJobTests(unittest.TestCase):
         )
         with tempfile.TemporaryDirectory() as tmp, TestApp(Path(tmp), chat_provider=provider) as running:
             running.create_and_login()
-            running.services.providers.media_providers["local-image"] = object()
+            running.services.providers.media_providers["local-image"] = SimpleNamespace(
+                generate=lambda _request, _cancellation: MediaArtifact(
+                    "image",
+                    b"image-bytes",
+                    ".png",
+                    "image/png",
+                )
+            )
             saved = running.client.put(
                 "/api/v1/settings",
-                json={
-                    "preferences": {
-                        "image_provider": "local/automatic1111",
-                        "image_confirmation_policy": "always_ask",
-                    }
-                },
+                json={"preferences": {"image_provider": "local/automatic1111"}},
             )
             self.assertEqual(saved.status_code, 200, saved.text)
             chat = running.client.post("/api/v1/chats", json={"title": "Capability"}).json()
@@ -275,14 +277,14 @@ class AsyncJobTests(unittest.TestCase):
             ).json()
             job = running.wait_job(started["job"]["id"])
             self.assertEqual(job["result"]["text"], "I can make that for you.")
-            pending = running.client.get(
+            requests = running.client.get(
                 "/api/v1/capability-requests",
                 params={"chat_id": chat["id"]},
             ).json()["items"]
-            self.assertEqual(len(pending), 1)
-            self.assertEqual(pending[0]["status"], "pending_confirmation")
+            self.assertEqual(len(requests), 1)
+            self.assertEqual(requests[0]["permission_mode"], "auto")
             self.assertEqual(
-                pending[0]["arguments"],
+                requests[0]["arguments"],
                 {
                     "prompt": "a small cat",
                     "operation": "generate",
@@ -291,7 +293,8 @@ class AsyncJobTests(unittest.TestCase):
                     "required_features": [],
                 },
             )
-            self.assertIsNone(pending[0]["job_id"])
+            self.assertIsNotNone(requests[0]["job_id"])
+            self.assertEqual(running.wait_job(requests[0]["job_id"])["status"], "completed")
             turn_id = started["turn"]["id"]
             turn = running.client.get(f"/api/v1/turns/{turn_id}").json()
             self.assertEqual(turn["accumulated_text"], "I can make that for you.")

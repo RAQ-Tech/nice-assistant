@@ -41,7 +41,7 @@ change that alters them.
   truthful media-claim guarding, progressive chat controls, and cancellation UI
   scoped to work that is still cancelable.
 - Owner-managed media model/LoRA/workflow metadata, explicit compatibility,
-  deterministic explainable selection, immutable approval plans, operator
+  deterministic explainable selection, immutable execution plans, operator
   VRAM/LoRA limits, and truthful manual-generation bypass records.
 - Late media-provider enablement now bootstraps only an empty catalog kind and
   migration `0015` repairs affected accounts; provider settings do not overwrite

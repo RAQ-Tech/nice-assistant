@@ -1,6 +1,7 @@
 # ADR 0017: User-authoritative media subject planning
 
-- Status: Accepted; fallback behavior partially superseded by ADR 0018
+- Status: Accepted; fallback behavior superseded by ADR 0018 and blocked-card
+  behavior superseded by ADR 0023
 - Date: 2026-07-15
 - Owners: Nice Assistant maintainers
 
@@ -35,8 +36,9 @@ preserved the reviewed persona reference.
 - Persona images continue to prefer the reviewed-reference workflow contract
   from ADR 0012. ADR 0018 permits only an explicit, saved, visibly disclosed
   unconditioned fallback; it never represents that result as conditioned.
-- Blocked approval cards show hard requirements and per-resource rejection
-  reasons and provide a direct route to Media Catalog configuration.
+- A blocked plan produces a compact retryable attachment failure. Collapsed
+  Details and authenticated diagnostics show hard requirements and per-resource
+  rejection reasons and provide a route to Media Catalog configuration.
 
 ## Alternatives considered
 
@@ -68,7 +70,7 @@ configure it.
   classification, and genuine persona subjects always require identity control.
 - API tests exercise both decisions in one persona chat and inspect the durable
   media plans.
-- Browser tests cover rejection details and the Media Catalog action.
-- Deployment acceptance must request, approve, generate, and reveal an ordinary
-  image through a real persona chat. Persona-image acceptance additionally
+- Browser tests cover compact rejection details and the Media Catalog action.
+- Deployment acceptance must request, generate, and reveal an ordinary image
+  through a real persona chat without a second approval. Persona-image acceptance additionally
   requires a real installed identity workflow and model assets.

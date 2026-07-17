@@ -211,7 +211,7 @@ function render(): void {
   else root.append(shell());
   if (state.showNewChatPersonaModal) root.append(newChatModal());
   if (state.personaAvatarPreview) root.append(imageOverlay(state.personaAvatarPreview, 'Persona avatar', () => { state.personaAvatarPreview = ''; render(); }));
-  if (state.chatImagePreview) root.append(imageOverlay(state.chatImagePreview, 'Generated image', () => { state.chatImagePreview = ''; render(); }));
+  if (state.chatImagePreview) root.append(imageOverlay(state.chatImagePreview, 'Image', () => { state.chatImagePreview = ''; render(); }));
   if (state.chatVideoPreview) root.append(videoOverlay(state.chatVideoPreview));
   if (state.modal) root.append(modalNode(state.modal));
   restoreFocus(root, focus, Boolean(state.modal));
@@ -237,6 +237,7 @@ function shell(): HTMLElement {
         (request) =>
           request.permission_mode === 'confirm'
           && request.status === 'pending_confirmation'
+          && request.capability_key !== 'media.generate_image'
           && request.assistant_message_id === message.id,
       )
       .map((request) => capabilities.node(request));
@@ -247,6 +248,7 @@ function shell(): HTMLElement {
       (request) =>
         request.permission_mode === 'confirm' &&
         request.status === 'pending_confirmation' &&
+        request.capability_key !== 'media.generate_image' &&
         !messages.some((message) => message.id === request.assistant_message_id),
     )
     .map((request) => capabilities.node(request));
@@ -286,7 +288,15 @@ function topbar(personaName: string, avatar: string): HTMLElement {
   return el('div', { class: 'topbar' }, [
     el('button', { class: 'icon-btn', textContent: '☰', onclick: () => { state.drawerOpen = !state.drawerOpen; render(); } }),
     el('div', { class: 'header-meta' }, [
-      el('img', { class: 'topbar-avatar', src: avatar, alt: `${personaName} avatar`, onclick: () => { state.personaAvatarPreview = avatar; render(); } }),
+      el('button', {
+        class: 'image-preview-trigger topbar-avatar-trigger',
+        type: 'button',
+        title: `View ${personaName}'s full-size avatar`,
+        'aria-label': `View ${personaName}'s full-size avatar`,
+        onclick: () => { state.personaAvatarPreview = avatar; render(); },
+      }, [
+        el('img', { class: 'topbar-avatar', src: avatar, alt: `${personaName} avatar` }),
+      ]),
       el('div', { class: 'header-title', textContent: state.currentChat?.title || 'New conversation' }),
       el('span', { class: 'chip persona-chip', textContent: personaName }),
     ]),
@@ -437,19 +447,50 @@ function modalNode(modal: ModalState): HTMLElement {
 }
 
 function imageOverlay(url: string, alt: string, close: () => void): HTMLElement {
-  return el('div', { class: 'preview-backdrop', onclick: close }, [
-    el('div', { class: 'preview-card', onclick: (event: Event) => event.stopPropagation() }, [
-      el('button', { class: 'icon-btn avatar-preview-close', textContent: '✕', onclick: close }),
-      el('img', { class: 'preview-image', src: url, alt }),
+  return el('div', { class: 'modal-backdrop media-preview-backdrop', 'data-testid': 'image-preview', onclick: close }, [
+    el('div', {
+      class: 'media-preview-frame',
+      role: 'dialog',
+      'aria-modal': 'true',
+      'aria-label': `${alt} preview`,
+      onclick: (event: Event) => event.stopPropagation(),
+    }, [
+      el('button', {
+        class: 'icon-btn media-preview-close',
+        textContent: '✕',
+        title: 'Close preview',
+        'aria-label': 'Close preview',
+        onclick: close,
+      }),
+      el('img', {
+        class: 'media-preview-image',
+        src: url,
+        alt,
+        title: 'Close preview',
+        onclick: close,
+      }),
     ]),
   ]);
 }
 
 function videoOverlay(url: string): HTMLElement {
-  return el('div', { class: 'preview-backdrop', onclick: () => { state.chatVideoPreview = ''; render(); } }, [
-    el('div', { class: 'preview-card video-preview-card', onclick: (event: Event) => event.stopPropagation() }, [
-      el('button', { class: 'icon-btn avatar-preview-close', textContent: '✕', onclick: () => { state.chatVideoPreview = ''; render(); } }),
-      el('video', { class: 'preview-video', src: url, controls: true, autoplay: true }),
+  const close = () => { state.chatVideoPreview = ''; render(); };
+  return el('div', { class: 'modal-backdrop media-preview-backdrop', 'data-testid': 'video-preview', onclick: close }, [
+    el('div', {
+      class: 'media-preview-frame video-preview-frame',
+      role: 'dialog',
+      'aria-modal': 'true',
+      'aria-label': 'Video preview',
+      onclick: (event: Event) => event.stopPropagation(),
+    }, [
+      el('button', {
+        class: 'icon-btn media-preview-close',
+        textContent: '✕',
+        title: 'Close preview',
+        'aria-label': 'Close preview',
+        onclick: close,
+      }),
+      el('video', { class: 'video-preview-media', src: url, controls: true, autoplay: true }),
     ]),
   ]);
 }

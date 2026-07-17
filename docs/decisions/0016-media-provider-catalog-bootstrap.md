@@ -1,6 +1,6 @@
 # ADR 0016: Media provider catalog bootstrap
 
-- Status: Accepted
+- Status: Accepted; conversational image approval path superseded by ADR 0023
 - Date: 2026-07-15
 - Owners: Nice Assistant maintainers
 
@@ -24,7 +24,9 @@ typed browser's canonical `local` provider value.
 - Add a forward migration that repairs already-enabled accounts only when the
   corresponding image or video catalog kind is empty.
 - Keep direct actions explicit and catalog-bypassing; conversational requests
-  still require typed Task Model planning, a reviewable plan, and approval.
+  still require typed Task Model planning and a reviewable plan. ADR 0023 later
+  replaced the redundant image approval with automatic execution after
+  pre-submission validation; video retains approval.
 
 ## Alternatives considered
 

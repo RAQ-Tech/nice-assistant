@@ -14,6 +14,7 @@ describe('typed settings', () => {
       onboarding_done: true,
       preferences: {
         image_quality: 'hd',
+        image_confirmation_policy: 'always_ask',
         video_model: 'not-real',
         general_show_viz: true,
         image_prompt_generation: true,
@@ -24,6 +25,7 @@ describe('typed settings', () => {
     expect(settings.video_model).toBe('sora-2');
     expect(settings.general_show_viz).toBe(true);
     expect(settingsWire(settings).preferences.general_show_viz).toBe(true);
+    expect(settingsWire(settings).preferences).not.toHaveProperty('image_confirmation_policy');
     expect(settingsWire(settings).preferences).not.toHaveProperty('image_prompt_generation');
   });
 

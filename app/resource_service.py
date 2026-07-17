@@ -50,6 +50,7 @@ def persona_response(repo, row) -> dict:
         "personality_details": row.personality_details,
         "traits": traits,
         "default_model": row.default_model,
+        "allow_image_sends": bool(row.allow_image_sends),
         "preferred_voice": row.preferred_voice,
         "preferred_tts_model": row.preferred_tts_model,
         "preferred_tts_speed": row.preferred_tts_speed,

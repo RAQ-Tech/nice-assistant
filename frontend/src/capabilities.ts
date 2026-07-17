@@ -100,7 +100,7 @@ export class CapabilityController {
             },
           })
         : null,
-      request.status === 'pending_confirmation'
+      request.status === 'pending_confirmation' && (kind === 'video' || planBlocked)
         ? el('div', { class: 'capability-actions' }, [
             planBlocked
               ? el('button', {
@@ -116,14 +116,14 @@ export class CapabilityController {
                     ? () => this.openIdentitySetup(this.identitySetupIntent(request))
                     : () => void this.replan(request),
                 })
-              : el('button', {
+              : kind === 'video' ? el('button', {
                   class: 'send-btn',
                   textContent: unconditioned
                       ? `Generate ${kind} without identity matching`
                       : `Generate ${kind}`,
                   'data-testid': 'approve-capability',
                   onclick: () => void this.approve(request),
-                }),
+                }) : null,
             identityBlocked
               ? el('button', {
                   class: 'pill-btn',
@@ -133,12 +133,12 @@ export class CapabilityController {
                   onclick: () => void this.replan(request),
                 })
               : null,
-            el('button', {
+            kind === 'video' || planBlocked ? el('button', {
               class: 'pill-btn',
               textContent: 'No thanks',
               'data-testid': 'deny-capability',
               onclick: () => void this.deny(request),
-            }),
+            }) : null,
           ])
         : null,
       ['queued', 'running'].includes(request.status)

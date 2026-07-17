@@ -99,9 +99,12 @@ try {
     --name $name `
     -p "127.0.0.1:${appPort}:3000" `
     -e "OLLAMA_BASE_URL=http://host.docker.internal:$fakePort" `
+    -e "AUTOMATIC1111_BASE_URL=http://host.docker.internal:$fakePort" `
     -e 'NICE_ASSISTANT_MASTER_KEY=container-smoke-key' `
     -e 'ALLOW_PUBLIC_SIGNUP=0' `
-    -e 'SYNC_PROJECT_ON_START=0' `
+    -e 'NICE_ASSISTANT_DEVELOPMENT_PROJECT_SYNC=0' `
+    -e 'PROJECT_ROOT=/data/project' `
+    -e 'SYNC_PROJECT_ON_START=1' `
     -v "${dataPath}:/data" `
     -v "${archivePath}:/archives" `
     $Image | Out-Null
@@ -123,6 +126,13 @@ try {
   if (-not $health.ok) { throw 'container did not become healthy' }
   $deploymentReady = Invoke-RestMethod -Uri "$base/ready"
   if (-not $deploymentReady.ready) { throw 'container readiness failed' }
+  $applicationSourceRoot = docker exec $name python -c "import os; print(os.readlink('/proc/1/cwd'))"
+  if ($LASTEXITCODE -ne 0 -or $applicationSourceRoot.Trim() -ne '/opt/nice-assistant') {
+    throw 'container did not use the image-authoritative application source'
+  }
+  if (Test-Path -LiteralPath (Join-Path $dataPath 'project')) {
+    throw 'legacy project-sync settings wrote application source into the persistent data mount'
+  }
 
   $session = New-Object Microsoft.PowerShell.Commands.WebRequestSession
   $credentials = @{ username = 'owner'; password = 'pass1234' } | ConvertTo-Json
@@ -209,6 +219,21 @@ try {
   if ($plan.status -ne 'ready' -or $plan.source -ne 'coordinator' -or
       $plan.selected_resources[0].id -ne $catalogResource.id -or $plan.estimated_vram_mb -ne 4096) {
     throw 'media catalog deterministic planning failed'
+  }
+  $imageSettings = Invoke-RestMethod `
+    -Method Put `
+    -Uri "$base/api/v1/settings" `
+    -WebSession $session `
+    -ContentType 'application/json' `
+    -Body (@{
+      preferences = @{
+        image_provider = 'local'
+        image_local_backend = 'automatic1111'
+      }
+    } | ConvertTo-Json -Depth 4)
+  if ($imageSettings.preferences.image_provider -ne 'local' -or
+      $imageSettings.preferences.image_local_backend -ne 'automatic1111') {
+    throw 'container image provider settings did not persist'
   }
 
   $workspace = Invoke-RestMethod `
@@ -317,9 +342,14 @@ try {
     throw 'identity fallback capability request was not created'
   }
   $blockedIdentityRequest = $fallbackIdentityRequests.items[0]
-  if ($blockedIdentityRequest.media_plan.status -ne 'blocked' -or
-      $blockedIdentityRequest.media_plan.identity_conditioning.persona_id -ne $persona.id) {
-    throw 'strict missing-workflow identity plan was not blocked with its originating persona'
+  if ($blockedIdentityRequest.status -ne 'failed' -or
+      $blockedIdentityRequest.permission_mode -ne 'auto' -or
+      $blockedIdentityRequest.media_plan.status -ne 'blocked' -or
+      $blockedIdentityRequest.media_plan.identity_conditioning.persona_id -ne $persona.id -or
+      $blockedIdentityRequest.attachment.status -ne 'failed' -or
+      -not $blockedIdentityRequest.attachment.retry_available -or
+      $null -ne $blockedIdentityRequest.job_id) {
+    throw 'strict missing-workflow identity plan did not fail compactly without approval'
   }
   $identity = Invoke-RestMethod `
     -Method Put `
@@ -336,24 +366,49 @@ try {
   if ($identity.conditioning_fallback -ne 'allow_unconditioned') {
     throw 'identity missing-conditioning fallback did not persist'
   }
-  $fallbackReplan = Invoke-RestMethod `
+  $fallbackRetry = Invoke-RestMethod `
     -Method Post `
-    -Uri "$base/api/v1/capability-requests/$($blockedIdentityRequest.id)/replan" `
+    -Uri "$base/api/v1/capability-requests/$($blockedIdentityRequest.id)/retry" `
     -WebSession $session
-  $fallbackPlan = $fallbackReplan.media_plan
+  $fallbackPlan = $fallbackRetry.media_plan
   $fallbackWarnings = $fallbackPlan.explanation.warnings -join ' '
   if ($fallbackPlan.status -ne 'ready' -or
       $fallbackPlan.identity_conditioning.status -ne 'unconditioned' -or
       $fallbackPlan.identity_conditioning.claim_status -ne 'unverified' -or
       $fallbackPlan.identity_conditioning.conditioning_fallback -ne 'allow_unconditioned' -or
-      $fallbackWarnings -notmatch 'No persona identity reference will be applied') {
-    throw 'identity fallback replan was not ready, disclosed, and explicitly unverified'
+      $fallbackWarnings -notmatch 'No persona identity reference will be applied' -or
+      $fallbackRetry.permission_mode -ne 'auto' -or
+      -not $fallbackRetry.job_id) {
+    throw 'identity fallback retry was not automatic, disclosed, and explicitly unverified'
+  }
+  $fallbackRetryJob = Wait-NiceJob $base $session $fallbackRetry.job_id
+  if ($fallbackRetryJob.status -ne 'completed') {
+    throw 'identity fallback retry did not complete'
+  }
+  $completedFallbackRequest = Invoke-RestMethod `
+    -Uri "$base/api/v1/capability-requests/$($fallbackRetry.id)" `
+    -WebSession $session
+  if ($completedFallbackRequest.attachment.status -ne 'completed' -or
+      -not $completedFallbackRequest.attachment.content_url -or
+      $completedFallbackRequest.attachment.identity_state -ne 'unconditioned') {
+    throw 'identity fallback retry did not create a durable unconditioned attachment'
+  }
+  $fallbackChatDetail = Invoke-RestMethod `
+    -Uri "$base/api/v1/chats/$($fallbackIdentityChat.id)" `
+    -WebSession $session
+  $persistedFallbackAttachments = @(
+    $fallbackChatDetail.messages |
+      ForEach-Object { $_.attachments } |
+      Where-Object { $_.id -eq $completedFallbackRequest.attachment.id }
+  )
+  if ($persistedFallbackAttachments.Count -ne 1) {
+    throw 'identity fallback picture did not persist in chat history'
   }
   $fallbackEvents = Invoke-RestMethod `
     -Uri "$base/api/v1/capability-requests/$($blockedIdentityRequest.id)/events" `
     -WebSession $session
-  if (@($fallbackEvents.events)[-1].action -ne 'replanned') {
-    throw 'identity fallback replan audit was not recorded'
+  if (@($fallbackEvents.events)[-1].action -ne 'retried') {
+    throw 'identity fallback retry audit was not recorded'
   }
 
   $disabledCatalogResource = Invoke-RestMethod `
@@ -483,7 +538,7 @@ try {
   $schemaRaw = docker exec $name python -c "import sqlite3,json; c=sqlite3.connect('/data/nice_assistant.db'); print(json.dumps({'version':c.execute('SELECT version_num FROM alembic_version').fetchone()[0],'plan_columns':[r[1] for r in c.execute('PRAGMA table_info(media_execution_plans)')],'media_columns':[r[1] for r in c.execute('PRAGMA table_info(media_files)')],'attempt_columns':[r[1] for r in c.execute('PRAGMA table_info(media_generation_attempts)')]}))"
   if ($LASTEXITCODE -ne 0) { throw 'media correction schema inspection failed' }
   $schema = $schemaRaw | ConvertFrom-Json
-  if ($schema.version -ne '0017_chat_attachments' -or
+  if ($schema.version -ne '0018_human_image_delivery' -or
       $schema.plan_columns -notcontains 'identity_conditioning_json' -or
       $schema.media_columns -notcontains 'generation_plan_id' -or
       $schema.attempt_columns -notcontains 'attempt_number') {
@@ -591,12 +646,13 @@ c.close()
   [ordered]@{
     health = 'ok'
     readiness_and_observability = 'ok'
+    image_authoritative_application_source = 'ok'
     task_profiles = 'ok'
     task_readiness = 'ok'
     resource_coordination = 'ok'
     media_catalog = 'ok'
     persona_visual_identity = 'ok'
-    identity_fallback_replan = 'ok'
+    identity_fallback_retry_and_history = 'ok'
     identity_conditioned_planning = 'ok'
     media_correction_migration = 'ok'
     chat_and_title_fallback = 'ok'

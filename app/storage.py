@@ -15,9 +15,11 @@ from app.service_errors import InvalidArtifactError, StorageCapacityError
 BACKUP_NAME_RE = r"^nice-assistant-snapshot-\d{8}_\d{6}-[a-f0-9]{8}\.zip$"
 
 
-def write_artifact_atomic(path: Path, content: bytes) -> None:
+def write_artifact_atomic(path: Path, content: bytes, *, mode: int | None = None) -> None:
     if not content:
         raise InvalidArtifactError()
+    if mode is not None and not 0 <= mode <= 0o777:
+        raise ValueError("artifact mode must contain only file permission bits")
     temporary = None
     try:
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -28,6 +30,8 @@ def write_artifact_atomic(path: Path, content: bytes) -> None:
             handle.write(content)
             handle.flush()
             os.fsync(handle.fileno())
+        if mode is not None:
+            os.chmod(temporary, mode)
         os.replace(temporary, path)
     except OSError as exc:
         if temporary:

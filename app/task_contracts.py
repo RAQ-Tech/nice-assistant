@@ -81,6 +81,19 @@ _MEDIA_INTENT_PROMISE = re.compile(
     r"(?:try\s+to\s+)?(?:make|generate|create|draw|paint|render|take|send|start|work\s+on)\b",
     re.IGNORECASE,
 )
+_DISABLED_IMAGE_PROMISE = re.compile(
+    r"\b(?:i\s+can|i(?:['’]ll|\s+will)|let\s+me)\s+"
+    r"(?:try\s+to\s+)?(?:make|generate|create|draw|paint|render|take|send|start|work\s+on)\b",
+    re.IGNORECASE,
+)
+_VIDEO_MEDIA_CONTEXT = re.compile(
+    r"\b(?:video|clip|movie|animation|animated|footage)\b",
+    re.IGNORECASE,
+)
+_IMAGE_MEDIA_CONTEXT = re.compile(
+    r"\b(?:image|picture|photo|selfie|portrait|drawing|illustration)\b",
+    re.IGNORECASE,
+)
 
 
 def is_explicit_text_only_request(user_text: str) -> bool:
@@ -107,12 +120,24 @@ def is_high_confidence_media_action_request(user_text: str) -> bool:
     return bool(_EXPLICIT_MEDIA_ACTION.search(text))
 
 
-def guard_premature_media_completion_claim(user_text: str, assistant_text: str) -> tuple[str, bool]:
+def guard_premature_media_completion_claim(
+    user_text: str,
+    assistant_text: str,
+    *,
+    image_sends_allowed: bool = True,
+) -> tuple[str, bool]:
     """Remove persona claims that outrun the platform's durable media evidence."""
 
     reply = str(assistant_text or "").strip()
     if not reply or not is_high_confidence_media_action_request(user_text):
         return reply, False
+    explicitly_video_only = bool(_VIDEO_MEDIA_CONTEXT.search(user_text) and not _IMAGE_MEDIA_CONTEXT.search(user_text))
+    if (
+        not image_sends_allowed
+        and not explicitly_video_only
+        and (_PREMATURE_MEDIA_COMPLETION.search(reply) or _DISABLED_IMAGE_PROMISE.search(reply))
+    ):
+        return "Picture sending is turned off for this persona.", True
     if not _PREMATURE_MEDIA_COMPLETION.search(reply):
         return reply, False
     sentences = [item.strip() for item in re.split(r"(?<=[.!?])\s+|\n+", reply) if item.strip()]

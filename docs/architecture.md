@@ -53,14 +53,15 @@ scope archival, explicit permanent deletion, atomic owner-scoped bulk actions,
 and FTS retrieval policy. `ConversationService` likewise separates chat hiding
 from permanent deletion and rejects destructive deletion while linked work is
 active. See ADR 0015.
-`CapabilityService` owns the registry, durable permission requests, approval,
-denial, idempotency, audit events, linked job submission, and terminal results.
+`CapabilityService` owns the registry, durable permission requests, automatic
+explicit-image admission, video approval/denial, idempotency, audit events,
+linked job submission, and terminal results.
 `TaskModelService` owns separately configured title, summary, memory-extraction,
 and capability-planning roles, strict structured outputs, budgets, readiness,
 fallback, and content-free run audit records.
 `MediaCatalogService` owns resource metadata, compatibility, deterministic plan
-construction, immutable reviewed snapshots, explicit rechecks of never-ready
-blocked plans, and approval-time resource revalidation; the pure selection
+construction, immutable reviewed snapshots, retry replanning, and
+pre-submission resource revalidation; the pure selection
 policy is isolated in `media_planner.py`.
 Capability Task Models declare whether the requested image actually depicts the
 selected persona. The platform derives the hard `identity_control` feature from
@@ -114,8 +115,10 @@ Persona chat requests do not receive tools. After the persona reply, the typed
 capability-planning role may propose controlled semantic requirements. The
 deterministic catalog coordinator selects only explicitly described and
 compatible resources. A high-confidence ordinary image action uses audited
-`auto` permission under the saved default; `always_ask`, video, and consequential
-capabilities remain confirmation-gated. The assistant reply is durable before
+`auto` permission when the selected persona permits conversational image
+sending; video and consequential capabilities remain confirmation-gated. The
+persona setting never relaxes the explicit-intent gate, and direct user image
+actions remain available. The assistant reply is durable before
 nonessential planning, and every chat media request creates a durable attachment
 on an assistant message. Capability/job/attachment callbacks share a unit of
 work so running, completion, failure, and cancellation cannot disagree. Direct
@@ -190,6 +193,17 @@ media, or completed plans.
 Migration `0017_chat_attachments` adds linked retry metadata, effective automatic
 permission auditing, user image preferences, and reload-safe chat attachments
 without reconstructing the referenced capability table or losing dependent rows.
+Migration `0018_human_image_delivery` adds the per-persona image-send
+permission, removes the retired image-confirmation preference, cancels only
+legacy pending image approvals, and backfills recoverable generated chat media
+without exposing another user's, a missing artifact, or an identity-rejected
+candidate. Recovery preserves ordinary, unconditioned, verified, and unverified
+identity labels instead of inferring identity from a generic successful attempt.
+
+Installed containers execute the application tree shipped at
+`/opt/nice-assistant`; `/data` contains mutable state, not production source.
+Legacy persistent project copies are ignored unless the explicitly
+development-only sync flag is enabled. See ADR 0024.
 
 ## Browser application
 

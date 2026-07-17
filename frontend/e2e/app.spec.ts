@@ -8,6 +8,7 @@ const persona = {
   workspace_ids: [workspace.id],
   name: 'Nova',
   avatar_url: null,
+  allow_image_sends: true,
   system_prompt: 'Be thoughtful.',
   personality_details: null,
   traits: {},
@@ -43,7 +44,6 @@ const settings = {
     image_quality: 'none',
     image_local_backend: 'automatic1111',
     image_local_base_url: '',
-    image_confirmation_policy: 'auto_explicit_request',
     chat_blur_images: false,
     video_provider: 'disabled',
   },
@@ -173,6 +173,51 @@ test('mobile touch and keyboard input keep conversation controls usable', async 
   await expect(composer).toBeEnabled();
 });
 
+test('avatar and chat pictures use the shared layered viewer with every close path', async ({ page }) => {
+  await installAuthenticatedFixture(page);
+  await page.goto('/#/chats/chat-1');
+
+  await page.locator('.topbar-avatar').click();
+  const avatarDialog = page.getByRole('dialog', { name: 'Persona avatar preview' });
+  await expect(avatarDialog).toBeVisible();
+  await expect(page.getByTestId('image-preview')).toHaveCSS('z-index', '100');
+  await avatarDialog.locator('.media-preview-image').click();
+  await expect(avatarDialog).toHaveCount(0);
+
+  await page.locator('.topbar-avatar').click();
+  await page.getByTestId('image-preview').click({ position: { x: 4, y: 4 } });
+  await expect(avatarDialog).toHaveCount(0);
+
+  await page.locator('.topbar-avatar').click();
+  await page.getByRole('button', { name: 'Close preview' }).click();
+  await expect(avatarDialog).toHaveCount(0);
+
+  await page.locator('.topbar-avatar').click();
+  await page.keyboard.press('Escape');
+  await expect(avatarDialog).toHaveCount(0);
+
+  const avatarTrigger = page.locator('.topbar-avatar-trigger');
+  await expect(avatarTrigger).toHaveAccessibleName("View Nova's full-size avatar");
+  await avatarTrigger.focus();
+  await page.keyboard.press('Enter');
+  await expect(avatarDialog).toBeVisible();
+  await page.keyboard.press('Escape');
+
+  await page.getByTitle('Generate an image from this reply').first().click();
+  const chatImage = page.locator('img.msg-inline-image');
+  await expect(chatImage).toHaveAttribute('src', '/api/v1/media/media-1');
+  await chatImage.click();
+  await expect(page.getByRole('dialog', { name: 'Image preview' })).toBeVisible();
+  await expect(page.getByRole('dialog', { name: 'Image preview' }).locator('.media-preview-image')).toHaveAttribute(
+    'src',
+    /\/api\/v1\/media\/media-1$/,
+  );
+  await page.getByRole('button', { name: 'Close preview' }).click();
+  await chatImage.focus();
+  await page.keyboard.press('Enter');
+  await expect(page.getByRole('dialog', { name: 'Image preview' })).toBeVisible();
+});
+
 test('active direct media work exposes cancellation and returns cleanly to idle', async ({ page }) => {
   const fixture = await installAuthenticatedFixture(page, { holdMedia: true });
   await page.goto('/#/chats/chat-1');
@@ -200,6 +245,11 @@ test('settings review memory and media use only canonical APIs', async ({ page }
   await page.locator('.setting-row').filter({ hasText: 'Theme' }).locator('select').selectOption('light');
   await page.getByTestId('settings-save').click();
   await expect(page.getByText('Settings saved')).toBeVisible();
+  await page.getByTestId('settings-nav-personas').click();
+  const personaCard = page.getByTestId('persona-persona-1');
+  await personaCard.locator(':scope > summary').click();
+  await personaCard.locator('.setting-toggle-row').filter({ hasText: 'Allow persona to send images' }).locator('input').uncheck();
+  await personaCard.getByRole('button', { name: 'Save persona' }).click();
   await page.getByTestId('settings-nav-task-models').click();
   const taskModelCard = page.getByTestId('task-model-title_generation');
   await taskModelCard.locator(':scope > summary').click();
@@ -226,6 +276,7 @@ test('settings review memory and media use only canonical APIs', async ({ page }
   await expect(page.locator('img.msg-inline-image')).toHaveAttribute('src', '/api/v1/media/media-1');
   expect(fixture.memoryApproved).toBe(true);
   expect(fixture.settingsUpdated).toBe(true);
+  expect(fixture.personaUpdated).toBe(true);
   expect(fixture.taskModelUpdated).toBe(true);
   expect(fixture.mediaCatalogUpdated).toBe(true);
   expect(fixture.requestedPaths.some((path) => path.startsWith('/api/') && !path.startsWith('/api/v1/'))).toBe(false);
@@ -321,22 +372,25 @@ test('visual identity guides reference setup without exposing internal media IDs
     'src',
     '/api/v1/media/media-1',
   );
+  await page.getByRole('button', { name: 'Open generated image preview' }).click();
+  await expect(page.getByRole('dialog', { name: 'Image preview' })).toBeVisible();
+  await page.getByRole('button', { name: 'Close preview' }).click();
   await expect(page.getByRole('button', { name: 'Use as reference' })).toBeEnabled();
 });
 
-test('model media requests remain pending until the user approves them', async ({ page }) => {
+test('model video requests remain pending until the user approves them', async ({ page }) => {
   const chat = {
     id: 'chat-1', workspace_id: workspace.id, persona_id: persona.id, model_override: 'demo', memory_mode: 'saved',
     title: 'Capability chat', hidden_in_ui: false, created_at: 100, updated_at: 100,
   };
   const messages = [
-    { id: 'user-1', role: 'user', text: 'Show me a garden', created_at: 100 },
-    { id: 'assistant-1', role: 'assistant', text: 'I can create that.', created_at: 101 },
+    { id: 'user-1', role: 'user', text: 'Show me a garden video', created_at: 100 },
+    { id: 'assistant-1', role: 'assistant', text: 'I can start that video.', created_at: 101 },
   ];
-  let capabilityAttachment = chatAttachment('capability-1', 'queued');
+  let capabilityAttachment = chatAttachment('capability-1', 'queued', 'video');
   let capability = {
-    id: 'capability-1', capability_key: 'media.generate_image', status: 'pending_confirmation', permission_mode: 'confirm',
-    arguments: { prompt: 'a moonlit garden' }, result: null as Record<string, unknown> | null, error: null,
+    id: 'capability-1', capability_key: 'media.generate_video', status: 'pending_confirmation', permission_mode: 'confirm',
+    arguments: { prompt: 'a moonlit garden video' }, result: null as Record<string, unknown> | null, error: null,
     chat_id: chat.id, turn_id: 'turn-1', assistant_message_id: 'assistant-1', job_id: null as string | null,
     requested_at: 102,
     decided_at: null as number | null,
@@ -366,22 +420,22 @@ test('model media requests remain pending until the user approves them', async (
     else if (path === '/api/v1/memories') await json(route, { items: [] });
     else if (path === '/api/v1/capability-requests' && method === 'GET') await json(route, { items: [capability] });
     else if (path === '/api/v1/capability-requests/capability-1/approval' && method === 'POST') {
-      capabilityAttachment = chatAttachment('capability-1', 'queued');
+      capabilityAttachment = chatAttachment('capability-1', 'queued', 'video');
       capability = { ...capability, status: 'queued', job_id: 'media-job', decided_at: 103, attachment: capabilityAttachment };
       await json(route, capability);
     } else if (path === '/api/v1/capability-requests/capability-1' && method === 'GET') {
-      capabilityAttachment = chatAttachment('capability-1', 'completed');
+      capabilityAttachment = chatAttachment('capability-1', 'completed', 'video');
       capability = {
         ...capability,
         status: 'completed',
-        result: { text: 'Ready.\n\n![Generated image](/api/v1/media/media-1)', mediaId: 'media-1' },
+        result: { text: 'Ready.\n\n[Download generated video](/api/v1/media/video-1)', mediaId: 'video-1' },
         attachment: capabilityAttachment,
         started_at: 104,
         completed_at: 105,
       };
       await json(route, capability);
-    } else if (path === '/api/v1/media/media-1') {
-      await route.fulfill({ status: 200, contentType: 'image/png', body: Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=', 'base64') });
+    } else if (path === '/api/v1/media/video-1') {
+      await route.fulfill({ status: 200, contentType: 'video/mp4', body: Buffer.from('') });
     } else await json(route, { error: { code: 404, message: `Unhandled ${method} ${path}` } }, 404);
   });
 
@@ -389,7 +443,7 @@ test('model media requests remain pending until the user approves them', async (
   await expect(page.getByTestId('capability-request')).toContainText('Approval needed');
   await page.getByTestId('approve-capability').click();
   await expect(page.getByTestId('capability-request')).toHaveCount(0);
-  await expect(page.locator('.chat-attachment img')).toHaveAttribute('src', '/api/v1/media/media-1');
+  await expect(page.getByRole('button', { name: 'Play video' })).toBeVisible();
 });
 
 async function installAuthenticatedFixture(
@@ -400,6 +454,7 @@ async function installAuthenticatedFixture(
   turnBody: CapturedTurnBody | null;
   memoryApproved: boolean;
   settingsUpdated: boolean;
+  personaUpdated: boolean;
   taskModelUpdated: boolean;
   mediaCatalogUpdated: boolean;
   mediaCancelled: boolean;
@@ -409,6 +464,7 @@ async function installAuthenticatedFixture(
     turnBody: CapturedTurnBody | null;
     memoryApproved: boolean;
     settingsUpdated: boolean;
+    personaUpdated: boolean;
     taskModelUpdated: boolean;
     mediaCatalogUpdated: boolean;
     mediaCancelled: boolean;
@@ -417,6 +473,7 @@ async function installAuthenticatedFixture(
     turnBody: null,
     memoryApproved: false,
     settingsUpdated: false,
+    personaUpdated: false,
     taskModelUpdated: false,
     mediaCatalogUpdated: false,
     mediaCancelled: false,
@@ -470,6 +527,10 @@ async function installAuthenticatedFixture(
     else if (path === '/api/v1/models') await json(route, { models: ['demo'] });
     else if (path === '/api/v1/workspaces') await json(route, { items: [workspace] });
     else if (path === '/api/v1/personas') await json(route, { items: [persona] });
+    else if (path === '/api/v1/personas/persona-1' && method === 'PUT') {
+      result.personaUpdated = request.postDataJSON().allow_image_sends === false;
+      await json(route, { ...persona, ...request.postDataJSON() });
+    }
     else if (path === '/api/v1/chats' && method === 'GET') await json(route, { items: [chat] });
     else if (path === '/api/v1/settings' && method === 'GET') await json(route, settings);
     else if (path === '/api/v1/settings' && method === 'PUT') {
@@ -644,17 +705,19 @@ function job(id: string, status: 'queued' | 'running' | 'completed' | 'cancelled
 function chatAttachment(
   capabilityRequestId: string,
   status: 'queued' | 'running' | 'completed' | 'failed' | 'cancelled' | 'retried',
+  kind: 'image' | 'video' = 'image',
 ) {
   const completed = status === 'completed';
+  const mediaId = kind === 'image' ? 'media-1' : 'video-1';
   return {
     id: `attachment-${capabilityRequestId}`,
-    kind: 'image' as const,
+    kind,
     status,
     capability_request_id: capabilityRequestId,
-    media_id: completed ? 'media-1' : null,
-    content_url: completed ? '/api/v1/media/media-1' : null,
-    identity_state: 'unconditioned' as const,
-    safe_error: status === 'failed' ? 'That picture could not be made.' : null,
+    media_id: completed ? mediaId : null,
+    content_url: completed ? `/api/v1/media/${mediaId}` : null,
+    identity_state: kind === 'image' ? 'unconditioned' as const : 'not_applicable' as const,
+    safe_error: status === 'failed' ? `That ${kind === 'image' ? 'picture' : 'video'} could not be made.` : null,
     retry_available: ['failed', 'cancelled'].includes(status),
     created_at: 100,
     updated_at: 102,

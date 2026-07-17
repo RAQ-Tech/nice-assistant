@@ -159,6 +159,36 @@ class DeploymentGuardContractTests(unittest.TestCase):
         self.assertNotIn("restore_backup", guard)
         self.assertNotIn("docker system", guard.lower())
 
+    def test_successful_deploy_keeps_recreatable_rollback_without_a_second_container(self):
+        guard = GUARD.read_text(encoding="utf-8")
+        deploy_start = guard.index("deploy_action() {")
+        deploy = guard[deploy_start : guard.index('case "$ACTION" in', deploy_start)]
+        rollback = guard[guard.index("perform_rollback() {") : guard.index("inspect_action() {")]
+
+        self.assertIn("{state_version:2", guard)
+        self.assertIn("previous_definition:$previous_definition", guard)
+        self.assertIn('chmod 600 "$temporary"', guard)
+        self.assertIn('previous_definition_name="previous-container-definition.${deployment_stamp}.json"', deploy)
+        self.assertIn('write_state "$rollback_name"', deploy)
+        self.assertIn("cleanup_guard_rollback_containers", deploy)
+        self.assertIn('write_state "" "$previous_digest"', deploy)
+        self.assertLess(
+            deploy.index("cleanup_guard_rollback_containers"),
+            deploy.index('\'{ok:true,action:"deploy"'),
+        )
+
+        self.assertIn('container_exists "$rollback_container"', rollback)
+        self.assertIn('is_guard_rollback_name "$rollback_container"', rollback)
+        self.assertIn('previous_definition_file=$(previous_definition_path "$previous_definition")', rollback)
+        self.assertIn('create_payload "$previous_definition_file" "$previous_digest"', rollback)
+        self.assertIn('create_container_from_payload "$NICE_CONTAINER_NAME" "$rollback_payload"', rollback)
+        self.assertIn('[[ $(current_repo_digest "$NICE_CONTAINER_NAME") != "$previous_digest" ]]', rollback)
+
+        self.assertIn('"$NICE_CONTAINER_NAME".rollback.*', guard)
+        self.assertIn('[[ "$suffix" =~ ^[0-9]{14}$ ]]', guard)
+        self.assertNotIn("container prune", guard.lower())
+        self.assertNotIn('"$DOCKER" image rm', guard)
+
     def test_installer_validates_restrictions_before_authorizing_key(self):
         installer = INSTALLER.read_text(encoding="utf-8")
         validation = installer.index("validate-definition")

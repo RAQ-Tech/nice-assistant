@@ -1,6 +1,35 @@
-import { el } from './dom';
-import { readinessRow } from './settings_ui';
-import type { VisualIdentityProfile } from './types';
+import { el, formatDate } from './dom';
+import { readinessRow, settingsHeading, titleCase } from './settings_ui';
+import type { AppState, VisualIdentityProfile } from './types';
+
+export function identityImageButton(
+  url: string,
+  ariaLabel: string,
+  alt: string,
+  imageClass: string,
+  onOpen: (url: string) => void,
+): HTMLElement {
+  return el('button', {
+    class: 'identity-thumb-button',
+    title: 'Open larger view',
+    'aria-label': ariaLabel,
+    onclick: () => onOpen(url),
+  }, [el('img', { class: imageClass, src: url, alt })]);
+}
+
+export function identityAuditCard(events: AppState['identityEvents'][string]): HTMLElement {
+  return el('div', { class: 'persona-card' }, [
+    settingsHeading('Activity history', 'An owner-scoped audit of reference, profile, and comparison changes.'),
+    events.length
+      ? el('div', { class: 'identity-audit-list' }, events.slice(0, 30).map((event) =>
+          el('div', { class: 'manager-row' }, [
+            el('strong', { textContent: titleCase(event.action) }),
+            el('span', { class: 'meta', textContent: formatDate(event.created_at) }),
+          ]),
+        ))
+      : el('div', { class: 'meta', textContent: 'No visual identity activity has been recorded.' }),
+  ]);
+}
 
 export function identityReadinessCard(
   profile: VisualIdentityProfile,

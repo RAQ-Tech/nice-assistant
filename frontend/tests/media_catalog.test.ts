@@ -285,7 +285,7 @@ describe('Media catalog settings', () => {
     await vi.waitFor(() => expect(client.visualIdentity).toHaveBeenCalledWith('nova'));
   });
 
-  it('guides identity workflow import, provider inspection, exact binding, and plan retry', async () => {
+  it('guides identity workflow import, provider inspection, exact binding, and automatic image retry', async () => {
     const appState = createState();
     appState.settings = normalizeSettings({
       global_default_model: null,
@@ -328,9 +328,9 @@ describe('Media catalog settings', () => {
       compatible_model_ids: ['model-1'],
     };
     const replacement = {
-      id: 'capability-2', capability_key: 'media.generate_image', status: 'pending_confirmation' as const,
-      permission_mode: 'confirm' as const, arguments: { prompt: 'a portrait' }, result: null, error: null,
-      chat_id: 'chat-1', turn_id: 'turn-1', assistant_message_id: 'message-1', job_id: null,
+      id: 'capability-2', capability_key: 'media.generate_image', status: 'queued' as const,
+      permission_mode: 'auto' as const, arguments: { prompt: 'a portrait' }, result: null, error: null,
+      chat_id: 'chat-1', turn_id: null, assistant_message_id: 'message-1', job_id: 'job-2',
       requested_at: 2, decided_at: null, started_at: null, completed_at: null, expires_at: null,
       media_plan: {
         id: 'plan-2', source: 'coordinator' as const, status: 'ready' as const, kind: 'image' as const,
@@ -351,7 +351,7 @@ describe('Media catalog settings', () => {
         detected_node_types: ['IPAdapterAdvanced'], missing_node_types: [], asset_checks: [], warnings: [],
       }),
       createMediaCatalogResource: vi.fn().mockResolvedValue(savedWorkflow),
-      replanCapability: vi.fn().mockResolvedValue(replacement),
+      retryCapability: vi.fn().mockResolvedValue(replacement),
     } as unknown as ApiClient;
     const localDialogs = { prompt: vi.fn(), confirm: vi.fn(), info: vi.fn() } as unknown as Dialogs;
     const close = vi.fn();
@@ -367,7 +367,7 @@ describe('Media catalog settings', () => {
     render();
 
     expect(root.textContent).toContain('Identity control');
-    expect(root.textContent).toContain('blocked image request for Nova requires identity_control');
+    expect(root.textContent).toContain('failed image request for Nova requires identity_control');
     (root.querySelector('[data-testid="identity-workflow-setup-toggle"]') as HTMLButtonElement).click();
     expect(root.querySelector('[data-testid="identity-workflow-inspect"]')).toBeNull();
     (root.querySelector('[data-testid="identity-workflow-setup-toggle"]') as HTMLButtonElement).click();
@@ -435,7 +435,7 @@ describe('Media catalog settings', () => {
       (root.querySelector('[data-testid="identity-workflow-retry-plan"]') as HTMLButtonElement).disabled,
     ).toBe(false));
     (root.querySelector('[data-testid="identity-workflow-retry-plan"]') as HTMLButtonElement).click();
-    await vi.waitFor(() => expect(client.replanCapability).toHaveBeenCalledWith('capability-1'));
+    await vi.waitFor(() => expect(client.retryCapability).toHaveBeenCalledWith('capability-1'));
     expect(appState.mediaCatalogIdentitySetupIntent).toBeNull();
     expect(appState.capabilityRequests[0]?.id).toBe('capability-2');
     expect(close).toHaveBeenCalled();
