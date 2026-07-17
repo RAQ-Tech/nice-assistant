@@ -21,6 +21,13 @@ ports, environment, network settings, restart policy, or secrets.
   guard directly and accepted only `inspect`, `backup`, `deploy <digest>`,
   `health`, `logs`, and `rollback`. ADR 0025 keeps those deployment limits while
   moving the stable forced-command target to a permanent launcher.
+- Canonical root-owned `authorized_keys` ancestry remains the default.
+  Stock Unraid's one literal root-owned
+  `/root/.ssh -> /boot/config/ssh/root` persistence link is accepted only when
+  `/boot` is the exact VFAT mount with `fmask=0177` and `dmask=0077`, the
+  resolved ancestry is root-private, and a same-directory atomic-replacement
+  probe succeeds. A verified sibling recovery is retained through separate
+  replacement-key acceptance. Other symlink layouts remain rejected.
 - The guard configuration and captured deployment evidence are root-owned and
   mode `0600`; its state directory is mode `0700`. They never enter Git or chat.
 - Installation first captures the running Nice Assistant container, recreates a

@@ -86,6 +86,9 @@ class DeploymentGuardContractTests(unittest.TestCase):
         self.assertIn("unset BASH_ENV ENV CDPATH GLOBIGNORE", launcher)
         self.assertIn('exec 9>"$LOCK_FILE"', launcher)
         self.assertIn("flock -n 9", launcher)
+        self.assertIn("--arg guard_label", launcher)
+        self.assertIn('"com.nice-assistant.guard-update":$guard_label', launcher)
+        self.assertNotIn("--arg label", launcher)
         self.assertIn("/proc/self/fd/9", GUARD.read_text(encoding="utf-8"))
         self.assertNotIn("eval ", launcher)
         self.assertNotIn("docker compose", launcher.lower())
@@ -832,13 +835,19 @@ raise SystemExit(22)
         validation = installer.index('"$LAUNCHER_NEXT" bootstrap-guard')
         definition_capture = installer.index('"$LAUNCHER_NEXT" inspect')
         launcher_switch = installer.index('mv -f -- "$LAUNCHER_NEXT"')
-        authorization = installer.index('mv -f -- "$AUTHORIZED_KEYS_NEXT" "$AUTHORIZED_KEYS"')
+        authorization = installer.index('mv -fT -- "$AUTHORIZED_KEYS_NEXT" "$AUTHORIZED_KEYS"')
+        final_layout_validation = installer.index(
+            "validate_effective_authorized_keys_layout || {",
+            launcher_switch,
+        )
         self.assertLess(validation, authorization)
         self.assertLess(validation, launcher_switch)
         self.assertLess(validation, definition_capture)
         self.assertLess(definition_capture, launcher_switch)
         self.assertLess(definition_capture, authorization)
         self.assertLess(launcher_switch, authorization)
+        self.assertLess(launcher_switch, final_layout_validation)
+        self.assertLess(final_layout_validation, authorization)
         self.assertIn("--guard-image IMMUTABLE_DIGEST", installer)
         self.assertIn("validate_source()", installer)
         self.assertIn('[[ "$source" != *,* && "$source" != *[[:space:]]* ]]', installer)
@@ -855,8 +864,66 @@ raise SystemExit(22)
         self.assertIn('PUBLIC_KEY_STAGED="$STATE_DIR/.deployment-public-key.$$"', installer)
         self.assertIn('install -o root -g root -m 0600 "$PUBLIC_KEY" "$PUBLIC_KEY_STAGED"', installer)
         self.assertIn('ssh-keygen -l -f "$PUBLIC_KEY_STAGED"', installer)
-        self.assertIn("'NF == 0 || $NF != marker'", installer)
-        self.assertIn('mv -f -- "$AUTHORIZED_KEYS_NEXT" "$AUTHORIZED_KEYS"', installer)
+        self.assertIn('sub(/\\r$/, "", field)', installer)
+        self.assertIn("if (NF == 0 || field != marker) print", installer)
+        self.assertIn('mv -fT -- "$AUTHORIZED_KEYS_NEXT" "$AUTHORIZED_KEYS"', installer)
+        self.assertNotIn('touch "$AUTHORIZED_KEYS"', installer)
+        self.assertNotIn('chown root:root "$AUTHORIZED_KEYS"', installer)
+        self.assertNotIn('chmod 0600 "$AUTHORIZED_KEYS"', installer)
+        self.assertIn("AUTHORIZED_KEYS_INPUT=/dev/null", installer)
+        self.assertIn("AUTHORIZED_KEYS_EXPECTED_SHA256=", installer)
+        self.assertIn("authorized_keys changed concurrently", installer)
+        self.assertIn("AUTHORIZED_KEYS_UNMANAGED_SHA256=", installer)
+        self.assertIn("AUTHORIZED_KEYS_STAGED_SHA256=", installer)
+        self.assertIn("AUTHORIZED_KEYS_FINAL_SHA256=", installer)
+        self.assertIn("AUTHORIZED_KEYS_FINAL_UNMANAGED_SHA256=", installer)
+        self.assertIn(
+            'AUTHORIZED_KEYS_RECOVERY="$AUTHORIZED_KEYS_DIR/.authorized_keys.nice-assistant.recovery"',
+            installer,
+        )
+        self.assertIn("AUTHORIZED_KEYS_SWITCHED=true", installer)
+        self.assertIn(
+            'install -o root -g root -m 0600 \\\n      "$AUTHORIZED_KEYS_RECOVERY" "$restore_candidate"',
+            installer,
+        )
+        self.assertIn('mv -fT -- "$restore_candidate" "$AUTHORIZED_KEYS"', installer)
+        switched = installer.index("AUTHORIZED_KEYS_SWITCHED=true", launcher_switch)
+        self.assertLess(switched, authorization)
+        self.assertIn(
+            'recovery_hash=$(sha256sum "$AUTHORIZED_KEYS_RECOVERY"',
+            installer,
+        )
+        self.assertIn(
+            '"$recovery_hash" != "$AUTHORIZED_KEYS_EXPECTED_SHA256"',
+            installer,
+        )
+        self.assertIn(
+            '"$current_hash" != "$AUTHORIZED_KEYS_STAGED_SHA256"',
+            installer,
+        )
+        self.assertIn("restored authorized_keys metadata did not verify", installer)
+        self.assertIn("restored authorized_keys content did not verify", installer)
+        self.assertIn("trap cleanup EXIT", installer)
+        self.assertIn("trap 'exit 129' HUP", installer)
+        self.assertIn("trap 'exit 130' INT", installer)
+        self.assertIn("trap 'exit 143' TERM", installer)
+        self.assertNotIn("trap cleanup EXIT HUP INT TERM", installer)
+        transaction_cleanup = installer.index(
+            'rm -f -- "$INSTALL_JOURNAL"',
+            authorization,
+        )
+        signal_mask = installer.index("trap '' HUP INT TERM", transaction_cleanup)
+        disarm = installer.index("AUTHORIZED_KEYS_SWITCHED=false", signal_mask)
+        trap_removal = installer.index("trap - EXIT HUP INT TERM", disarm)
+        self.assertLess(transaction_cleanup, signal_mask)
+        self.assertLess(signal_mask, disarm)
+        self.assertLess(disarm, trap_removal)
+        self.assertIn("a pending authorized_keys enrollment recovery", installer)
+        self.assertIn("remove the root-only enrollment recovery", installer)
+        pre_switch = installer.rindex("\nsync\n", launcher_switch, authorization)
+        self.assertLess(final_layout_validation, pre_switch)
+        self.assertLess(pre_switch, authorization)
+        self.assertIn("sync", installer)
         self.assertIn("secure_directory_ancestors()", installer)
         self.assertIn('[[ -d "$current" && ! -L "$current" ]]', installer)
         self.assertIn("[[ $(stat -c '%u' \"$current\") == 0 ]]", installer)
@@ -881,6 +948,89 @@ raise SystemExit(22)
         self.assertIn("write_install_phase launcher-switched", installer)
         self.assertIn("/usr/bin/env -i", installer)
         self.assertIn("SSH_ORIGINAL_COMMAND=", installer)
+
+    def test_installer_limits_unraid_authorized_keys_symlink_to_the_exact_private_layout(self):
+        installer = INSTALLER.read_text(encoding="utf-8")
+        canonical_branch = installer.index("validate_generic_authorized_keys_layout()")
+        unraid_branch = installer.index("UNRAID_SSH_DIR=/root/.ssh")
+        authorization = installer.index('mv -fT -- "$AUTHORIZED_KEYS_NEXT" "$AUTHORIZED_KEYS"')
+        self.assertLess(canonical_branch, unraid_branch)
+        self.assertLess(unraid_branch, authorization)
+        self.assertIn("AUTHORIZED_KEYS_REQUESTED=$AUTHORIZED_KEYS", installer)
+        self.assertIn('"$AUTHORIZED_KEYS_REQUESTED" != /boot', installer)
+        self.assertIn('"$AUTHORIZED_KEYS_REQUESTED" != /boot/*', installer)
+        self.assertIn(
+            '$(readlink -m -- "$AUTHORIZED_KEYS_REQUESTED") == "$AUTHORIZED_KEYS_REQUESTED"',
+            installer,
+        )
+        self.assertIn("UNRAID_SSH_TARGET=/boot/config/ssh/root", installer)
+        self.assertIn(
+            'UNRAID_AUTHORIZED_KEYS="$UNRAID_SSH_TARGET/authorized_keys"',
+            installer,
+        )
+        self.assertIn(
+            '"$AUTHORIZED_KEYS_REQUESTED" == /root/.ssh/authorized_keys',
+            installer,
+        )
+        self.assertIn("$(stat -c '%u:%g' \"$UNRAID_SSH_DIR\") == 0:0", installer)
+        self.assertIn(
+            '$(readlink -- "$UNRAID_SSH_DIR") == "$UNRAID_SSH_TARGET"',
+            installer,
+        )
+        self.assertIn(
+            '$(readlink -m -- "$AUTHORIZED_KEYS_REQUESTED") == "$UNRAID_AUTHORIZED_KEYS"',
+            installer,
+        )
+        self.assertIn("secure_directory_ancestors /root", installer)
+        self.assertIn(
+            'findmnt -rn -T "$UNRAID_SSH_TARGET" -o TARGET,FSTYPE,OPTIONS',
+            installer,
+        )
+        self.assertIn("mount_record=$(", installer)
+        self.assertIn(") || return 1", installer)
+        self.assertIn(
+            '[[ -n "$mount_record" && "$mount_record" != *$\'\\n\'* ]]',
+            installer,
+        )
+        self.assertNotIn("mapfile -t mount_lines", installer)
+        self.assertIn('"$mount_target" == /boot', installer)
+        self.assertIn('"$mount_fstype" == vfat', installer)
+        self.assertIn('",$mount_options," == *,rw,*', installer)
+        self.assertIn('",$mount_options," == *,fmask=0177,*', installer)
+        self.assertIn('",$mount_options," == *,dmask=0077,*', installer)
+        self.assertIn(
+            "$(stat -f -c '%T' \"$UNRAID_SSH_TARGET\") == msdos",
+            installer,
+        )
+        self.assertIn('secure_directory_ancestors "$UNRAID_SSH_TARGET"', installer)
+        self.assertIn("AUTHORIZED_KEYS=$UNRAID_AUTHORIZED_KEYS", installer)
+        self.assertIn("AUTHORIZED_KEYS_DIR=$UNRAID_SSH_TARGET", installer)
+        self.assertIn("AUTHORIZED_KEYS_LAYOUT=unraid", installer)
+        self.assertIn("secure_authorized_keys_file()", installer)
+        self.assertIn("$(stat -c '%u:%g' \"$path\") == 0:0", installer)
+        self.assertIn("$(stat -c '%a' \"$path\") == 600", installer)
+        self.assertIn("$(stat -c '%h' \"$path\") == 1", installer)
+        self.assertIn(
+            'mktemp "$AUTHORIZED_KEYS_DIR/.nice-assistant-auth.XXXXXX"',
+            installer,
+        )
+        self.assertIn('mv -fT -- "$AUTHORIZED_KEYS_PROBE"', installer)
+        self.assertIn("printf 'replaced\\n' >\"$AUTHORIZED_KEYS_PROBE_NEXT\"", installer)
+        self.assertIn(
+            "$(stat -c '%a' \"$AUTHORIZED_KEYS_PROBE_NEXT\") == 600",
+            installer,
+        )
+        self.assertIn("AUTHORIZED_KEYS_PROBE_DEVICE=", installer)
+        self.assertIn("AUTHORIZED_KEYS_DIR_DEVICE=", installer)
+        final_validation = installer.index(
+            "validate_effective_authorized_keys_layout || {",
+            installer.index("write_install_phase launcher-switched"),
+        )
+        self.assertLess(final_validation, authorization)
+        self.assertIn("authorized_keys changed concurrently", installer)
+        self.assertIn("authorized_keys appeared concurrently", installer)
+        self.assertIn("authorized_keys replacement did not verify", installer)
+        self.assertNotIn("readlink -f", installer)
 
     def test_laptop_tools_use_dedicated_key_and_strict_noninteractive_ssh(self):
         remote = REMOTE.read_text(encoding="utf-8")

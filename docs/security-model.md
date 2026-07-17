@@ -60,6 +60,25 @@ immediately-previous guard rollback. Root-owned configuration fixes one
 container name, one GHCR repository, one private state directory, and optionally
 one Unraid template.
 
+The enrollment installer rejects symlinked `authorized_keys` ancestry except
+for stock Unraid's literal root-owned
+`/root/.ssh -> /boot/config/ssh/root` persistence link. That exception also
+requires an exact `/boot` VFAT mount, root-only target ancestry, effective
+`fmask=0177` and `dmask=0077`, a non-symlinked key file, and a successful
+same-directory atomic-replacement probe. It resolves writes to the verified
+target and still replaces only the marked Nice Assistant entry. No other
+symlink target or permissive mount is accepted, and the flash share must not be
+writable or exported to clients.
+
+The installer hashes the live authorization immediately before replacement,
+flushes the staged file, verifies the result, and automatically restores a
+same-directory root-only recovery copy if post-switch verification fails. That
+copy remains until the replacement key succeeds and the retired key is denied
+from a separate client. This protects ordinary concurrent administration and
+recoverable filesystem failures; host root, a compromised Docker daemon, and a
+non-cooperating root writer in the final comparison window remain outside the
+threat boundary.
+
 Replaceable guards are immutable bundles behind atomic relative links. The
 launcher accepts update code only from the exact verified application
 RepoDigest currently running, with the configured repository and expected OCI

@@ -43,7 +43,7 @@ done
   -n "$STATE_DIR" && -n "$AUTHORIZED_KEYS" ]] || usage
 
 validate_source() {
-  local source=$1 address prefix= octet
+  local source=$1 address prefix='' octet
   local -a octets
   [[ "$source" != *,* && "$source" != *[[:space:]]* ]] || return 1
   if [[ "$source" == */* ]]; then
@@ -88,14 +88,13 @@ validate_source "$SOURCE" || usage
 
 for command in \
   docker curl jq flock stat install chown cp ssh-keygen sha256sum readlink \
-  bash awk mktemp dirname mv chmod touch tr ln rm; do
+  bash awk mktemp dirname mv chmod touch tr ln rm findmnt sync; do
   command -v "$command" >/dev/null || {
     echo "$command is required" >&2
     exit 69
   }
 done
 [[ $(readlink -m -- "$STATE_DIR") == "$STATE_DIR" ]] || usage
-[[ $(readlink -m -- "$AUTHORIZED_KEYS") == "$AUTHORIZED_KEYS" ]] || usage
 if [[ -n "$UNRAID_TEMPLATE" ]]; then
   [[ $(readlink -m -- "$UNRAID_TEMPLATE") == "$UNRAID_TEMPLATE" ]] || usage
 fi
@@ -118,7 +117,7 @@ LAUNCHER_SOURCE="$SOURCE_DIR/nice_assistant_deploy_launcher.sh"
 }
 
 secure_directory_ancestors() {
-  local path=$1 current= component mode
+  local path=$1 current='' component mode
   local -a components
   IFS=/ read -r -a components <<<"${path#/}"
   for component in "${components[@]}"; do
@@ -132,11 +131,117 @@ secure_directory_ancestors() {
   done
 }
 
-AUTHORIZED_KEYS_DIR=$(dirname -- "$AUTHORIZED_KEYS")
+secure_authorized_keys_file() {
+  local path=$1
+  [[ -f "$path" && ! -L "$path" &&
+    $(stat -c '%u:%g' "$path") == 0:0 &&
+    $(stat -c '%a' "$path") == 600 &&
+    $(stat -c '%h' "$path") == 1 ]]
+}
+
+validate_authorized_keys_file_if_present() {
+  local path=$1
+  if [[ -e "$path" || -L "$path" ]]; then
+    secure_authorized_keys_file "$path"
+  fi
+}
+
+validate_generic_authorized_keys_layout() {
+  [[ "$AUTHORIZED_KEYS_REQUESTED" != /boot &&
+    "$AUTHORIZED_KEYS_REQUESTED" != /boot/* &&
+    $(readlink -m -- "$AUTHORIZED_KEYS_REQUESTED") == "$AUTHORIZED_KEYS_REQUESTED" ]] &&
+    secure_directory_ancestors "$AUTHORIZED_KEYS_DIR" &&
+    validate_authorized_keys_file_if_present "$AUTHORIZED_KEYS"
+}
+
+validate_unraid_authorized_keys_layout() {
+  local mount_record='' mount_target='' mount_fstype='' mount_options='' mount_extra=''
+  [[ "$AUTHORIZED_KEYS_REQUESTED" == /root/.ssh/authorized_keys &&
+    -d /root &&
+    ! -L /root ]] || return 1
+  secure_directory_ancestors /root || return 1
+  [[ -L "$UNRAID_SSH_DIR" &&
+    $(stat -c '%u:%g' "$UNRAID_SSH_DIR") == 0:0 &&
+    $(readlink -- "$UNRAID_SSH_DIR") == "$UNRAID_SSH_TARGET" &&
+    $(readlink -m -- "$UNRAID_SSH_DIR") == "$UNRAID_SSH_TARGET" &&
+    $(readlink -m -- "$AUTHORIZED_KEYS_REQUESTED") == "$UNRAID_AUTHORIZED_KEYS" ]] ||
+    return 1
+  secure_directory_ancestors "$UNRAID_SSH_TARGET" || return 1
+  [[ $(stat -c '%u:%g' "$UNRAID_SSH_TARGET") == 0:0 &&
+    $(stat -c '%a' "$UNRAID_SSH_TARGET") == 700 ]] || return 1
+  mount_record=$(
+    findmnt -rn -T "$UNRAID_SSH_TARGET" -o TARGET,FSTYPE,OPTIONS
+  ) || return 1
+  [[ -n "$mount_record" && "$mount_record" != *$'\n'* ]] || return 1
+  read -r mount_target mount_fstype mount_options mount_extra <<<"$mount_record"
+  [[ "$mount_target" == /boot &&
+    "$mount_fstype" == vfat &&
+    -z "$mount_extra" &&
+    ",$mount_options," == *,rw,* &&
+    ",$mount_options," == *,fmask=0177,* &&
+    ",$mount_options," == *,dmask=0077,* &&
+    $(stat -f -c '%T' "$UNRAID_SSH_TARGET") == msdos ]] || return 1
+  validate_authorized_keys_file_if_present "$AUTHORIZED_KEYS"
+}
+
+validate_effective_authorized_keys_layout() {
+  if [[ "$AUTHORIZED_KEYS_LAYOUT" == unraid ]]; then
+    validate_unraid_authorized_keys_layout
+  else
+    validate_generic_authorized_keys_layout
+  fi
+}
+
 secure_directory_ancestors "$STATE_DIR" ||
   { echo "deployment state ancestors are insecure" >&2; exit 78; }
-secure_directory_ancestors "$AUTHORIZED_KEYS_DIR" ||
-  { echo "authorized_keys ancestors are insecure" >&2; exit 78; }
+
+AUTHORIZED_KEYS_REQUESTED=$AUTHORIZED_KEYS
+AUTHORIZED_KEYS_DIR=$(dirname -- "$AUTHORIZED_KEYS_REQUESTED")
+AUTHORIZED_KEYS_LAYOUT=generic
+if [[ "$AUTHORIZED_KEYS_REQUESTED" == /root/.ssh/authorized_keys &&
+  -L /root/.ssh ]]; then
+  # Unraid persists root SSH configuration on the flash device and exposes it
+  # through one fixed symlink. Accept only that exact root-owned platform
+  # layout, with the restrictive masks that make directories 0700 and files
+  # 0600. Every other symlinked authorized_keys ancestry remains forbidden.
+  UNRAID_SSH_DIR=/root/.ssh
+  UNRAID_SSH_TARGET=/boot/config/ssh/root
+  UNRAID_AUTHORIZED_KEYS="$UNRAID_SSH_TARGET/authorized_keys"
+  AUTHORIZED_KEYS=$UNRAID_AUTHORIZED_KEYS
+  AUTHORIZED_KEYS_DIR=$UNRAID_SSH_TARGET
+  AUTHORIZED_KEYS_LAYOUT=unraid
+  validate_unraid_authorized_keys_layout || {
+    echo "authorized_keys symlink layout is not the supported Unraid persistence path" >&2
+    exit 78
+  }
+  (
+    AUTHORIZED_KEYS_PROBE=$(mktemp "$AUTHORIZED_KEYS_DIR/.nice-assistant-auth.XXXXXX")
+    AUTHORIZED_KEYS_PROBE_NEXT="${AUTHORIZED_KEYS_PROBE}.next"
+    trap 'rm -f -- "$AUTHORIZED_KEYS_PROBE" "$AUTHORIZED_KEYS_PROBE_NEXT"' EXIT
+    printf 'probe\n' >"$AUTHORIZED_KEYS_PROBE"
+    printf 'replaced\n' >"$AUTHORIZED_KEYS_PROBE_NEXT"
+    chown root:root "$AUTHORIZED_KEYS_PROBE"
+    chown root:root "$AUTHORIZED_KEYS_PROBE_NEXT"
+    chmod 0600 "$AUTHORIZED_KEYS_PROBE"
+    chmod 0600 "$AUTHORIZED_KEYS_PROBE_NEXT"
+    mv -fT -- "$AUTHORIZED_KEYS_PROBE" "$AUTHORIZED_KEYS_PROBE_NEXT"
+    AUTHORIZED_KEYS_PROBE_DEVICE=$(stat -c '%d' "$AUTHORIZED_KEYS_PROBE_NEXT")
+    AUTHORIZED_KEYS_DIR_DEVICE=$(stat -c '%d' "$AUTHORIZED_KEYS_DIR")
+    [[ -f "$AUTHORIZED_KEYS_PROBE_NEXT" &&
+      ! -L "$AUTHORIZED_KEYS_PROBE_NEXT" &&
+      $(stat -c '%u:%g' "$AUTHORIZED_KEYS_PROBE_NEXT") == 0:0 &&
+      $(stat -c '%a' "$AUTHORIZED_KEYS_PROBE_NEXT") == 600 &&
+      $(stat -c '%h' "$AUTHORIZED_KEYS_PROBE_NEXT") == 1 &&
+      "$AUTHORIZED_KEYS_PROBE_DEVICE" == "$AUTHORIZED_KEYS_DIR_DEVICE" &&
+      $(<"$AUTHORIZED_KEYS_PROBE_NEXT") == probe ]]
+  ) || {
+    echo "the Unraid SSH persistence filesystem contract failed" >&2
+    exit 78
+  }
+else
+  validate_generic_authorized_keys_layout ||
+    { echo "authorized_keys path is insecure" >&2; exit 78; }
+fi
 
 for directory in "$STATE_DIR" "$INSTALL_DIR" "$STATE_DATA_DIR"; do
   if [[ -e "$directory" && ( ! -d "$directory" || -L "$directory" ) ]]; then
@@ -185,11 +290,168 @@ CONFIG_BACKUP="$STATE_DIR/guard.conf.pre-launcher"
 CONFIG_BACKUP_NEXT="$STATE_DIR/.guard.conf.pre-launcher.next"
 PUBLIC_KEY_STAGED="$STATE_DIR/.deployment-public-key.$$"
 AUTHORIZED_KEYS_NEXT=
-cleanup() {
-  rm -f -- "$CONFIG_NEXT" "$LAUNCHER_NEXT" "$PUBLIC_KEY_STAGED"
-  [[ -z "$AUTHORIZED_KEYS_NEXT" ]] || rm -f -- "$AUTHORIZED_KEYS_NEXT"
+AUTHORIZED_KEYS_RECOVERY="$AUTHORIZED_KEYS_DIR/.authorized_keys.nice-assistant.recovery"
+AUTHORIZED_KEYS_RECOVERY_PREPARED=false
+AUTHORIZED_KEYS_EXPECTED_EXISTS=false
+AUTHORIZED_KEYS_EXPECTED_SHA256=
+AUTHORIZED_KEYS_STAGED_SHA256=
+AUTHORIZED_KEYS_SWITCHED=false
+
+restore_authorized_keys_after_failure() {
+  local recovery_hash='' current_hash='' restored_hash='' restore_candidate=''
+  local recovery_device='' directory_device=''
+  if [[ "$AUTHORIZED_KEYS_EXPECTED_EXISTS" == true ]]; then
+    recovery_device=$(stat -c '%d' "$AUTHORIZED_KEYS_RECOVERY") || return 1
+    directory_device=$(stat -c '%d' "$AUTHORIZED_KEYS_DIR") || return 1
+    if ! secure_authorized_keys_file "$AUTHORIZED_KEYS_RECOVERY" ||
+      [[ "$recovery_device" != "$directory_device" ]]; then
+      echo "authorized_keys recovery is insecure; use the still-open administrative session" >&2
+      return 1
+    fi
+    recovery_hash=$(sha256sum "$AUTHORIZED_KEYS_RECOVERY" | awk '{print $1}') ||
+      return 1
+    if [[ -z "$AUTHORIZED_KEYS_EXPECTED_SHA256" ||
+      "$recovery_hash" != "$AUTHORIZED_KEYS_EXPECTED_SHA256" ]]; then
+      echo "authorized_keys recovery hash changed; use the still-open administrative session" >&2
+      return 1
+    fi
+    if [[ -e "$AUTHORIZED_KEYS" || -L "$AUTHORIZED_KEYS" ]]; then
+      validate_effective_authorized_keys_layout &&
+        secure_authorized_keys_file "$AUTHORIZED_KEYS" || {
+        echo "authorized_keys state is ambiguous; use the still-open administrative session" >&2
+        return 1
+      }
+      current_hash=$(sha256sum "$AUTHORIZED_KEYS" | awk '{print $1}') ||
+        return 1
+      if [[ "$current_hash" == "$AUTHORIZED_KEYS_EXPECTED_SHA256" ]]; then
+        rm -f -- "$AUTHORIZED_KEYS_RECOVERY" || return 1
+        sync || return 1
+        AUTHORIZED_KEYS_SWITCHED=false
+        AUTHORIZED_KEYS_RECOVERY_PREPARED=false
+        printf '%s\n' \
+          "the previous authorized_keys file remained active after an enrollment failure" >&2 ||
+          true
+        return 0
+      fi
+      if [[ -z "$AUTHORIZED_KEYS_STAGED_SHA256" ||
+        "$current_hash" != "$AUTHORIZED_KEYS_STAGED_SHA256" ]]; then
+        echo "authorized_keys changed after enrollment; recovery was preserved for the administrative session" >&2
+        return 1
+      fi
+    else
+      validate_effective_authorized_keys_layout || {
+        echo "authorized_keys layout changed; use the still-open administrative session" >&2
+        return 1
+      }
+    fi
+    restore_candidate=$(mktemp "$AUTHORIZED_KEYS_DIR/.authorized_keys.nice-assistant.restore.XXXXXX") ||
+      return 1
+    install -o root -g root -m 0600 \
+      "$AUTHORIZED_KEYS_RECOVERY" "$restore_candidate" || {
+      rm -f -- "$restore_candidate"
+      return 1
+    }
+    recovery_device=$(stat -c '%d' "$restore_candidate") || {
+      rm -f -- "$restore_candidate"
+      return 1
+    }
+    recovery_hash=$(sha256sum "$restore_candidate" | awk '{print $1}') || {
+      rm -f -- "$restore_candidate"
+      return 1
+    }
+    secure_authorized_keys_file "$restore_candidate" &&
+      [[ "$recovery_device" == "$directory_device" &&
+        "$recovery_hash" == "$AUTHORIZED_KEYS_EXPECTED_SHA256" ]] || {
+      rm -f -- "$restore_candidate"
+      echo "the authorized_keys restore candidate is insecure" >&2
+      return 1
+    }
+    mv -fT -- "$restore_candidate" "$AUTHORIZED_KEYS" || {
+      rm -f -- "$restore_candidate"
+      echo "authorized_keys recovery rename failed; use the still-open administrative session" >&2
+      return 1
+    }
+    restore_candidate=
+    sync || {
+      echo "restored authorized_keys did not flush; keep the administrative session open" >&2
+      return 1
+    }
+    validate_effective_authorized_keys_layout &&
+      secure_authorized_keys_file "$AUTHORIZED_KEYS" || {
+      echo "restored authorized_keys metadata did not verify; keep the administrative session open" >&2
+      return 1
+    }
+    restored_hash=$(sha256sum "$AUTHORIZED_KEYS" | awk '{print $1}') ||
+      return 1
+    [[ "$restored_hash" == "$AUTHORIZED_KEYS_EXPECTED_SHA256" ]] || {
+      echo "restored authorized_keys content did not verify; keep the administrative session open" >&2
+      return 1
+    }
+    rm -f -- "$AUTHORIZED_KEYS_RECOVERY" || return 1
+    sync || return 1
+    AUTHORIZED_KEYS_SWITCHED=false
+    AUTHORIZED_KEYS_RECOVERY_PREPARED=false
+    printf '%s\n' \
+      "the previous authorized_keys file was restored after an enrollment failure" >&2 ||
+      true
+    return 0
+  fi
+
+  if [[ -e "$AUTHORIZED_KEYS" || -L "$AUTHORIZED_KEYS" ]]; then
+    validate_effective_authorized_keys_layout &&
+      secure_authorized_keys_file "$AUTHORIZED_KEYS" || {
+      echo "new authorized_keys state is ambiguous; use the still-open administrative session" >&2
+      return 1
+    }
+    current_hash=$(sha256sum "$AUTHORIZED_KEYS" | awk '{print $1}') ||
+      return 1
+    [[ -n "$AUTHORIZED_KEYS_STAGED_SHA256" &&
+      "$current_hash" == "$AUTHORIZED_KEYS_STAGED_SHA256" ]] || {
+      echo "new authorized_keys content is ambiguous; use the still-open administrative session" >&2
+      return 1
+    }
+    rm -f -- "$AUTHORIZED_KEYS" || return 1
+    sync || return 1
+  fi
+  validate_effective_authorized_keys_layout || {
+    echo "authorized_keys absence recovery did not verify; keep the administrative session open" >&2
+    return 1
+  }
+  rm -f -- "$AUTHORIZED_KEYS_RECOVERY" || return 1
+  sync || return 1
+  AUTHORIZED_KEYS_SWITCHED=false
+  AUTHORIZED_KEYS_RECOVERY_PREPARED=false
+  printf '%s\n' \
+    "the newly created authorized_keys file was removed after an enrollment failure" >&2 ||
+    true
 }
-trap cleanup EXIT HUP INT TERM
+
+cleanup() {
+  local recovery_status=0
+  trap - EXIT HUP INT TERM
+  if [[ "$AUTHORIZED_KEYS_SWITCHED" == true ]]; then
+    set +e
+    restore_authorized_keys_after_failure
+    recovery_status=$?
+    set -e
+    if ((recovery_status != 0)); then
+      echo "automatic authorized_keys recovery was not completed; keep the administrative session open" >&2
+    fi
+  elif [[ "$AUTHORIZED_KEYS_RECOVERY_PREPARED" == true ]]; then
+    rm -f -- "$AUTHORIZED_KEYS_RECOVERY" ||
+      echo "the unused authorized_keys recovery could not be removed" >&2
+  fi
+  rm -f -- "$CONFIG_NEXT" "$LAUNCHER_NEXT" "$PUBLIC_KEY_STAGED" ||
+    echo "launcher staging cleanup was incomplete" >&2
+  if [[ -n "$AUTHORIZED_KEYS_NEXT" ]]; then
+    rm -f -- "$AUTHORIZED_KEYS_NEXT" ||
+      echo "authorized_keys staging cleanup was incomplete" >&2
+  fi
+}
+trap cleanup EXIT
+trap 'exit 129' HUP
+trap 'exit 130' INT
+trap 'exit 143' TERM
 
 secure_root_file() {
   local path=$1 mode=$2
@@ -237,13 +499,8 @@ fi
 mkdir -p -- "$AUTHORIZED_KEYS_DIR"
 chown root:root "$AUTHORIZED_KEYS_DIR"
 chmod 0700 "$AUTHORIZED_KEYS_DIR"
-if [[ -e "$AUTHORIZED_KEYS" && ( ! -f "$AUTHORIZED_KEYS" || -L "$AUTHORIZED_KEYS" ) ]]; then
-  echo "authorized_keys is insecure" >&2
-  exit 78
-fi
-touch "$AUTHORIZED_KEYS"
-chown root:root "$AUTHORIZED_KEYS"
-chmod 0600 "$AUTHORIZED_KEYS"
+validate_effective_authorized_keys_layout ||
+  { echo "authorized_keys layout changed before staging" >&2; exit 78; }
 
 install -o root -g root -m 0600 "$PUBLIC_KEY" "$PUBLIC_KEY_STAGED"
 ssh-keygen -l -f "$PUBLIC_KEY_STAGED" >/dev/null 2>&1 || {
@@ -256,8 +513,61 @@ KEY=$(tr -d '\r\n' <"$PUBLIC_KEY_STAGED")
   exit 65
 }
 MARKER="nice-assistant-deploy-guard"
+AUTHORIZED_KEYS_INPUT=/dev/null
+if [[ -e "$AUTHORIZED_KEYS" || -L "$AUTHORIZED_KEYS" ]]; then
+  secure_authorized_keys_file "$AUTHORIZED_KEYS" || {
+    echo "authorized_keys is insecure" >&2
+    exit 78
+  }
+  AUTHORIZED_KEYS_EXPECTED_EXISTS=true
+  AUTHORIZED_KEYS_INPUT=$AUTHORIZED_KEYS
+  AUTHORIZED_KEYS_EXPECTED_SHA256=$(sha256sum "$AUTHORIZED_KEYS" | awk '{print $1}')
+fi
+if [[ -e "$AUTHORIZED_KEYS_RECOVERY" || -L "$AUTHORIZED_KEYS_RECOVERY" ]]; then
+  echo "a pending authorized_keys enrollment recovery must be resolved first" >&2
+  exit 75
+fi
+if [[ "$AUTHORIZED_KEYS_EXPECTED_EXISTS" == true ]]; then
+  install -o root -g root -m 0600 "$AUTHORIZED_KEYS" "$AUTHORIZED_KEYS_RECOVERY"
+else
+  : >"$AUTHORIZED_KEYS_RECOVERY"
+  chown root:root "$AUTHORIZED_KEYS_RECOVERY"
+  chmod 0600 "$AUTHORIZED_KEYS_RECOVERY"
+fi
+AUTHORIZED_KEYS_RECOVERY_PREPARED=true
+AUTHORIZED_KEYS_RECOVERY_DEVICE=$(stat -c '%d' "$AUTHORIZED_KEYS_RECOVERY")
+AUTHORIZED_KEYS_DIR_DEVICE=$(stat -c '%d' "$AUTHORIZED_KEYS_DIR")
+[[ $(stat -c '%u:%g' "$AUTHORIZED_KEYS_RECOVERY") == 0:0 &&
+  $(stat -c '%a' "$AUTHORIZED_KEYS_RECOVERY") == 600 &&
+  $(stat -c '%h' "$AUTHORIZED_KEYS_RECOVERY") == 1 &&
+  "$AUTHORIZED_KEYS_RECOVERY_DEVICE" == "$AUTHORIZED_KEYS_DIR_DEVICE" ]] || {
+  echo "the authorized_keys enrollment recovery is insecure" >&2
+  exit 78
+}
+if [[ "$AUTHORIZED_KEYS_EXPECTED_EXISTS" == true ]]; then
+  AUTHORIZED_KEYS_RECOVERY_SHA256=$(
+    sha256sum "$AUTHORIZED_KEYS_RECOVERY" | awk '{print $1}'
+  )
+  [[ "$AUTHORIZED_KEYS_RECOVERY_SHA256" == "$AUTHORIZED_KEYS_EXPECTED_SHA256" ]] || {
+    echo "the authorized_keys enrollment recovery did not verify" >&2
+    exit 78
+  }
+else
+  [[ ! -s "$AUTHORIZED_KEYS_RECOVERY" ]] || {
+    echo "the authorized_keys absence recovery did not verify" >&2
+    exit 78
+  }
+fi
+AUTHORIZED_KEYS_UNMANAGED_SHA256=$(
+  awk -v marker="$MARKER" \
+    '{ field = $NF; sub(/\r$/, "", field); if (NF == 0 || field != marker) print }' \
+    "$AUTHORIZED_KEYS_INPUT" |
+    sha256sum | awk '{print $1}'
+)
 AUTHORIZED_KEYS_NEXT=$(mktemp "$AUTHORIZED_KEYS_DIR/.authorized_keys.nice-assistant.XXXXXX")
-awk -v marker="$MARKER" 'NF == 0 || $NF != marker' "$AUTHORIZED_KEYS" >"$AUTHORIZED_KEYS_NEXT"
+awk -v marker="$MARKER" \
+  '{ field = $NF; sub(/\r$/, "", field); if (NF == 0 || field != marker) print }' \
+  "$AUTHORIZED_KEYS_INPUT" >"$AUTHORIZED_KEYS_NEXT"
 FORCED_COMMAND='/usr/bin/env -i PATH=/usr/sbin:/usr/bin:/sbin:/bin LC_ALL=C SSH_ORIGINAL_COMMAND="$SSH_ORIGINAL_COMMAND" '"$INSTALL_DIR/nice-assistant-deploy-guard"
 ESCAPED_FORCED_COMMAND=${FORCED_COMMAND//\"/\\\"}
 printf 'restrict,from="%s",command="%s" %s %s\n' \
@@ -265,6 +575,31 @@ printf 'restrict,from="%s",command="%s" %s %s\n' \
   >>"$AUTHORIZED_KEYS_NEXT"
 chown root:root "$AUTHORIZED_KEYS_NEXT"
 chmod 0600 "$AUTHORIZED_KEYS_NEXT"
+AUTHORIZED_KEYS_NEXT_DEVICE=$(stat -c '%d' "$AUTHORIZED_KEYS_NEXT")
+AUTHORIZED_KEYS_DIR_DEVICE=$(stat -c '%d' "$AUTHORIZED_KEYS_DIR")
+[[ $(stat -c '%u:%g' "$AUTHORIZED_KEYS_NEXT") == 0:0 &&
+  $(stat -c '%a' "$AUTHORIZED_KEYS_NEXT") == 600 &&
+  $(stat -c '%h' "$AUTHORIZED_KEYS_NEXT") == 1 &&
+  "$AUTHORIZED_KEYS_NEXT_DEVICE" == "$AUTHORIZED_KEYS_DIR_DEVICE" &&
+  $(awk -v marker="$MARKER" \
+    '{ field = $NF; sub(/\r$/, "", field); if (field == marker) count++ }
+      END { print count + 0 }' \
+    "$AUTHORIZED_KEYS_NEXT") == 1 ]] || {
+  echo "the staged authorized_keys file is insecure" >&2
+  exit 78
+}
+AUTHORIZED_KEYS_STAGED_SHA256=$(
+  sha256sum "$AUTHORIZED_KEYS_NEXT" | awk '{print $1}'
+)
+[[ $(
+  awk -v marker="$MARKER" \
+    '{ field = $NF; sub(/\r$/, "", field); if (NF == 0 || field != marker) print }' \
+    "$AUTHORIZED_KEYS_NEXT" |
+    sha256sum | awk '{print $1}'
+) == "$AUTHORIZED_KEYS_UNMANAGED_SHA256" ]] || {
+  echo "the staged authorized_keys file changed unrelated entries" >&2
+  exit 78
+}
 
 if [[ -e "$LIVE_CONFIG" ]]; then
   secure_root_file "$LIVE_CONFIG" 600 ||
@@ -366,10 +701,61 @@ chown root:root "$LIVE_LAUNCHER"
 chmod 0700 "$LIVE_LAUNCHER"
 write_install_phase launcher-switched
 
-mv -f -- "$AUTHORIZED_KEYS_NEXT" "$AUTHORIZED_KEYS"
+validate_effective_authorized_keys_layout || {
+  echo "authorized_keys layout changed before authorization" >&2
+  exit 78
+}
+if [[ "$AUTHORIZED_KEYS_EXPECTED_EXISTS" == true ]]; then
+  AUTHORIZED_KEYS_CURRENT_SHA256=$(
+    sha256sum "$AUTHORIZED_KEYS" | awk '{print $1}'
+  )
+  [[ -e "$AUTHORIZED_KEYS" &&
+    "$AUTHORIZED_KEYS_CURRENT_SHA256" == "$AUTHORIZED_KEYS_EXPECTED_SHA256" ]] || {
+    echo "authorized_keys changed concurrently; authorization was not replaced" >&2
+    exit 75
+  }
+else
+  [[ ! -e "$AUTHORIZED_KEYS" && ! -L "$AUTHORIZED_KEYS" ]] || {
+    echo "authorized_keys appeared concurrently; authorization was not replaced" >&2
+    exit 75
+  }
+fi
+sync
+AUTHORIZED_KEYS_SWITCHED=true
+mv -fT -- "$AUTHORIZED_KEYS_NEXT" "$AUTHORIZED_KEYS"
 AUTHORIZED_KEYS_NEXT=
-
+sync
+AUTHORIZED_KEYS_FINAL_SHA256=$(
+  sha256sum "$AUTHORIZED_KEYS" | awk '{print $1}'
+)
+AUTHORIZED_KEYS_FINAL_UNMANAGED_SHA256=$(
+  awk -v marker="$MARKER" \
+    '{ field = $NF; sub(/\r$/, "", field); if (NF == 0 || field != marker) print }' \
+    "$AUTHORIZED_KEYS" |
+    sha256sum | awk '{print $1}'
+)
+validate_effective_authorized_keys_layout &&
+  [[ "$AUTHORIZED_KEYS_FINAL_SHA256" == "$AUTHORIZED_KEYS_STAGED_SHA256" &&
+    $(awk -v marker="$MARKER" \
+      '{ field = $NF; sub(/\r$/, "", field); if (field == marker) count++ }
+        END { print count + 0 }' \
+      "$AUTHORIZED_KEYS") == 1 &&
+    "$AUTHORIZED_KEYS_FINAL_UNMANAGED_SHA256" == "$AUTHORIZED_KEYS_UNMANAGED_SHA256" ]] || {
+  echo "authorized_keys replacement did not verify" >&2
+  exit 78
+}
 rm -f -- "$INSTALL_JOURNAL" "$INSTALL_JOURNAL_NEXT" \
   "$CONFIG_BACKUP" "$CONFIG_BACKUP_NEXT" "$PUBLIC_KEY_STAGED"
+# From this point the transaction is accepted. Ignore a signal only across the
+# non-fallible in-memory commit and trap removal so a half-committed enrollment
+# cannot escape rollback.
+trap '' HUP INT TERM
+AUTHORIZED_KEYS_SWITCHED=false
+AUTHORIZED_KEYS_RECOVERY_PREPARED=false
 trap - EXIT HUP INT TERM
-echo "Nice Assistant permanent deployment launcher installed and definition-checked."
+printf '%s\n' \
+  "Nice Assistant permanent deployment launcher installed and definition-checked." ||
+  true
+printf '%s\n' \
+  "Keep the administrative session open; remove the root-only enrollment recovery only after the replacement key passes remote acceptance." ||
+  true

@@ -36,8 +36,20 @@ For a guarded promotion, additionally record:
 - initial bundle version/hash, relative `current`/`previous` state, installer
   definition-probe success, and whether an Unraid template or captured Docker
   definition is authoritative;
-- for a legacy migration, preservation of unrelated authorized keys and the
-  atomic switch from the direct guard;
+- for a legacy migration, the pre-update `authorized_keys` hash, a successful
+  compare immediately before same-directory atomic replacement, preservation
+  of every unrelated entry, and exactly one managed marker afterward;
+- when using stock Unraid SSH persistence, the literal root-owned
+  `/root/.ssh -> /boot/config/ssh/root` link, exact `/boot` VFAT mount,
+  `fmask=0177`, `dmask=0077`, root-private resolved ancestry, and successful
+  atomic-write probe; also confirm that enrollment neither exported the flash
+  share nor made it writable to clients;
+- successful restricted access with the replacement key, denial of the retired
+  key, before/after hashes proving that only the marked entry changed, and
+  removal of the root-only enrollment recovery only after both checks pass;
+- the atomic switch from the direct guard and survival of both the flash-backed
+  authorization and root-only launcher state across the host's normal
+  persistence boundary;
 - remote update from the exact running digest, a rejected candidate leaving the
   old bundle active, exact helper cleanup, guard rollback, and re-update;
 - prior and candidate immutable digests and source revisions;

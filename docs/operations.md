@@ -55,6 +55,27 @@ host's normal persistence boundary. A permissive share or the FAT boot
 filesystem is not a valid guard-code location; select a private
 symlink-capable host path instead of weakening the checks.
 
+Stock Unraid persists root SSH configuration through the exact
+`/root/.ssh -> /boot/config/ssh/root` symlink. The installer accepts only that
+literal platform layout: the link and resolved ancestry must be root-owned, the
+target must be the `/boot` VFAT mount, and its effective `fmask=0177` and
+`dmask=0077` must keep files `0600` and directories `0700`. It proves a
+same-directory temporary write and atomic rename before replacing the single
+managed key entry through the resolved target. The flash share must not be
+client-writable or exported. Any other symlinked `authorized_keys` path remains
+rejected. A canonical non-symlinked SSH path continues to use the general
+root-owned-ancestor checks.
+
+Enrollment keeps a root-only sibling recovery copy and restores it
+automatically if post-replacement verification fails. Keep the supervised
+administrative session open, prove `inspect` and `health` with the replacement
+key, prove the retired key is denied, then remove the
+`.authorized_keys.nice-assistant.recovery` sibling and run `sync`. A pending
+recovery intentionally blocks another enrollment so a known-good authorization
+cannot be overwritten silently. The pre-switch hash comparison detects normal
+concurrent administrator edits; a hostile or non-cooperating root process
+remains outside the guard's threat boundary.
+
 The stable authorized-key command is
 `<state-dir>/bin/nice-assistant-deploy-guard`, a small permanent launcher.
 Replaceable guard code and jq filters are stored under root-only,

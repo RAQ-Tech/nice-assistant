@@ -121,6 +121,7 @@ def main() -> int:
                 "tests/test_capabilities.py",
                 "tests/test_context_service.py",
                 "tests/test_deployment_guard.py",
+                "tests/test_unraid_installer_acceptance.py",
                 "tests/test_human_experience_scenarios.py",
                 "tests/test_database_foundation.py",
                 "tests/test_database_foundation.py",

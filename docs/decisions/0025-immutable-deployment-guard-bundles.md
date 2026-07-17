@@ -49,6 +49,18 @@ repair path partially written or unusable.
   transactional migration. New installations require one supervised bootstrap.
   Routine future bundle updates do not require an administrative shell.
   Replacing the permanent launcher itself remains deliberately supervised.
+- Canonical, non-symlinked root-owned `authorized_keys` ancestry remains the
+  default. The only symlink exception is stock Unraid's literal root-owned
+  `/root/.ssh -> /boot/config/ssh/root` layout: `/boot` must be the exact VFAT
+  mount with `fmask=0177` and `dmask=0077`, the resolved ancestry must remain
+  root-private, and a same-directory atomic-write probe must pass. Enrollment
+  does not require exporting the flash share or making it writable to clients.
+- Key replacement snapshots the original file, preserves every unmarked entry,
+  prepares exactly one managed entry beside the target, and compares the live
+  file with the snapshot immediately before atomic rename. Concurrent changes
+  fail closed instead of being overwritten. A root-only sibling recovery is
+  restored automatically when post-rename verification fails and remains
+  available until separate-client replacement-key acceptance succeeds.
 
 ## Alternatives considered
 
@@ -71,10 +83,16 @@ validation. A compromised Docker daemon or host root remains outside this
 boundary.
 
 The legacy migration stages and validates the first bundle before atomically
-switching the stable launcher path, then installs the prepared exact managed
-authorized-key entry last. Unrelated authorized keys are preserved. Failure
-before the launcher switch leaves the legacy guard usable; the root-only
-installation journal recovers interruptions after either switch.
+switching the stable launcher path, then compare-and-swaps the prepared exact
+managed authorized-key entry last. Unrelated authorized keys are preserved.
+Failure before the launcher switch leaves the legacy guard usable; the
+root-only installation journal recovers interruptions after either switch.
+
+On stock Unraid, only the restricted SSH authorization is stored through the
+flash-backed root SSH path. The launcher, immutable bundles, definition, lock,
+and journal remain on a separate root-only persistent filesystem with real Unix
+ownership, modes, symlinks, and atomic rename. Live acceptance must prove both
+sides survive the host's normal persistence boundary.
 
 ## Verification
 
@@ -85,5 +103,10 @@ rejection, stopped helpers, wrong-mode cleanup, and interrupted pointer
 recovery. Static checks cover the remaining manifest schema/path/type/size,
 installer ordering, client, and installed-image contracts. Live acceptance
 additionally exercises installation, update, guard rollback, re-update,
-application deployment, exact helper cleanup, persistence, and the
-single-container invariant.
+application deployment, exact helper cleanup, and the single-container
+invariant. Stock-Unraid enrollment additionally proves the exact
+symlink/mount/mask branch, no client-writable or exported flash share, new-key
+success, old-key denial, one managed marker, unchanged hashes for unrelated
+entries, recovery-file retirement, and persistence of both authorization and
+launcher state. A non-cooperating host-root writer remains outside the
+compare-before-rename concurrency boundary.

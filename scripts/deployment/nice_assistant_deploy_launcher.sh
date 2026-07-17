@@ -153,7 +153,9 @@ bundle_target() {
 cleanup_pointer_temps() {
   local current_next="$BUNDLE_ROOT/.current.next"
   local previous_next="$BUNDLE_ROOT/.previous.next"
-  local next_target current_target= previous_target=
+  local next_target
+  local current_target=''
+  local previous_target=''
   local has_current_next=false has_previous_next=false
   [[ -e "$current_next" || -L "$current_next" ]] && has_current_next=true
   [[ -e "$previous_next" || -L "$previous_next" ]] && has_previous_next=true
@@ -426,8 +428,8 @@ verify_definition_probe() {
   expected_serialized=$("$JQ" -cS . "$expected_payload") || return 1
   [[ "$candidate_serialized" == "$expected_serialized" ]] ||
     return 1
-  "$JQ" --arg label "$hex" \
-      '.Labels = ((.Labels // {}) + {"com.nice-assistant.guard-update":$label})' \
+  "$JQ" --arg guard_label "$hex" \
+      '.Labels = ((.Labels // {}) + {"com.nice-assistant.guard-update":$guard_label})' \
       "$candidate_payload" >"$payload" || return 1
   chmod 600 "$payload"
   create_container_from_payload "$probe" "$payload" "$response" || return 1
@@ -462,7 +464,9 @@ validate_candidate_programs() {
 }
 
 activate_bundle() {
-  local target=$1 old_target= current_next previous_next
+  local target=$1
+  local old_target=''
+  local current_next previous_next
   if [[ -e "$CURRENT_LINK" || -L "$CURRENT_LINK" ]]; then
     old_target=$(bundle_target "$CURRENT_LINK") ||
       die "active deployment guard bundle is invalid" 78

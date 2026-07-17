@@ -43,8 +43,25 @@ switching; exact interrupted-update cleanup; legacy key-migration ordering; and
 the PowerShell update/rollback contract. The executable fake-Docker/Linux
 harness covers sanitized delegation, bootstrap/update, mixed-case provenance,
 wrong digest and mode rejection, stopped-helper cleanup, and interrupted pointer
-recovery. Remaining hostile-file and installer-interruption cases are static
-contracts plus required live acceptance, not claimed as executable simulations.
+recovery. Hostile-file and installer-interruption cases outside the bounded
+root-capable simulations below remain static contracts plus required live
+acceptance; they are not claimed as executable simulations.
+Installer contracts also pin the only symlink exception to stock Unraid's
+root-owned `/root/.ssh -> /boot/config/ssh/root` layout, including the exact
+VFAT mount, restrictive masks, resolved ancestry, replacement probe,
+compare-before-switch behavior, and root-only recovery. Root-capable executable
+tests cover canonical success, duplicate-marker collapse, pre-switch failure,
+fresh installation with no prior authorization file, the relocated
+stock-Unraid branch, wrong-target rejection, and final revalidation after a
+target swap. They also inject `TERM` before and at the commit boundary, a
+rename that completes before reporting failure, post-rename validation
+failure for both existing and absent authorization files, an unexpected
+concurrent post-switch edit, and a recovery flush failure. Those cases prove
+that the installer either restores the original authorization, removes a
+newly created authorization, or preserves both the ambiguous live file and
+its verified recovery copy without claiming success. Live Unraid enrollment
+must still exercise the real VFAT branch and replacement/retired-key checks
+before enrollment is considered accepted.
 
 Container verification also proves `.local`, environment files, the dedicated
 deployment-key filename, and ignored remote configuration are absent from the
