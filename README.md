@@ -16,7 +16,7 @@ deliberately still later roadmap work.
 ## Unraid quick setup
 
 - **Container Name:** `nice-assistant`
-- **Repository:** `ghcr.io/raq-tech/nice-assistant` (or `ghcr.io/raq-tech/nice-assistant:latest`)
+- **Repository:** `ghcr.io/raq-tech/nice-assistant@sha256:<accepted-digest>`
 - **Image port:** `3000`
 - **Port mapping:** `3000:3000`
 - **WebUI:** `http://[IP]:3000`
@@ -32,17 +32,22 @@ On container startup, application code runs from the selected image at
 artifacts only. An older `/data/project` directory is left untouched but is no
 longer executed, preventing mixed code after an update or rollback.
 
-When this repository gets new commits on `main`, the GitHub Actions workflow publishes a refreshed `:latest` image to GHCR. In Unraid, using the repository above lets the **Update** button pull and redeploy that new image.
+When this repository gets new commits on `main`, the GitHub Actions workflow
+publishes immutable content plus convenience tags. `:latest` can help with a
+manual trial, but it is not revision or acceptance evidence. Production should
+retain the accepted immutable digest so an update cannot reuse ambiguous cached
+tag state.
 
 The public acceptance checklist and deliberately unaccepted capabilities are in
 [`docs/deployment-acceptance.md`](docs/deployment-acceptance.md). Keep exact
 deployment evidence under the ignored `.local/` directory.
 
-Autonomous promotions use the dedicated-key forced-command guard documented in
+Autonomous promotions use the dedicated-key forced-command launcher documented in
 [`docs/operations.md`](docs/operations.md#guarded-production-deployment). It
-accepts only immutable Nice Assistant digests and bounded backup, health, log,
-and compatible container-rollback actions; installation requires one supervised
-server session and never grants a general remote shell.
+accepts only bounded Nice Assistant deployment actions and can atomically update
+its immutable guard bundle from the exact running application digest. A new
+installation, or the one-time migration from the legacy direct guard, requires a
+supervised server session and never grants a general remote shell.
 
 ## Environment variables (defaults)
 

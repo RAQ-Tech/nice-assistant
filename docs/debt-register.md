@@ -101,6 +101,10 @@ change that alters them.
 - Deterministic human-experience scenarios cover critical contracts, but emotional
   tone and speech quality still require a future operator-approved listening
   evaluation; tests do not claim subjective voice quality.
+- The immutable deployment-guard bundle foundation is implemented, but the
+  existing private server still runs the legacy direct-guard enrollment until
+  its one-time supervised launcher migration and live rollback/re-update
+  acceptance complete.
 - Capability intent remains a probabilistic Task Model decision outside the
   narrow deterministic permission boundaries. Literal text-only response
   contracts are blocked before planning, but broader precision still requires

@@ -147,7 +147,8 @@ additional catalog breadth does not take priority over them.
     supporting image generation through an explicit warned fallback while
     retaining strict conditioning as a user-selectable policy.
 
-22. **Human picture-message delivery — delivered.** Ordinary explicit image
+22. **Human picture-message delivery — implementation published; installed
+    acceptance pending.** Ordinary explicit image
     requests auto-run under a saved policy, while deterministic negative-intent
     gating prevents story/discussion jobs. Direct and planned work share durable
     transcript attachments, reload recovery, compact cancel/retry/error UI,
@@ -155,7 +156,8 @@ additional catalog breadth does not take priority over them.
     persisted blur control defaulted off. Multiple configured catalog backends
     are readiness-filtered before deterministic selection. See ADRs 0019–0020.
 
-23. **Human conversation cleanup — delivered.** Persona replies commit before
+23. **Human conversation cleanup — implementation published; installed
+    acceptance pending.** Persona replies commit before
     independent title, capability, and memory follow-ups. Clear image requests
     buffer persona prose through a durable-evidence claim guard. The chat memory
     action creates an editable pending fact instead of promoting raw assistant
@@ -164,6 +166,15 @@ additional catalog breadth does not take priority over them.
     evaluations cover long conversations, corrections, persona switching, memory
     boundaries, media/provider degradation, and completed-file Kokoro behavior.
     See ADR 0021.
+
+24. **Self-maintaining restricted deployment guard — implementation
+    complete, live migration pending.** A permanent forced-command launcher now
+    selects immutable guard bundles, accepts updates only from the exact running
+    application digest, validates candidate payload/configuration independently,
+    and activates atomically. The existing private deployment still needs its
+    one-time supervised migration followed by remote update, guard
+    rollback/re-update, one-container deployment, and browser acceptance. See
+    ADR 0025.
 
 Steps are delivered and reviewed independently. Step 11 cannot select providers
 until a future listening decision is approved. Any future deployment acceptance

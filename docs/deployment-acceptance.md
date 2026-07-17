@@ -32,14 +32,21 @@ Record the following locally for each real deployment:
 
 For a guarded promotion, additionally record:
 
-- installer definition-probe success and whether an Unraid template or captured
-  Docker definition is authoritative;
+- permanent launcher ownership/mode and the exact managed forced-command target;
+- initial bundle version/hash, relative `current`/`previous` state, installer
+  definition-probe success, and whether an Unraid template or captured Docker
+  definition is authoritative;
+- for a legacy migration, preservation of unrelated authorized keys and the
+  atomic switch from the direct guard;
+- remote update from the exact running digest, a rejected candidate leaving the
+  old bundle active, exact helper cleanup, guard rollback, and re-update;
 - prior and candidate immutable digests and source revisions;
 - fresh backup verification and candidate migration revision;
 - whether container-only rollback is database-compatible;
 - effective configuration, Docker health, `/health`, `/ready`, startup-log, and
   digest/revision acceptance;
-- confirmation that successful acceptance left one Nice Assistant container and
+- confirmation that no extraction/probe helper remains, no unrelated container
+  changed, and successful acceptance left one Nice Assistant container and
   retained the prior immutable digest plus root-only definition rather than a
   standing rollback duplicate;
 - automatic rollback result when a recoverable candidate failure is exercised;
@@ -67,9 +74,11 @@ destructive live restore also remains an explicitly authorized operator drill.
 Completed-file Kokoro text cleanup and manual interruption are supported and must
 not be described as streaming speech or full barge-in.
 
-The restricted deployment guard has completed supervised key enrollment,
+The legacy restricted deployment guard completed supervised key enrollment,
 definition comparison, and three immutable-digest promotions on the accepted
-private deployment. Exact evidence remains in the ignored local record. Every
-new installation is still unaccepted until its own supervised key enrollment
-and stopped-probe comparison pass; source tests cannot substitute for that
-acceptance.
+private deployment. The permanent-launcher corrective migration is not accepted
+until the live update, guard rollback/re-update, one-container deployment, and
+installed-browser evidence above pass. Exact evidence remains in the ignored
+local record. Every new installation is likewise unaccepted until its own
+supervised enrollment and stopped-probe comparison pass; source tests cannot
+substitute for that acceptance.

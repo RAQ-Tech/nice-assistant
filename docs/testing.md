@@ -33,14 +33,37 @@ container from it. A successful image build is insufficient because entrypoint,
 installed dependency, port, and lifespan failures occur only at container
 startup.
 
-Deployment-guard changes additionally run `tests/test_deployment_guard.py`. The
-contract verifies shell syntax, exact forced-command and immutable-digest
-boundaries, effective configuration preservation, verified backup and candidate
-migration requirements, single-container success cleanup, legacy and
-definition-based container-only rollback limits, and strict dedicated-key SSH
-behavior. Real installation must still run the guard's stopped-probe definition
-comparison. Promotion must then use the immutable GHCR digest and complete the
-private server and installed-browser acceptance records.
+Deployment-guard changes additionally run `tests/test_deployment_guard.py`.
+Launcher coverage includes shell syntax; exact action arity and injection
+rejection; running-digest, repository, source, revision, and downgrade policy;
+raw manifest hashes and installed modes; manifest path/type/size/link contracts;
+non-executing extraction; independent payload and canonical configuration
+comparison; shared-lock and sanitized delegation; atomic current/previous
+switching; exact interrupted-update cleanup; legacy key-migration ordering; and
+the PowerShell update/rollback contract. The executable fake-Docker/Linux
+harness covers sanitized delegation, bootstrap/update, mixed-case provenance,
+wrong digest and mode rejection, stopped-helper cleanup, and interrupted pointer
+recovery. Remaining hostile-file and installer-interruption cases are static
+contracts plus required live acceptance, not claimed as executable simulations.
+
+Container verification also proves `.local`, environment files, the dedicated
+deployment-key filename, and ignored remote configuration are absent from the
+installed image. A clean public-repository audit alone does not prove build
+context privacy.
+
+Guard release review must also prove that `bundle_version` increased whenever
+the guard program, either jq filter, or manifest metadata changed from the
+previous published bundle, and that the final manifest hashes match the exact
+LF bytes shipped in the image. Equal-version content changes are a release
+error even though the launcher safely rejects them at installation time.
+
+The delegated guard contract separately covers backup and candidate migration,
+single-container success cleanup, legacy and definition-based container
+rollback, and strict dedicated-key SSH behavior. The built image must contain
+the manifest and bundle files with their declared modes. Real installation must
+then exercise update, guard rollback/re-update, the stopped-probe definition
+comparison, immutable application deployment, and private installed-browser
+acceptance.
 
 ## Test layers
 

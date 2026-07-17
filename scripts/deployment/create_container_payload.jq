@@ -5,7 +5,9 @@ def clean_endpoint($container):
       | if length == 0 then null else . end),
     Links: (.Links // null),
     DriverOpts: (.DriverOpts // null),
-    IPAMConfig: (.IPAMConfig // null)
+    IPAMConfig: (.IPAMConfig // null),
+    MacAddress: ((.MacAddress // "") | if . == "" then null else . end),
+    GwPriority: ((.GwPriority // 0) | if . == 0 then null else . end)
   } | with_entries(select(.value != null and .value != {}));
 
 .[0] as $container |

@@ -53,22 +53,41 @@ fixed server adapters rather than browser-supplied URLs.
 
 The optional production deployment key is not a general administrative key. Its
 root `authorized_keys` entry is source-restricted, uses OpenSSH `restrict`, and
-forces the repository's deployment guard. The guard accepts only Nice Assistant
-inspect, verified backup, immutable-digest deploy, health, bounded redacted logs,
-and compatible container rollback. Its root-owned configuration fixes one
+forces a small permanent launcher. Allowed commands are Nice Assistant inspect,
+verified backup, immutable-digest deploy, health, bounded redacted logs,
+compatible container rollback, exact-running-digest guard update, and
+immediately-previous guard rollback. Root-owned configuration fixes one
 container name, one GHCR repository, one private state directory, and optionally
 one Unraid template.
 
-The guard cannot execute an arbitrary command, accept a mutable tag, restore a
-database, downgrade a schema, alter credentials, expose a port, or target a
-different container. Installation is deliberately supervised and authorizes
-the key only after a stopped-probe comparison proves the captured Docker
-definition preserves the working container configuration. Successful deployment
-removes its temporary stopped rollback container and keeps only the prior
-approved digest and root-only definition. Cleanup matches exact guard-owned
-rollback names and never prunes Docker images or containers generally. The
-laptop client uses a dedicated key, strict host-key checking, `BatchMode`, and
-`IdentitiesOnly`; exact addresses and fingerprints remain outside Git.
+Replaceable guards are immutable bundles behind atomic relative links. The
+launcher accepts update code only from the exact verified application
+RepoDigest currently running, with the configured repository and expected OCI
+source/revision labels. The running image is the operator/deployment acceptance
+boundary; the launcher does not maintain a separate signed acceptance ledger.
+It rejects declared image volumes and copies four fixed
+paths from a stopped, networkless, read-only, nonprivileged extraction
+container; neither the image nor candidate guard is executed. Strict manifest,
+file-type, link-count, mode, size, hash, syntax, monotonic-version, independent
+payload, and dual-normalization checks precede activation. OCI labels establish
+the expected publication identity but are not cryptographic signatures.
+
+Launcher and guard share one lock, and delegation receives an empty environment
+plus only the verified config and inherited lock. Root-only journaling authorizes
+cleanup of exact stopped helpers and one exact staging path, never broad Docker
+cleanup. The launcher cannot accept a mutable tag, restore a database, downgrade
+a schema, alter credentials, expose a port, or target a different container.
+Successful deployment removes its temporary rollback duplicate and keeps the
+prior digest and root-only definition. The laptop client uses a dedicated key,
+strict host-key checking, `BatchMode`, and `IdentitiesOnly`; exact addresses and
+fingerprints remain outside Git. The legacy direct-guard layout requires one
+supervised migration, and launcher replacement remains supervised.
+
+Private operator files are also excluded from the Docker build context. The
+installed image build fails if `.local`, a deployment private-key name, or the
+ignored remote configuration survives `COPY`. This protects local images as
+well as Git history; a key ever included in an older local image must be rotated
+before that image/cache is treated as harmless.
 
 ## Capability permissions
 

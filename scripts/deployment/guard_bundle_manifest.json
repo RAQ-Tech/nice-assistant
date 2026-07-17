@@ -1,0 +1,19 @@
+{
+  "schema_version": 1,
+  "launcher_protocol_version": 1,
+  "bundle_version": 1,
+  "files": {
+    "nice_assistant_deploy_guard.sh": {
+      "sha256": "72ec3cffa34e287b112386d80ccf4842f19203332fa94b2d74ae800e907deeba",
+      "mode": "0700"
+    },
+    "create_container_payload.jq": {
+      "sha256": "114aa5b333266fefb891f5419f1c8da6d3967d071aa69052d1565a16dc7d9134",
+      "mode": "0600"
+    },
+    "normalize_container_config.jq": {
+      "sha256": "81657a1e261b4dc4d938a319914654bec3725a5900f44220afcb3dbb87fafe61",
+      "mode": "0600"
+    }
+  }
+}

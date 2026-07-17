@@ -19,7 +19,7 @@ not depend on a secondary repository-metadata API call before the image build.
 Routine production promotion uses the restricted scripts under
 `scripts/deployment`; it does not use a general-purpose remote shell. During one
 supervised root session, generate a dedicated laptop key, confirm the server SSH
-host fingerprint, and install the forced-command guard:
+host fingerprint, and install the permanent forced-command launcher:
 
 ```powershell
 pwsh -File scripts/deployment/new_laptop_deploy_key.ps1
@@ -29,6 +29,7 @@ pwsh -File scripts/deployment/new_laptop_deploy_key.ps1
 bash scripts/deployment/install_unraid_deploy_guard.sh \
   --container nice-assistant \
   --image-prefix ghcr.io/OWNER/nice-assistant \
+  --guard-image ghcr.io/OWNER/nice-assistant@sha256:DIGEST \
   --public-key /PATH/TO/DEDICATED_PUBLIC_KEY \
   --source CLIENT_ADDRESS_OR_CIDR \
   --state-dir /ROOT_ONLY/NICE_ASSISTANT_DEPLOYMENT \
@@ -37,10 +38,42 @@ bash scripts/deployment/install_unraid_deploy_guard.sh \
 ```
 
 Use exact installation values only in the supervised shell and ignored local
-records. The installer refuses to authorize the key until the running
-container's effective definition can recreate a stopped, normalized probe. If
-no usable Unraid template exists, omit `--unraid-template`; the captured Docker
-definition becomes the root-only deployment source of truth.
+records. `--guard-image` is an immutable image already reviewed for this
+repository. The installer refuses to authorize the key until its fixed guard
+bundle passes manifest, checksum, program, payload, and stopped-probe checks. It
+then verifies the running container's approved-repository digest/revision and
+persists its effective definition at mode `0600`. If no usable Unraid template
+exists, omit `--unraid-template`; that captured Docker definition becomes the
+root-only deployment source of truth.
+
+The state directory must be on a persistent filesystem with root-owned,
+non-writable ancestors and real Unix `0600`/`0700` modes, executable files,
+relative symlinks, and atomic rename. The installer proves the ownership and
+filesystem mechanics before changing the live guard; the operator must select a
+persistent host location, and live acceptance must confirm it survives the
+host's normal persistence boundary. A permissive share or the FAT boot
+filesystem is not a valid guard-code location; select a private
+symlink-capable host path instead of weakening the checks.
+
+The stable authorized-key command is
+`<state-dir>/bin/nice-assistant-deploy-guard`, a small permanent launcher.
+Replaceable guard code and jq filters are stored under root-only,
+digest-named `guard-bundles/releases/` directories. Relative `current` and
+`previous` links select validated bundles atomically; `guard.conf` remains
+outside them. The launcher itself is intentionally changed only in a supervised
+root session.
+
+### One-time legacy migration
+
+An installation enrolled before ADR 0025 points the same forced-command path at
+the guard directly. Rerun the installer once with `--guard-image` during a
+supervised root session. It stages and validates the new bundle first, preserves
+all unrelated authorized keys, replaces only the exact managed marker entry,
+atomically replaces the stable launcher path, and switches the prepared managed
+authorized-key entry last. A failure before the launcher switch leaves the
+direct guard usable; the installation journal deterministically recovers an
+interruption after either switch. This is the final unavoidable supervised
+migration for that legacy layout, not a recurring promotion step.
 
 Configure a private SSH alias and key path in ignored
 `.local/deployment/remote.json`:
@@ -48,16 +81,21 @@ Configure a private SSH alias and key path in ignored
 ```json
 {
   "host_alias": "nice-assistant-deploy",
-  "key_path": ".local/deployment/nice_assistant_deploy_ed25519"
+  "key_path": "$HOME/.ssh/nice_assistant_deploy_ed25519"
 }
 ```
 
-The alias owns the private address, root user, pinned host key, and any source
-routing. Routine calls are noninteractive and host-key-strict:
+Only this path reference belongs in `.local`; the private key itself must remain
+outside the repository in the operating system's protected SSH directory. The
+client expands a leading `$HOME/` or `~/` and rejects repository-contained key
+paths. The alias owns the private address, root user, pinned host key, and any
+source routing. Routine calls are noninteractive and host-key-strict:
 
 ```powershell
 pwsh -File scripts/deployment/invoke_guarded_deploy.ps1 -Action inspect
 pwsh -File scripts/deployment/invoke_guarded_deploy.ps1 -Action deploy -Digest ghcr.io/OWNER/nice-assistant@sha256:DIGEST
+pwsh -File scripts/deployment/invoke_guarded_deploy.ps1 -Action update-guard -Digest ghcr.io/OWNER/nice-assistant@sha256:DIGEST
+pwsh -File scripts/deployment/invoke_guarded_deploy.ps1 -Action rollback-guard
 pwsh -File scripts/deployment/invoke_guarded_deploy.ps1 -Action health
 ```
 
@@ -73,6 +111,39 @@ digest, and bounded startup logs. A schema-changing failure stops for operator
 approval; the guard never restores a database, prunes images, or touches another
 service. Browser acceptance is performed from the signed-in laptop after server
 acceptance and is required before a milestone is considered promoted.
+
+`update-guard` is deliberately narrower than `deploy`: its digest must be the
+exact verified RepoDigest currently running as Nice Assistant, not a future or
+historical digest that happens to exist in the approved repository. Running that
+image is the operator/application-deployment acceptance boundary; the launcher
+also verifies its repository and OCI source/revision. The normal order is
+application `deploy`, server acceptance, `update-guard` with that same digest,
+then `inspect` and `health`. The launcher never starts the source image or
+candidate guard. It copies four fixed files through a stopped, networkless,
+unmounted extraction container, rejects unexpected types/modes/schema/hashes,
+and independently proves the candidate container payload before switching the
+bundle link.
+
+Every release that changes the guard program, either jq filter, or their
+manifest metadata must increment `bundle_version` and regenerate every listed
+SHA-256 hash before publication. Reusing a version with different bundle
+content is rejected intentionally; lowering the version is also rejected.
+Run the Linux executable guard harness after the final bundle bytes and version
+are fixed.
+
+`rollback-guard` swaps only the current and immediately previous validated guard
+bundles. It does not roll back the application container or database. An
+interrupted update leaves `current` unchanged; the next invocation may remove
+only exact journaled, stopped helper containers and one exact root-only staging
+directory. No guard action authorizes a database restore, image prune,
+credential change, public exposure, or operation on another service.
+
+The Docker build context excludes `.local`, environment files, ignored logs,
+and operator bundles. The Dockerfile additionally fails if deployment-key or
+remote-config names appear after `COPY`. If an older local test image was built
+before those exclusions, treat its dedicated deployment key as exposed locally:
+rotate that restricted key during a supervised enrollment and retire only the
+old key after the replacement passes.
 
 ## Operational requirements
 

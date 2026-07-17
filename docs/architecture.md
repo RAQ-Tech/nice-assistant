@@ -260,6 +260,22 @@ picture`. It discards completion-dependent remnants when no truthful future
 intent remains before publishing them, while ordinary non-media turns retain
 token streaming.
 
+## Deployment control boundary
+
+Production deployment control is outside the application process. A stable
+root-owned SSH forced-command launcher selects immutable, digest-named guard
+bundles and delegates with a sanitized environment under the same deployment
+lock. The launcher alone may update or roll back guard bundles; the replaceable
+guard owns application backup, migration drill, container recreation, health,
+and compatible container rollback. Candidate bundles come only from the exact
+verified RepoDigest currently running as the application and are extracted
+without execution. The one supervised bootstrap instead uses an explicitly
+reviewed immutable guard image; enrollment separately verifies the running
+container's approved-repository digest/revision and persists its effective
+definition before authorizing the key. A launcher-owned payload builder and
+canonical comparator prevent candidate filters from expanding Docker authority
+before atomic activation. See ADRs 0022 and 0025.
+
 ## Realtime direction
 
 Ordinary CRUD remains HTTP. Text generation streams server events. A future single

@@ -3,6 +3,7 @@
 - Status: accepted
 - Date: 2026-07-16
 - Owners: Nice Assistant maintainers
+- Extended in part by: ADR 0025
 
 ## Context
 
@@ -16,14 +17,18 @@ ports, environment, network settings, restart policy, or secrets.
 
 - A dedicated laptop Ed25519 key is installed only during a supervised server
   session. Its root `authorized_keys` entry uses `restrict`, a source-address
-  constraint, and one forced command. The forced command accepts only `inspect`,
-  `backup`, `deploy <digest>`, `health`, `logs`, and `rollback`.
+  constraint, and one forced command. The original implementation targeted the
+  guard directly and accepted only `inspect`, `backup`, `deploy <digest>`,
+  `health`, `logs`, and `rollback`. ADR 0025 keeps those deployment limits while
+  moving the stable forced-command target to a permanent launcher.
 - The guard configuration and captured deployment evidence are root-owned and
   mode `0600`; its state directory is mode `0700`. They never enter Git or chat.
 - Installation first captures the running Nice Assistant container, recreates a
   stopped probe from that effective Docker configuration, and compares the
   normalized mounts, ports, environment, restart policy, labels, and networks.
-  The key is not authorized if this definition check fails.
+  It verifies that the running container resolves to the approved repository
+  with a valid revision, persists the captured definition root-only at mode
+  `0600`, and does not authorize the key if any check fails.
 - Deployment accepts only an immutable `sha256` digest from the configured
   `ghcr.io/<owner>/nice-assistant` repository with a valid source-revision label.
   It creates and verifies an application backup, runs the candidate migration

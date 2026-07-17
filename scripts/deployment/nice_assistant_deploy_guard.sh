@@ -81,22 +81,40 @@ require_runtime() {
   command -v "$CURL" >/dev/null || die "curl is unavailable" 69
   command -v "$JQ" >/dev/null || die "jq is unavailable" 69
   command -v flock >/dev/null || die "flock is unavailable" 69
+  command -v dd >/dev/null || die "dd is unavailable" 69
+  command -v wc >/dev/null || die "wc is unavailable" 69
 }
 
 require_runtime
-exec 9>"$LOCK_FILE"
-flock -n 9 || die "another Nice Assistant deployment action is active" 75
+if [[ ${NICE_DEPLOY_LAUNCHER_LOCKED:-} == 1 ]]; then
+  [[ -e /proc/self/fd/9 && $(readlink /proc/self/fd/9) == "$LOCK_FILE" ]] ||
+    die "deployment launcher lock was not inherited" 78
+else
+  exec 9>"$LOCK_FILE"
+  flock -n 9 || die "another Nice Assistant deployment action is active" 75
+fi
 
 container_exists() {
   "$DOCKER" container inspect "$1" >/dev/null 2>&1
 }
 
 current_repo_digest() {
-  local container=$1 image_id
+  local container=$1 image_id configured_image resolved_id
+  configured_image=$("$DOCKER" container inspect --format '{{.Config.Image}}' "$container") ||
+    return 1
   image_id=$("$DOCKER" container inspect --format '{{.Image}}' "$container")
+  if [[ "$configured_image" == "${NICE_APPROVED_IMAGE_PREFIX}@sha256:"* ]]; then
+    validate_digest "$configured_image"
+    resolved_id=$("$DOCKER" image inspect --format '{{.Id}}' "$configured_image") ||
+      return 1
+    [[ "$resolved_id" == "$image_id" ]] || return 1
+    printf '%s\n' "$configured_image"
+    return
+  fi
   "$DOCKER" image inspect "$image_id" |
     "$JQ" -r --arg prefix "$NICE_APPROVED_IMAGE_PREFIX@" \
-      '.[0].RepoDigests[]? | select(startswith($prefix))' | head -n 1
+      '.[0].RepoDigests | map(select(startswith($prefix))) |
+       if length == 1 then .[0] else error("ambiguous digest") end'
 }
 
 image_revision() {
@@ -125,7 +143,8 @@ create_payload() {
 
 normalized_config() {
   local definition=$1
-  "$JQ" -f "$NORMALIZE_CONFIG_FILTER" "$definition"
+  "$JQ" --arg managed_name "$NICE_CONTAINER_NAME" \
+    -f "$NORMALIZE_CONFIG_FILTER" "$definition"
 }
 
 create_container_from_payload() {
@@ -139,6 +158,18 @@ create_container_from_payload() {
     return 1
   fi
   "$JQ" -e '.Id | type == "string" and length > 0' "$response" >/dev/null
+}
+
+remove_stopped_created_container() {
+  local name=$1 expected_image=$2 running configured_image
+  container_exists "$name" || return 0
+  running=$("$DOCKER" container inspect --format '{{.State.Running}}' "$name") ||
+    return 1
+  configured_image=$("$DOCKER" container inspect --format '{{.Config.Image}}' "$name") ||
+    return 1
+  [[ "$running" == false && "$configured_image" == "$expected_image" ]] ||
+    return 1
+  "$DOCKER" rm "$name" >/dev/null
 }
 
 wait_healthy() {
@@ -201,7 +232,11 @@ candidate_migration_revision() {
   [[ "$backup_name" =~ ^nice-assistant-snapshot-[0-9]{8}_[0-9]{6}-[a-f0-9]{8}\.zip$ ]] ||
     die "verified backup state is invalid" 69
   mounted_snapshot="/$backup_name"
-  "$DOCKER" run --rm --entrypoint python \
+  "$DOCKER" run --rm \
+    --network none \
+    --cap-drop ALL \
+    --security-opt no-new-privileges \
+    --entrypoint python \
     -v "$NICE_DEPLOY_STATE_DIR/pre-deploy-backup.zip:${mounted_snapshot}:ro" \
     "$image" /opt/nice-assistant/scripts/backup_restore_drill.py "$mounted_snapshot" >"$report"
   chmod 600 "$report"
@@ -336,6 +371,8 @@ perform_rollback() {
   fi
   if [[ "$recreated" == true ]]; then
     if ! create_container_from_payload "$NICE_CONTAINER_NAME" "$rollback_payload" "$rollback_response"; then
+      remove_stopped_created_container "$NICE_CONTAINER_NAME" "$previous_digest" ||
+        die "container rollback creation was ambiguous; operator recovery is required" 70
       if container_exists "$failed_name"; then
         "$DOCKER" rename "$failed_name" "$NICE_CONTAINER_NAME"
         "$DOCKER" start "$NICE_CONTAINER_NAME" >/dev/null || true
@@ -397,7 +434,11 @@ validate_definition_action() {
   response="$NICE_DEPLOY_STATE_DIR/probe-response.json"
   probe="${NICE_CONTAINER_NAME}.definition-probe.$(date -u +%Y%m%d%H%M%S)"
   create_payload "$DEFINITION_FILE" "$digest" "$payload"
-  create_container_from_payload "$probe" "$payload" "$response" || die "container definition could not be recreated" 70
+  if ! create_container_from_payload "$probe" "$payload" "$response"; then
+    remove_stopped_created_container "$probe" "$digest" ||
+      die "container definition creation was ambiguous" 70
+    die "container definition could not be recreated" 70
+  fi
   "$DOCKER" container inspect "$probe" >"$NICE_DEPLOY_STATE_DIR/probe-inspect.json"
   before=$(normalized_config "$DEFINITION_FILE")
   after=$(normalized_config "$NICE_DEPLOY_STATE_DIR/probe-inspect.json")
@@ -438,6 +479,8 @@ deploy_action() {
   "$DOCKER" stop --time 30 "$NICE_CONTAINER_NAME" >/dev/null
   "$DOCKER" rename "$NICE_CONTAINER_NAME" "$rollback_name"
   if ! create_container_from_payload "$NICE_CONTAINER_NAME" "$payload" "$response"; then
+    remove_stopped_created_container "$NICE_CONTAINER_NAME" "$digest" ||
+      die "candidate creation was ambiguous; operator recovery is required" 70
     "$DOCKER" rename "$rollback_name" "$NICE_CONTAINER_NAME"
     "$DOCKER" start "$NICE_CONTAINER_NAME" >/dev/null ||
       die "candidate creation failed and the prior container could not restart" 70
@@ -475,6 +518,34 @@ deploy_action() {
     '{ok:true,action:"deploy",digest:$digest,revision:$revision,database_compatible:$database_compatible}'
 }
 
+logs_action() {
+  local target="$NICE_DEPLOY_STATE_DIR/log-summary-source.tmp"
+  local docker_status bytes lines errors warnings truncated=false
+  set +o pipefail
+  "$DOCKER" logs --tail 200 "$NICE_CONTAINER_NAME" 2>&1 |
+    dd bs=1024 count=64 status=none >"$target"
+  docker_status=${PIPESTATUS[0]}
+  set -o pipefail
+  [[ "$docker_status" == 0 || "$docker_status" == 141 ]] ||
+    die "Nice Assistant logs are unavailable" 69
+  chmod 600 "$target"
+  bytes=$(wc -c <"$target")
+  lines=$(wc -l <"$target")
+  if ((bytes > 0 && lines == 0)); then
+    lines=1
+  fi
+  errors=$(grep -Eic 'fatal|traceback|error|exception|unhealthy|failed' "$target" || true)
+  warnings=$(grep -Eic 'warning|warn|degraded|timeout|unavailable' "$target" || true)
+  ((bytes >= 65536)) && truncated=true
+  rm -f -- "$target"
+  "$JQ" -n \
+    --argjson lines "$lines" \
+    --argjson errors "$errors" \
+    --argjson warnings "$warnings" \
+    --argjson truncated "$truncated" \
+    '{ok:true,action:"logs",sample_lines:$lines,error_lines:$errors,warning_lines:$warnings,truncated:$truncated}'
+}
+
 case "$ACTION" in
   inspect) inspect_action ;;
   validate-definition) validate_definition_action ;;
@@ -486,12 +557,7 @@ case "$ACTION" in
     wait_healthy "$NICE_CONTAINER_NAME" || die "Nice Assistant health acceptance failed" 70
     inspect_action | "$JQ" '.action = "health"'
     ;;
-  logs)
-    "$DOCKER" logs --tail 200 "$NICE_CONTAINER_NAME" 2>&1 |
-      sed -E \
-        -e 's/(authorization[=": ]+Bearer[[:space:]]+)[^ ,"}]+/\1[REDACTED]/Ig' \
-        -e 's/(([A-Za-z0-9_-]*(_key|token|password|secret)|authorization)[=": ]+)[^ ,"}]+/\1[REDACTED]/Ig'
-    ;;
+  logs) logs_action ;;
   deploy) deploy_action "${COMMAND_PARTS[1]}" ;;
   rollback)
     perform_rollback

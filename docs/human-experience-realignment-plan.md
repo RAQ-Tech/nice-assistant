@@ -1,6 +1,6 @@
 # Human experience realignment plan
 
-- Status: Completed and accepted in production
+- Status: Product slice published; permanent-launcher migration and final installed acceptance pending
 - Date: 2026-07-16
 - Scope: conversation, speech, image generation, persona truthfulness, settings,
   verification, and delivery priorities
@@ -36,8 +36,9 @@ browser workflow and published.
    the second opens the preview.
 8. The persona does not claim that an image was taken, sent, or verified until
    the platform has evidence for that state.
-9. Strict identity conditioning, post-generation blocking, and approval before
-   generation remain available as explicit advanced policies.
+9. Strict identity conditioning and post-generation blocking remain available
+   as advanced policies. Video and consequential capabilities retain explicit
+   confirmation; ordinary image messages do not.
 10. Product completion claims require the same installed-browser journey used
     by an operator, not only service tests or mocked browser routes.
 
@@ -133,7 +134,8 @@ browser workflow and published.
   image; reserve GHCR publication for `main` and release tags.
 - [x] Add a dedicated-key, source-restricted forced-command deployment guard
   that accepts only Nice Assistant inspect, backup, digest deploy, health, logs,
-  and compatible container rollback.
+  compatible container rollback, exact-running-digest guard update, and
+  previous-bundle guard rollback.
 - [x] Capture and stopped-probe the effective container definition before key
   authorization; preserve the optional Unraid template separately.
 - [x] Require a verified application backup and candidate migration drill before
@@ -145,6 +147,12 @@ browser workflow and published.
   and record private definition-probe evidence.
 - [x] Exercise the guard against the target container and complete all three
   immutable-digest milestone promotions with installed-browser acceptance.
+- [x] Correct the recurring-admin gap in the original direct-guard design with
+  a permanent launcher, immutable versioned bundles, non-executing extraction,
+  independent stopped-probe validation, and atomic update/rollback.
+- [ ] Complete the one-time supervised migration from the legacy direct guard,
+  then prove remote guard update, guard rollback/re-update, one-container
+  deployment, and the final installed-browser image journeys.
 
 ### Phase 0 - reset the product contract
 

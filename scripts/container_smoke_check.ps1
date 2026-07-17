@@ -112,7 +112,9 @@ try {
   $containerExists = $true
   $containerRunning = $true
   $base = "http://127.0.0.1:$appPort"
-  $deadline = [DateTime]::UtcNow.AddSeconds(30)
+  # Fresh-database startup creates and verifies a backup. Docker Desktop's
+  # Windows bind mounts can take more than 30 seconds for that fsync-heavy path.
+  $deadline = [DateTime]::UtcNow.AddSeconds(90)
   $health = $null
   do {
     try {
@@ -129,6 +131,10 @@ try {
   $applicationSourceRoot = docker exec $name python -c "import os; print(os.readlink('/proc/1/cwd'))"
   if ($LASTEXITCODE -ne 0 -or $applicationSourceRoot.Trim() -ne '/opt/nice-assistant') {
     throw 'container did not use the image-authoritative application source'
+  }
+  docker exec $name python -c "from pathlib import Path; r=Path('/opt/nice-assistant'); assert not (r/'.local').exists(); assert not [p for p in r.glob('.env*') if p.name != '.env.example']; assert not list(r.rglob('nice_assistant_deploy_ed25519*')); assert not list(r.rglob('remote.json')); assert not [p for p in (r/'build',r/'dist',r/'.coverage',r/'.pytest_cache',r/'.ruff_cache',r/'.mypy_cache',r/'htmlcov') if p.exists()]; assert not list(r.glob('*.egg-info'))"
+  if ($LASTEXITCODE -ne 0) {
+    throw 'container image included ignored private deployment input'
   }
   if (Test-Path -LiteralPath (Join-Path $dataPath 'project')) {
     throw 'legacy project-sync settings wrote application source into the persistent data mount'
