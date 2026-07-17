@@ -44,10 +44,47 @@ LOCK_FILE="$NICE_DEPLOY_STATE_DIR/deploy.lock"
 UNRAID_TEMPLATE=${NICE_UNRAID_TEMPLATE:-}
 CREATE_PAYLOAD_FILTER="$SCRIPT_DIR/create_container_payload.jq"
 NORMALIZE_CONFIG_FILTER="$SCRIPT_DIR/normalize_container_config.jq"
+BUNDLE_MANIFEST="$SCRIPT_DIR/guard_bundle_manifest.json"
 for filter in "$CREATE_PAYLOAD_FILTER" "$NORMALIZE_CONFIG_FILTER"; do
   [[ -f "$filter" && $(stat -c '%u' "$filter") == 0 && $(stat -c '%a' "$filter") == 600 ]] ||
     die "deployment guard filter is missing or insecure" 78
 done
+
+read_guard_bundle_version() {
+  [[ -f "$BUNDLE_MANIFEST" && ! -L "$BUNDLE_MANIFEST" &&
+    $(stat -c '%u' "$BUNDLE_MANIFEST") == 0 &&
+    $(stat -c '%a' "$BUNDLE_MANIFEST") == 600 &&
+    $(stat -c '%h' "$BUNDLE_MANIFEST") == 1 ]] || return 1
+  "$JQ" -er '
+    if (
+      type == "object" and
+      (keys == ["bundle_version","files","launcher_protocol_version","schema_version"]) and
+      (.schema_version == 1) and
+      (.launcher_protocol_version == 1) and
+      ((.bundle_version | type) == "number") and
+      (.bundle_version >= 1) and
+      (.bundle_version <= 2147483647) and
+      (.bundle_version == (.bundle_version | floor)) and
+      ((.files | type) == "object") and
+      (.files | keys == [
+        "create_container_payload.jq",
+        "nice_assistant_deploy_guard.sh",
+        "normalize_container_config.jq"
+      ]) and
+      ([.files[] |
+        (type == "object") and
+        (keys == ["mode","sha256"]) and
+        (.sha256 | test("^[0-9a-f]{64}$"))] | all) and
+      (.files["nice_assistant_deploy_guard.sh"].mode == "0700") and
+      (.files["create_container_payload.jq"].mode == "0600") and
+      (.files["normalize_container_config.jq"].mode == "0600")
+    ) then
+      .bundle_version
+    else
+      error("invalid deployment guard bundle manifest")
+    end
+  ' "$BUNDLE_MANIFEST" 2>/dev/null
+}
 
 if [[ -n ${SSH_ORIGINAL_COMMAND:-} ]]; then
   read -r -a COMMAND_PARTS <<<"$SSH_ORIGINAL_COMMAND"
@@ -465,14 +502,20 @@ perform_rollback() {
 
 inspect_action() {
   container_exists "$NICE_CONTAINER_NAME" || die "Nice Assistant container is unavailable" 69
-  local digest revision
+  local digest revision guard_bundle_version
   digest=$(current_repo_digest "$NICE_CONTAINER_NAME")
   validate_digest "$digest"
   revision=$(image_revision "$digest")
   [[ "$revision" =~ ^[0-9a-f]{40}$ ]] || die "container image has no valid source revision label" 69
+  guard_bundle_version=$(read_guard_bundle_version) ||
+    die "active deployment guard bundle manifest is invalid" 78
   write_definition
-  "$JQ" -n --arg digest "$digest" --arg revision "$revision" \
-    '{ok:true,action:"inspect",digest:$digest,revision:$revision}'
+  "$JQ" -n \
+    --arg digest "$digest" \
+    --arg revision "$revision" \
+    --argjson guard_bundle_version "$guard_bundle_version" \
+    --argjson preserve_explicit_mac "$PRESERVE_EXPLICIT_MAC" \
+    '{ok:true,action:"inspect",digest:$digest,revision:$revision,guard_bundle_version:$guard_bundle_version,preserve_explicit_mac:$preserve_explicit_mac}'
 }
 
 validate_definition_action() {

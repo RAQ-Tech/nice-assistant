@@ -74,6 +74,17 @@ previous published bundle, and that the final manifest hashes match the exact
 LF bytes shipped in the image. Equal-version content changes are a release
 error even though the launcher safely rejects them at installation time.
 
+Bundle version 3 observability tests execute both `inspect` and `health` and
+require an integer `guard_bundle_version` equal to the active manifest plus a
+boolean `preserve_explicit_mac` equal to the persisted root-only policy. They
+use both `false` and `true` policy fixtures and require exact JSON types. An
+invalid or insecure manifest must fail closed instead of producing a guessed
+version. Live compatibility acceptance keeps version 2 operational with its
+legacy response shape, then exercises version 2 to version 3 update, guard
+rollback to version 2, and re-update to version 3. The two fields must appear
+under version 3 and later and must return with the same policy after the
+re-update.
+
 Definition-probe fixtures treat MAC intent as persisted policy rather than
 runtime inference. Under the default
 `NICE_DEPLOY_PRESERVE_EXPLICIT_MAC=false`, a live definition with a
@@ -89,19 +100,22 @@ mismatch, malformed policy, zero or multiple endpoints, empty MAC, and conflict
 with a nonempty legacy `Config.MacAddress` fail closed. The same policy must
 reach the launcher-owned builder/comparator, candidate filters, delegated guard,
 validate-definition, deploy acceptance, and definition-based rollback. Bundle
-review asserts version 2 and final LF-byte hashes for the guard and both jq
-filters. Launcher tests additionally select version 1, prove application
-deploy/rollback are refused while inspection remains available, and reselect
-version 2 before application work. Rollback-state tests bind the captured policy
-to state version 3 so later policy drift cannot reinterpret a stored definition.
+review asserts the exact current version, version 3 for the observability
+release, and final LF-byte hashes for the guard and both jq filters. Launcher
+tests additionally select version 1, prove application deploy/rollback are
+refused while inspection remains available, and reselect version 2 before
+application work. Rollback-state tests bind the captured policy to state
+version 3 so later policy drift cannot reinterpret a stored definition.
 
 The delegated guard contract separately covers backup and candidate migration,
 single-container success cleanup, legacy and definition-based container
 rollback, and strict dedicated-key SSH behavior. The built image must contain
-the manifest and bundle files with their declared modes. Real installation must
-then exercise update, guard rollback/re-update, the stopped-probe definition
-comparison, immutable application deployment, and private installed-browser
-acceptance.
+the manifest and bundle files with their declared modes. The correction
+rollout's real installation must then exercise the stopped-probe definition
+comparison, immutable application deployment of the image that supplies bundle
+version 3, the version 2 to version 3 guard update, version 3 observability,
+guard rollback to version 2, re-update with observability restored, and private
+installed-browser acceptance.
 
 ## Test layers
 

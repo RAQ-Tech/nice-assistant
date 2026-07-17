@@ -173,6 +173,16 @@ unmounted extraction container, rejects unexpected types/modes/schema/hashes,
 and independently proves the candidate container payload before switching the
 bundle link.
 
+Bundle version 3 and later add two bounded fields to both `inspect` and
+`health`: integer `guard_bundle_version` identifies the active validated
+bundle, and boolean `preserve_explicit_mac` reports the persisted root-only MAC
+policy. The guard reads its own mode-`0600` manifest and the already validated
+policy; it does not infer either value from the application image or Docker's
+runtime MAC projections. Treat a missing or wrongly typed field under version
+3 or later as a failed guard-health check. Version 2 predates these fields and
+remains intentionally usable, so their absence while version 2 is selected is
+not evidence that the policy is `false`.
+
 Every release that changes the guard program, either jq filter, or their
 manifest metadata must increment `bundle_version` and regenerate every listed
 SHA-256 hash before publication. Reusing a version with different bundle
@@ -183,11 +193,15 @@ are fixed.
 The explicit-MAC provenance correction is bundle version 2, and the permanent
 launcher refuses to bootstrap an older bundle. The first live rollback drill is
 therefore performed after a genuine version 3 image and guard are accepted:
-select version 2 with `rollback-guard`, verify `inspect` and `health`, then
-re-run `update-guard` for the still-running version 3 image and verify it before
-further application work. If a historical version 1 bundle is ever selectable,
-the launcher refuses `deploy` and application `rollback` while it is active;
-read-only health, inspection, and guard recovery remain available.
+first verify that version 3 `inspect` and `health` report
+`guard_bundle_version: 3` and the enrolled `preserve_explicit_mac` value. Select
+version 2 with `rollback-guard`, verify that `inspect` and `health` still work
+with their legacy response shape, then re-run `update-guard` for the
+still-running version 3 image. The final `inspect` and `health` must again
+report version `3` and the same MAC policy before further application work. If
+a historical version 1 bundle is ever selectable, the launcher refuses
+`deploy` and application `rollback` while it is active; read-only health,
+inspection, and guard recovery remain available.
 
 Each successful deploy writes rollback state version 3 with the literal MAC
 policy used to capture the previous container definition. Application rollback

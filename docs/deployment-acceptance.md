@@ -41,10 +41,17 @@ For a guarded promotion, additionally record:
   omitted and both endpoint/top-level projections are ignored across a second
   recreation, while an explicit `true` acceptance must prove one nonempty
   configured endpoint is preserved and comparison-gated;
-- initial supervised enrollment activates bundle version 2 or newer; after a
-  genuine version 3 application image is accepted, update the guard to version
-  3, roll it back to version 2, and re-run `update-guard` for version 3 before
-  further application work;
+- for the first MAC-correction rollout, supervised enrollment activates bundle
+  version 2; after a genuine version 3 application image is accepted, update
+  the guard to version 3, roll it back to version 2, and re-run `update-guard`
+  for version 3 before further application work; later fresh enrollments use
+  the current accepted version 2-or-newer bundle without recreating this
+  historical transition;
+- before rollback, record that both version 3 `inspect` and `health` return
+  integer `guard_bundle_version: 3` and boolean `preserve_explicit_mac` matching
+  the enrolled root-only policy; after rollback, record that version 2 still
+  answers with its legacy response shape, then prove the same version and
+  policy fields return after re-updating to version 3;
 - if a historical version 1 bundle is ever selectable, inspect/health remain
   available but application deploy/rollback must be denied until version 2 or
   newer is active;
@@ -65,7 +72,8 @@ For a guarded promotion, additionally record:
 - remote update from the exact running digest, a rejected candidate leaving the
   old bundle active, exact helper cleanup, guard rollback, and re-update to the
   accepted current bundle version (version 3 in the first drill) before any
-  application deploy or rollback;
+  further application deploy or rollback; the final `inspect` and `health` must
+  both identify that active version and report the same enrolled MAC policy;
 - prior and candidate immutable digests and source revisions;
 - fresh backup verification and candidate migration revision;
 - whether container-only rollback is database-compatible;

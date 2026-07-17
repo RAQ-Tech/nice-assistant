@@ -1,10 +1,10 @@
 {
   "schema_version": 1,
   "launcher_protocol_version": 1,
-  "bundle_version": 2,
+  "bundle_version": 3,
   "files": {
     "nice_assistant_deploy_guard.sh": {
-      "sha256": "a583c0b73ca4735838da35dff61972242cef0b458c618ff3a418a378603d6c05",
+      "sha256": "a7159395d419a49030d0d45267552021d1e4654a93652b2b60ed28697be068bd",
       "mode": "0700"
     },
     "create_container_payload.jq": {

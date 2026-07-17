@@ -63,6 +63,14 @@ repair path partially written or unusable.
   invalid policy value, or a contradictory nonempty legacy
   `Config.MacAddress`. Only that unambiguous endpoint MAC is preserved and
   comparison-gated.
+- Beginning with bundle version 3, `inspect` and `health` report the active
+  `guard_bundle_version` as an integer and `preserve_explicit_mac` as a boolean.
+  The guard reads the version from its own root-owned, validated bundle
+  manifest and reports the persisted root-only policy; neither value is
+  inferred from Docker runtime state. These bounded fields expose no path,
+  address, container definition, or secret. Version 2 remains a valid
+  application guard but predates this response contract, so its responses do
+  not contain either field.
 - Launcher and delegated guard actions share one lock. Delegation uses an empty
   environment with a fixed path and an inherited verified lock descriptor.
   Root-only journaling permits only exact interrupted-update helpers and staging
@@ -122,13 +130,18 @@ ownership, modes, symlinks, and atomic rename. Live acceptance must prove both
 sides survive the host's normal persistence boundary.
 
 The MAC-provenance correction is guard bundle version 2, and the permanent
-launcher refuses an older initial bootstrap. Fresh enrollment therefore starts
-at version 2; its first live rollback drill follows a genuine version 3 update,
-selects version 2, and re-updates to version 3 before application work. If a
-historical version 1 bundle is ever selected, the launcher refuses application
-deployment and rollback because that guard can promote a Docker-generated
-endpoint MAC into static configuration. Read-only and guard-recovery actions
-remain available until version 2 or newer is active.
+launcher refuses an older initial bootstrap. The correction rollout enrolls
+version 2; its first live rollback drill follows a genuine version 3 update,
+selects version 2, and re-updates to version 3 before further application work.
+Later fresh enrollments use the current accepted version 2-or-newer bundle and
+do not need to recreate this historical transition. During the first drill, the
+version 3 `inspect` and `health` responses must report bundle version `3` and
+the enrolled MAC policy before rollback, version 2 must continue to answer
+without those newer fields, and re-update must restore the version 3 fields
+with the same policy. If a historical version 1 bundle is ever selected, the
+launcher refuses application deployment and rollback because that guard can
+promote a Docker-generated endpoint MAC into static configuration. Read-only
+and guard-recovery actions remain available until version 2 or newer is active.
 
 Guarded application rollback state records the literal MAC policy that captured
 its previous container definition. Rollback fails closed if that policy is
@@ -145,12 +158,16 @@ two consecutive default-policy generated-MAC projections, and explicit
 single-endpoint MAC preservation. It also rejects malformed policy, ambiguous
 multi-network preservation, and legacy/endpoint disagreement, and proves the
 launcher blocks application actions under version 1 before re-enabling them
-under version 2. Static checks cover the remaining manifest
-schema/path/type/size, installer ordering, client, and installed-image
-contracts. Live acceptance additionally exercises installation at version 2,
-a genuine version 3 update, guard rollback to version 2, re-update to version 3
-before further application work, application
-deployment, exact helper cleanup, and the single-container invariant.
+under version 2. Version 3 contract tests prove that both `inspect` and `health`
+return the manifest-backed integer `guard_bundle_version` and boolean
+`preserve_explicit_mac` without weakening version 2 compatibility. Static
+checks cover the remaining manifest schema/path/type/size, installer ordering,
+client, and installed-image contracts. The correction rollout's live
+acceptance additionally exercises installation at version 2, immutable
+application deployment of the genuine version 3 image, guard update from that
+running digest with both observability fields, guard rollback to version 2, and
+re-update to version 3 with the fields restored before further application
+work. It also proves exact helper cleanup and the single-container invariant.
 Stock-Unraid enrollment additionally proves the exact symlink/mount/mask branch,
 no client-writable or exported flash share, new-key success, old-key denial, one
 managed marker, unchanged hashes for unrelated entries, recovery-file

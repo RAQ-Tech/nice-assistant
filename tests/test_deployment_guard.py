@@ -159,7 +159,7 @@ class DeploymentGuardContractTests(unittest.TestCase):
         )
         self.assertEqual(manifest["schema_version"], 1)
         self.assertEqual(manifest["launcher_protocol_version"], 1)
-        self.assertEqual(manifest["bundle_version"], 2)
+        self.assertEqual(manifest["bundle_version"], 3)
         expected_modes = {
             "nice_assistant_deploy_guard.sh": "0700",
             "create_container_payload.jq": "0600",
@@ -776,6 +776,18 @@ print(json.dumps({"Id": identifier}))
                 encoding="utf-8",
                 newline="\n",
             )
+            guard_manifest_copy = guard_dir / GUARD_BUNDLE_MANIFEST.name
+            guard_manifest_copy.write_bytes(GUARD_BUNDLE_MANIFEST.read_bytes())
+            invalid_manifest = temporary / "invalid-guard-bundle-manifest.json"
+            invalid_manifest_payload = json.loads(
+                GUARD_BUNDLE_MANIFEST.read_text(encoding="utf-8"),
+            )
+            invalid_manifest_payload["bundle_version"] = "3"
+            invalid_manifest.write_text(
+                json.dumps(invalid_manifest_payload),
+                encoding="utf-8",
+                newline="\n",
+            )
             for source in (CREATE_PAYLOAD_FILTER, NORMALIZE_CONFIG_FILTER):
                 (guard_dir / source.name).write_text(
                     source.read_text(encoding="utf-8").replace("\r\n", "\n"),
@@ -830,6 +842,7 @@ print(json.dumps({"Id": identifier}))
                     str(config),
                     str(default_config),
                     str(true_config),
+                    str(guard_manifest_copy),
                     str(guard_dir / CREATE_PAYLOAD_FILTER.name),
                     str(guard_dir / NORMALIZE_CONFIG_FILTER.name),
                     str(runtime_dir / "state.json"),
@@ -860,6 +873,73 @@ print(json.dumps({"Id": identifier}))
                     capture_output=True,
                     text=True,
                 )
+
+            for expected_policy, policy_config in (
+                (False, default_config),
+                (True, true_config),
+            ):
+                subprocess.run(
+                    root_prefix + ["cp", "--", str(policy_config), str(config)],
+                    check=True,
+                )
+                for action in ("inspect", "health"):
+                    with self.subTest(
+                        action=action,
+                        preserve_explicit_mac=expected_policy,
+                    ):
+                        result = invoke_guard(action)
+                        self.assertEqual(result.returncode, 0, result.stderr)
+                        payload = json.loads(result.stdout)
+                        self.assertIs(type(payload["guard_bundle_version"]), int)
+                        self.assertEqual(payload["guard_bundle_version"], 3)
+                        self.assertIs(type(payload["preserve_explicit_mac"]), bool)
+                        self.assertIs(
+                            payload["preserve_explicit_mac"],
+                            expected_policy,
+                        )
+
+            subprocess.run(
+                root_prefix + ["chmod", "0644", str(guard_manifest_copy)],
+                check=True,
+            )
+            insecure_manifest = invoke_guard("inspect")
+            self.assertEqual(insecure_manifest.returncode, 78, insecure_manifest.stderr)
+            self.assertIn(
+                "active deployment guard bundle manifest is invalid",
+                insecure_manifest.stderr,
+            )
+            subprocess.run(
+                root_prefix + ["cp", "--", str(invalid_manifest), str(guard_manifest_copy)],
+                check=True,
+            )
+            subprocess.run(
+                root_prefix + ["chmod", "0600", str(guard_manifest_copy)],
+                check=True,
+            )
+            invalid_manifest_result = invoke_guard("health")
+            self.assertEqual(
+                invalid_manifest_result.returncode,
+                78,
+                invalid_manifest_result.stderr,
+            )
+            self.assertIn(
+                "active deployment guard bundle manifest is invalid",
+                invalid_manifest_result.stderr,
+            )
+            subprocess.run(
+                root_prefix
+                + [
+                    "cp",
+                    "--",
+                    str(GUARD_BUNDLE_MANIFEST),
+                    str(guard_manifest_copy),
+                ],
+                check=True,
+            )
+            subprocess.run(
+                root_prefix + ["chmod", "0600", str(guard_manifest_copy)],
+                check=True,
+            )
 
             subprocess.run(
                 root_prefix + ["cp", "--", str(true_config), str(config)],
