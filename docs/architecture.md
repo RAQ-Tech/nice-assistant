@@ -238,9 +238,11 @@ and memory extraction run as independent jobs. Result payloads expose named IDs
 plus `followup_job_ids`; the legacy `followup_job_id` is retained during consumer
 migration. A failure in one follow-up cannot rewrite a completed turn. Explicit
 image actions buffer persona prose through a deterministic premature-claim guard
-that also recognizes terse or bracketed status phrases such as `Image sent` and
-discards completion-dependent remnants when no truthful future intent remains
-before publishing it, while ordinary non-media turns retain token streaming.
+that also recognizes terse status phrases, bare media placeholders, and
+demonstrative delivery wording such as `Image sent`, `[Image]`, or `Here is that
+picture`. It discards completion-dependent remnants when no truthful future
+intent remains before publishing them, while ordinary non-media turns retain
+token streaming.
 
 ## Realtime direction
 

@@ -10,6 +10,7 @@ class TaskContractTests(unittest.TestCase):
             "[Image sent] A simple picture is created. I hope you like it!",
             "Image sent. I hope you like it!",
             "Here is your picture. I have verified the identity match.",
+            "Here is that picture for you: [Image]",
         ):
             with self.subTest(reply=reply):
                 guarded, changed = guard_premature_media_completion_claim(request, reply)

@@ -62,11 +62,12 @@ _NON_ACTION_MEDIA_CONTEXT = re.compile(
 _PREMATURE_MEDIA_COMPLETION = re.compile(
     r"(?:"
     r"!\[[^\]]*\]\([^)]+\)|"
+    r"\[(?:image|picture|photo|selfie|portrait)\]|"
     r"\[(?:image|picture|photo|selfie|portrait)\s+"
     r"(?:is\s+|has\s+been\s+)?(?:ready|sent|attached|uploaded|generated|created|verified|matched)\]|"
     r"\b(?:image|picture|photo|selfie|portrait)\s+"
     r"(?:is\s+|has\s+been\s+)?(?:ready|sent|attached|uploaded|generated|created|verified|matched)\b|"
-    r"\bhere(?:'s|\s+is)\s+(?:(?:your|the|an?)\s+)?(?:image|picture|photo|selfie|portrait)\b|"
+    r"\bhere(?:'s|\s+is)\s+(?:(?:your|the|this|that|an?)\s+)?(?:image|picture|photo|selfie|portrait)\b|"
     r"\b(?:i(?:'ve|\s+have)?|we(?:'ve|\s+have)?)\s+(?:already\s+)?"
     r"(?:sent|attached|uploaded|made|generated|created|took|taken|verified|matched)\s+"
     r"(?:it|this|that|the|your|an?)\b|"

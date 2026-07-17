@@ -118,10 +118,7 @@ class AsyncJobTests(unittest.TestCase):
 
     def test_premature_persona_media_claim_is_never_streamed_or_persisted(self):
         provider = FakeChatProvider(
-            [
-                "[Image sent] *a simple picture is created showing what was described*\n\n"
-                "I hope you like it! Let me know if I can do anything else."
-            ],
+            ["Here is that picture for you: [Image]"],
             task_outputs={CAPABILITY_PLANNING: {"requests": []}},
         )
         with tempfile.TemporaryDirectory() as tmp, TestApp(Path(tmp), chat_provider=provider) as running:
