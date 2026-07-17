@@ -64,6 +64,9 @@ destructive live restore also remains an explicitly authorized operator drill.
 Completed-file Kokoro text cleanup and manual interruption are supported and must
 not be described as streaming speech or full barge-in.
 
-The restricted deployment guard is source-delivered but is not considered
-installed until its supervised key enrollment and stopped-probe comparison pass
-on the target server. Source tests cannot substitute for that acceptance.
+The restricted deployment guard has completed supervised key enrollment,
+definition comparison, and three immutable-digest promotions on the accepted
+private deployment. Exact evidence remains in the ignored local record. Every
+new installation is still unaccepted until its own supervised key enrollment
+and stopped-probe comparison pass; source tests cannot substitute for that
+acceptance.

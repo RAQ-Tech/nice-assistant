@@ -152,8 +152,10 @@ complete the private server and installed-browser acceptance records.
   administrator backup verification action and visible restore-drill result.
   Task Model and Media Catalog settings tests must preserve unsaved edits when
   refresh responses finish late.
-  Playwright waits for and inspects mutation requests rather than inferring a
-  completed save from unrelated visible state. Playwright deterministically
+  Playwright runs every browser journey in both a desktop Chromium context and
+  a Pixel-class touch context. It waits for and inspects mutation requests
+  rather than inferring a completed save from unrelated visible state.
+  Playwright deterministically
   covers onboarding/login, streamed chat, settings, memory review, and media
   while rejecting legacy API calls. It also checks computed input/select and
   native option colors in both themes so browser-default light controls cannot

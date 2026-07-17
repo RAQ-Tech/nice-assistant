@@ -1,6 +1,6 @@
 # Human experience realignment plan
 
-- Status: Approved; implementation in progress
+- Status: Approved; final acceptance in progress
 - Date: 2026-07-16
 - Scope: conversation, speech, image generation, persona truthfulness, settings,
   verification, and delivery priorities
@@ -12,9 +12,10 @@ Provider coordination, identity evidence, audit history, and diagnostics remain
 available, but they must support that experience instead of becoming the normal
 conversation UI.
 
-This plan distinguishes the currently shipped checkout from unpublished local
-repairs. A local repair is not treated as delivered until it is tested through
-the installed browser workflow and published.
+The baseline gaps below record the state observed when this program was
+approved. Delivery state is tracked by the checklists that follow. A source
+repair is not treated as delivered until it is tested through the installed
+browser workflow and published.
 
 ## Non-negotiable experience contract
 
@@ -40,7 +41,7 @@ the installed browser workflow and published.
 10. Product completion claims require the same installed-browser journey used
     by an operator, not only service tests or mocked browser routes.
 
-## Current alignment gaps
+## Baseline alignment gaps
 
 1. **Voice-first priority is inverted.** The media catalog, coordination, and
    identity roadmap expanded while streaming speech, automatic turn detection,
@@ -137,9 +138,9 @@ the installed browser workflow and published.
   authorization; preserve the optional Unraid template separately.
 - [x] Require a verified application backup and candidate migration drill before
   deployment; never automatically restore a database or touch another service.
-- [ ] Complete the one supervised server sign-in, install the key restriction,
+- [x] Complete the one supervised server sign-in, install the key restriction,
   and record private definition-probe evidence.
-- [ ] Exercise the guard against the target container and complete all three
+- [x] Exercise the guard against the target container and complete all three
   immutable-digest milestone promotions with installed-browser acceptance.
 
 ### Phase 0 - reset the product contract
@@ -257,9 +258,9 @@ one compact row, and blur behavior is consistent across every image source.
 - [x] Add one everyday `Images` readiness summary that separately answers:
   provider reachable, basic generation ready now, and optional identity
   enhancement ready.
-- [ ] Make provider setup seed or repair the minimum normal generation path
+- [x] Make provider setup seed or repair the minimum normal generation path
   without requiring the operator to understand Task Models or catalog records.
-- [ ] Keep catalog metadata, resource compatibility, workflows, identity
+- [x] Keep catalog metadata, resource compatibility, workflows, identity
   bindings, and memory estimates under advanced/operator settings.
 - [x] Ensure every displayed policy is editable where it is shown, or link
   directly to the one editable source of truth.

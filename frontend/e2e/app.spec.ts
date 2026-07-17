@@ -153,6 +153,26 @@ test('completed turns refresh the generated chat title in the visible header', a
   await expect(page.locator('.header-title')).toHaveText('Perfect Summer Morning');
 });
 
+test('mobile touch and keyboard input keep conversation controls usable', async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name !== 'mobile', 'Pixel-class touch acceptance');
+  await installAuthenticatedFixture(page);
+  await page.goto('/#/chats/chat-1');
+
+  expect(page.viewportSize()?.width).toBeLessThanOrEqual(640);
+  const composer = page.getByTestId('chat-input');
+  await composer.fill('keyboard line one');
+  await composer.press('Shift+Enter');
+  await composer.pressSequentially('keyboard line two');
+  await expect(composer).toHaveValue('keyboard line one\nkeyboard line two');
+
+  await page.getByTitle('Chat controls and details').tap();
+  const blurToggle = page.getByTestId('toggle-chat-image-blur');
+  await expect(blurToggle).toBeVisible();
+  await blurToggle.tap();
+  await expect(page.getByTestId('toggle-chat-image-blur')).toHaveText('Blur images: On');
+  await expect(composer).toBeEnabled();
+});
+
 test('active direct media work exposes cancellation and returns cleanly to idle', async ({ page }) => {
   const fixture = await installAuthenticatedFixture(page, { holdMedia: true });
   await page.goto('/#/chats/chat-1');
