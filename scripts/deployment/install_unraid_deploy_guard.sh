@@ -9,7 +9,7 @@ export LC_ALL=C
 unset BASH_ENV ENV CDPATH GLOBIGNORE
 
 usage() {
-  echo "usage: $0 --container NAME --image-prefix ghcr.io/OWNER/nice-assistant --guard-image IMMUTABLE_DIGEST --public-key FILE --source IPV4_OR_CIDR --state-dir DIR --authorized-keys FILE [--unraid-template FILE]" >&2
+  echo "usage: $0 --container NAME --image-prefix ghcr.io/OWNER/nice-assistant --guard-image IMMUTABLE_DIGEST --public-key FILE --source IPV4_OR_CIDR --state-dir DIR --authorized-keys FILE [--unraid-template FILE] [--preserve-explicit-mac]" >&2
   exit 64
 }
 
@@ -21,6 +21,8 @@ SOURCE=
 STATE_DIR=
 AUTHORIZED_KEYS=
 UNRAID_TEMPLATE=
+PRESERVE_EXPLICIT_MAC=false
+PRESERVE_EXPLICIT_MAC_REQUESTED=false
 while (($#)); do
   case "$1" in
     --container) CONTAINER_NAME=${2:-}; shift 2 ;;
@@ -31,6 +33,11 @@ while (($#)); do
     --state-dir) STATE_DIR=${2:-}; shift 2 ;;
     --authorized-keys) AUTHORIZED_KEYS=${2:-}; shift 2 ;;
     --unraid-template) UNRAID_TEMPLATE=${2:-}; shift 2 ;;
+    --preserve-explicit-mac)
+      PRESERVE_EXPLICIT_MAC=true
+      PRESERVE_EXPLICIT_MAC_REQUESTED=true
+      shift
+      ;;
     *) usage ;;
   esac
 done
@@ -88,7 +95,7 @@ validate_source "$SOURCE" || usage
 
 for command in \
   docker curl jq flock stat install chown cp ssh-keygen sha256sum readlink \
-  bash awk mktemp dirname mv chmod touch tr ln rm findmnt sync; do
+  bash awk grep mktemp dirname mv chmod touch tr ln rm findmnt sync; do
   command -v "$command" >/dev/null || {
     echo "$command is required" >&2
     exit 69
@@ -601,37 +608,49 @@ AUTHORIZED_KEYS_STAGED_SHA256=$(
   exit 78
 }
 
+EXISTING_MAC_POLICY=unset
 if [[ -e "$LIVE_CONFIG" ]]; then
   secure_root_file "$LIVE_CONFIG" 600 ||
     { echo "the existing deployment configuration is insecure" >&2; exit 78; }
-  (
-    unset NICE_CONTAINER_NAME NICE_APPROVED_IMAGE_PREFIX NICE_DEPLOY_STATE_DIR
+  EXISTING_MAC_POLICY=$(
+    (
+    unset NICE_CONTAINER_NAME NICE_APPROVED_IMAGE_PREFIX NICE_DEPLOY_STATE_DIR \
+      NICE_DEPLOY_PRESERVE_EXPLICIT_MAC
     # shellcheck disable=SC1090
     source "$LIVE_CONFIG"
     [[ ${NICE_CONTAINER_NAME:-} == "$CONTAINER_NAME" &&
       ${NICE_APPROVED_IMAGE_PREFIX:-} == "$IMAGE_PREFIX" &&
-      ${NICE_DEPLOY_STATE_DIR:-} == "$STATE_DATA_DIR" ]]
+      ${NICE_DEPLOY_STATE_DIR:-} == "$STATE_DATA_DIR" ]] || exit 1
+    if [[ ${NICE_DEPLOY_PRESERVE_EXPLICIT_MAC+x} ]]; then
+      [[ "$NICE_DEPLOY_PRESERVE_EXPLICIT_MAC" == true ||
+        "$NICE_DEPLOY_PRESERVE_EXPLICIT_MAC" == false ]] || exit 1
+      printf '%s\n' "$NICE_DEPLOY_PRESERVE_EXPLICIT_MAC"
+    else
+      printf 'unset\n'
+    fi
+    )
   ) || {
-    echo "legacy migration must preserve the enrolled container, repository, and state directory" >&2
+    echo "migration must preserve valid enrolled deployment configuration" >&2
     exit 78
   }
+  if [[ "$PRESERVE_EXPLICIT_MAC_REQUESTED" == false &&
+    "$EXISTING_MAC_POLICY" != unset ]]; then
+    PRESERVE_EXPLICIT_MAC=$EXISTING_MAC_POLICY
+  fi
+  EXISTING_EFFECTIVE_MAC_POLICY=$EXISTING_MAC_POLICY
+  [[ "$EXISTING_EFFECTIVE_MAC_POLICY" != unset ]] ||
+    EXISTING_EFFECTIVE_MAC_POLICY=false
+  if [[ "$PRESERVE_EXPLICIT_MAC" != "$EXISTING_EFFECTIVE_MAC_POLICY" &&
+    ( -e "$STATE_DATA_DIR/deployment-state.json" ||
+      -L "$STATE_DATA_DIR/deployment-state.json" ) ]]; then
+    echo "deployment MAC policy cannot change while guarded rollback state exists" >&2
+    exit 75
+  fi
 fi
 if [[ -e "$LIVE_LAUNCHER" ]]; then
   secure_root_file "$LIVE_LAUNCHER" 700 ||
     { echo "the existing deployment guard executable is insecure" >&2; exit 78; }
 fi
-
-cat >"$CONFIG_NEXT" <<EOF
-NICE_CONTAINER_NAME='$CONTAINER_NAME'
-NICE_APPROVED_IMAGE_PREFIX='$IMAGE_PREFIX'
-NICE_DEPLOY_STATE_DIR='$STATE_DATA_DIR'
-NICE_UNRAID_TEMPLATE='$UNRAID_TEMPLATE'
-NICE_DEPLOY_DOCKER_BIN='$DOCKER_BIN'
-NICE_DEPLOY_CURL_BIN='$CURL_BIN'
-NICE_DEPLOY_JQ_BIN='$JQ_BIN'
-EOF
-chown root:root "$CONFIG_NEXT"
-chmod 0600 "$CONFIG_NEXT"
 
 install -o root -g root -m 0700 "$LAUNCHER_SOURCE" "$LAUNCHER_NEXT"
 
@@ -646,6 +665,73 @@ if [[ -n "$UNRAID_TEMPLATE" ]]; then
     chmod 0600 "$STATE_DIR/unraid-template.original.xml"
   fi
 fi
+
+MAC_POLICY=$(
+  docker container inspect "$CONTAINER_NAME" |
+    jq -cer '
+      .[0] as $container |
+      {
+        legacy: (
+          (
+            $container.Config |
+            if has("MacAddress") then .MacAddress else "" end
+          ) as $value |
+          if $value == null then ""
+          elif ($value | type) == "string" then $value
+          else error("invalid legacy MAC")
+          end
+        ),
+        network_count: (($container.NetworkSettings.Networks // {}) | length),
+        endpoints: [
+          ($container.NetworkSettings.Networks // {})[]?.MacAddress |
+          select(type == "string" and length > 0)
+        ]
+      }
+    '
+) || {
+  echo "the live container MAC policy could not be inspected" >&2
+  exit 78
+}
+TEMPLATE_DECLARES_EXPLICIT_MAC=false
+if [[ -n "$UNRAID_TEMPLATE" ]] &&
+  grep -Eiq -- '(^|[^A-Za-z0-9_-])--mac-address([=[:space:]<]|$)' "$UNRAID_TEMPLATE"; then
+  TEMPLATE_DECLARES_EXPLICIT_MAC=true
+fi
+if [[ "$PRESERVE_EXPLICIT_MAC" == false ]]; then
+  [[ "$TEMPLATE_DECLARES_EXPLICIT_MAC" == false ]] || {
+    echo "explicit MAC configuration requires --preserve-explicit-mac" >&2
+    exit 78
+  }
+  if [[ -z "$UNRAID_TEMPLATE" &&
+    "$EXISTING_MAC_POLICY" == unset ]]; then
+    jq -e '.legacy == ""' <<<"$MAC_POLICY" >/dev/null || {
+      echo "ambiguous MAC configuration requires --preserve-explicit-mac" >&2
+      exit 78
+    }
+  fi
+else
+  jq -e '
+    .network_count == 1 and
+    (.endpoints | length) == 1 and
+    (.legacy == "" or .legacy == .endpoints[0])
+  ' <<<"$MAC_POLICY" >/dev/null || {
+    echo "explicit MAC preservation requires one unambiguous endpoint MAC" >&2
+    exit 78
+  }
+fi
+
+cat >"$CONFIG_NEXT" <<EOF
+NICE_CONTAINER_NAME='$CONTAINER_NAME'
+NICE_APPROVED_IMAGE_PREFIX='$IMAGE_PREFIX'
+NICE_DEPLOY_STATE_DIR='$STATE_DATA_DIR'
+NICE_UNRAID_TEMPLATE='$UNRAID_TEMPLATE'
+NICE_DEPLOY_PRESERVE_EXPLICIT_MAC='$PRESERVE_EXPLICIT_MAC'
+NICE_DEPLOY_DOCKER_BIN='$DOCKER_BIN'
+NICE_DEPLOY_CURL_BIN='$CURL_BIN'
+NICE_DEPLOY_JQ_BIN='$JQ_BIN'
+EOF
+chown root:root "$CONFIG_NEXT"
+chmod 0600 "$CONFIG_NEXT"
 
 LOCK_FILE="$STATE_DATA_DIR/deploy.lock"
 if [[ -e "$LOCK_FILE" && ( ! -f "$LOCK_FILE" || -L "$LOCK_FILE" ) ]]; then

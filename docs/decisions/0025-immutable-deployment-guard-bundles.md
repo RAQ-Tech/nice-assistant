@@ -38,13 +38,40 @@ repair path partially written or unusable.
   ports, environment, commands, health checks, labels, or networks. A stopped
   probe is then compared by both a launcher-owned canonical comparator and the
   candidate normalizer. The probe is never started.
+- MAC-address preservation is an explicit root-owned deployment policy, not an
+  inference from Docker runtime state. `guard.conf` persists
+  `NICE_DEPLOY_PRESERVE_EXPLICIT_MAC` as literal `true` or `false`, with
+  `false` as the default for a new enrollment or a legacy configuration where
+  the value is absent. An explicitly empty or malformed value fails closed. Supervised
+  re-enrollment inherits an existing literal value unless the operator
+  explicitly opts into preservation, and a policy change is rejected while
+  guarded application rollback state exists.
+- With the default `false` policy, endpoint MAC addresses are omitted from
+  recreation payloads and ignored during comparison because
+  `NetworkSettings.Networks.*.MacAddress` can be generated at runtime. The
+  deprecated container-wide `Config.MacAddress` projection is also ignored and
+  always removed from create payloads and canonical comparisons. A nonempty
+  runtime value in either location is never evidence that the operator
+  configured a static address.
+- On first enrollment, an available Unraid template is the configuration
+  provenance for explicit `--mac-address` intent. Without a template or prior
+  persisted policy, a nonempty deprecated projection is ambiguous and requires
+  an explicit supervised choice instead of being silently discarded.
+- The uncommon `true` policy is an explicit operator assertion. It requires
+  exactly one configured network endpoint with a nonempty endpoint MAC and
+  fails closed for zero or multiple endpoints, an empty endpoint address, an
+  invalid policy value, or a contradictory nonempty legacy
+  `Config.MacAddress`. Only that unambiguous endpoint MAC is preserved and
+  comparison-gated.
 - Launcher and delegated guard actions share one lock. Delegation uses an empty
   environment with a fixed path and an inherited verified lock descriptor.
   Root-only journaling permits only exact interrupted-update helpers and staging
   paths to be cleaned on the next invocation.
 - `rollback-guard` swaps only the current and immediately previous validated
   bundles. It is separate from application container rollback and never restores
-  a database.
+  a database. The permanent launcher blocks application `deploy` and `rollback`
+  whenever the selected guard bundle predates the version 2 MAC-provenance
+  correction; read-only and recovery actions remain available.
 - An existing direct-guard installation requires one final supervised,
   transactional migration. New installations require one supervised bootstrap.
   Routine future bundle updates do not require an administrative shell.
@@ -94,19 +121,39 @@ and journal remain on a separate root-only persistent filesystem with real Unix
 ownership, modes, symlinks, and atomic rename. Live acceptance must prove both
 sides survive the host's normal persistence boundary.
 
+The MAC-provenance correction is guard bundle version 2, and the permanent
+launcher refuses an older initial bootstrap. Fresh enrollment therefore starts
+at version 2; its first live rollback drill follows a genuine version 3 update,
+selects version 2, and re-updates to version 3 before application work. If a
+historical version 1 bundle is ever selected, the launcher refuses application
+deployment and rollback because that guard can promote a Docker-generated
+endpoint MAC into static configuration. Read-only and guard-recovery actions
+remain available until version 2 or newer is active.
+
+Guarded application rollback state records the literal MAC policy that captured
+its previous container definition. Rollback fails closed if that policy is
+missing or differs from the current root-owned policy; neither re-enrollment nor
+a guard action silently reinterprets an existing rollback definition.
+
 ## Verification
 
 `tests/test_deployment_guard.py` combines static contract checks with an
 executable root/Linux fake-Docker harness. The harness exercises sanitized
 delegation, bootstrap/update, mixed-case provenance, exact running-digest
-rejection, stopped helpers, wrong-mode cleanup, and interrupted pointer
-recovery. Static checks cover the remaining manifest schema/path/type/size,
-installer ordering, client, and installed-image contracts. Live acceptance
-additionally exercises installation, update, guard rollback, re-update,
-application deployment, exact helper cleanup, and the single-container
-invariant. Stock-Unraid enrollment additionally proves the exact
-symlink/mount/mask branch, no client-writable or exported flash share, new-key
-success, old-key denial, one managed marker, unchanged hashes for unrelated
-entries, recovery-file retirement, and persistence of both authorization and
-launcher state. A non-cooperating host-root writer remains outside the
-compare-before-rename concurrency boundary.
+rejection, stopped helpers, wrong-mode cleanup, interrupted pointer recovery,
+two consecutive default-policy generated-MAC projections, and explicit
+single-endpoint MAC preservation. It also rejects malformed policy, ambiguous
+multi-network preservation, and legacy/endpoint disagreement, and proves the
+launcher blocks application actions under version 1 before re-enabling them
+under version 2. Static checks cover the remaining manifest
+schema/path/type/size, installer ordering, client, and installed-image
+contracts. Live acceptance additionally exercises installation at version 2,
+a genuine version 3 update, guard rollback to version 2, re-update to version 3
+before further application work, application
+deployment, exact helper cleanup, and the single-container invariant.
+Stock-Unraid enrollment additionally proves the exact symlink/mount/mask branch,
+no client-writable or exported flash share, new-key success, old-key denial, one
+managed marker, unchanged hashes for unrelated entries, recovery-file
+retirement, and persistence of both authorization and launcher state. A
+non-cooperating host-root writer remains outside the compare-before-rename
+concurrency boundary.

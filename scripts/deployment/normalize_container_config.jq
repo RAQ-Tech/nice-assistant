@@ -1,7 +1,7 @@
 .[0] as $container |
 {
   Config: ($container.Config
-    | del(.Image)
+    | del(.Image, .MacAddress)
     | if .Hostname == ($container.Id[0:12]) then .Hostname = "__docker_default__" else . end
     | .Labels = ((.Labels // {})
       | del(.["com.nice-assistant.guard-update"])
@@ -19,7 +19,12 @@
     Links: (.Links // null),
     DriverOpts: (.DriverOpts // null),
     IPAMConfig: (.IPAMConfig // null),
-    MacAddress: ((.MacAddress // "") | if . == "" then null else . end),
+    MacAddress: (
+      if $preserve_explicit_mac
+      then ((.MacAddress // "") | if . == "" then null else . end)
+      else null
+      end
+    ),
     GwPriority: (.GwPriority // 0)
   }))
 }

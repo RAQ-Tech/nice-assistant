@@ -47,6 +47,7 @@ RUNTIME_COMMANDS = {
         "env",
         "flock",
         "install",
+        "jq",
         "ssh-keygen",
         "sha256sum",
         "mv",
@@ -73,6 +74,7 @@ class UnraidInstallerExecutableAcceptanceTests(unittest.TestCase):
     real_rm: str
     real_stat: str
     real_sync: str
+    real_jq: str
     ssh_keygen: str
 
     @classmethod
@@ -85,6 +87,7 @@ class UnraidInstallerExecutableAcceptanceTests(unittest.TestCase):
         cls.real_rm = str(RUNTIME_COMMANDS["rm"])
         cls.real_stat = str(RUNTIME_COMMANDS["stat"])
         cls.real_sync = str(RUNTIME_COMMANDS["sync"])
+        cls.real_jq = str(RUNTIME_COMMANDS["jq"])
         cls.ssh_keygen = str(RUNTIME_COMMANDS["ssh-keygen"])
 
     def setUp(self) -> None:
@@ -210,8 +213,35 @@ class UnraidInstallerExecutableAcceptanceTests(unittest.TestCase):
 
     def _write_fake_commands(self) -> None:
         success = "#!/bin/sh\nexit 0\n"
-        for name in ("docker", "curl", "jq"):
+        for name in ("curl",):
             self._write_executable(self.fake_bin / name, success)
+
+        docker = """#!/bin/bash
+set -euo pipefail
+if [[ ${1:-} == container && ${2:-} == inspect ]]; then
+  config_mac=${NICE_INSTALLER_TEST_CONFIG_MAC:-}
+  network_count=${NICE_INSTALLER_TEST_NETWORK_COUNT:-1}
+  if [[ -n "$config_mac" ]]; then
+    config=$(printf '{"MacAddress":"%s"}' "$config_mac")
+  else
+    config='{}'
+  fi
+  if [[ "$network_count" == 1 ]]; then
+    networks='{"private":{"MacAddress":"02:42:ac:11:00:08"}}'
+  elif [[ "$network_count" == 2 ]]; then
+    networks='{"private":{"MacAddress":"02:42:ac:11:00:08"},"secondary":{"MacAddress":""}}'
+  else
+    networks='{}'
+  fi
+  printf '[{"Config":%s,"NetworkSettings":{"Networks":%s}}]\\n' "$config" "$networks"
+fi
+exit 0
+"""
+        self._write_executable(self.fake_bin / "docker", docker)
+        self._write_executable(
+            self.fake_bin / "jq",
+            f'#!/bin/bash\nexec {shlex.quote(self.real_jq)} "$@"\n',
+        )
 
         findmnt = """#!/bin/bash
 set -euo pipefail
@@ -421,6 +451,7 @@ esac
         state_dir: Path,
         authorized_keys: Path,
         environment: dict[str, str],
+        extra_arguments: tuple[str, ...] = (),
     ) -> subprocess.CompletedProcess[str]:
         return self._root_run(
             [
@@ -440,6 +471,7 @@ esac
                 str(state_dir),
                 "--authorized-keys",
                 str(authorized_keys),
+                *extra_arguments,
             ],
             environment=environment,
         )
@@ -492,6 +524,10 @@ esac
         enrollment_recovery = authorized_keys.parent / ".authorized_keys.nice-assistant.recovery"
         self.assertTrue(self._root_exists(enrollment_recovery))
         self.assertEqual(self._root_mode(enrollment_recovery), 0o600)
+        self.assertIn(
+            "NICE_DEPLOY_PRESERVE_EXPLICIT_MAC='false'\n",
+            self._root_read(state_dir / "bin" / "guard.conf"),
+        )
         self._root_run(["rm", "-f", "--", str(enrollment_recovery)], check=True)
         second = self._run_installer(
             installer=installer,
@@ -520,6 +556,218 @@ esac
         self.assertFalse(self._root_exists(state_dir / "launcher-install.json"))
         self.assertFalse(self._root_exists(state_dir / "guard.conf.pre-launcher"))
         self.assertTrue(self._root_exists(enrollment_recovery))
+
+    def test_mac_policy_is_inherited_across_reruns_and_can_be_explicitly_upgraded(self) -> None:
+        state_dir, authorized_keys = self._prepare_generic_paths()
+        self._root_install_text(
+            authorized_keys,
+            "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIUnrelated unrelated\n",
+            "0600",
+        )
+        installer = self._instrument_installer()
+        self._write_launcher_stub()
+
+        initial = self._run_installer(
+            installer=installer,
+            state_dir=state_dir,
+            authorized_keys=authorized_keys,
+            environment=self._installer_environment(),
+        )
+        self.assertEqual(initial.returncode, 0, initial.stderr)
+        self.assertIn(
+            "NICE_DEPLOY_PRESERVE_EXPLICIT_MAC='false'\n",
+            self._root_read(state_dir / "bin" / "guard.conf"),
+        )
+
+        recovery = authorized_keys.parent / ".authorized_keys.nice-assistant.recovery"
+        self._root_run(["rm", "-f", "--", str(recovery)], check=True)
+        projected_environment = self._installer_environment()
+        projected_environment["NICE_INSTALLER_TEST_CONFIG_MAC"] = "02:42:ac:11:00:08"
+        inherited_false = self._run_installer(
+            installer=installer,
+            state_dir=state_dir,
+            authorized_keys=authorized_keys,
+            environment=projected_environment,
+        )
+        self.assertEqual(inherited_false.returncode, 0, inherited_false.stderr)
+        self.assertIn(
+            "NICE_DEPLOY_PRESERVE_EXPLICIT_MAC='false'\n",
+            self._root_read(state_dir / "bin" / "guard.conf"),
+        )
+
+        self._root_run(["rm", "-f", "--", str(recovery)], check=True)
+        upgraded = self._run_installer(
+            installer=installer,
+            state_dir=state_dir,
+            authorized_keys=authorized_keys,
+            environment=projected_environment,
+            extra_arguments=("--preserve-explicit-mac",),
+        )
+        self.assertEqual(upgraded.returncode, 0, upgraded.stderr)
+        self.assertIn(
+            "NICE_DEPLOY_PRESERVE_EXPLICIT_MAC='true'\n",
+            self._root_read(state_dir / "bin" / "guard.conf"),
+        )
+
+        self._root_run(["rm", "-f", "--", str(recovery)], check=True)
+        inherited_true = self._run_installer(
+            installer=installer,
+            state_dir=state_dir,
+            authorized_keys=authorized_keys,
+            environment=projected_environment,
+        )
+        self.assertEqual(inherited_true.returncode, 0, inherited_true.stderr)
+        self.assertIn(
+            "NICE_DEPLOY_PRESERVE_EXPLICIT_MAC='true'\n",
+            self._root_read(state_dir / "bin" / "guard.conf"),
+        )
+
+    def test_legacy_config_without_a_mac_policy_migrates_to_false(self) -> None:
+        state_dir, authorized_keys = self._prepare_generic_paths()
+        self._root_install_directory(state_dir / "bin")
+        self._root_install_directory(state_dir / "state")
+        self._root_install_text(
+            state_dir / "bin" / "guard.conf",
+            self._legacy_config(state_dir),
+            "0600",
+        )
+        self._root_install_text(
+            authorized_keys,
+            "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIUnrelated unrelated\n",
+            "0600",
+        )
+        installer = self._instrument_installer()
+        self._write_launcher_stub()
+
+        migrated = self._run_installer(
+            installer=installer,
+            state_dir=state_dir,
+            authorized_keys=authorized_keys,
+            environment=self._installer_environment(),
+        )
+
+        self.assertEqual(migrated.returncode, 0, migrated.stderr)
+        self.assertIn(
+            "NICE_DEPLOY_PRESERVE_EXPLICIT_MAC='false'\n",
+            self._root_read(state_dir / "bin" / "guard.conf"),
+        )
+
+    def test_empty_and_malformed_existing_mac_policies_fail_closed(self) -> None:
+        installer = self._instrument_installer()
+        self._write_launcher_stub()
+
+        for label, value in (("empty", ""), ("malformed", "sometimes")):
+            with self.subTest(policy=label):
+                case_root = self.secure_base / f"policy-{label}"
+                state_dir = case_root / "deployment"
+                authorized_keys = case_root / "ssh" / "authorized_keys"
+                self._root_install_directory(case_root)
+                self._root_install_directory(state_dir / "bin")
+                self._root_install_directory(state_dir / "state")
+                self._root_install_directory(authorized_keys.parent)
+                original = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIUnrelated unrelated\n"
+                self._root_install_text(authorized_keys, original, "0600")
+                self._root_install_text(
+                    state_dir / "bin" / "guard.conf",
+                    (
+                        f"NICE_CONTAINER_NAME='{CONTAINER_NAME}'\n"
+                        f"NICE_APPROVED_IMAGE_PREFIX='{IMAGE_PREFIX}'\n"
+                        f"NICE_DEPLOY_STATE_DIR='{state_dir}/state'\n"
+                        f"NICE_DEPLOY_PRESERVE_EXPLICIT_MAC='{value}'\n"
+                    ),
+                    "0600",
+                )
+
+                rejected = self._run_installer(
+                    installer=installer,
+                    state_dir=state_dir,
+                    authorized_keys=authorized_keys,
+                    environment=self._installer_environment(),
+                )
+
+                self.assertEqual(rejected.returncode, 78, rejected.stderr)
+                self.assertIn("valid enrolled deployment configuration", rejected.stderr)
+                self.assertEqual(self._root_read(authorized_keys), original)
+
+    def test_mac_policy_change_is_rejected_while_rollback_state_exists(self) -> None:
+        state_dir, authorized_keys = self._prepare_generic_paths()
+        original = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIUnrelated unrelated\n"
+        self._root_install_text(authorized_keys, original, "0600")
+        installer = self._instrument_installer()
+        self._write_launcher_stub()
+
+        initial = self._run_installer(
+            installer=installer,
+            state_dir=state_dir,
+            authorized_keys=authorized_keys,
+            environment=self._installer_environment(),
+        )
+        self.assertEqual(initial.returncode, 0, initial.stderr)
+        recovery = authorized_keys.parent / ".authorized_keys.nice-assistant.recovery"
+        self._root_run(["rm", "-f", "--", str(recovery)], check=True)
+        self._root_install_text(
+            state_dir / "state" / "deployment-state.json",
+            '{"state_version":3,"preserve_explicit_mac":false}\n',
+            "0600",
+        )
+        original_config = self._root_read(state_dir / "bin" / "guard.conf")
+        original_authorization = self._root_read(authorized_keys)
+        environment = self._installer_environment()
+        environment["NICE_INSTALLER_TEST_CONFIG_MAC"] = "02:42:ac:11:00:08"
+
+        rejected = self._run_installer(
+            installer=installer,
+            state_dir=state_dir,
+            authorized_keys=authorized_keys,
+            environment=environment,
+            extra_arguments=("--preserve-explicit-mac",),
+        )
+
+        self.assertEqual(rejected.returncode, 75, rejected.stderr)
+        self.assertIn("cannot change while guarded rollback state exists", rejected.stderr)
+        self.assertEqual(self._root_read(state_dir / "bin" / "guard.conf"), original_config)
+        self.assertEqual(self._root_read(authorized_keys), original_authorization)
+
+    def test_default_mac_policy_rejects_a_legacy_explicit_mac(self) -> None:
+        state_dir, authorized_keys = self._prepare_generic_paths()
+        original = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIUnrelated unrelated\n"
+        self._root_install_text(authorized_keys, original, "0600")
+        installer = self._instrument_installer()
+        self._write_launcher_stub()
+        environment = self._installer_environment()
+        environment["NICE_INSTALLER_TEST_CONFIG_MAC"] = "02:42:ac:11:00:08"
+
+        result = self._run_installer(
+            installer=installer,
+            state_dir=state_dir,
+            authorized_keys=authorized_keys,
+            environment=environment,
+        )
+
+        self.assertEqual(result.returncode, 78, result.stderr)
+        self.assertIn("requires --preserve-explicit-mac", result.stderr)
+        self.assertEqual(self._root_read(authorized_keys), original)
+
+    def test_explicit_mac_policy_rejects_multiple_networks(self) -> None:
+        state_dir, authorized_keys = self._prepare_generic_paths()
+        original = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIUnrelated unrelated\n"
+        self._root_install_text(authorized_keys, original, "0600")
+        installer = self._instrument_installer()
+        self._write_launcher_stub()
+        environment = self._installer_environment()
+        environment["NICE_INSTALLER_TEST_NETWORK_COUNT"] = "2"
+
+        result = self._run_installer(
+            installer=installer,
+            state_dir=state_dir,
+            authorized_keys=authorized_keys,
+            environment=environment,
+            extra_arguments=("--preserve-explicit-mac",),
+        )
+
+        self.assertEqual(result.returncode, 78, result.stderr)
+        self.assertIn("requires one unambiguous endpoint MAC", result.stderr)
+        self.assertEqual(self._root_read(authorized_keys), original)
 
     def test_fresh_generic_install_creates_one_managed_key_and_empty_recovery(self) -> None:
         state_dir, authorized_keys = self._prepare_generic_paths()

@@ -74,6 +74,27 @@ previous published bundle, and that the final manifest hashes match the exact
 LF bytes shipped in the image. Equal-version content changes are a release
 error even though the launcher safely rejects them at installation time.
 
+Definition-probe fixtures treat MAC intent as persisted policy rather than
+runtime inference. Under the default
+`NICE_DEPLOY_PRESERVE_EXPLICIT_MAC=false`, a live definition with a
+Docker-generated endpoint MAC and either an absent or nonempty deprecated
+`Config.MacAddress` projection produces a payload with neither MAC field.
+Different generated values normalize equally across a second recreation;
+`Config.MacAddress` is always removed.
+
+Explicit-policy fixtures set the root-owned value to `true` through the
+`--preserve-explicit-mac` enrollment switch and prove that one nonempty endpoint
+MAC is preserved and comparison-gated. They also prove that an endpoint
+mismatch, malformed policy, zero or multiple endpoints, empty MAC, and conflict
+with a nonempty legacy `Config.MacAddress` fail closed. The same policy must
+reach the launcher-owned builder/comparator, candidate filters, delegated guard,
+validate-definition, deploy acceptance, and definition-based rollback. Bundle
+review asserts version 2 and final LF-byte hashes for the guard and both jq
+filters. Launcher tests additionally select version 1, prove application
+deploy/rollback are refused while inspection remains available, and reselect
+version 2 before application work. Rollback-state tests bind the captured policy
+to state version 3 so later policy drift cannot reinterpret a stored definition.
+
 The delegated guard contract separately covers backup and candidate migration,
 single-container success cleanup, legacy and definition-based container
 rollback, and strict dedicated-key SSH behavior. The built image must contain

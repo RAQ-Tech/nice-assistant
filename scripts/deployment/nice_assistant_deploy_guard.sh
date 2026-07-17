@@ -26,9 +26,12 @@ source "$CONFIG_FILE"
 : "${NICE_CONTAINER_NAME:?missing NICE_CONTAINER_NAME}"
 : "${NICE_APPROVED_IMAGE_PREFIX:?missing NICE_APPROVED_IMAGE_PREFIX}"
 : "${NICE_DEPLOY_STATE_DIR:?missing NICE_DEPLOY_STATE_DIR}"
+PRESERVE_EXPLICIT_MAC=${NICE_DEPLOY_PRESERVE_EXPLICIT_MAC-false}
 
 [[ "$NICE_CONTAINER_NAME" =~ ^[A-Za-z0-9][A-Za-z0-9_.-]*$ ]] || die "invalid configured container name" 78
 [[ "$NICE_APPROVED_IMAGE_PREFIX" =~ ^ghcr\.io/[a-z0-9_.-]+/nice-assistant$ ]] || die "invalid approved image prefix" 78
+[[ "$PRESERVE_EXPLICIT_MAC" == true || "$PRESERVE_EXPLICIT_MAC" == false ]] ||
+  die "invalid explicit MAC preservation policy" 78
 mkdir -p -- "$NICE_DEPLOY_STATE_DIR"
 chmod 700 -- "$NICE_DEPLOY_STATE_DIR"
 
@@ -133,10 +136,40 @@ save_previous_definition() {
   mv -f -- "$temporary" "$target"
 }
 
+validate_explicit_mac_policy() {
+  local definition=$1
+  if [[ "$PRESERVE_EXPLICIT_MAC" == false ]]; then
+    "$JQ" -e '
+      .[0].Config as $config |
+      ($config | type) == "object" and
+      (
+        ($config | has("MacAddress") | not) or
+        $config.MacAddress == null or
+        ($config.MacAddress | type) == "string"
+      )
+    ' "$definition" >/dev/null
+    return
+  fi
+  "$JQ" -e '
+    .[0] as $container |
+    (($container.NetworkSettings.Networks // {}) | length) as $network_count |
+    [
+      ($container.NetworkSettings.Networks // {})[]?.MacAddress |
+      select(type == "string" and length > 0)
+    ] as $endpoint_macs |
+    (($container.Config.MacAddress // "") | select(type == "string")) as $legacy_mac |
+    $network_count == 1 and
+    ($endpoint_macs | length) == 1 and
+    ($legacy_mac == "" or $legacy_mac == $endpoint_macs[0])
+  ' "$definition" >/dev/null
+}
+
 create_payload() {
   local definition=$1 image=$2 target=$3 image_labels
+  validate_explicit_mac_policy "$definition" || return 1
   image_labels=$("$DOCKER" image inspect "$image" --format '{{json .Config.Labels}}') || return 1
   "$JQ" --arg image "$image" --argjson image_labels "$image_labels" \
+    --argjson preserve_explicit_mac "$PRESERVE_EXPLICIT_MAC" \
     -f "$CREATE_PAYLOAD_FILTER" "$definition" >"$target"
   chmod 600 "$target"
 }
@@ -144,6 +177,7 @@ create_payload() {
 normalized_config() {
   local definition=$1
   "$JQ" --arg managed_name "$NICE_CONTAINER_NAME" \
+    --argjson preserve_explicit_mac "$PRESERVE_EXPLICIT_MAC" \
     -f "$NORMALIZE_CONFIG_FILTER" "$definition"
 }
 
@@ -272,7 +306,8 @@ write_state() {
     --arg deployed_digest "$deployed_digest" \
     --arg previous_definition "$previous_definition" \
     --argjson database_compatible "$compatible" \
-    '{state_version:2,rollback_container:$rollback_container,previous_digest:$previous_digest,deployed_digest:$deployed_digest,database_compatible:$database_compatible,previous_definition:$previous_definition}' \
+    --argjson preserve_explicit_mac "$PRESERVE_EXPLICIT_MAC" \
+    '{state_version:3,rollback_container:$rollback_container,previous_digest:$previous_digest,deployed_digest:$deployed_digest,database_compatible:$database_compatible,previous_definition:$previous_definition,preserve_explicit_mac:$preserve_explicit_mac}' \
     >"$temporary"
   chmod 600 "$temporary"
   mv -f -- "$temporary" "$STATE_FILE"
@@ -341,7 +376,20 @@ cleanup_guard_rollback_containers() {
 perform_rollback() {
   [[ -f "$STATE_FILE" ]] || die "no guarded rollback is available" 69
   local rollback_container previous_digest compatible failed_name previous_definition previous_definition_file
+  local state_policy
   local rollback_payload rollback_response rollback_inspect before after recreated
+  state_policy=$("$JQ" -er '
+    if .state_version != 3 then
+      error("unsupported deployment state")
+    elif (.preserve_explicit_mac | type) != "boolean" then
+      error("invalid deployment MAC policy")
+    else
+      (.preserve_explicit_mac | tostring)
+    end
+  ' "$STATE_FILE") ||
+    die "the guarded rollback MAC policy is unavailable; operator recovery is required" 76
+  [[ "$state_policy" == "$PRESERVE_EXPLICIT_MAC" ]] ||
+    die "the deployment MAC policy changed; operator approval is required before rollback" 76
   rollback_container=$("$JQ" -r '.rollback_container // empty' "$STATE_FILE")
   previous_digest=$("$JQ" -er '.previous_digest' "$STATE_FILE")
   compatible=$("$JQ" -er '.database_compatible' "$STATE_FILE")
@@ -383,14 +431,15 @@ perform_rollback() {
     "$DOCKER" rename "$rollback_container" "$NICE_CONTAINER_NAME"
   fi
   rollback_inspect="$NICE_DEPLOY_STATE_DIR/rollback-inspect.json"
-  if ! "$DOCKER" start "$NICE_CONTAINER_NAME" >/dev/null ||
-    ! wait_healthy "$NICE_CONTAINER_NAME" ||
-    [[ $(current_repo_digest "$NICE_CONTAINER_NAME") != "$previous_digest" ]] ||
+  if ! "$DOCKER" container inspect "$NICE_CONTAINER_NAME" >"$rollback_inspect" ||
+    ! validate_explicit_mac_policy "$rollback_inspect" ||
     { [[ "$recreated" == true ]] &&
-      { ! "$DOCKER" container inspect "$NICE_CONTAINER_NAME" >"$rollback_inspect" ||
-        ! before=$(normalized_config "$previous_definition_file") ||
+      { ! before=$(normalized_config "$previous_definition_file") ||
         ! after=$(normalized_config "$rollback_inspect") ||
-        [[ "$before" != "$after" ]]; }; }; then
+        [[ "$before" != "$after" ]]; }; } ||
+    ! "$DOCKER" start "$NICE_CONTAINER_NAME" >/dev/null ||
+    ! wait_healthy "$NICE_CONTAINER_NAME" ||
+    [[ $(current_repo_digest "$NICE_CONTAINER_NAME") != "$previous_digest" ]]; then
     "$DOCKER" stop --time 30 "$NICE_CONTAINER_NAME" >/dev/null || true
     if [[ "$recreated" == true ]]; then
       "$DOCKER" rm "$NICE_CONTAINER_NAME" >/dev/null || true
@@ -440,6 +489,10 @@ validate_definition_action() {
     die "container definition could not be recreated" 70
   fi
   "$DOCKER" container inspect "$probe" >"$NICE_DEPLOY_STATE_DIR/probe-inspect.json"
+  if ! validate_explicit_mac_policy "$NICE_DEPLOY_STATE_DIR/probe-inspect.json"; then
+    "$DOCKER" rm "$probe" >/dev/null
+    die "recreated container violated the configured MAC policy" 70
+  fi
   before=$(normalized_config "$DEFINITION_FILE")
   after=$(normalized_config "$NICE_DEPLOY_STATE_DIR/probe-inspect.json")
   "$DOCKER" rm "$probe" >/dev/null
@@ -489,12 +542,28 @@ deploy_action() {
     remove_previous_definition "$previous_definition_name"
     die "candidate container could not be created; prior container restored" 70
   fi
-  write_state "$rollback_name" "$previous_digest" "$digest" "$compatible" "$previous_definition_name"
 
   candidate_inspect="$NICE_DEPLOY_STATE_DIR/candidate-inspect.json"
+  if ! "$DOCKER" container inspect "$NICE_CONTAINER_NAME" >"$candidate_inspect" ||
+    ! validate_explicit_mac_policy "$candidate_inspect" ||
+    ! before=$(normalized_config "$DEFINITION_FILE") ||
+    ! after=$(normalized_config "$candidate_inspect") ||
+    [[ "$before" != "$after" ]]; then
+    remove_stopped_created_container "$NICE_CONTAINER_NAME" "$digest" ||
+      die "candidate definition failure was ambiguous; operator recovery is required" 70
+    "$DOCKER" rename "$rollback_name" "$NICE_CONTAINER_NAME"
+    "$DOCKER" start "$NICE_CONTAINER_NAME" >/dev/null ||
+      die "candidate definition failed and the prior container could not restart" 70
+    wait_healthy "$NICE_CONTAINER_NAME" ||
+      die "candidate definition failed and the prior container did not recover" 70
+    remove_previous_definition "$previous_definition_name"
+    die "candidate definition failed acceptance; prior container restored" 70
+  fi
+
+  write_state "$rollback_name" "$previous_digest" "$digest" "$compatible" "$previous_definition_name"
   if ! "$DOCKER" start "$NICE_CONTAINER_NAME" >/dev/null ||
     ! "$DOCKER" container inspect "$NICE_CONTAINER_NAME" >"$candidate_inspect" ||
-    ! before=$(normalized_config "$DEFINITION_FILE") ||
+    ! validate_explicit_mac_policy "$candidate_inspect" ||
     ! after=$(normalized_config "$candidate_inspect") ||
     [[ "$before" != "$after" ]] ||
     ! wait_healthy "$NICE_CONTAINER_NAME" ||

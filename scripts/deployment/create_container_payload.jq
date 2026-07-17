@@ -6,7 +6,12 @@ def clean_endpoint($container):
     Links: (.Links // null),
     DriverOpts: (.DriverOpts // null),
     IPAMConfig: (.IPAMConfig // null),
-    MacAddress: ((.MacAddress // "") | if . == "" then null else . end),
+    MacAddress: (
+      if $preserve_explicit_mac
+      then ((.MacAddress // "") | if . == "" then null else . end)
+      else null
+      end
+    ),
     GwPriority: ((.GwPriority // 0) | if . == 0 then null else . end)
   } | with_entries(select(.value != null and .value != {}));
 
@@ -15,6 +20,7 @@ def clean_endpoint($container):
   | with_entries(select(.key | startswith("org.opencontainers.image.")))) as $image_labels |
 ($container.Config
   | if .Hostname == ($container.Id[0:12]) then del(.Hostname) else . end
+  | del(.MacAddress)
   | .Labels = ((.Labels // {}) + $image_labels)
   | .Image = $image) +
 {

@@ -36,6 +36,18 @@ For a guarded promotion, additionally record:
 - initial bundle version/hash, relative `current`/`previous` state, installer
   definition-probe success, and whether an Unraid template or captured Docker
   definition is authoritative;
+- the root-only `NICE_DEPLOY_PRESERVE_EXPLICIT_MAC` value and stopped-probe
+  result; default `false` acceptance must show that generated endpoint MACs are
+  omitted and both endpoint/top-level projections are ignored across a second
+  recreation, while an explicit `true` acceptance must prove one nonempty
+  configured endpoint is preserved and comparison-gated;
+- initial supervised enrollment activates bundle version 2 or newer; after a
+  genuine version 3 application image is accepted, update the guard to version
+  3, roll it back to version 2, and re-run `update-guard` for version 3 before
+  further application work;
+- if a historical version 1 bundle is ever selectable, inspect/health remain
+  available but application deploy/rollback must be denied until version 2 or
+  newer is active;
 - for a legacy migration, the pre-update `authorized_keys` hash, a successful
   compare immediately before same-directory atomic replacement, preservation
   of every unrelated entry, and exactly one managed marker afterward;
@@ -51,7 +63,9 @@ For a guarded promotion, additionally record:
   authorization and root-only launcher state across the host's normal
   persistence boundary;
 - remote update from the exact running digest, a rejected candidate leaving the
-  old bundle active, exact helper cleanup, guard rollback, and re-update;
+  old bundle active, exact helper cleanup, guard rollback, and re-update to the
+  accepted current bundle version (version 3 in the first drill) before any
+  application deploy or rollback;
 - prior and candidate immutable digests and source revisions;
 - fresh backup verification and candidate migration revision;
 - whether container-only rollback is database-compatible;

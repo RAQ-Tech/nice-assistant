@@ -159,7 +159,7 @@ class DeploymentGuardContractTests(unittest.TestCase):
         )
         self.assertEqual(manifest["schema_version"], 1)
         self.assertEqual(manifest["launcher_protocol_version"], 1)
-        self.assertGreaterEqual(manifest["bundle_version"], 1)
+        self.assertEqual(manifest["bundle_version"], 2)
         expected_modes = {
             "nice_assistant_deploy_guard.sh": "0700",
             "create_container_payload.jq": "0600",
@@ -226,7 +226,9 @@ class DeploymentGuardContractTests(unittest.TestCase):
         self.assertIn("HostConfig: $container.HostConfig", payload_filter)
         self.assertIn("EndpointsConfig", payload_filter)
         self.assertIn("IPAMConfig: (.IPAMConfig // null)", payload_filter)
-        self.assertIn('MacAddress: ((.MacAddress // "")', payload_filter)
+        self.assertIn("if $preserve_explicit_mac", payload_filter)
+        self.assertIn('then ((.MacAddress // "")', payload_filter)
+        self.assertIn("del(.MacAddress)", payload_filter)
         self.assertIn("GwPriority: ((.GwPriority // 0)", payload_filter)
         self.assertNotIn("IPv4Address: (.IPAddress", payload_filter)
         self.assertIn('startswith("org.opencontainers.image.")', payload_filter)
@@ -292,6 +294,7 @@ class DeploymentGuardContractTests(unittest.TestCase):
         )
         current[0]["HostConfig"]["OomKillDisable"] = None
         replacement[0]["HostConfig"]["OomKillDisable"] = False
+        replacement[0]["Config"]["MacAddress"] = "02:42:ac:11:00:08"
         payload = subprocess.run(
             [
                 jq,
@@ -301,6 +304,9 @@ class DeploymentGuardContractTests(unittest.TestCase):
                 "--argjson",
                 "image_labels",
                 json.dumps({"org.opencontainers.image.revision": "new", "ignored": "value"}),
+                "--argjson",
+                "preserve_explicit_mac",
+                "true",
                 "-f",
                 str(CREATE_PAYLOAD_FILTER),
             ],
@@ -314,6 +320,7 @@ class DeploymentGuardContractTests(unittest.TestCase):
         self.assertEqual(created["Labels"]["keep"], "yes")
         self.assertEqual(created["Labels"]["org.opencontainers.image.revision"], "new")
         self.assertNotIn("ignored", created["Labels"])
+        self.assertNotIn("MacAddress", created)
         endpoint = created["NetworkingConfig"]["EndpointsConfig"]["private"]
         self.assertEqual(endpoint["Aliases"], ["nice-assistant", "stable-alias"])
         self.assertNotIn("IPAddress", endpoint)
@@ -329,6 +336,9 @@ class DeploymentGuardContractTests(unittest.TestCase):
                     "--arg",
                     "managed_name",
                     "nice-assistant",
+                    "--argjson",
+                    "preserve_explicit_mac",
+                    "true",
                     "-f",
                     str(NORMALIZE_CONFIG_FILTER),
                 ],
@@ -339,6 +349,58 @@ class DeploymentGuardContractTests(unittest.TestCase):
             )
             normalized.append(json.loads(completed.stdout))
         self.assertEqual(normalized[0], normalized[1])
+
+        generated_replacement = json.loads(json.dumps(replacement))
+        generated_replacement[0]["Config"]["MacAddress"] = "02:42:ac:11:00:09"
+        generated_replacement[0]["NetworkSettings"]["Networks"]["private"]["MacAddress"] = "02:42:ac:11:00:09"
+        generated_payload = subprocess.run(
+            [
+                jq,
+                "--arg",
+                "image",
+                "ghcr.io/owner/nice-assistant@sha256:" + ("c" * 64),
+                "--argjson",
+                "image_labels",
+                "{}",
+                "--argjson",
+                "preserve_explicit_mac",
+                "false",
+                "-f",
+                str(CREATE_PAYLOAD_FILTER),
+            ],
+            input=json.dumps(current),
+            text=True,
+            capture_output=True,
+            check=True,
+        )
+        generated_created = json.loads(generated_payload.stdout)
+        self.assertNotIn("MacAddress", generated_created)
+        self.assertNotIn(
+            "MacAddress",
+            generated_created["NetworkingConfig"]["EndpointsConfig"]["private"],
+        )
+        generated_normalized = []
+        for value in (current, generated_replacement):
+            completed = subprocess.run(
+                [
+                    jq,
+                    "-S",
+                    "--arg",
+                    "managed_name",
+                    "nice-assistant",
+                    "--argjson",
+                    "preserve_explicit_mac",
+                    "false",
+                    "-f",
+                    str(NORMALIZE_CONFIG_FILTER),
+                ],
+                input=json.dumps(value),
+                text=True,
+                capture_output=True,
+                check=True,
+            )
+            generated_normalized.append(json.loads(completed.stdout))
+        self.assertEqual(generated_normalized[0], generated_normalized[1])
 
     def test_backup_migration_acceptance_and_container_only_rollback_are_explicit(self):
         guard = GUARD.read_text(encoding="utf-8")
@@ -380,7 +442,7 @@ class DeploymentGuardContractTests(unittest.TestCase):
         deploy = guard[deploy_start : guard.index('case "$ACTION" in', deploy_start)]
         rollback = guard[guard.index("perform_rollback() {") : guard.index("inspect_action() {")]
 
-        self.assertIn("{state_version:2", guard)
+        self.assertIn("{state_version:3", guard)
         self.assertIn("previous_definition:$previous_definition", guard)
         self.assertIn('chmod 600 "$temporary"', guard)
         self.assertIn('previous_definition_name="previous-container-definition.${deployment_stamp}.json"', deploy)
@@ -604,7 +666,9 @@ elif args and args[0] == "exec":
 elif args and args[0] == "cp":
     Path(args[-1]).write_bytes(b"verified backup")
 elif args and args[0] == "run":
-    print(json.dumps({"migration_revision": "base"}))
+    migration_revision = "next" if os.environ.get("FAKE_INCOMPATIBLE_SCHEMA") == "1" else "base"
+    (root / "candidate-migration-revision").write_text(migration_revision, encoding="utf-8")
+    print(json.dumps({"migration_revision": migration_revision}))
 elif args and args[0] == "stop":
     name = args[-1]
     set_running(container(name), False)
@@ -665,11 +729,14 @@ config = {
     key: value for key, value in payload.items()
     if key not in ("HostConfig", "NetworkingConfig")
 }
-config.setdefault("Hostname", identifier[:12])
+hostname = config.pop("Hostname", identifier[:12])
+config = {"Hostname": hostname, **config}
 networks = {}
 for network_name, endpoint in payload["NetworkingConfig"]["EndpointsConfig"].items():
     networks[network_name] = {
-        "Aliases": [name, identifier, identifier[:12], *(endpoint.get("Aliases") or [])],
+        "Aliases": list(dict.fromkeys(
+            [name, identifier, identifier[:12], *(endpoint.get("Aliases") or [])]
+        )),
         "Links": endpoint.get("Links"),
         "DriverOpts": endpoint.get("DriverOpts"),
         "IPAMConfig": endpoint.get("IPAMConfig"),
@@ -677,6 +744,10 @@ for network_name, endpoint in payload["NetworkingConfig"]["EndpointsConfig"].ite
         "MacAddress": endpoint.get("MacAddress") or "00:00:00:00:00:09",
         "GwPriority": endpoint.get("GwPriority", 0),
     }
+if os.environ.get("FAKE_CONFLICT_CONFIG_MAC") == "1":
+    config["MacAddress"] = "00:00:00:00:00:0a"
+elif networks:
+    config["MacAddress"] = next(iter(networks.values()))["MacAddress"]
 image = state["images"][config["Image"]]
 definition = [{
     "Id": identifier,
@@ -690,8 +761,10 @@ definition = [{
 state["containers"][name] = {"definition": definition}
 state_path.write_text(json.dumps(state), encoding="utf-8")
 (root / "created-candidate.json").write_text(json.dumps(definition), encoding="utf-8")
-print("simulated response loss after create", file=sys.stderr)
-raise SystemExit(22)
+if os.environ.get("FAKE_CURL_RESPONSE_LOSS") == "1":
+    print("simulated response loss after create", file=sys.stderr)
+    raise SystemExit(22)
+print(json.dumps({"Id": identifier}))
 """.replace("__PYTHON__", sys.executable),
                 encoding="utf-8",
                 newline="\n",
@@ -710,19 +783,22 @@ raise SystemExit(22)
                     newline="\n",
                 )
             config = guard_dir / "guard.conf"
-            config.write_text(
-                "\n".join(
-                    (
-                        "NICE_CONTAINER_NAME='nice-assistant'",
-                        "NICE_APPROVED_IMAGE_PREFIX='ghcr.io/example/nice-assistant'",
-                        f"NICE_DEPLOY_STATE_DIR='{state_dir}'",
-                        f"NICE_DEPLOY_DOCKER_BIN='{fake_docker}'",
-                        f"NICE_DEPLOY_CURL_BIN='{fake_curl}'",
-                        f"NICE_DEPLOY_JQ_BIN='{jq}'",
-                        "NICE_DEPLOY_HEALTH_TIMEOUT_SECONDS='2'",
-                        "",
-                    )
-                ),
+            config_lines = (
+                "NICE_CONTAINER_NAME='nice-assistant'",
+                "NICE_APPROVED_IMAGE_PREFIX='ghcr.io/example/nice-assistant'",
+                f"NICE_DEPLOY_STATE_DIR='{state_dir}'",
+                f"NICE_DEPLOY_DOCKER_BIN='{fake_docker}'",
+                f"NICE_DEPLOY_CURL_BIN='{fake_curl}'",
+                f"NICE_DEPLOY_JQ_BIN='{jq}'",
+                "NICE_DEPLOY_HEALTH_TIMEOUT_SECONDS='2'",
+            )
+            default_config = guard_dir / "guard.conf.default"
+            true_config = guard_dir / "guard.conf.true"
+            config_text = "\n".join((*config_lines, ""))
+            config.write_text(config_text, encoding="utf-8", newline="\n")
+            default_config.write_text(config_text, encoding="utf-8", newline="\n")
+            true_config.write_text(
+                "\n".join((*config_lines, "NICE_DEPLOY_PRESERVE_EXPLICIT_MAC='true'", "")),
                 encoding="utf-8",
                 newline="\n",
             )
@@ -752,6 +828,8 @@ raise SystemExit(22)
                     "chmod",
                     "0600",
                     str(config),
+                    str(default_config),
+                    str(true_config),
                     str(guard_dir / CREATE_PAYLOAD_FILTER.name),
                     str(guard_dir / NORMALIZE_CONFIG_FILTER.name),
                     str(runtime_dir / "state.json"),
@@ -759,21 +837,233 @@ raise SystemExit(22)
                 check=True,
             )
 
-            deployment = subprocess.run(
-                root_prefix
-                + [
+            def invoke_guard(
+                *arguments: str,
+                response_loss: bool = False,
+                conflicting_projection: bool = False,
+                incompatible_schema: bool = False,
+            ):
+                environment = [
                     "env",
                     f"FAKE_RUNTIME_DIR={runtime_dir}",
                     f"NICE_DEPLOY_GUARD_CONFIG={config}",
-                    bash,
-                    str(guard_copy),
-                    "deploy",
-                    new_digest,
+                ]
+                if response_loss:
+                    environment.append("FAKE_CURL_RESPONSE_LOSS=1")
+                if conflicting_projection:
+                    environment.append("FAKE_CONFLICT_CONFIG_MAC=1")
+                if incompatible_schema:
+                    environment.append("FAKE_INCOMPATIBLE_SCHEMA=1")
+                return subprocess.run(
+                    root_prefix + environment + [bash, str(guard_copy), *arguments],
+                    check=False,
+                    capture_output=True,
+                    text=True,
+                )
+
+            subprocess.run(
+                root_prefix + ["cp", "--", str(true_config), str(config)],
+                check=True,
+            )
+            rejected_projection = invoke_guard(
+                "validate-definition",
+                conflicting_projection=True,
+            )
+            self.assertEqual(rejected_projection.returncode, 70, rejected_projection.stderr)
+            self.assertIn("recreated container violated the configured MAC policy", rejected_projection.stderr)
+            rejected_runtime = json.loads(
+                subprocess.run(
+                    root_prefix + ["cat", str(runtime_dir / "state.json")],
+                    check=True,
+                    capture_output=True,
+                    text=True,
+                ).stdout
+            )
+            self.assertEqual(set(rejected_runtime["containers"]), {"nice-assistant"})
+
+            subprocess.run(
+                root_prefix + ["rm", "-f", "--", str(runtime_dir / "commands.log")],
+                check=True,
+            )
+            rejected_deploy = invoke_guard(
+                "deploy",
+                new_digest,
+                conflicting_projection=True,
+                incompatible_schema=True,
+            )
+            self.assertEqual(rejected_deploy.returncode, 70, rejected_deploy.stderr)
+            self.assertIn("candidate definition failed acceptance; prior container restored", rejected_deploy.stderr)
+            self.assertEqual(
+                subprocess.run(
+                    root_prefix + ["cat", str(runtime_dir / "candidate-migration-revision")],
+                    check=True,
+                    capture_output=True,
+                    text=True,
+                ).stdout,
+                "next",
+            )
+            restored_runtime = json.loads(
+                subprocess.run(
+                    root_prefix + ["cat", str(runtime_dir / "state.json")],
+                    check=True,
+                    capture_output=True,
+                    text=True,
+                ).stdout
+            )
+            self.assertEqual(set(restored_runtime["containers"]), {"nice-assistant"})
+            restored_definition = restored_runtime["containers"]["nice-assistant"]["definition"][0]
+            self.assertEqual(restored_definition["Id"], old_container_id)
+            self.assertEqual(restored_definition["Config"]["Image"], old_digest)
+            self.assertTrue(restored_definition["State"]["Running"])
+            self.assertNotEqual(
+                subprocess.run(
+                    root_prefix + ["test", "-e", str(state_dir / "deployment-state.json")],
+                    check=False,
+                ).returncode,
+                0,
+            )
+            previous_definitions = subprocess.run(
+                root_prefix
+                + [
+                    "find",
+                    str(state_dir),
+                    "-maxdepth",
+                    "1",
+                    "-name",
+                    "previous-container-definition.*.json",
+                    "-print",
                 ],
-                check=False,
+                check=True,
                 capture_output=True,
                 text=True,
             )
+            self.assertEqual(previous_definitions.stdout, "")
+            preflight_commands = [
+                json.loads(line)
+                for line in subprocess.run(
+                    root_prefix + ["cat", str(runtime_dir / "commands.log")],
+                    check=True,
+                    capture_output=True,
+                    text=True,
+                ).stdout.splitlines()
+            ]
+            self.assertIn(["rm", "nice-assistant"], preflight_commands)
+            self.assertEqual(
+                sum(command[:1] == ["start"] for command in preflight_commands),
+                1,
+            )
+            self.assertTrue(
+                any(
+                    command[:2] == ["exec", "nice-assistant"] and any("urllib.request" in part for part in command)
+                    for command in preflight_commands
+                )
+            )
+
+            subprocess.run(
+                root_prefix + ["cp", "--", str(default_config), str(config)],
+                check=True,
+            )
+
+            successful = invoke_guard("deploy", new_digest)
+            successful_debug = successful.stderr
+            for debug_path in (
+                runtime_dir / "commands.log",
+                runtime_dir / "state.json",
+                runtime_dir / "created-candidate.json",
+                state_dir / "container-definition.json",
+                state_dir / "candidate-inspect.json",
+            ):
+                debug_result = subprocess.run(
+                    root_prefix + ["cat", str(debug_path)],
+                    check=False,
+                    capture_output=True,
+                    text=True,
+                )
+                successful_debug += f"\n{debug_path.name}:\n{debug_result.stdout}{debug_result.stderr}"
+                if debug_path.name in ("container-definition.json", "candidate-inspect.json"):
+                    normalized_result = subprocess.run(
+                        root_prefix
+                        + [
+                            jq,
+                            "--arg",
+                            "managed_name",
+                            "nice-assistant",
+                            "--argjson",
+                            "preserve_explicit_mac",
+                            "false",
+                            "-f",
+                            str(guard_dir / NORMALIZE_CONFIG_FILTER.name),
+                            str(debug_path),
+                        ],
+                        check=False,
+                        capture_output=True,
+                        text=True,
+                    )
+                    successful_debug += (
+                        f"\nnormalized-{debug_path.name}:\n{normalized_result.stdout}{normalized_result.stderr}"
+                    )
+            self.assertEqual(successful.returncode, 0, successful_debug)
+            guarded_state = json.loads(
+                subprocess.run(
+                    root_prefix + ["cat", str(state_dir / "deployment-state.json")],
+                    check=True,
+                    capture_output=True,
+                    text=True,
+                ).stdout
+            )
+            self.assertEqual(guarded_state["state_version"], 3)
+            self.assertIs(guarded_state["preserve_explicit_mac"], False)
+
+            subprocess.run(
+                root_prefix + ["cp", "--", str(true_config), str(config)],
+                check=True,
+            )
+            mismatched_policy = invoke_guard("rollback")
+            self.assertEqual(mismatched_policy.returncode, 76, mismatched_policy.stderr)
+            self.assertIn("deployment MAC policy changed", mismatched_policy.stderr)
+            self.assertEqual(
+                subprocess.run(
+                    root_prefix + ["test", "-f", str(state_dir / "deployment-state.json")],
+                    check=False,
+                ).returncode,
+                0,
+            )
+
+            subprocess.run(
+                root_prefix + ["cp", "--", str(default_config), str(config)],
+                check=True,
+            )
+            rollback = invoke_guard("rollback")
+            self.assertEqual(rollback.returncode, 0, rollback.stderr)
+            rollback_runtime = json.loads(
+                subprocess.run(
+                    root_prefix + ["cat", str(runtime_dir / "state.json")],
+                    check=True,
+                    capture_output=True,
+                    text=True,
+                ).stdout
+            )
+            prior_to_failure_id = rollback_runtime["containers"]["nice-assistant"]["definition"][0]["Id"]
+            self.assertNotEqual(
+                subprocess.run(
+                    root_prefix + ["test", "-e", str(state_dir / "deployment-state.json")],
+                    check=False,
+                ).returncode,
+                0,
+            )
+            subprocess.run(
+                root_prefix
+                + [
+                    "rm",
+                    "-f",
+                    "--",
+                    str(runtime_dir / "commands.log"),
+                    str(runtime_dir / "created-candidate.json"),
+                ],
+                check=True,
+            )
+
+            deployment = invoke_guard("deploy", new_digest, response_loss=True)
             debug = deployment.stderr
             final_state = json.loads(
                 subprocess.run(
@@ -808,7 +1098,7 @@ raise SystemExit(22)
             self.assertFalse(created_candidate[0]["State"]["Running"])
             self.assertEqual(set(final_state["containers"]), {"nice-assistant"})
             restored = final_state["containers"]["nice-assistant"]["definition"][0]
-            self.assertEqual(restored["Id"], old_container_id)
+            self.assertEqual(restored["Id"], prior_to_failure_id)
             self.assertEqual(restored["Config"]["Image"], old_digest)
             self.assertTrue(restored["State"]["Running"])
             commands = [json.loads(line) for line in command_log.splitlines()]
@@ -1160,23 +1450,37 @@ printf 'leak=%s\\n' "${TEST_SECRET-unset}"
                 newline="\n",
             )
             shutil.copytree(release, recovered_release)
-            (bundle_root / "current").symlink_to(f"releases/sha256-{digest_hex}")
-            config = install_dir / "guard.conf"
-            config.write_text(
-                "\n".join(
-                    (
-                        "NICE_CONTAINER_NAME='nice-assistant'",
-                        "NICE_APPROVED_IMAGE_PREFIX='ghcr.io/example/nice-assistant'",
-                        f"NICE_DEPLOY_STATE_DIR='{state_dir}'",
-                        "NICE_DEPLOY_DOCKER_BIN='/bin/true'",
-                        "NICE_DEPLOY_CURL_BIN='/bin/true'",
-                        f"NICE_DEPLOY_JQ_BIN='{jq}'",
-                        "",
-                    )
-                ),
+            recovered_manifest = dict(manifest)
+            recovered_manifest["bundle_version"] = 2
+            (recovered_release / "guard_bundle_manifest.json").write_text(
+                json.dumps(recovered_manifest, separators=(",", ":")) + "\n",
                 encoding="utf-8",
                 newline="\n",
             )
+            (bundle_root / "current").symlink_to(f"releases/sha256-{digest_hex}")
+            config = install_dir / "guard.conf"
+            config_lines = (
+                "NICE_CONTAINER_NAME='nice-assistant'",
+                "NICE_APPROVED_IMAGE_PREFIX='ghcr.io/example/nice-assistant'",
+                f"NICE_DEPLOY_STATE_DIR='{state_dir}'",
+                "NICE_DEPLOY_DOCKER_BIN='/bin/true'",
+                "NICE_DEPLOY_CURL_BIN='/bin/true'",
+                f"NICE_DEPLOY_JQ_BIN='{jq}'",
+            )
+            valid_config = install_dir / "guard.conf.valid"
+            invalid_configs = {
+                "empty": install_dir / "guard.conf.empty",
+                "malformed": install_dir / "guard.conf.malformed",
+            }
+            config_text = "\n".join((*config_lines, ""))
+            config.write_text(config_text, encoding="utf-8", newline="\n")
+            valid_config.write_text(config_text, encoding="utf-8", newline="\n")
+            for value, path in (("", invalid_configs["empty"]), ("sometimes", invalid_configs["malformed"])):
+                path.write_text(
+                    "\n".join((*config_lines, f"NICE_DEPLOY_PRESERVE_EXPLICIT_MAC='{value}'", "")),
+                    encoding="utf-8",
+                    newline="\n",
+                )
 
             subprocess.run(
                 root_prefix + ["chown", "-R", "root:root", str(install_dir), str(state_dir)],
@@ -1205,6 +1509,8 @@ printf 'leak=%s\\n' "${TEST_SECRET-unset}"
                     "chmod",
                     "0600",
                     str(config),
+                    str(valid_config),
+                    *(str(path) for path in invalid_configs.values()),
                     str(release / "guard_bundle_manifest.json"),
                     str(release / "create_container_payload.jq"),
                     str(release / "normalize_container_config.jq"),
@@ -1238,10 +1544,54 @@ printf 'leak=%s\\n' "${TEST_SECRET-unset}"
             self.assertIn(f"config={config}", local_result.stdout)
             self.assertIn("leak=unset", local_result.stdout)
 
+            for label, invalid_config in invalid_configs.items():
+                with self.subTest(policy=label, entrypoint="launcher"):
+                    subprocess.run(
+                        root_prefix + ["cp", "--", str(invalid_config), str(config)],
+                        check=True,
+                    )
+                    rejected_policy = invoke("inspect")
+                    self.assertEqual(rejected_policy.returncode, 78, rejected_policy.stderr)
+                    self.assertIn("invalid explicit MAC preservation policy", rejected_policy.stderr)
+                    self.assertNotIn("args=", rejected_policy.stdout)
+                with self.subTest(policy=label, entrypoint="guard"):
+                    rejected_policy = subprocess.run(
+                        root_prefix
+                        + [
+                            "env",
+                            f"NICE_DEPLOY_GUARD_CONFIG={config}",
+                            bash,
+                            str(GUARD),
+                            "inspect",
+                        ],
+                        check=False,
+                        capture_output=True,
+                        text=True,
+                    )
+                    self.assertEqual(rejected_policy.returncode, 78, rejected_policy.stderr)
+                    self.assertIn("invalid explicit MAC preservation policy", rejected_policy.stderr)
+            subprocess.run(
+                root_prefix + ["cp", "--", str(valid_config), str(config)],
+                check=True,
+            )
+
             forced_result = invoke(original_command="health")
             self.assertEqual(forced_result.returncode, 0, forced_result.stderr)
             self.assertIn("args=health", forced_result.stdout)
             self.assertIn("leak=unset", forced_result.stdout)
+
+            for action in ("inspect", "backup", "health", "logs"):
+                with self.subTest(bundle_version=1, allowed_action=action):
+                    allowed = invoke(action)
+                    self.assertEqual(allowed.returncode, 0, allowed.stderr)
+                    self.assertIn(f"args={action}", allowed.stdout)
+            valid_digest = "ghcr.io/example/nice-assistant@sha256:" + ("9" * 64)
+            for arguments in (("deploy", valid_digest), ("rollback",)):
+                with self.subTest(bundle_version=1, blocked_action=arguments[0]):
+                    blocked = invoke(*arguments)
+                    self.assertEqual(blocked.returncode, 76, blocked.stderr)
+                    self.assertIn("bundle version 2 or newer", blocked.stderr)
+                    self.assertNotIn("args=", blocked.stdout)
 
             for rejected in (
                 "inspect extra",
@@ -1285,6 +1635,11 @@ printf 'leak=%s\\n' "${TEST_SECRET-unset}"
                 text=True,
             ).stdout.strip()
             self.assertEqual(recovered_target, f"releases/sha256-{recovered_digest_hex}")
+            for arguments in (("deploy", valid_digest), ("rollback",)):
+                with self.subTest(bundle_version=2, allowed_action=arguments[0]):
+                    allowed = invoke(*arguments)
+                    self.assertEqual(allowed.returncode, 0, allowed.stderr)
+                    self.assertIn(f"args={' '.join(arguments)}", allowed.stdout)
 
             subprocess.run(
                 root_prefix
@@ -1395,11 +1750,23 @@ printf 'leak=%s\\n' "${TEST_SECRET-unset}"
                     },
                 }
             ]
-            (runtime_dir / "live.json").write_text(
-                json.dumps(live_definition),
-                encoding="utf-8",
-                newline="\n",
-            )
+            live_path = runtime_dir / "live.json"
+            valid_live_path = runtime_dir / "valid-live.json"
+            live_text = json.dumps(live_definition)
+            live_path.write_text(live_text, encoding="utf-8", newline="\n")
+            valid_live_path.write_text(live_text, encoding="utf-8", newline="\n")
+            invalid_live_paths = {}
+            for label in ("zero-networks", "empty-endpoint-mac", "legacy-endpoint-mismatch"):
+                definition = json.loads(live_text)
+                if label == "zero-networks":
+                    definition[0]["NetworkSettings"]["Networks"] = {}
+                elif label == "empty-endpoint-mac":
+                    definition[0]["NetworkSettings"]["Networks"]["private"]["MacAddress"] = ""
+                else:
+                    definition[0]["Config"]["MacAddress"] = "00:00:00:00:00:0a"
+                path = runtime_dir / f"invalid-live-{label}.json"
+                path.write_text(json.dumps(definition), encoding="utf-8", newline="\n")
+                invalid_live_paths[label] = path
             (runtime_dir / "helpers.json").write_text("{}\n", encoding="utf-8", newline="\n")
 
             candidate_guard = "#!/usr/bin/env bash\nset -eu\nexit 0\n"
@@ -1427,6 +1794,13 @@ printf 'leak=%s\\n' "${TEST_SECRET-unset}"
                 },
             }
             (candidate_dir / "guard_bundle_manifest.json").write_text(
+                json.dumps(candidate_manifest, separators=(",", ":")) + "\n",
+                encoding="utf-8",
+                newline="\n",
+            )
+            candidate_v2_manifest = runtime_dir / "candidate-v2-manifest.json"
+            candidate_manifest["bundle_version"] = 2
+            candidate_v2_manifest.write_text(
                 json.dumps(candidate_manifest, separators=(",", ":")) + "\n",
                 encoding="utf-8",
                 newline="\n",
@@ -1560,6 +1934,11 @@ for network_name, endpoint in payload["NetworkingConfig"]["EndpointsConfig"].ite
         "IPAddress": "runtime-address-probe",
         "MacAddress": endpoint.get("MacAddress") or "00:00:00:00:00:09"
     }}
+config["MacAddress"] = (
+    "00:00:00:00:00:0a"
+    if os.environ.get("FAKE_CONFLICT_CONFIG_MAC") == "1"
+    else next(iter(networks.values()))["MacAddress"]
+)
 probe = [{{
     "Id": probe_id,
     "Name": "/" + name,
@@ -1569,6 +1948,17 @@ probe = [{{
     "State": {{"Running": False}}
 }}]
 (root / "probe.json").write_text(json.dumps(probe), encoding="utf-8")
+projected_live = json.loads(json.dumps(probe))
+projected_live[0]["Name"] = "/nice-assistant"
+projected_live[0]["Config"]["Labels"].pop("com.nice-assistant.guard-update", None)
+for endpoint in projected_live[0]["NetworkSettings"]["Networks"].values():
+    endpoint["Aliases"] = [
+        "nice-assistant",
+        probe_id,
+        probe_id[:12],
+        "stable-alias",
+    ]
+(root / "projected-live.json").write_text(json.dumps(projected_live), encoding="utf-8")
 helpers_path = root / "helpers.json"
 helpers = json.loads(helpers_path.read_text(encoding="utf-8"))
 helpers[name] = {{
@@ -1585,18 +1975,21 @@ print(json.dumps({{"Id": probe_id}}))
             launcher_copy = install_dir / "nice-assistant-deploy-guard"
             launcher_copy.write_bytes(LAUNCHER.read_bytes())
             config = install_dir / "guard.conf"
-            config.write_text(
-                "\n".join(
-                    (
-                        "NICE_CONTAINER_NAME='nice-assistant'",
-                        "NICE_APPROVED_IMAGE_PREFIX='ghcr.io/example/nice-assistant'",
-                        f"NICE_DEPLOY_STATE_DIR='{state_dir}'",
-                        f"NICE_DEPLOY_DOCKER_BIN='{fake_docker}'",
-                        f"NICE_DEPLOY_CURL_BIN='{fake_curl}'",
-                        f"NICE_DEPLOY_JQ_BIN='{jq}'",
-                        "",
-                    )
-                ),
+            config_lines = (
+                "NICE_CONTAINER_NAME='nice-assistant'",
+                "NICE_APPROVED_IMAGE_PREFIX='ghcr.io/example/nice-assistant'",
+                f"NICE_DEPLOY_STATE_DIR='{state_dir}'",
+                f"NICE_DEPLOY_DOCKER_BIN='{fake_docker}'",
+                f"NICE_DEPLOY_CURL_BIN='{fake_curl}'",
+                f"NICE_DEPLOY_JQ_BIN='{jq}'",
+            )
+            false_config = install_dir / "guard.conf.false"
+            true_config = install_dir / "guard.conf.true"
+            config_text = "\n".join((*config_lines, ""))
+            config.write_text(config_text, encoding="utf-8", newline="\n")
+            false_config.write_text(config_text, encoding="utf-8", newline="\n")
+            true_config.write_text(
+                "\n".join((*config_lines, "NICE_DEPLOY_PRESERVE_EXPLICIT_MAC='true'", "")),
                 encoding="utf-8",
                 newline="\n",
             )
@@ -1627,9 +2020,14 @@ print(json.dumps({{"Id": probe_id}}))
                     "chmod",
                     "0600",
                     str(config),
+                    str(false_config),
+                    str(true_config),
                     str(runtime_dir / "running-digest"),
-                    str(runtime_dir / "live.json"),
+                    str(live_path),
+                    str(valid_live_path),
+                    *(str(path) for path in invalid_live_paths.values()),
                     str(runtime_dir / "helpers.json"),
+                    str(candidate_v2_manifest),
                     str(candidate_dir / "guard_bundle_manifest.json"),
                     str(candidate_dir / "create_container_payload.jq"),
                     str(candidate_dir / "normalize_container_config.jq"),
@@ -1637,18 +2035,21 @@ print(json.dumps({{"Id": probe_id}}))
                 check=True,
             )
 
-            def invoke(action: str, digest: str):
+            def invoke(
+                action: str,
+                digest: str,
+                *,
+                conflicting_projection: bool = False,
+            ):
+                environment = [
+                    "env",
+                    f"FAKE_RUNTIME_DIR={runtime_dir}",
+                    f"NICE_DEPLOY_LAUNCHER_CONFIG={config}",
+                ]
+                if conflicting_projection:
+                    environment.append("FAKE_CONFLICT_CONFIG_MAC=1")
                 return subprocess.run(
-                    root_prefix
-                    + [
-                        "env",
-                        f"FAKE_RUNTIME_DIR={runtime_dir}",
-                        f"NICE_DEPLOY_LAUNCHER_CONFIG={config}",
-                        bash,
-                        str(launcher_copy),
-                        action,
-                        digest,
-                    ],
+                    root_prefix + environment + [bash, str(launcher_copy), action, digest],
                     check=False,
                     capture_output=True,
                     text=True,
@@ -1672,6 +2073,63 @@ print(json.dumps({{"Id": probe_id}}))
                     == 0
                 )
 
+            rejected_v1_bootstrap = invoke("bootstrap-guard", digest_one)
+            self.assertEqual(rejected_v1_bootstrap.returncode, 76, rejected_v1_bootstrap.stderr)
+            self.assertIn("initial deployment guard bundle must be version 2 or newer", rejected_v1_bootstrap.stderr)
+            self.assertFalse(root_exists(install_dir / "guard-bundles" / "current"))
+            subprocess.run(
+                root_prefix
+                + [
+                    "cp",
+                    "--",
+                    str(candidate_v2_manifest),
+                    str(candidate_dir / "guard_bundle_manifest.json"),
+                ],
+                check=True,
+            )
+
+            subprocess.run(
+                root_prefix + ["cp", "--", str(true_config), str(config)],
+                check=True,
+            )
+            for label, invalid_live_path in invalid_live_paths.items():
+                with self.subTest(explicit_mac_input=label):
+                    subprocess.run(
+                        root_prefix + ["cp", "--", str(invalid_live_path), str(live_path)],
+                        check=True,
+                    )
+                    rejected_input = invoke("bootstrap-guard", digest_one)
+                    self.assertEqual(rejected_input.returncode, 70, rejected_input.stderr)
+                    self.assertIn("guard bundle did not preserve", rejected_input.stderr)
+                    self.assertFalse(root_exists(install_dir / "guard-bundles" / "current"))
+                    self.assertEqual(json.loads(root_read(runtime_dir / "helpers.json")), {})
+            subprocess.run(
+                root_prefix + ["cp", "--", str(valid_live_path), str(live_path)],
+                check=True,
+            )
+            rejected_projection = invoke(
+                "bootstrap-guard",
+                digest_one,
+                conflicting_projection=True,
+            )
+            self.assertEqual(rejected_projection.returncode, 70, rejected_projection.stderr)
+            self.assertIn("guard bundle did not preserve", rejected_projection.stderr)
+            conflicting_probe = json.loads(root_read(runtime_dir / "probe.json"))
+            self.assertEqual(
+                conflicting_probe[0]["NetworkSettings"]["Networks"]["private"]["MacAddress"],
+                "00:00:00:00:00:08",
+            )
+            self.assertEqual(
+                conflicting_probe[0]["Config"]["MacAddress"],
+                "00:00:00:00:00:0a",
+            )
+            self.assertFalse(root_exists(install_dir / "guard-bundles" / "current"))
+            self.assertEqual(json.loads(root_read(runtime_dir / "helpers.json")), {})
+            subprocess.run(
+                root_prefix + ["cp", "--", str(false_config), str(config)],
+                check=True,
+            )
+
             bootstrap = invoke("bootstrap-guard", digest_one)
             bootstrap_debug = bootstrap.stderr + "\ncommands:\n" + root_read(runtime_dir / "commands.log")
             if root_exists(runtime_dir / "curl.log"):
@@ -1686,7 +2144,7 @@ print(json.dumps({{"Id": probe_id}}))
             self.assertEqual(bootstrap_result["digest"], digest_one)
             probe_payload = json.loads(root_read(runtime_dir / "curl-payload.json"))
             probe_endpoint = probe_payload["NetworkingConfig"]["EndpointsConfig"]["private"]
-            self.assertEqual(probe_endpoint["MacAddress"], "00:00:00:00:00:08")
+            self.assertNotIn("MacAddress", probe_endpoint)
             self.assertEqual(probe_endpoint["GwPriority"], 10)
             current_target = subprocess.run(
                 root_prefix + ["readlink", str(install_dir / "guard-bundles" / "current")],
@@ -1697,6 +2155,21 @@ print(json.dumps({{"Id": probe_id}}))
             self.assertEqual(current_target, "releases/sha256-" + ("3" * 64))
             self.assertFalse(root_exists(state_dir / "guard-update.json"))
 
+            projected_definition = json.loads(root_read(runtime_dir / "projected-live.json"))
+            self.assertEqual(
+                projected_definition[0]["Config"]["MacAddress"],
+                "00:00:00:00:00:09",
+            )
+            subprocess.run(
+                root_prefix
+                + [
+                    "cp",
+                    "--",
+                    str(runtime_dir / "projected-live.json"),
+                    str(runtime_dir / "live.json"),
+                ],
+                check=True,
+            )
             update = invoke("update-guard", digest_one)
             self.assertEqual(update.returncode, 0, update.stderr)
             self.assertEqual(json.loads(update.stdout)["action"], "update-guard")

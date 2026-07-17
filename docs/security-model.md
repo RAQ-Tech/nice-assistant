@@ -91,6 +91,22 @@ file-type, link-count, mode, size, hash, syntax, monotonic-version, independent
 payload, and dual-normalization checks precede activation. OCI labels establish
 the expected publication identity but are not cryptographic signatures.
 
+The mode-`0600`, root-owned launcher configuration persists
+`NICE_DEPLOY_PRESERVE_EXPLICIT_MAC`, which accepts only literal `true` or
+`false`; a new enrollment or genuinely absent legacy value defaults to `false`,
+while empty or malformed values fail closed. A runtime endpoint MAC does not prove operator
+intent: Docker may assign `NetworkSettings.Networks.*.MacAddress` and project it
+through deprecated `Config.MacAddress` during creation. The default policy
+therefore omits endpoint MACs from recreated containers, excludes both runtime
+representations from equality checks, and removes the deprecated projection.
+Explicit preservation fails closed unless there is exactly one network endpoint
+with a nonempty MAC and no contradictory legacy projection; only then is the
+endpoint MAC preserved and compared. Guarded rollback state records and checks
+the capture policy, and the launcher denies application deploy/rollback under
+pre-correction bundle versions. These constraints prevent a restricted
+deployment from silently converting a generated address into static
+configuration.
+
 Launcher and guard share one lock, and delegation receives an empty environment
 plus only the verified config and inherited lock. Root-only journaling authorizes
 cleanup of exact stopped helpers and one exact staging path, never broad Docker

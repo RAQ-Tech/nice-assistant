@@ -133,6 +133,34 @@ approval; the guard never restores a database, prunes images, or touches another
 service. Browser acceptance is performed from the signed-in laptop after server
 acceptance and is required before a milestone is considered promoted.
 
+The mode-`0600`, root-owned `guard.conf` persists
+`NICE_DEPLOY_PRESERVE_EXPLICIT_MAC=true|false`; enrollment defaults it to
+`false` for a new installation or when migrating a legacy configuration where
+the value is absent. An empty or malformed persisted value is an error. Re-running enrollment keeps
+an existing literal policy unless `--preserve-explicit-mac` explicitly upgrades
+it; policy changes are refused while guarded rollback state exists. Do not
+enable preservation merely because `docker inspect` reports a nonempty
+`NetworkSettings.Networks.*.MacAddress` or deprecated `Config.MacAddress`:
+Docker can generate and project that runtime value. With the default policy,
+recreation omits endpoint `MacAddress`, comparison ignores generated endpoint
+values, and the deprecated projection is always removed.
+
+At first enrollment, an Unraid template without `--mac-address` is the
+authoritative evidence that the default policy is appropriate, even if inspect
+shows a generated projection. When no template or prior persisted policy exists,
+a nonempty deprecated projection is ambiguous and enrollment requires the
+operator to choose the explicit-preservation switch or correct the source
+definition.
+
+Pass the installer presence switch `--preserve-explicit-mac` only as an
+explicit supervised opt-in for a deployment that deliberately uses one static
+network endpoint. The launcher and delegated guard then require exactly one
+endpoint with a nonempty MAC and preserve and compare it. They fail closed for
+an invalid policy value, zero or multiple endpoints, an empty MAC, or
+disagreement with a nonempty legacy `Config.MacAddress`. Re-run the stopped
+definition probe after changing the root-only policy and record the result in
+the private deployment-acceptance record.
+
 `update-guard` is deliberately narrower than `deploy`: its digest must be the
 exact verified RepoDigest currently running as Nice Assistant, not a future or
 historical digest that happens to exist in the approved repository. Running that
@@ -151,6 +179,20 @@ SHA-256 hash before publication. Reusing a version with different bundle
 content is rejected intentionally; lowering the version is also rejected.
 Run the Linux executable guard harness after the final bundle bytes and version
 are fixed.
+
+The explicit-MAC provenance correction is bundle version 2, and the permanent
+launcher refuses to bootstrap an older bundle. The first live rollback drill is
+therefore performed after a genuine version 3 image and guard are accepted:
+select version 2 with `rollback-guard`, verify `inspect` and `health`, then
+re-run `update-guard` for the still-running version 3 image and verify it before
+further application work. If a historical version 1 bundle is ever selectable,
+the launcher refuses `deploy` and application `rollback` while it is active;
+read-only health, inspection, and guard recovery remain available.
+
+Each successful deploy writes rollback state version 3 with the literal MAC
+policy used to capture the previous container definition. Application rollback
+requires that value to match the current root-owned configuration. A missing or
+different value requires operator recovery rather than reinterpretation.
 
 `rollback-guard` swaps only the current and immediately previous validated guard
 bundles. It does not roll back the application container or database. An

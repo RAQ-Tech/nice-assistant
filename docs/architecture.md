@@ -276,6 +276,20 @@ definition before authorizing the key. A launcher-owned payload builder and
 canonical comparator prevent candidate filters from expanding Docker authority
 before atomic activation. See ADRs 0022 and 0025.
 
+The root-only launcher configuration also persists
+`NICE_DEPLOY_PRESERVE_EXPLICIT_MAC`, default `false`, as the source of truth for
+network-address intent. Docker's runtime
+`NetworkSettings.Networks.*.MacAddress` is never treated as provenance. The
+deprecated `Config.MacAddress` projection is likewise ignored as provenance and
+always removed. Default recreation omits endpoint MACs and canonical comparison
+ignores Docker-generated values across repeated recreations. An explicit `true`
+policy is restricted to one nonempty network endpoint, preserves and compares
+that endpoint MAC, and fails closed on ambiguity or a contradictory legacy
+projection. Guarded rollback state binds the policy used to capture its
+definition. This policy first appears in guard bundle version 2, and the
+permanent launcher blocks application deploy/rollback while an older bundle is
+selected.
+
 ## Realtime direction
 
 Ordinary CRUD remains HTTP. Text generation streams server events. A future single

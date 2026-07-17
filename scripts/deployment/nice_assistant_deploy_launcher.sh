@@ -36,11 +36,14 @@ source "$CONFIG_FILE"
 : "${NICE_CONTAINER_NAME:?missing NICE_CONTAINER_NAME}"
 : "${NICE_APPROVED_IMAGE_PREFIX:?missing NICE_APPROVED_IMAGE_PREFIX}"
 : "${NICE_DEPLOY_STATE_DIR:?missing NICE_DEPLOY_STATE_DIR}"
+PRESERVE_EXPLICIT_MAC=${NICE_DEPLOY_PRESERVE_EXPLICIT_MAC-false}
 
 [[ "$NICE_CONTAINER_NAME" =~ ^[A-Za-z0-9][A-Za-z0-9_.-]*$ ]] ||
   die "invalid configured container name" 78
 [[ "$NICE_APPROVED_IMAGE_PREFIX" =~ ^ghcr\.io/[a-z0-9_.-]+/nice-assistant$ ]] ||
   die "invalid approved image prefix" 78
+[[ "$PRESERVE_EXPLICIT_MAC" == true || "$PRESERVE_EXPLICIT_MAC" == false ]] ||
+  die "invalid explicit MAC preservation policy" 78
 [[ "$NICE_DEPLOY_STATE_DIR" =~ ^/[A-Za-z0-9_./-]+$ &&
   "$NICE_DEPLOY_STATE_DIR" != / &&
   "$NICE_DEPLOY_STATE_DIR" != */ &&
@@ -67,6 +70,7 @@ EXPECTED_SOURCE="https://github.com/${NICE_APPROVED_IMAGE_PREFIX#ghcr.io/}"
 MAX_GUARD_BYTES=524288
 MAX_FILTER_BYTES=131072
 MAX_MANIFEST_BYTES=32768
+MIN_APPLICATION_BUNDLE_VERSION=2
 
 for command in "$DOCKER" "$CURL" "$JQ" flock stat sha256sum install readlink; do
   command -v "$command" >/dev/null 2>&1 ||
@@ -273,6 +277,34 @@ current_repo_digest() {
        if length == 1 then .[0] else error("ambiguous digest") end'
 }
 
+validate_explicit_mac_policy() {
+  local definition=$1
+  if [[ "$PRESERVE_EXPLICIT_MAC" == false ]]; then
+    "$JQ" -e '
+      .[0].Config as $config |
+      ($config | type) == "object" and
+      (
+        ($config | has("MacAddress") | not) or
+        $config.MacAddress == null or
+        ($config.MacAddress | type) == "string"
+      )
+    ' "$definition" >/dev/null
+    return
+  fi
+  "$JQ" -e '
+    .[0] as $container |
+    (($container.NetworkSettings.Networks // {}) | length) as $network_count |
+    [
+      ($container.NetworkSettings.Networks // {})[]?.MacAddress |
+      select(type == "string" and length > 0)
+    ] as $endpoint_macs |
+    (($container.Config.MacAddress // "") | select(type == "string")) as $legacy_mac |
+    $network_count == 1 and
+    ($endpoint_macs | length) == 1 and
+    ($legacy_mac == "" or $legacy_mac == $endpoint_macs[0])
+  ' "$definition" >/dev/null
+}
+
 helper_is_owned() {
   local name=$1 hex=$2 label running
   "$DOCKER" container inspect "$name" >/dev/null 2>&1 || return 0
@@ -349,7 +381,7 @@ CANONICAL_FILTER='
   .[0] as $container |
   {
     Config: ($container.Config
-      | del(.Image)
+      | del(.Image, .MacAddress)
       | if .Hostname == ($container.Id[0:12]) then .Hostname = "__docker_default__" else . end
       | .Labels = ((.Labels // {})
         | del(.["com.nice-assistant.guard-update"])
@@ -366,7 +398,12 @@ CANONICAL_FILTER='
       Links: (.Links // null),
       DriverOpts: (.DriverOpts // null),
       IPAMConfig: (.IPAMConfig // null),
-      MacAddress: ((.MacAddress // "") | if . == "" then null else . end),
+      MacAddress: (
+        if $preserve_explicit_mac
+        then ((.MacAddress // "") | if . == "" then null else . end)
+        else null
+        end
+      ),
       GwPriority: (.GwPriority // 0)
     }))
   }
@@ -381,7 +418,12 @@ EXPECTED_PAYLOAD_FILTER='
       Links: (.Links // null),
       DriverOpts: (.DriverOpts // null),
       IPAMConfig: (.IPAMConfig // null),
-      MacAddress: ((.MacAddress // "") | if . == "" then null else . end),
+      MacAddress: (
+        if $preserve_explicit_mac
+        then ((.MacAddress // "") | if . == "" then null else . end)
+        else null
+        end
+      ),
       GwPriority: ((.GwPriority // 0) | if . == 0 then null else . end)
     } | with_entries(select(.value != null and .value != {}));
 
@@ -390,6 +432,7 @@ EXPECTED_PAYLOAD_FILTER='
     | with_entries(select(.key | startswith("org.opencontainers.image.")))) as $image_labels |
   ($container.Config
     | if .Hostname == ($container.Id[0:12]) then del(.Hostname) else . end
+    | del(.MacAddress)
     | .Labels = ((.Labels // {}) + $image_labels)
     | .Image = $image) +
   {
@@ -412,16 +455,19 @@ verify_definition_probe() {
   response="$staging/probe-response.json"
   inspected="$staging/probe-inspect.json"
   "$DOCKER" container inspect "$NICE_CONTAINER_NAME" >"$live" 2>/dev/null || return 1
+  validate_explicit_mac_policy "$live" || return 1
   image_labels=$("$DOCKER" image inspect "$digest" 2>/dev/null |
     "$JQ" -cer '.[0].Config.Labels // {}') || return 1
   "$JQ" \
     --arg image "$digest" \
     --argjson image_labels "$image_labels" \
+    --argjson preserve_explicit_mac "$PRESERVE_EXPLICIT_MAC" \
     -f "$release/create_container_payload.jq" "$live" >"$candidate_payload" ||
     return 1
   "$JQ" \
     --arg image "$digest" \
     --argjson image_labels "$image_labels" \
+    --argjson preserve_explicit_mac "$PRESERVE_EXPLICIT_MAC" \
     "$EXPECTED_PAYLOAD_FILTER" "$live" >"$expected_payload" ||
     return 1
   candidate_serialized=$("$JQ" -cS . "$candidate_payload") || return 1
@@ -434,14 +480,19 @@ verify_definition_probe() {
   chmod 600 "$payload"
   create_container_from_payload "$probe" "$payload" "$response" || return 1
   "$DOCKER" container inspect "$probe" >"$inspected" 2>/dev/null || return 1
+  validate_explicit_mac_policy "$inspected" || return 1
   before=$("$JQ" -cS --arg managed_name "$NICE_CONTAINER_NAME" \
+    --argjson preserve_explicit_mac "$PRESERVE_EXPLICIT_MAC" \
     "$CANONICAL_FILTER" "$live") || return 1
   after=$("$JQ" -cS --arg managed_name "$NICE_CONTAINER_NAME" \
+    --argjson preserve_explicit_mac "$PRESERVE_EXPLICIT_MAC" \
     "$CANONICAL_FILTER" "$inspected") || return 1
   [[ "$before" == "$after" ]] || return 1
   candidate_before=$("$JQ" -cS --arg managed_name "$NICE_CONTAINER_NAME" \
+    --argjson preserve_explicit_mac "$PRESERVE_EXPLICIT_MAC" \
     -f "$release/normalize_container_config.jq" "$live") || return 1
   candidate_after=$("$JQ" -cS --arg managed_name "$NICE_CONTAINER_NAME" \
+    --argjson preserve_explicit_mac "$PRESERVE_EXPLICIT_MAC" \
     -f "$release/normalize_container_config.jq" "$inspected") || return 1
   [[ "$candidate_before" == "$candidate_after" &&
     "$candidate_before" == "$before" ]] || return 1
@@ -456,8 +507,10 @@ validate_candidate_programs() {
     >"$fixture"
   bash -n "$release/nice_assistant_deploy_guard.sh" >/dev/null 2>&1 || return 1
   "$JQ" --arg image "$digest" --argjson image_labels '{}' \
+    --argjson preserve_explicit_mac false \
     -f "$release/create_container_payload.jq" "$fixture" >/dev/null 2>&1 || return 1
   "$JQ" --arg managed_name "$NICE_CONTAINER_NAME" \
+    --argjson preserve_explicit_mac false \
     -f "$release/normalize_container_config.jq" "$fixture" >/dev/null 2>&1 ||
     return 1
   rm -f -- "$fixture"
@@ -583,6 +636,10 @@ install_guard_bundle() {
 
   candidate_manifest="$candidate/guard_bundle_manifest.json"
   candidate_version=$("$JQ" -er '.bundle_version' "$candidate_manifest")
+  if [[ "$bootstrap" == true ]]; then
+    ((candidate_version >= MIN_APPLICATION_BUNDLE_VERSION)) ||
+      die "initial deployment guard bundle must be version 2 or newer" 76
+  fi
   if [[ -e "$CURRENT_LINK" || -L "$CURRENT_LINK" ]]; then
     current_target=$(bundle_target "$CURRENT_LINK") ||
       die "active deployment guard bundle is invalid" 78
@@ -648,11 +705,18 @@ rollback_guard_bundle() {
 }
 
 delegate_guard() {
-  local target guard
+  local target guard version
   target=$(bundle_target "$CURRENT_LINK") ||
     die "active deployment guard bundle is unavailable" 78
   validate_bundle "$BUNDLE_ROOT/$target" ||
     die "active deployment guard bundle is invalid" 78
+  if [[ "$ACTION" == deploy || "$ACTION" == rollback ]]; then
+    version=$("$JQ" -er '.bundle_version' \
+      "$BUNDLE_ROOT/$target/guard_bundle_manifest.json") ||
+      die "active deployment guard bundle version is invalid" 78
+    ((version >= MIN_APPLICATION_BUNDLE_VERSION)) ||
+      die "application deploy and rollback require deployment guard bundle version 2 or newer" 76
+  fi
   guard="$BUNDLE_ROOT/$target/nice_assistant_deploy_guard.sh"
   if [[ -n "$DIGEST" ]]; then
     exec /usr/bin/env -i \
