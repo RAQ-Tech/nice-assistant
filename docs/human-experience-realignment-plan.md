@@ -1,6 +1,6 @@
 # Human experience realignment plan
 
-- Status: Approved; final acceptance in progress
+- Status: Completed and accepted in production
 - Date: 2026-07-16
 - Scope: conversation, speech, image generation, persona truthfulness, settings,
   verification, and delivery priorities
@@ -303,15 +303,23 @@ scenarios, not inferred from infrastructure tests.
 
 ### Phase 8 - acceptance and publication
 
-- [ ] Run focused backend and frontend tests, then the complete repository suite.
-- [ ] Build the production frontend and container.
-- [ ] Run installed-browser acceptance at desktop and mobile widths with mouse,
+- [x] Run focused backend and frontend tests, then the complete repository suite.
+- [x] Build the production frontend and container.
+- [x] Run installed-browser acceptance at desktop and mobile widths with mouse,
   touch, and keyboard input.
-- [ ] Run the public-repository privacy audit before each public commit.
-- [ ] Publish in small, reversible commits and verify the deployed revision and
+- [x] Run the public-repository privacy audit before each public commit.
+- [x] Publish in small, reversible commits and verify the deployed revision and
   exact browser journey after each user-visible phase.
-- [ ] Do not mark a roadmap item delivered until its installed-browser journey
+- [x] Do not mark a roadmap item delivered until its installed-browser journey
   and documented failure behavior pass.
+
+The final installed-browser pass reproduced a persona delivery claim containing
+a bare media placeholder while its attachment was queued. The deterministic
+claim guard replaced it with truthful future intent, reload recovered exactly
+one attachment, and the real provider had already completed the same ordinary
+request through the durable picture-message path. A Linux CI race discovered
+during that promotion was also repaired so synchronous job waits include
+post-job resource finalization.
 
 ## Required installed-browser journeys
 
