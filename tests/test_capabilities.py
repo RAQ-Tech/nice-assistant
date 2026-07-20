@@ -534,7 +534,10 @@ class CapabilityTests(unittest.TestCase):
 
             turn = running.client.post(
                 f"/api/v1/chats/{chat['id']}/turns",
-                json={"text": "Show an empty greenhouse; do not include the persona", "memory_mode": "off"},
+                json={
+                    "text": "Show an empty greenhouse; do not include the persona",
+                    "memory_mode": "off",
+                },
             ).json()
             running.wait_job(turn["job"]["id"])
             general = running.client.get(
@@ -605,7 +608,10 @@ class CapabilityTests(unittest.TestCase):
             ).json()
             accepted = running.client.post(
                 f"/api/v1/chats/{chat['id']}/turns",
-                json={"text": "I prefer moonlit gardens. Show me one.", "memory_mode": "saved"},
+                json={
+                    "text": "I prefer moonlit gardens. Show me one.",
+                    "memory_mode": "saved",
+                },
             ).json()
 
             completed = running.wait_job(accepted["job"]["id"])

@@ -392,8 +392,19 @@ class ResourceCoordinator:
                 return
         if elapsed >= int(policy["max_wait_seconds"]):
             with self._lock:
-                if self._records.get(record.job_id) is not record:
+                current_policy = dict(self._policy)
+                if (
+                    self._records.get(record.job_id) is not record
+                    or record.state != "checking"
+                    or current_policy["mode"] == "disabled"
+                ):
                     return
+                elapsed = time.monotonic() - record.started_monotonic
+                if elapsed < int(current_policy["max_wait_seconds"]):
+                    record.snapshot = snapshot
+                    record.next_check_monotonic = time.monotonic() + float(current_policy["poll_interval_seconds"])
+                    return
+                required = record.request.estimated_vram_mb + int(current_policy["reserve_vram_mb"])
                 # Keep a non-admissible record until the rejection callback has
                 # synchronously removed the queue entry. Removing it first would
                 # let a periodically waking worker mistake "missing" for admitted.
@@ -436,6 +447,12 @@ class ResourceCoordinator:
 
     def _attempt_release(self, record: AdmissionRecord) -> None:
         with self._lock:
+            if (
+                self._policy["mode"] != "managed"
+                or self._records.get(record.job_id) is not record
+                or record.state != "checking"
+            ):
+                return
             if self._active_job_id or self._control_in_progress:
                 record.control_attempted = False
                 return
@@ -476,7 +493,19 @@ class ResourceCoordinator:
         if not authorization or not authorization.exclusive_control or not authorization.allow_release:
             return False
         try:
-            detail = self.providers[provider].release(endpoint, api_auth)
+            with self._lock:
+                if self._policy["mode"] != "managed" or not self._control_in_progress:
+                    return False
+                if trigger == "pre_admission" and (
+                    self._records.get(record.job_id) is not record or record.state != "checking"
+                ):
+                    return False
+                if trigger == "post_job" and not record.execution_started:
+                    return False
+                # Keep the final policy/state check and provider invocation in
+                # one critical section. A completed switch to disabled mode
+                # therefore cannot be followed by a stale release request.
+                detail = self.providers[provider].release(endpoint, api_auth)
         except Exception as exc:
             self.logger.warning(
                 "resource release failed provider=%s job_id=%s error=%s",

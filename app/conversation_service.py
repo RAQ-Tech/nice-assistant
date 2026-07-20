@@ -14,6 +14,11 @@ from app.job_service import JobExecution, JobService, turn_response
 from app.context_service import ContextService
 from app.memory_service import MemoryService
 from app.models import AsyncJob
+from app.persona_output import (
+    PERSONA_OUTPUT_REMOVED_FALLBACK,
+    PersonaOutputStreamFilter,
+    safe_persona_output_text,
+)
 from app.provider_contracts import ChatRequest, ProviderError
 from app.provider_registry import ProviderRegistry
 from app.repositories import UnitOfWork, now_ts
@@ -22,9 +27,11 @@ from app.task_contracts import (
     CAPABILITY_PLANNING,
     TITLE_GENERATION,
     CapabilityPlanningTaskInput,
+    PlannedCapability,
     TitleTaskInput,
     guard_premature_media_completion_claim,
     is_explicit_text_only_request,
+    is_high_confidence_image_action_request,
     is_high_confidence_media_action_request,
 )
 from app.turn_events import TurnEventBroker
@@ -107,7 +114,7 @@ class ConversationService:
                 {
                     "id": row.id,
                     "role": row.role,
-                    "text": row.text,
+                    "text": safe_persona_output_text(row.text) if row.role == "assistant" else row.text,
                     "created_at": row.created_at,
                     "attachments": attachments.get(row.id, []),
                 }
@@ -263,6 +270,14 @@ class ConversationService:
             }
 
         self.broker.publish(turn.id, "turn.queued", {"turn_id": turn.id, "job_id": job.id, "status": "queued"})
+        explicit_image_request = bool(allow_persona_image_sends and is_high_confidence_image_action_request(text))
+
+        def deterministic_image_plan() -> PlannedCapability:
+            return PlannedCapability(
+                capability_key="media.generate_image",
+                prompt=text[:1000],
+                operation="generate",
+            )
 
         def execute(token):
             provider = self.providers.chat(provider_name)
@@ -303,6 +318,7 @@ class ConversationService:
             )
             chunks = []
             guard_media_claims = is_high_confidence_media_action_request(text)
+            output_filter = PersonaOutputStreamFilter()
             actual_prompt_tokens = None
             request = ChatRequest(
                 model=model,
@@ -320,14 +336,33 @@ class ConversationService:
                 if delta.metadata.get("prompt_eval_count") is not None:
                     actual_prompt_tokens = delta.metadata.get("prompt_eval_count")
                 if delta.text:
-                    chunks.append(delta.text)
-                    if not guard_media_claims:
+                    sanitized = output_filter.feed(delta.text)
+                    if sanitized.text:
+                        chunks.append(sanitized.text)
+                    if not guard_media_claims and sanitized.text:
                         self.broker.publish(
                             turn.id,
                             "assistant.delta",
-                            {"turn_id": turn.id, "text": delta.text},
+                            {"turn_id": turn.id, "text": sanitized.text},
                         )
+            sanitized_tail = output_filter.finish()
+            if sanitized_tail.text:
+                chunks.append(sanitized_tail.text)
+                if not guard_media_claims:
+                    self.broker.publish(
+                        turn.id,
+                        "assistant.delta",
+                        {"turn_id": turn.id, "text": sanitized_tail.text},
+                    )
             raw_reply = "".join(chunks)
+            if output_filter.protected_content_removed and not raw_reply.strip():
+                raw_reply = PERSONA_OUTPUT_REMOVED_FALLBACK
+                if not guard_media_claims:
+                    self.broker.publish(
+                        turn.id,
+                        "assistant.delta",
+                        {"turn_id": turn.id, "text": raw_reply},
+                    )
             reply, media_claim_guarded = guard_premature_media_completion_claim(
                 text,
                 raw_reply,
@@ -345,7 +380,9 @@ class ConversationService:
                 "text": reply,
                 "chatId": chat_id,
                 "mediaClaimGuarded": media_claim_guarded,
-                "schedule_capability_planning": bool(planning_definitions and not is_explicit_text_only_request(text)),
+                "schedule_capability_planning": bool(
+                    not is_explicit_text_only_request(text) and (planning_definitions or explicit_image_request)
+                ),
             }
 
         def execute_title_followup(token):
@@ -378,8 +415,14 @@ class ConversationService:
                 user_id,
                 allow_images=allow_persona_image_sends,
             )
-            if not planning_definitions or is_explicit_text_only_request(text):
+            if is_explicit_text_only_request(text):
                 return {"planned_capabilities": [], "task_run_id": None}
+            if not planning_definitions:
+                return {
+                    "planned_capabilities": [deterministic_image_plan()] if explicit_image_request else [],
+                    "task_run_id": None,
+                    "planning_source": "deterministic_explicit_image",
+                }
             planning_vocabulary = self.capabilities.planning_vocabulary(user_id)
             try:
                 outcome = self.task_models.run(
@@ -398,15 +441,31 @@ class ConversationService:
                     chat_id=chat_id,
                     turn_id=turn.id,
                 )
-                return {"planned_capabilities": list(outcome.output.requests), "task_run_id": outcome.run_id}
+                planned_capabilities = list(outcome.output.requests)
+                planning_source = "task_model"
+                if explicit_image_request and not any(
+                    item.capability_key == "media.generate_image" for item in planned_capabilities
+                ):
+                    planned_capabilities.append(deterministic_image_plan())
+                    planning_source = "task_model_with_explicit_image_fallback"
+                return {
+                    "planned_capabilities": planned_capabilities,
+                    "task_run_id": outcome.run_id,
+                    "planning_source": planning_source,
+                }
             except ProviderError as exc:
                 if exc.code == "cancelled" or token.cancelled:
                     raise
-                return {"planned_capabilities": [], "task_run_id": None}
+                return {
+                    "planned_capabilities": [deterministic_image_plan()] if explicit_image_request else [],
+                    "task_run_id": None,
+                    "planning_source": "deterministic_explicit_image",
+                }
 
         def on_capability_followup_success(repo, result):
             output = dict(result or {})
             planned_capabilities = list(output.pop("planned_capabilities", []))
+            planning_source = str(output.pop("planning_source", "task_model"))
             if planned_capabilities:
                 capability_requests = self.capabilities.prepare_planned_requests(
                     repo,
@@ -416,6 +475,7 @@ class ConversationService:
                     user_text=text,
                     originating_persona_id=requested_persona_id,
                     planned=planned_capabilities,
+                    source=planning_source,
                 )
                 output["auto_capability_request_ids"] = [
                     item["id"] for item in capability_requests if item.pop("auto_submit", False)

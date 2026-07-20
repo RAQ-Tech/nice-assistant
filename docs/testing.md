@@ -144,8 +144,11 @@ installed-browser acceptance.
 - Ollama tests cover fragmented NDJSON, completion metadata, mid-stream errors,
   malformed frames, timeout/unavailable behavior, and cancellation closure.
 - Turn tests cover legal transitions, atomic linked state, safe failures,
-  deterministic removal of terse, bracketed, placeholder, and demonstrative
-  premature media-completion claims,
+  strict explicit-image classification with ordinary-text negative cases, one
+  platform-owned pending-image acknowledgement, removal of complete, unclosed,
+  nested, and chunk-split protected prompt envelopes before streaming/persistence, safe
+  legacy-message and summary reads, exclusion of removed text from future
+  context and summary reuse,
   idempotent cancellation, snapshot-first SSE, bounded replay, terminal ordering,
   and owner isolation.
 - Capability tests cover the legal transition matrix, semantic tool schemas,
@@ -176,7 +179,10 @@ installed-browser acceptance.
   image approval, story/discussion prompts create no request, a disabled persona
   suppresses only conversational image planning, direct and planned jobs return
   durable transcript attachments, reload retains lifecycle state, and
-  failed/cancelled attachments create linked automatic retries.
+  failed/cancelled attachments create linked automatic retries. They also prove
+  an explicit image request receives a deterministic durable request when the
+  Task Model returns no request, and receives a failed attachment rather than a
+  silent promise when no image provider is ready.
 - Media-recovery tests prove migration/startup recover only existing
   owner/chat/plan-linked generated files, fail closed for strict identity
   failures even without an attempt row, preserve `not_applicable` for ordinary
@@ -200,9 +206,11 @@ installed-browser acceptance.
   the lease until release finishes, synchronous job waits include that
   finalizer, observe mode never releases, and work cancelled before execution
   cannot release a provider. Cancellation after execution still performs
-  post-provider cleanup exactly once. Queue lifecycle tests also prove that
-  concurrent teardown rejects late follow-up submissions and clears rejected
-  token/execution bookkeeping rather than leaving work in a stopped queue.
+  post-provider cleanup exactly once. A completed managed-to-disabled policy
+  change prevents stale authorized provider release and timeout paths and
+  immediately admits previously gated work. Queue lifecycle tests also prove that concurrent
+  teardown rejects late follow-up submissions and clears rejected token/execution
+  bookkeeping rather than leaving work in a stopped queue.
   They cover the opposite interleaving too: a submission accepted immediately
   before the gate closes is durably cancelled exactly once and releases its
   coordinator ownership. A deterministic coordinator-wake test proves

@@ -385,6 +385,7 @@ class CapabilityService:
         user_text: str,
         originating_persona_id: str | None,
         planned: list[PlannedCapability],
+        source: str = "task_model",
     ) -> list[dict]:
         chat = repo.chat(user_id, chat_id)
         if not chat:
@@ -441,7 +442,7 @@ class CapabilityService:
                     from_status=None,
                     to_status=row.status,
                     detail={
-                        "source": "task_model",
+                        "source": source,
                         "media_plan_status": plan.status,
                         "originating_persona_id": originating_persona_id,
                     },

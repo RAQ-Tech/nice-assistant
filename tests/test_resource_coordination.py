@@ -3,6 +3,7 @@ import threading
 import time
 from types import SimpleNamespace
 import unittest
+from unittest.mock import patch
 from pathlib import Path
 
 from app.job_service import JobExecution
@@ -139,6 +140,137 @@ class ResourceCoordinationTests(unittest.TestCase):
                 app.create_and_login("member")
                 denied = app.client.get("/api/v1/admin/resource-coordination")
                 self.assertEqual(denied.status_code, 403)
+
+    def test_disabled_mode_bypasses_low_vram_without_provider_control(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            resources = provider_set(comfy_free=0)
+            with TestApp(Path(tmp), resource_providers=resources) as app:
+                user_id = app.create_and_login()
+                self._save_policy(app, mode="disabled", authorize=True)
+                request = app.services.resource_coordination.request_for_media(
+                    user_id,
+                    "image",
+                    {"provider": "local", "backend": "comfyui"},
+                    1000,
+                )
+                self.assertIsNone(request)
+
+                with UnitOfWork(app.services.runtime.session_factory, app.services.runtime.secret_store) as uow:
+                    row = uow.repo.add_job(
+                        user_id=user_id,
+                        chat_id=None,
+                        turn_id=None,
+                        kind="image",
+                        progress="Queued",
+                    )
+                    job_id = row.id
+                started = threading.Event()
+                app.services.jobs.submit(
+                    job_id=job_id,
+                    job_type="image",
+                    user_id=user_id,
+                    chat_id=None,
+                    turn_id=None,
+                    latency_class="standard",
+                    model_key="image:test",
+                    execution=JobExecution(execute=lambda _token: (started.set(), {"value": "done"})[-1]),
+                    estimated_vram_mb=1000,
+                    resource_request=request,
+                )
+
+                result = app.services.jobs.wait(user_id, job_id, timeout=2)
+                self.assertEqual(result["status"], "completed")
+                self.assertTrue(started.is_set())
+                self.assertEqual(resources["comfyui"].snapshot_calls, 0)
+                self.assertEqual(resources["comfyui"].release_calls, 0)
+                self.assertEqual(resources["ollama"].release_calls, 0)
+                self.assertEqual(app.services.resource_coordination.events(), [])
+
+    def test_disabling_managed_mode_blocks_stale_authorized_release_and_admits_waiting_media(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            resources = provider_set(comfy_free=0)
+            with TestApp(Path(tmp), resource_providers=resources) as app:
+                user_id = app.create_and_login()
+                self._save_policy(app, mode="managed", wait=3, authorize=True)
+                coordinator = app.services.resource_coordination
+                release_boundary_reached = threading.Event()
+                continue_release = threading.Event()
+                original_release = coordinator._release_provider
+
+                def synchronized_release(record, provider, endpoint, api_auth, *, trigger):
+                    release_boundary_reached.set()
+                    self.assertTrue(continue_release.wait(timeout=2))
+                    return original_release(record, provider, endpoint, api_auth, trigger=trigger)
+
+                coordinator._release_provider = synchronized_release
+                request = ResourceRequest(user_id, "comfyui", app.config.comfyui_base_url, None, 1000)
+                started = threading.Event()
+                job_id = self._submit(app, user_id, request, started=started)
+                self.assertTrue(release_boundary_reached.wait(timeout=2))
+                current = app.services.jobs.get(user_id, job_id)
+                self.assertEqual(current["status"], "queued")
+                self.assertEqual(current["progress"], "Waiting for GPU capacity")
+                self.assertFalse(started.is_set())
+                snapshots_before_disable = resources["comfyui"].snapshot_calls
+
+                self._save_policy(app, mode="disabled", authorize=True)
+                continue_release.set()
+
+                result = app.services.jobs.wait(user_id, job_id, timeout=2)
+                self.assertEqual(result["status"], "completed")
+                self.assertTrue(started.is_set())
+                self.assertEqual(resources["comfyui"].snapshot_calls, snapshots_before_disable)
+                self.assertEqual(resources["comfyui"].release_calls, 0)
+                self.assertEqual(resources["ollama"].release_calls, 0)
+                actions = [item["action"] for item in app.services.resource_coordination.events()]
+                self.assertIn("waiting", actions)
+                self.assertNotIn("timed_out", actions)
+                self.assertNotIn("released", actions)
+
+    def test_disabling_managed_mode_wins_a_timeout_boundary_race(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            resources = provider_set(comfy_free=0)
+            with TestApp(Path(tmp), resource_providers=resources) as app:
+                user_id = app.create_and_login()
+                self._save_policy(app, mode="managed", wait=1, authorize=False)
+                coordinator = app.services.resource_coordination
+                coordinator.stop()
+                rejected = []
+                request = ResourceRequest(user_id, "comfyui", app.config.comfyui_base_url, None, 1000)
+                coordinator.register(
+                    "timeout-race",
+                    request,
+                    on_reject=lambda code, message: rejected.append((code, message)),
+                )
+                record = coordinator._records["timeout-race"]
+                record.started_monotonic = 0
+                timeout_boundary_reached = threading.Event()
+                continue_timeout = threading.Event()
+                monotonic_calls = 0
+
+                def synchronized_monotonic():
+                    nonlocal monotonic_calls
+                    monotonic_calls += 1
+                    if monotonic_calls == 1:
+                        timeout_boundary_reached.set()
+                        self.assertTrue(continue_timeout.wait(timeout=2))
+                    return 100
+
+                with patch("app.resource_coordination.time.monotonic", side_effect=synchronized_monotonic):
+                    processing = threading.Thread(target=coordinator._process, args=(record,))
+                    processing.start()
+                    self.assertTrue(timeout_boundary_reached.wait(timeout=2))
+                    self._save_policy(app, mode="disabled", wait=1, authorize=False)
+                    continue_timeout.set()
+                    processing.join(timeout=2)
+
+                self.assertFalse(processing.is_alive())
+                self.assertEqual(record.state, "admitted")
+                self.assertEqual(rejected, [])
+                self.assertNotIn(
+                    "timed_out",
+                    [item["action"] for item in app.services.resource_coordination.events()],
+                )
 
     def test_observe_mode_waits_without_consuming_worker_then_admits(self):
         with tempfile.TemporaryDirectory() as tmp:

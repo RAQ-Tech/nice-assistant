@@ -253,12 +253,21 @@ After the assistant message is durable, title generation, capability planning,
 and memory extraction run as independent jobs. Result payloads expose named IDs
 plus `followup_job_ids`; the legacy `followup_job_id` is retained during consumer
 migration. A failure in one follow-up cannot rewrite a completed turn. Explicit
-image actions buffer persona prose through a deterministic premature-claim guard
-that also recognizes terse status phrases, bare media placeholders, and
-demonstrative delivery wording such as `Image sent`, `[Image]`, or `Here is that
-picture`. It discards completion-dependent remnants when no truthful future
-intent remains before publishing them, while ordinary non-media turns retain
-token streaming.
+image actions use a strict direct-image gate and replace untrusted persona
+prose with one neutral platform-owned acknowledgement. The durable attachment,
+not model wording, owns queued, running, completed, and failed image state.
+If the Task Model omits or cannot plan that unambiguous image action, the
+platform creates a bounded semantic image request from the user's own text.
+That request still crosses the catalog boundary, so an unavailable provider
+becomes a durable failed attachment instead of a silent promise.
+Ordinary non-media turns retain token streaming.
+
+All persona output crosses a delimiter-aware backend filter before SSE
+publication, accumulation, persistence, speech, or future context. Protected
+system-prompt envelopes are removed even when their markers span provider
+chunks. The same filter is applied when legacy assistant messages and durable
+conversation summaries are read or reused so a previously persisted envelope
+cannot reappear after reload or enter a later prompt.
 
 ## Deployment control boundary
 

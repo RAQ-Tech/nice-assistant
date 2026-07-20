@@ -155,7 +155,7 @@ class AsyncJobTests(unittest.TestCase):
                 time.sleep(0.01)
 
             self.assertEqual(primary["status"], "completed")
-            self.assertEqual(primary["result"]["text"], "The reply arrives first.")
+            self.assertEqual(primary["result"]["text"], "I’ll see what I can make for you.")
             self.assertEqual(len(primary["result"]["followup_job_ids"]), 2)
             self.assertNotEqual(
                 primary["result"]["title_job_id"],
@@ -207,13 +207,13 @@ class AsyncJobTests(unittest.TestCase):
                 time.sleep(0.01)
 
             self.assertEqual(primary["status"], "completed")
-            self.assertEqual(primary["result"]["text"], "The visible reply is ready.")
+            self.assertEqual(primary["result"]["text"], "I’ll see what I can make for you.")
             self.assertIn("followup_job_id", primary["result"])
             self.assertTrue(provider.task_started[CAPABILITY_PLANNING].wait(1))
             followup = running.client.get(f"/api/v1/jobs/{primary['result']['followup_job_id']}").json()
             self.assertIn(followup["status"], {"queued", "running"})
             detail = running.client.get(f"/api/v1/chats/{chat['id']}").json()
-            self.assertEqual(detail["messages"][-1]["text"], "The visible reply is ready.")
+            self.assertEqual(detail["messages"][-1]["text"], "I’ll see what I can make for you.")
             planning_gate.set()
             running.wait_job(primary["result"]["followup_job_id"])
 
@@ -239,9 +239,9 @@ class AsyncJobTests(unittest.TestCase):
             ).json()
             completed = running.wait_job(accepted["job"]["id"])
             self.assertTrue(completed["result"]["mediaClaimGuarded"])
-            self.assertEqual(completed["result"]["text"], "I’ll try to make that picture for you.")
+            self.assertEqual(completed["result"]["text"], "I’ll see what I can make for you.")
             detail = running.client.get(f"/api/v1/chats/{chat['id']}").json()
-            self.assertEqual(detail["messages"][-1]["text"], "I’ll try to make that picture for you.")
+            self.assertEqual(detail["messages"][-1]["text"], "I’ll see what I can make for you.")
             replay = list(
                 running.services.conversations.broker.subscribe(
                     accepted["turn"]["id"],
@@ -251,7 +251,164 @@ class AsyncJobTests(unittest.TestCase):
             streamed = "".join(
                 str(event.data.get("text") or "") for event in replay if event.event == "assistant.delta"
             )
-            self.assertEqual(streamed, "I’ll try to make that picture for you.")
+            self.assertEqual(streamed, "I’ll see what I can make for you.")
+
+    def test_observed_prompt_leak_and_shutter_roleplay_collapse_to_safe_image_acknowledgement(self):
+        provider = FakeChatProvider(
+            [
+                "[SYSTEM_",
+                "PROMPT]private platform policy[/SYSTEM_PROMPT]",
+                "*holds up my phone and taps the shutter* Ta-da!",
+            ],
+            task_outputs={CAPABILITY_PLANNING: {"requests": []}},
+        )
+        with tempfile.TemporaryDirectory() as tmp, TestApp(Path(tmp), chat_provider=provider) as running:
+            running.create_and_login()
+            generated_requests = []
+            running.services.providers.media_providers["local-image"] = SimpleNamespace(
+                generate=lambda request, _cancellation: (
+                    generated_requests.append(request),
+                    MediaArtifact("image", b"image-bytes", ".png", "image/png"),
+                )[-1]
+            )
+            running.client.put(
+                "/api/v1/settings",
+                json={"preferences": {"image_provider": "local/automatic1111"}},
+            )
+            chat = running.client.post(
+                "/api/v1/chats",
+                json={"title": "Observed production regression", "memory_mode": "off"},
+            ).json()
+            accepted = running.client.post(
+                f"/api/v1/chats/{chat['id']}/turns",
+                json={
+                    "text": "Candy, please send me an image of a single red apple.",
+                    "memory_mode": "off",
+                },
+            ).json()
+            completed = running.wait_job(accepted["job"]["id"])
+            planning = running.wait_job(completed["result"]["capability_planning_job_id"])
+            self.assertEqual(planning["status"], "completed")
+            request = running.client.get(
+                "/api/v1/capability-requests",
+                params={"chat_id": chat["id"]},
+            ).json()["items"][0]
+            image_job = running.wait_job(request["job_id"])
+            self.assertEqual(image_job["status"], "completed", image_job)
+
+            self.assertEqual(completed["result"]["text"], "I’ll see what I can make for you.")
+            detail = running.client.get(f"/api/v1/chats/{chat['id']}").json()
+            self.assertEqual(detail["messages"][-1]["text"], "I’ll see what I can make for you.")
+            self.assertEqual(detail["messages"][-1]["attachments"][0]["status"], "completed")
+            self.assertEqual(len(generated_requests), 1)
+            replay = list(
+                running.services.conversations.broker.subscribe(
+                    accepted["turn"]["id"],
+                    {"status": "completed"},
+                )
+            )
+            streamed = "".join(
+                str(event.data.get("text") or "") for event in replay if event.event == "assistant.delta"
+            )
+            self.assertEqual(streamed, "I’ll see what I can make for you.")
+            self.assertNotIn("private platform policy", str(completed))
+            self.assertNotIn("SYSTEM_PROMPT", str(completed))
+
+    def test_explicit_image_request_gets_a_durable_failure_when_no_image_provider_is_ready(self):
+        provider = FakeChatProvider(["*taps the shutter* Ta-da!"])
+        with tempfile.TemporaryDirectory() as tmp, TestApp(Path(tmp), chat_provider=provider) as running:
+            running.create_and_login()
+            chat = running.client.post(
+                "/api/v1/chats",
+                json={"title": "Unavailable image provider", "memory_mode": "off"},
+            ).json()
+            accepted = running.client.post(
+                f"/api/v1/chats/{chat['id']}/turns",
+                json={"text": "Please generate an image of a blue cup.", "memory_mode": "off"},
+            ).json()
+            completed = running.wait_job(accepted["job"]["id"])
+            planning = running.wait_job(completed["result"]["capability_planning_job_id"])
+
+            self.assertEqual(completed["result"]["text"], "I’ll see what I can make for you.")
+            self.assertEqual(planning["status"], "completed")
+            requests = running.client.get(
+                "/api/v1/capability-requests",
+                params={"chat_id": chat["id"]},
+            ).json()["items"]
+            self.assertEqual(len(requests), 1)
+            self.assertEqual(requests[0]["status"], "failed")
+            self.assertEqual(requests[0]["attachment"]["status"], "failed")
+            self.assertIsNone(requests[0]["job_id"])
+            self.assertEqual(provider.task_requests, [])
+
+    def test_prompt_envelope_is_removed_before_streaming_and_persistence(self):
+        provider = FakeChatProvider(
+            [
+                "Hello[SYS",
+                "TEM_PROMPT]private platform policy",
+                "[/SYSTEM_",
+                "PROMPT] there.",
+            ]
+        )
+        with tempfile.TemporaryDirectory() as tmp, TestApp(Path(tmp), chat_provider=provider) as running:
+            running.create_and_login()
+            chat = running.client.post(
+                "/api/v1/chats",
+                json={"title": "Sanitized reply", "memory_mode": "off"},
+            ).json()
+            accepted = running.client.post(
+                f"/api/v1/chats/{chat['id']}/turns",
+                json={"text": "Say hello.", "memory_mode": "off"},
+            ).json()
+            completed = running.wait_job(accepted["job"]["id"])
+
+            self.assertEqual(completed["result"]["text"], "Hello there.")
+            detail = running.client.get(f"/api/v1/chats/{chat['id']}").json()
+            self.assertEqual(detail["messages"][-1]["text"], "Hello there.")
+            replay = list(
+                running.services.conversations.broker.subscribe(
+                    accepted["turn"]["id"],
+                    {"status": "completed"},
+                )
+            )
+            streamed = "".join(
+                str(event.data.get("text") or "") for event in replay if event.event == "assistant.delta"
+            )
+            self.assertEqual(streamed, "Hello there.")
+            self.assertNotIn("private platform policy", streamed)
+            self.assertNotIn("SYSTEM_PROMPT", streamed)
+
+    def test_legacy_prompt_envelope_is_hidden_and_excluded_from_future_context(self):
+        provider = FakeChatProvider(["Safe next reply."])
+        with tempfile.TemporaryDirectory() as tmp, TestApp(Path(tmp), chat_provider=provider) as running:
+            running.create_and_login()
+            chat = running.client.post(
+                "/api/v1/chats",
+                json={"title": "Legacy sanitized history", "memory_mode": "off"},
+            ).json()
+            with UnitOfWork(
+                running.services.runtime.session_factory,
+                running.services.runtime.secret_store,
+            ) as uow:
+                uow.repo.add_message(
+                    chat["id"],
+                    "assistant",
+                    "[SYSTEM_PROMPT]private platform policy[/SYSTEM_PROMPT]",
+                )
+
+            detail = running.client.get(f"/api/v1/chats/{chat['id']}").json()
+            self.assertEqual(
+                detail["messages"][-1]["text"],
+                "Sorry, something went wrong with that reply. Please try again.",
+            )
+            accepted = running.client.post(
+                f"/api/v1/chats/{chat['id']}/turns",
+                json={"text": "Continue normally.", "memory_mode": "off"},
+            ).json()
+            running.wait_job(accepted["job"]["id"])
+            model_context = json.dumps(provider.requests[0].messages)
+            self.assertNotIn("private platform policy", model_context)
+            self.assertNotIn("SYSTEM_PROMPT", model_context)
 
     def test_disconnecting_turn_event_subscription_does_not_cancel_generation(self):
         gate = threading.Event()
@@ -377,7 +534,7 @@ class AsyncJobTests(unittest.TestCase):
                 json={"text": "Generate an image of a small cat"},
             ).json()
             job = running.wait_job(started["job"]["id"])
-            self.assertEqual(job["result"]["text"], "I can make that for you.")
+            self.assertEqual(job["result"]["text"], "I’ll see what I can make for you.")
             requests = running.client.get(
                 "/api/v1/capability-requests",
                 params={"chat_id": chat["id"]},
@@ -398,12 +555,12 @@ class AsyncJobTests(unittest.TestCase):
             self.assertEqual(running.wait_job(requests[0]["job_id"])["status"], "completed")
             turn_id = started["turn"]["id"]
             turn = running.client.get(f"/api/v1/turns/{turn_id}").json()
-            self.assertEqual(turn["accumulated_text"], "I can make that for you.")
+            self.assertEqual(turn["accumulated_text"], "I’ll see what I can make for you.")
             events = list(running.services.broker.subscribe(turn_id, turn))
             deltas = "".join(
                 event.data.get("text", "") for event in events if event is not None and event.event == "assistant.delta"
             )
-            self.assertEqual(deltas, "I can make that for you.")
+            self.assertEqual(deltas, "I’ll see what I can make for you.")
             self.assertEqual(provider.requests[0].tools, [])
             planner_request = next(
                 request for request in provider.task_requests if provider._task_role(request) == CAPABILITY_PLANNING

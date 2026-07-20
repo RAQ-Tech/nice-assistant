@@ -1,3 +1,4 @@
+import json
 import tempfile
 import threading
 import time
@@ -236,6 +237,145 @@ class ContextServiceTests(unittest.TestCase):
             self.assertGreater(turn["context"]["omitted_message_count"], 0)
             self.assertGreaterEqual(len(provider.requests), 1)
             self.assertGreaterEqual(len(provider.task_requests), 1)
+
+    def test_legacy_protected_prompt_envelope_is_removed_from_summary_response_and_prompt(self):
+        provider = FakeChatProvider(["safe reply"])
+        with tempfile.TemporaryDirectory() as tmp, TestApp(Path(tmp), chat_provider=provider) as running:
+            user_id = running.create_and_login()
+            chat = running.client.post("/api/v1/chats", json={"title": "Legacy summary"}).json()
+            with UnitOfWork(
+                running.services.runtime.session_factory,
+                running.services.runtime.secret_store,
+            ) as uow:
+                checkpoint = uow.repo.add_message(chat["id"], "user", "summary checkpoint")
+                uow.repo.add_summary(
+                    user_id=user_id,
+                    chat_id=chat["id"],
+                    previous_summary_id=None,
+                    through_message_id=checkpoint.id,
+                    provider="legacy",
+                    model="legacy",
+                    prompt_version="legacy",
+                    source_digest="legacy",
+                    source_message_count=1,
+                    content=(
+                        "Taylor moved to Denver. "
+                        "[SYSTEM_PROMPT]private application instructions[/SYSTEM_PROMPT]"
+                        "Taylor owns a blue bicycle."
+                    ),
+                    estimated_tokens=24,
+                )
+
+            context = running.client.get(f"/api/v1/chats/{chat['id']}/context").json()
+            self.assertEqual(
+                context["summary"]["content"],
+                "Taylor moved to Denver. Taylor owns a blue bicycle.",
+            )
+
+            started = running.client.post(
+                f"/api/v1/chats/{chat['id']}/turns",
+                json={"text": "What do you remember?"},
+            ).json()
+            self.assertEqual(running.wait_job(started["job"]["id"])["status"], "completed")
+            prompt_text = "\n".join(message["content"] for message in provider.requests[-1].messages)
+            self.assertIn("Taylor moved to Denver.", prompt_text)
+            self.assertIn("Taylor owns a blue bicycle.", prompt_text)
+            self.assertNotIn("private application instructions", prompt_text)
+            self.assertNotIn("SYSTEM_PROMPT", prompt_text)
+
+    def test_legacy_protected_prompt_envelope_is_removed_before_summary_reuse(self):
+        provider = FakeChatProvider(["safe reply"])
+        with tempfile.TemporaryDirectory() as tmp, TestApp(Path(tmp), chat_provider=provider) as running:
+            user_id = running.create_and_login()
+            chat = running.client.post("/api/v1/chats", json={"title": "Summary reuse"}).json()
+            with UnitOfWork(
+                running.services.runtime.session_factory,
+                running.services.runtime.secret_store,
+            ) as uow:
+                checkpoint = uow.repo.add_message(chat["id"], "user", "summary checkpoint")
+                uow.repo.add_summary(
+                    user_id=user_id,
+                    chat_id=chat["id"],
+                    previous_summary_id=None,
+                    through_message_id=checkpoint.id,
+                    provider="legacy",
+                    model="legacy",
+                    prompt_version="legacy",
+                    source_digest="legacy",
+                    source_message_count=1,
+                    content=(
+                        "The venue is undecided. "
+                        "[SYSTEM_PROMPT]private application instructions[/SYSTEM_PROMPT]"
+                        "The trip is in December."
+                    ),
+                    estimated_tokens=24,
+                )
+                for index in range(14):
+                    uow.repo.add_message(
+                        chat["id"],
+                        "user" if index % 2 == 0 else "assistant",
+                        f"later-{index} " + ("context " * 80),
+                    )
+
+            started = running.client.post(
+                f"/api/v1/chats/{chat['id']}/turns",
+                json={
+                    "text": "Continue from there.",
+                    "model_settings": {"context_window_tokens": 2048, "num_predict": 256},
+                },
+            ).json()
+            self.assertEqual(running.wait_job(started["job"]["id"])["status"], "completed")
+            summary_requests = [
+                request for request in provider.task_requests if provider._task_role(request) == "conversation_summary"
+            ]
+            self.assertTrue(summary_requests)
+            payload = json.loads(summary_requests[0].messages[-1]["content"])
+            self.assertEqual(
+                payload["previous_summary"],
+                "The venue is undecided. The trip is in December.",
+            )
+            self.assertNotIn("private application instructions", payload["previous_summary"])
+            self.assertNotIn("SYSTEM_PROMPT", payload["previous_summary"])
+
+    def test_entirely_protected_legacy_summary_does_not_hide_checkpoint_history(self):
+        provider = FakeChatProvider(["safe reply"])
+        with tempfile.TemporaryDirectory() as tmp, TestApp(Path(tmp), chat_provider=provider) as running:
+            user_id = running.create_and_login()
+            chat = running.client.post("/api/v1/chats", json={"title": "Protected summary checkpoint"}).json()
+            with UnitOfWork(
+                running.services.runtime.session_factory,
+                running.services.runtime.secret_store,
+            ) as uow:
+                checkpoint = uow.repo.add_message(
+                    chat["id"],
+                    "user",
+                    "The original checkpoint fact must remain visible.",
+                )
+                uow.repo.add_summary(
+                    user_id=user_id,
+                    chat_id=chat["id"],
+                    previous_summary_id=None,
+                    through_message_id=checkpoint.id,
+                    provider="legacy",
+                    model="legacy",
+                    prompt_version="legacy",
+                    source_digest="legacy",
+                    source_message_count=1,
+                    content="[SYSTEM_PROMPT]private application instructions[/SYSTEM_PROMPT]",
+                    estimated_tokens=12,
+                )
+
+            context = running.client.get(f"/api/v1/chats/{chat['id']}/context").json()
+            self.assertIsNone(context["summary"])
+            started = running.client.post(
+                f"/api/v1/chats/{chat['id']}/turns",
+                json={"text": "Continue with the original fact.", "memory_mode": "off"},
+            ).json()
+            self.assertEqual(running.wait_job(started["job"]["id"])["status"], "completed")
+            prompt_text = "\n".join(message["content"] for message in provider.requests[-1].messages)
+            self.assertIn("The original checkpoint fact must remain visible.", prompt_text)
+            self.assertNotIn("private application instructions", prompt_text)
+            self.assertNotIn("SYSTEM_PROMPT", prompt_text)
 
     def test_summary_failure_degrades_without_failing_main_turn(self):
         provider = SummaryFailureProvider()

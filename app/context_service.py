@@ -7,6 +7,7 @@ import math
 
 from app.capability_contracts import CapabilityRegistry, capability_tool_result
 from app.memory_service import memory_search_query, normalize_memory_content
+from app.persona_output import safe_persona_output_text, sanitize_persona_output
 from app.provider_contracts import CancellationToken, ProviderError
 from app.repositories import UnitOfWork
 from app.task_contracts import CONVERSATION_SUMMARY, SummaryTaskInput
@@ -78,6 +79,12 @@ def _clip_text(text: str, tokens: int) -> str:
     head = encoded[: available // 2].decode("utf-8", errors="ignore")
     tail = encoded[-(available - available // 2) :].decode("utf-8", errors="ignore")
     return f"{head}{marker.decode()}{tail}"
+
+
+def _safe_summary_content(text: str) -> str:
+    """Remove protected persona-output envelopes without inventing summary facts."""
+
+    return sanitize_persona_output(text).text
 
 
 class ContextService:
@@ -329,14 +336,15 @@ class ContextService:
                     row, tool_calls, capability_rows = item
                 else:
                     row, tool_calls, capability_rows = item, [], []
-                provider_message = {"role": row.role, "content": row.text}
+                row_text = safe_persona_output_text(row.text) if row.role == "assistant" else row.text
+                provider_message = {"role": row.role, "content": row_text}
                 if tool_calls:
                     provider_message["tool_calls"] = tool_calls
                 history.append(
                     {
                         "id": row.id,
                         "role": row.role,
-                        "text": row.text,
+                        "text": row_text,
                         "created_at": row.created_at,
                         "provider_message": provider_message,
                     }
@@ -391,7 +399,12 @@ class ContextService:
                     )
                 ]
             durable = uow.repo.latest_summary(user_id, chat_id)
-            summary = _SummarySnapshot(durable.id, durable.through_message_id, durable.content) if durable else None
+            safe_summary = _safe_summary_content(durable.content).strip() if durable else ""
+            summary = (
+                _SummarySnapshot(durable.id, durable.through_message_id, safe_summary)
+                if durable and safe_summary
+                else None
+            )
             return {"id": current.id, "text": current.text}, history, memories, summary
 
     def _compact_if_needed(
@@ -460,7 +473,7 @@ class ContextService:
         cancellation,
     ):
         transcript = "\n".join(f"{item['role']}: {item['text']}" for item in chunk)
-        prior = previous.content if previous else "(none)"
+        prior = _safe_summary_content(previous.content) if previous else "(none)"
         outcome = self.task_models.run(
             user_id,
             CONVERSATION_SUMMARY,
@@ -469,7 +482,7 @@ class ContextService:
             chat_id=chat_id,
             turn_id=turn_id,
         )
-        content = outcome.output.summary.strip()
+        content = _safe_summary_content(outcome.output.summary).strip()
         if not content:
             raise ProviderError(
                 provider="task-model",
@@ -502,7 +515,7 @@ class ContextService:
 
     @staticmethod
     def _history_after_summary(history, summary):
-        if not summary:
+        if not summary or not summary.content.strip():
             return list(history)
         for index, item in enumerate(history):
             if item["id"] == summary.through_message_id:
@@ -614,13 +627,16 @@ class ContextService:
     def _summary_response(summary):
         if not summary:
             return None
+        content = _safe_summary_content(summary.content).strip()
+        if not content:
+            return None
         return {
             "id": summary.id,
             "through_message_id": summary.through_message_id,
             "provider": summary.provider,
             "model": summary.model,
             "prompt_version": summary.prompt_version,
-            "content": summary.content,
+            "content": content,
             "estimated_tokens": summary.estimated_tokens,
             "created_at": summary.created_at,
         }

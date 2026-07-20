@@ -39,59 +39,148 @@ _EXPLICIT_PERSONA_EXCLUSION = re.compile(
     re.IGNORECASE,
 )
 
-_EXPLICIT_MEDIA_ACTION = re.compile(
+_IMAGE_NOUN = r"(?:image|picture|photo|selfie|portrait|drawing|illustration|artwork|graphic)"
+_VIDEO_NOUN = r"(?:video|clip|movie|animation|footage)"
+_IMAGE_ACTION = r"(?:generate|create|make|render|show|send|share|take|give)"
+_VIDEO_ACTION = r"(?:generate|create|make|render|show|send|share|take|record|film|animate)"
+_VISUAL_CREATION_ACTION = r"(?:draw|paint|illustrate|sketch)"
+_OPTIONAL_VOCATIVE = r"(?:(?:hey\s+)?[A-Za-z][\w'-]*\s*,\s*)?"
+_REQUEST_START = rf"(?:^|[.!?]\s+)\s*{_OPTIONAL_VOCATIVE}"
+_REQUEST_TEXT = r"[^.!?\n]"
+_SHOW_DIRECTIVE = r"(?:(?:please[\s,:-]+)?show|(?:can|could|would|will)\s+you\s+(?:please\s+)?show)"
+_DISPLAY_REQUEST_START = rf"{_REQUEST_START}{_SHOW_DIRECTIVE}"
+_VISUAL_DISPLAY_QUALIFIER = (
+    r"(?:beautiful|big|blue|bright|ceramic|colorful|cosy|cozy|dark|empty|fantasy|formal|futuristic|"
+    r"giant|glass|green|large|little|misty|modern|moonlit|old|quiet|red|single|small|snowy|sunlit|"
+    r"tiny|tropical|white|wooden)"
+)
+_VISUAL_DISPLAY_TARGET = (
+    r"(?:animal|apple|beach|bird|building|cabin|car|cat|cityscape|clouds?|cup|dog|dragon|field|"
+    r"flowers?|forest|garden|greenhouse|house|island|lake|landscape|meadow|mountains?|mug|ocean|"
+    r"river|room|scene|scenery|sky|skyline|spaceship|street|sunrise|sunset|trees?|vehicle|view|"
+    r"waterfall)"
+)
+_VISUAL_DISPLAY_SUFFIX = (
+    r"(?=\s*(?:$|[.!?,;:]|(?:at|beside|by|during|from|in|lying|near|of|on|parked|running|"
+    r"sitting|standing|under|walking|wearing|with)\b))"
+)
+
+_EXPLICIT_IMAGE_NOUN_ACTION = re.compile(
+    rf"{_REQUEST_START}(?:please[\s,:-]+)?{_IMAGE_ACTION}\b{_REQUEST_TEXT}{{0,100}}\b{_IMAGE_NOUN}\b|"
+    rf"{_REQUEST_START}(?:can|could|would|will)\s+you\s+(?:please\s+)?{_IMAGE_ACTION}\b"
+    rf"{_REQUEST_TEXT}{{0,100}}\b{_IMAGE_NOUN}\b|"
+    rf"{_REQUEST_START}(?:i\s+(?:want|need)|i(?:'d|\s+would)\s+like)\s+"
+    rf"(?:(?:you\s+to\s+)?{_IMAGE_ACTION}\b{_REQUEST_TEXT}{{0,100}}\b)?"
+    rf"(?:an?\s+|the\s+)?{_IMAGE_NOUN}\b(?:\s+(?:of|showing|depicting|featuring|with|for|from)\b|[.!?,;:]|$)|"
+    rf"{_REQUEST_START}(?:can|could|may)\s+i\s+(?:please\s+)?(?:have|get)\b"
+    rf"{_REQUEST_TEXT}{{0,80}}\b{_IMAGE_NOUN}\b|"
+    rf"{_REQUEST_START}(?:give|show|send|share)\s+me\b{_REQUEST_TEXT}{{0,80}}\b{_IMAGE_NOUN}\b|"
+    rf"{_REQUEST_START}(?:please[\s,:-]+)?try\s+"
+    rf"(?:(?:one|1)\s+more|another|a|an)\s+{_IMAGE_NOUN}\b",
+    re.IGNORECASE,
+)
+_EXPLICIT_VISUAL_CREATION_ACTION = re.compile(
+    rf"{_REQUEST_START}(?:please[\s,:-]+)?{_VISUAL_CREATION_ACTION}\b{_REQUEST_TEXT}{{1,120}}|"
+    rf"{_REQUEST_START}(?:can|could|would|will)\s+you\s+(?:please\s+)?"
+    rf"{_VISUAL_CREATION_ACTION}\b{_REQUEST_TEXT}{{1,120}}|"
+    rf"{_REQUEST_START}(?:i\s+(?:want|need)|i(?:'d|\s+would)\s+like)\s+"
+    rf"you\s+to\s+{_VISUAL_CREATION_ACTION}\b{_REQUEST_TEXT}{{1,120}}",
+    re.IGNORECASE,
+)
+_EXPLICIT_PERSONA_VISUAL_DISPLAY = re.compile(
+    rf"{_DISPLAY_REQUEST_START}\s+me\s+your\s+(?:[\w'-]+\s+){{0,3}}"
+    rf"(?:appearance|costume|dress|face|hair|look|makeup|outfit|style)\b{_VISUAL_DISPLAY_SUFFIX}",
+    re.IGNORECASE,
+)
+_EXPLICIT_VISUAL_SCENE_DISPLAY = re.compile(
+    rf"{_DISPLAY_REQUEST_START}\s+(?:me\s+)?(?:an?|the|this|that)\s+"
+    rf"(?:{_VISUAL_DISPLAY_QUALIFIER}\s+){{0,4}}{_VISUAL_DISPLAY_TARGET}\b{_VISUAL_DISPLAY_SUFFIX}",
+    re.IGNORECASE,
+)
+_EXPLICIT_IMAGE_WITH_MODIFIER_PREFIX = re.compile(
+    rf"{_REQUEST_START}(?:"
+    rf"(?:using|based\s+on)\s+this\s+(?:caption|description|prompt)\s*,?\s+"
+    rf"(?:(?:can|could|would|will)\s+you\s+)?(?:please\s+)?"
+    rf"(?:generate|create|make|render)\b{_REQUEST_TEXT}{{0,100}}\b{_IMAGE_NOUN}\b|"
+    rf"(?:please\s+)?use\s+this\s+(?:caption|description|prompt)\s+to\s+"
+    rf"(?:generate|create|make|render)\b{_REQUEST_TEXT}{{0,100}}\b{_IMAGE_NOUN}\b|"
+    rf"add\s+this\s+caption\s*,?\s+then\s+(?:please\s+)?"
+    rf"(?:generate|create|make|render)\b{_REQUEST_TEXT}{{0,100}}\b{_IMAGE_NOUN}\b"
+    rf")",
+    re.IGNORECASE,
+)
+_EXPLICIT_VISUAL_ANTECEDENT_DISPLAY = re.compile(
+    r"\b(?:colorful|garden|greenhouse|landscape|moonlit|portrait|scenery|sunlit|sunrise|sunset)\w*"
+    rf"{_REQUEST_TEXT}{{0,100}}[.!?]\s*{_OPTIONAL_VOCATIVE}{_SHOW_DIRECTIVE}\s+me\s+one\b",
+    re.IGNORECASE,
+)
+_NON_VISUAL_DISPLAY_CONTEXT = re.compile(
+    r"\b(?:addresses|articles?|bugs?|calendars?|catalog|chats?|code|commands?|controls?|dashboards?|"
+    r"data|difference|documentation|error|explanations?|files?|history|information|instructions?|"
+    r"jokes?|lists?|memories|messages|options|plans?|profiles?|recipes?|reports?|results?|settings|"
+    r"status|steps|stories|summaries|summary|tables?|tasks?|text|weather)\b",
+    re.IGNORECASE,
+)
+_NON_VISUAL_CREATION_IDIOM = re.compile(
     r"(?:"
-    r"\b(?:please\s+)?(?:generate|create|make|draw|paint|render|show|send|take)\b|"
-    r"\b(?:give|show|send)\s+me\b|"
-    r"\btry\s+(?:(?:one|1)\s+more|another|a|an)\s+(?:image|picture|photo|portrait|selfie|video)\b|"
-    r"\b(?:can|could|would|will)\s+you\s+(?:please\s+)?(?:generate|create|make|draw|paint|render|show|send|take)\b|"
-    r"\b(?:i\s+(?:want|need)|i(?:'d|\s+would)\s+like)\b.{0,80}\b(?:image|picture|photo|selfie|video)\b"
+    r"\bdraw\s+(?:a\s+)?(?:conclusion|comparison|parallel|distinction|attention)\b|"
+    r"\bsketch\s+out\b|\bsketch\s+(?:a|the|an)\s+(?:plan|outline|approach)\b|"
+    r"\billustrate\s+(?:your|the|this|that|my)\s+point\b|"
+    r"\billustrate\s+(?:with|using)\s+an?\s+example\b"
     r")",
+    re.IGNORECASE,
+)
+_IMAGE_DISCUSSION_OR_EDIT_REQUEST = re.compile(
+    rf"(?:"
+    rf"\b(?:caption|alt\s+text|description|feedback|critique|analysis|prompt|settings?|controls?|"
+    rf"metadata|details?|information|thoughts?|instructions?|steps?|explanation)\b"
+    rf"{_REQUEST_TEXT}{{0,60}}\b{_IMAGE_NOUN}\b|"
+    rf"\b{_IMAGE_NOUN}\b(?:-generation)?\s+"
+    rf"(?:caption|alt\s+text|description|feedback|critique|analysis|prompt|settings?|controls?|"
+    rf"metadata|details?|information|thoughts?|instructions?|steps?|explanation)\b"
+    rf")",
+    re.IGNORECASE,
+)
+_IMAGE_TEXT_ARTIFACT_REQUEST = re.compile(
+    rf"(?:"
+    rf"\b{_IMAGE_NOUN}\b(?:-generation)?\s+"
+    rf"(?:alt\s+text|analysis|caption|critique|description|details?|explanation|feedback|information|"
+    rf"instructions?|metadata|prompt|settings?|steps?|summary|thoughts?)\b|"
+    rf"\b(?:alt\s+text|analysis|caption|critique|description|details?|explanation|feedback|information|"
+    rf"instructions?|metadata|prompt|settings?|steps?|summary|thoughts?)\b"
+    rf"{_REQUEST_TEXT}{{0,30}}\b(?:for|of)\s+(?:an?\s+|the\s+)?{_IMAGE_NOUN}\b"
+    rf")",
+    re.IGNORECASE,
+)
+_EXPLICIT_VIDEO_ACTION = re.compile(
+    rf"{_REQUEST_START}(?:please[\s,:-]+)?{_VIDEO_ACTION}\b{_REQUEST_TEXT}{{0,100}}\b{_VIDEO_NOUN}\b|"
+    rf"{_REQUEST_START}(?:can|could|would|will)\s+you\s+(?:please\s+)?{_VIDEO_ACTION}\b"
+    rf"{_REQUEST_TEXT}{{0,100}}\b{_VIDEO_NOUN}\b|"
+    rf"{_REQUEST_START}(?:i\s+(?:want|need)|i(?:'d|\s+would)\s+like)\s+"
+    rf"(?:(?:you\s+to\s+)?{_VIDEO_ACTION}\b{_REQUEST_TEXT}{{0,100}}\b)?"
+    rf"(?:an?\s+|the\s+)?{_VIDEO_NOUN}\b|"
+    rf"{_REQUEST_START}(?:can|could|may)\s+i\s+(?:please\s+)?(?:have|get)\b"
+    rf"{_REQUEST_TEXT}{{0,80}}\b{_VIDEO_NOUN}\b|"
+    rf"{_REQUEST_START}(?:give|show|send|share)\s+me\b{_REQUEST_TEXT}{{0,80}}\b{_VIDEO_NOUN}\b|"
+    rf"{_REQUEST_START}(?:please[\s,:-]+)?try\s+"
+    rf"(?:(?:one|1)\s+more|another|a|an)\s+{_VIDEO_NOUN}\b",
     re.IGNORECASE | re.DOTALL,
 )
 _NON_ACTION_MEDIA_CONTEXT = re.compile(
-    r"^\s*(?:"
+    r"(?:"
+    rf"^\s*{_OPTIONAL_VOCATIVE}(?:"
     r"tell\s+me\s+(?:a\s+)?story|write\s+(?:me\s+)?(?:a\s+)?story|"
     r"explain|discuss|analy[sz]e|summarize|quote|translate|"
     r"what\s+(?:if|does|would|could)|how\s+(?:does|would|could)|"
     r"imagine\s+(?:if|that)|suppose\s+(?:that|someone)|"
-    r"i(?:'m|\s+am)\s+not\s+asking\s+(?:you\s+)?to"
-    r")\b",
-    re.IGNORECASE,
-)
-_PREMATURE_MEDIA_COMPLETION = re.compile(
-    r"(?:"
-    r"!\[[^\]]*\]\([^)]+\)|"
-    r"\[(?:image|picture|photo|selfie|portrait)\]|"
-    r"\[(?:image|picture|photo|selfie|portrait)\s+"
-    r"(?:is\s+|has\s+been\s+)?(?:ready|sent|attached|uploaded|generated|created|verified|matched)\]|"
-    r"\b(?:image|picture|photo|selfie|portrait)\s+"
-    r"(?:is\s+|has\s+been\s+)?(?:ready|sent|attached|uploaded|generated|created|verified|matched)\b|"
-    r"\bhere(?:'s|\s+is)\s+(?:(?:your|the|this|that|an?)\s+)?(?:image|picture|photo|selfie|portrait)\b|"
-    r"\b(?:i(?:'ve|\s+have)?|we(?:'ve|\s+have)?)\s+(?:already\s+)?"
-    r"(?:sent|attached|uploaded|made|generated|created|took|taken|verified|matched)\s+"
-    r"(?:it|this|that|the|your|an?)\b|"
-    r"\b(?:the|your|this|that)\s+(?:image|picture|photo|selfie|portrait|identity|match)\s+"
-    r"(?:is\s+|has\s+been\s+)?(?:ready|sent|attached|uploaded|generated|created|verified|matched)\b"
+    r"(?:if|when)\s+(?:i|you|someone|they|we)\s+(?:ask|asked|were\s+to\s+ask|said|say)|"
+    r"i(?:'m|\s+am)\s+not\s+asking\s+(?:you\s+)?to|"
+    r"(?:please\s+)?(?:send|give|show)\s+(?:me\s+)?(?:your\s+)?thoughts\b|"
+    r"(?:please\s+)?show\s+(?:me\s+)?how\b|"
+    r"(?:please\s+)?take\s+(?:a|one)\s+moment\b"
+    r")|"
+    r"^\s*[\"'“‘]"
     r")",
-    re.IGNORECASE,
-)
-_MEDIA_INTENT_PROMISE = re.compile(
-    r"\b(?:i(?:['’]ll|\s+will)|let\s+me)\s+"
-    r"(?:try\s+to\s+)?(?:make|generate|create|draw|paint|render|take|send|start|work\s+on)\b",
-    re.IGNORECASE,
-)
-_DISABLED_IMAGE_PROMISE = re.compile(
-    r"\b(?:i\s+can|i(?:['’]ll|\s+will)|let\s+me)\s+"
-    r"(?:try\s+to\s+)?(?:make|generate|create|draw|paint|render|take|send|start|work\s+on)\b",
-    re.IGNORECASE,
-)
-_VIDEO_MEDIA_CONTEXT = re.compile(
-    r"\b(?:video|clip|movie|animation|animated|footage)\b",
-    re.IGNORECASE,
-)
-_IMAGE_MEDIA_CONTEXT = re.compile(
-    r"\b(?:image|picture|photo|selfie|portrait|drawing|illustration)\b",
     re.IGNORECASE,
 )
 
@@ -117,7 +206,41 @@ def is_high_confidence_media_action_request(user_text: str) -> bool:
     text = str(user_text or "").strip()
     if not text or is_explicit_text_only_request(text) or _NON_ACTION_MEDIA_CONTEXT.match(text):
         return False
-    return bool(_EXPLICIT_MEDIA_ACTION.search(text))
+    return is_high_confidence_image_action_request(text) or bool(_EXPLICIT_VIDEO_ACTION.search(text))
+
+
+def is_high_confidence_image_action_request(user_text: str) -> bool:
+    """Return true only for an explicit request to create or deliver an image.
+
+    Generic verbs such as ``send``, ``create``, and ``render`` are actionable
+    only when the same direct request names an image. Direct visual-display
+    requests and visual creation verbs are also accepted, but quoted,
+    explanatory, and hypothetical language is not.
+    """
+
+    text = str(user_text or "").strip()
+    if not text or is_explicit_text_only_request(text) or _NON_ACTION_MEDIA_CONTEXT.match(text):
+        return False
+    if _EXPLICIT_IMAGE_WITH_MODIFIER_PREFIX.search(text):
+        return not _IMAGE_TEXT_ARTIFACT_REQUEST.search(text)
+    if _IMAGE_DISCUSSION_OR_EDIT_REQUEST.search(text):
+        return False
+    if _EXPLICIT_IMAGE_NOUN_ACTION.search(text):
+        return True
+    video_context = bool(re.search(rf"\b{_VIDEO_NOUN}\b", text, re.IGNORECASE))
+    display_context_blocked = bool(_NON_VISUAL_DISPLAY_CONTEXT.search(text))
+    return bool(
+        (
+            not video_context
+            and not display_context_blocked
+            and (
+                _EXPLICIT_PERSONA_VISUAL_DISPLAY.search(text)
+                or _EXPLICIT_VISUAL_SCENE_DISPLAY.search(text)
+                or _EXPLICIT_VISUAL_ANTECEDENT_DISPLAY.search(text)
+            )
+        )
+        or (_EXPLICIT_VISUAL_CREATION_ACTION.search(text) and not _NON_VISUAL_CREATION_IDIOM.search(text))
+    )
 
 
 def guard_premature_media_completion_claim(
@@ -129,23 +252,15 @@ def guard_premature_media_completion_claim(
     """Remove persona claims that outrun the platform's durable media evidence."""
 
     reply = str(assistant_text or "").strip()
-    if not reply or not is_high_confidence_media_action_request(user_text):
+    if not reply:
         return reply, False
-    explicitly_video_only = bool(_VIDEO_MEDIA_CONTEXT.search(user_text) and not _IMAGE_MEDIA_CONTEXT.search(user_text))
-    if (
-        not image_sends_allowed
-        and not explicitly_video_only
-        and (_PREMATURE_MEDIA_COMPLETION.search(reply) or _DISABLED_IMAGE_PROMISE.search(reply))
-    ):
-        return "Picture sending is turned off for this persona.", True
-    if not _PREMATURE_MEDIA_COMPLETION.search(reply):
+    if not is_high_confidence_image_action_request(user_text):
         return reply, False
-    sentences = [item.strip() for item in re.split(r"(?<=[.!?])\s+|\n+", reply) if item.strip()]
-    safe = " ".join(item for item in sentences if not _PREMATURE_MEDIA_COMPLETION.search(item)).strip()
-    if safe and _MEDIA_INTENT_PROMISE.search(safe):
-        return safe, True
-    fallback = "I’ll try to make that picture for you."
-    return fallback, True
+    if not image_sends_allowed:
+        disabled = "Picture sending is turned off for this persona."
+        return disabled, reply != disabled
+    acknowledgement = "I’ll see what I can make for you."
+    return acknowledgement, reply != acknowledgement
 
 
 def explicitly_excludes_persona(user_text: str) -> bool:

@@ -326,7 +326,14 @@ High-confidence explicit image requests start automatically when the selected
 persona permits conversational image sending. Video and consequential
 capabilities remain pending until an authenticated user approves or denies
 them. Stories, quoted instructions, explanations, and ambiguous media
-discussion create no job. Direct media buttons create explicit capability
+discussion create no job. Automatic image actions require an explicit image
+noun/action, an unambiguous visual-creation request, or a conservative direct
+visual display such as `show me a moonlit garden` or `show me your outfit`;
+generic requests such as `show me the settings`, `draw a conclusion`, or `give
+me feedback on this photo` stay conversational. If the Task Model omits or
+cannot plan an otherwise unambiguous image action, the platform creates a
+bounded semantic request from the user's text. It still produces a durable
+failed attachment when provider or catalog readiness is unavailable. Direct media buttons create explicit capability
 records and durable chat attachments. `Idempotency-Key` is supported on media-job creation; reuse
 with a different payload returns a conflict. Operators can inspect durable
 capability history through `/api/v1/capability-requests/{id}/events`. A configured
@@ -385,7 +392,9 @@ release can add model reload latency to later chat or media requests. After a
 local image job that actually started, managed mode also reclaims that exact
 authorized media provider while retaining the process lease; a queued chat
 cannot begin until the release attempt finishes. It does not unload Ollama in
-this post-job phase.
+this post-job phase. Switching away from managed mode atomically closes the
+release boundary: once the settings update completes, an already-waiting job
+cannot issue a stale authorized release.
 
 Unknown telemetry, zero catalog estimates, direct manual media actions, video,
 and external clients are not silently guessed. Unknown-demand local image jobs

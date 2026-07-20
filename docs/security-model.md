@@ -138,9 +138,23 @@ be idempotent, and all state changes produce durable audit events.
 Capability, event, attachment, job, and artifact lookups are owner-scoped. Tool
 results returned to future model context contain only safe status, error, and
 protected artifact identifiers.
-For clear image actions, raw persona deltas are held until a deterministic guard
-removes unsupported sent/taken/attached/matched/verified claims. This is a
-truthfulness boundary, not a content-safety or identity-verification substitute.
+Every persona delta crosses a delimiter-aware output boundary before it can
+reach SSE, persistence, speech, memory proposals, or future model context.
+Protected system-prompt envelopes, including nested envelopes, are removed
+across arbitrary provider chunk boundaries, and legacy stored assistant text
+and conversation summaries are filtered on read and before reuse. If removal
+leaves no user-facing persona
+text, the platform substitutes a short safe failure message; summary filtering
+does not invent replacement facts or retain an unusable summary checkpoint.
+
+For strict explicit-image actions, raw persona prose is held and replaced with
+one neutral platform-owned acknowledgement. Durable attachment state alone may
+claim that an image is queued, running, completed, or failed. A bounded
+deterministic request is used when the Task Model omits or cannot plan the
+explicit action, but it receives no authority to select providers, workflows,
+models, or privileged controls. This is a truthfulness and
+prompt-confidentiality boundary, not a content-safety or identity-verification
+substitute.
 
 The capability-planning schema cannot select providers, URLs, models, LoRAs,
 workflows, or resource controls. It can emit only server-advertised semantic

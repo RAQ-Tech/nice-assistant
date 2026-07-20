@@ -26,9 +26,18 @@ state during every ordinary conversation.
 - The visible persona reply never waits for those jobs. Each follow-up may fail
   without changing a completed assistant turn, while causal ordering is preserved
   because no follow-up is created before the assistant message commits.
-- For a clear image action, persona output is buffered and checked before any
-  delta is published. Claims that an image was sent, taken, attached, matched, or
-  verified are removed until durable platform evidence exists.
+- For a strict explicit-image action, persona output is buffered and replaced
+  with one neutral platform-owned acknowledgement before any delta is
+  published. The attachment lifecycle is the only source allowed to describe
+  queued, running, completed, or failed image state. If capability planning
+  omits or cannot plan the explicit action, a deterministic semantic fallback
+  creates the same durable request path; missing provider readiness therefore
+  creates a failed attachment rather than an empty acknowledgement.
+- All persona output passes through a delimiter-aware backend filter before
+  streaming or persistence. Protected system-prompt envelopes are removed
+  across provider chunk boundaries, and legacy stored assistant messages and
+  durable summaries cross the same boundary before display or reuse in future
+  context.
 - The chat memory action opens an editable proposal and posts it to
   `POST /api/v1/memory-proposals`. The record starts `pending`; only review can
   make it active. The existing explicit memory-management API remains available
@@ -52,10 +61,12 @@ state during every ordinary conversation.
 ## Consequences
 
 Job consumers must reconcile a list of follow-up IDs and retain compatibility
-with older single-ID results. Explicit image turns publish one guarded delta after
-generation instead of raw token streaming; ordinary text turns continue to
-stream. Manual proposals add no schema because Memory v2 already supports pending
-manual records and audit events.
+with older single-ID results. Explicit image turns publish one platform-owned
+delta after persona generation instead of raw model prose. Their deterministic
+fallback remains outside the visible-reply critical path and uses the same
+catalog, attachment, retry, and audit contracts. Ordinary text turns continue
+to stream through the prompt-envelope filter. Manual proposals add no schema
+because Memory v2 already supports pending manual records and audit events.
 
 ## Verification
 
