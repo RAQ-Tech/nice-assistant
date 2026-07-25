@@ -575,6 +575,80 @@ operator retained the correct `NICE_ASSISTANT_MASTER_KEY`; actual rollback
 acceptance must restart the prior image against a restored copy with the saved
 key.
 
+### Private Memory v3 baseline and disposable reset drill
+
+The accepted Memory and Knowledge v3 plan begins with offline evidence, not a
+live reset. These tools accept a Nice Assistant snapshot ZIP only. They do not
+connect to the running application or configured database, and neither command
+has an apply or live-data mode.
+
+First create or obtain a verified snapshot through the existing administrator
+backup workflow. Choose a private output directory outside the repository; an
+ignored directory such as `.local/` is still inside the repository and is not
+an acceptable location for memory or persona exports. On POSIX systems the tool
+applies and verifies restrictive mode bits. On Windows it cannot prove the
+inherited ACL is owner-only, reports that limitation, and requires the operator
+to review the directory ACL before treating the artifacts as owner-only. Then
+run:
+
+```powershell
+py -3 scripts/export_memory_baseline.py SNAPSHOT `
+  --output-dir PRIVATE_DIRECTORY `
+  [--owner-id OWNER_ID]
+```
+
+The exporter first copies the complete snapshot into a tool-owned temporary
+directory and performs all inspection against that immutable copy. It verifies
+the original path again before publishing either artifact, so replacement or
+mutation during the run fails closed. Plan temporary capacity for the complete
+ZIP, the extracted database, and safety headroom. The source snapshot is never
+modified. The exporter then creates unique private JSON and readable text
+artifacts, inventories every available legacy memory field and event, freezes
+the exact memory-ID population, and records canonical persona and protected
+non-memory digests. Possible persona-definition or instruction material is
+conservatively assigned to a proposed quarantine set. Supersession and
+related-event links expand that set to a complete revision closure; the reset
+candidate set contains only the remaining exact frozen IDs. Missing legacy
+rationale or immutable origin-persona metadata is labeled unavailable rather
+than reconstructed.
+
+Standard output is content-free: it reports counts, digests, and the local
+permission-verification result, but not artifact paths, owner IDs, memory text,
+persona content, source messages, or private deployment values. Treat both
+artifacts as sensitive. Do not place them in Git, fixtures, screenshots, issue
+trackers, shared logs, or public CI artifacts.
+
+Use the JSON artifact only with the exact snapshot it describes:
+
+```powershell
+py -3 scripts/drill_memory_reset.py SNAPSHOT BASELINE_JSON
+```
+
+The drill independently makes an immutable temporary copy of the complete
+snapshot, validates the snapshot/baseline binding, extracts a temporary
+database, and simulates deletion of only the frozen reset IDs in that disposable
+copy. It checks the proposed quarantine partition and revision closure, memory
+event and FTS effects, foreign-key integrity, database integrity, and unchanged
+persona, chat, and protected non-memory digests. It prints content-free
+verification and destroys both temporary copies when finished. It accepts no
+database path or output/apply option and cannot delete live memory.
+
+Snapshot type affects what persona preservation can prove. Both full and
+metadata-only snapshots contain core persona, workspace-link, voice/model,
+visual-identity metadata, validation, and audit rows in SQLite. Only a full
+snapshot contains identity-reference image bytes. For a metadata-only snapshot,
+the exporter reports those bytes as `not_in_snapshot`; that state is not
+evidence that the deployed file is missing, and the drill cannot claim
+byte-level identity-reference preservation. Use a full snapshot when that proof
+is required.
+
+Implementing or running these commands does not create a production baseline by
+itself. Record that a private export exists only after the intended owner has
+run it against an actual verified deployment snapshot and reviewed the
+artifacts. Any future live-memory reset requires a separate implementation,
+fresh export, exact target summary, recoverable backup, and explicit destructive
+confirmation.
+
 Record deployment-specific backup filenames and results only in the ignored
 local acceptance record. Verification is non-destructive. Replacing the live
 database or starting a prior image against a restored copy requires explicit

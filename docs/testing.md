@@ -117,6 +117,79 @@ version 3, the version 2 to version 3 guard update, version 3 observability,
 guard rollback to version 2, re-update with observability restored, and private
 installed-browser acceptance.
 
+## Memory v3 Phase 1 safety verification
+
+The baseline/reset-safety slice is offline and snapshot-bound. Tests construct
+synthetic snapshots in temporary directories; they never use deployment memory,
+persona content, credentials, or topology.
+
+Baseline-export tests cover bounded safe ZIP validation, current-revision table
+and column validation, owner selection and isolation, every available
+memory/event field, deterministic exact-ID freezing, canonical persona and
+protected non-memory hashes, raw persona discovery independent of
+workspace-link joins, and content-free command output. They prove possible
+persona-definition detection scans every legacy lifecycle/scope, emits reason
+codes rather than snippets, does not quarantine ordinary persona-scoped facts
+merely because of scope, and expands each protected candidate through its
+complete supersession and related-event revision closure. Owner isolation fails
+closed if a memory or event revision link points at another owner's memory; the
+exporter never widens the closure across that boundary or silently omits the
+foreign endpoint.
+
+Snapshot-race tests require inspection to use a complete internal immutable ZIP
+copy rather than reopening the operator path, require a final source
+size/time/hash check before artifacts are published, and require failure without
+published artifacts if the source changes. Capacity checks cover both the full
+snapshot copy and extracted database plus safety headroom.
+
+Disposable-reset tests bind the baseline to the exact snapshot, re-derive the
+safety plan from that snapshot, reject stale, foreign-owner, incomplete,
+overlapping, hash-recomputed, or broadened ID partitions, and discover
+foreign-key/trigger effects before mutation. The simulated delete runs only on
+a temporary extracted database. Tests require unchanged persona, workspace-link,
+voice/model, visual-identity, chat, and protected non-memory roots; exact removal
+of reset memory/event/FTS rows; preservation of quarantine rows, links, and
+retained FTS content; an empty `PRAGMA foreign_key_check`; and
+`PRAGMA integrity_check=ok`. They also prove the source snapshot is unchanged
+and that neither script accepts a live database or apply mode.
+
+Backup-coverage tests distinguish `not_in_snapshot` from a missing or corrupt
+identity reference. Metadata-only snapshots can verify identity database rows
+but cannot pass a byte-level reference-file preservation gate. Full snapshots
+must match each included reference's bytes to its stored digest.
+
+Permission checks require restrictive POSIX mode bits where supported. Windows
+tests require an explicit `windows_acl_not_verified` result; they do not treat
+`chmod` as proof of an owner-only ACL.
+
+The committed Memory v2 extraction corpus is synthetic, versioned, and
+observe-only. It covers stable facts, unsupported or vague output, questions,
+negation, accepted decisions, and obvious test-only credential material. The
+evaluator calls the Task Model provider contract without a database or
+`MemoryService` write path, applies the shipped sensitive-memory filter, and
+reports raw and post-filter outcomes separately. Its strict grounding lower
+bound counts only exact allowlisted synthetic fact renderings; broader lexical
+matches are reported as unresolved diagnostics, so contradictions, added
+claims, or paraphrases are not mislabeled as proven support. Reports record the
+corpus and evaluator hashes plus the exercised task-contract hashes and mark
+unavailable provider/model digests honestly. Default reports omit input,
+candidate content, and the provider URL; displaying synthetic case output
+requires explicit `--show-output`:
+
+```powershell
+py -3 scripts/evaluate_task_models.py `
+  --suite memory-v2-baseline `
+  --base-url PROVIDER_URL `
+  --model MODEL
+```
+
+Confidence and proposed scope are observations, not evidence that an assertion
+is supported. This baseline does not set an automatic-activation threshold,
+does not enable activation, and does not claim a quality gate has passed. Its
+command exit status represents execution/contract completion, not whether the
+quality observations are acceptable. Live provider evaluation remains opt-in;
+deterministic fakes and committed synthetic outcomes cover CI.
+
 ## Test layers
 
 - Unit tests cover pure parsing, policy, state machines, and error normalization.
@@ -229,6 +302,18 @@ installed-browser acceptance.
   isolation. They also prove that edited chat-memory proposals remain pending and
   cannot displace approved correction context before review. Chat data-action
   tests distinguish bulk hide from permanent delete.
+- Memory baseline/reset tests cover private output-path rejection inside the
+  repository, unique artifact creation, no sensitive stdout/logging, schema and
+  owner drift, exact persona and non-memory inventory, conservative
+  persona-instruction quarantine, revision closure, metadata-only versus full
+  identity-reference evidence, frozen-ID reset preview, and disposable-only
+  deletion verification. No test or product route exercises live deletion.
+- Memory extraction baseline tests validate the strict synthetic corpus,
+  required semantic categories, invented/unsupported claim detection,
+  production sensitive filtering, separate raw/post-filter metrics,
+  content-free default reports, explicit output disclosure, observe-only
+  metadata, and absence of persistence side effects. They use no live model in
+  CI and do not convert confidence or scope into a semantic pass.
 - Vitest covers the phase machine, settings normalization, canonical API/error
   behavior, fragmented SSE parsing, protected media rendering, routing, and safe
   markdown, capability approval/denial state, Task Model settings/audits, and

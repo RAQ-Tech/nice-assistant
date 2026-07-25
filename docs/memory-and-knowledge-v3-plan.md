@@ -1,15 +1,15 @@
-# Memory and Knowledge v3 proposed plan
+# Memory and Knowledge v3 plan
 
-- Status: proposed
+- Status: accepted
 - Date: 2026-07-25
 - Owners: Nice Assistant maintainers
 - Related decisions: ADR 0026, ADR 0027, ADR 0028
 
 ## Purpose and status boundary
 
-This document freezes the intended Memory and Knowledge v3 product behavior
-before implementation. It is a requirements and acceptance plan, not a claim
-that the described behavior is available.
+This document freezes the accepted Memory and Knowledge v3 product behavior and
+delivery sequence. It is a requirements and acceptance plan, not a claim that
+the described behavior is available.
 
 Memory v2, as documented in `docs/memory.md`, ADR 0005, and ADR 0021, remains
 the current behavior until the applicable v3 slices are implemented, tested,
@@ -20,6 +20,12 @@ The README and current-behavior documents must not advertise v3 early.
 No live memory content belongs in this document or anywhere else in the public
 repository. Deployment-specific exports, backup identifiers, addresses, persona
 content, and migration evidence remain outside Git.
+
+The first implementation slice adds snapshot-only baseline export and
+disposable reset-drill tooling. It does not change Memory v2 retrieval,
+extraction, review, persona behavior, or chat binding. No production snapshot
+has been exported by accepting this plan, no live baseline is claimed, and no
+memory has been deleted.
 
 ## Intended product outcome
 
@@ -328,19 +334,27 @@ nonfunctional ingestion path.
 
 ### Phase 0: design and acceptance freeze
 
-- Accept or revise ADR 0026, ADR 0027, ADR 0028, and this plan.
-- Convert the traceability rows into implementation-sized issues or checklist
-  slices before coding.
-- Build a synthetic, privacy-safe evaluation corpus covering grounding, access,
-  temporal/state behavior, corrections, natural-language actions, and document
-  boundaries.
-- Define measured shadow-mode promotion criteria.
+- **Status: complete.**
+- ADR 0026, ADR 0027, ADR 0028, and this plan are accepted as the target
+  contracts without claiming that their target runtime behavior has shipped.
+- The traceability rows and delivery phases define implementation-sized slices
+  and their acceptance boundaries.
+- Phase 1 adds a narrow synthetic Memory v2 extraction baseline. Expanding that
+  corpus to cover v3 grounding, access, temporal/state, correction,
+  natural-language action, and document boundaries—and selecting numeric
+  shadow-mode promotion criteria—remain required before Phase 4 can enable
+  automatic activation.
 
-Exit condition: the proposed contracts and deferred questions are explicitly
-accepted, with no current-behavior document claiming they have shipped.
+Exit condition: met. The contracts and deferred questions are explicit and
+current-behavior documentation continues to describe Memory v2 truthfully.
 
 ### Phase 1: private baseline and reset safety
 
+- **Status: in progress.** The repository provides the offline, snapshot-only
+  exporter and disposable-only reset drill described below. Producing and
+  reviewing the owner's private deployment baseline still requires an actual
+  verified snapshot and has not been performed merely by implementing the
+  tools.
 - Obtain authenticated read-only access to the deployment or a verified backup.
 - Create a private export of pending and active/history memory with every
   available field.
@@ -352,6 +366,16 @@ accepted, with no current-behavior document claiming they have shipped.
 - Inspect the memory export for possible persona-definition or instruction
   material and establish an explicit keep/quarantine set.
 - Exercise the memory-only reset against a disposable backup copy.
+- Record the existing extractor's behavior against a versioned synthetic,
+  observe-only corpus without using confidence or scope as a semantic pass.
+
+This phase's implemented tooling is intentionally incapable of accepting a
+live database, applying a reset, or deleting data. The export freezes exact
+legacy memory IDs, expands possible persona-definition candidates through their
+revision relationships, and records an exact reset/quarantine partition for
+review. The drill applies the proposed reset only to a temporary database
+extracted from the supplied snapshot, then proves persona and protected
+non-memory data remain unchanged.
 
 Exit condition: the owner has received and verified the private baseline; the
 reset targets are exact; persona preservation is proven. Live deletion still
@@ -461,15 +485,64 @@ The private export should include, when present:
 Fields absent from the current system are labeled unavailable. In particular,
 the export must not invent a model rationale that was never stored.
 
-The artifact is written by default to an owner-restricted path outside the
-repository and delivered through the private Codex session. An ignored
-repository path is not considered sufficient protection merely because Git
-omits it. The export must use restrictive local permissions, must not be printed
-through terminal or application logs, and must never appear in fixtures,
-screenshots, issues, commits, or pull requests. After delivery, the owner makes
-an explicit retain-or-delete choice for the export. Verified backups remain
-residual copies until their separately documented retention or deletion policy
-removes them.
+The Phase 1 exporter accepts only a Nice Assistant snapshot ZIP:
+
+```powershell
+py -3 scripts/export_memory_baseline.py SNAPSHOT `
+  --output-dir PRIVATE_DIRECTORY `
+  [--owner-id OWNER_ID]
+```
+
+`PRIVATE_DIRECTORY` must resolve outside the repository. The command creates
+unique private JSON and readable text artifacts and prints only a content-free
+summary. It does not accept the configured live database, call a running Nice
+Assistant instance, modify the snapshot, or delete anything. The JSON artifact
+is the machine-readable source for the reset drill; the text artifact is for
+private owner review.
+
+The baseline freezes the exact memory-ID population observed in that snapshot.
+The possible-persona keep/quarantine set is conservative and deterministic.
+Any memory related through supersession or memory-event revision links is
+included in the same protected revision closure so a later reset cannot sever
+retained provenance through a foreign-key `SET NULL`. The remaining exact IDs
+form the proposed reset set. These sets are evidence for review, not permission
+to mutate a live database.
+
+Run the reset proof only against the same snapshot and its private baseline:
+
+```powershell
+py -3 scripts/drill_memory_reset.py SNAPSHOT BASELINE_JSON
+```
+
+The exporter and drill each copy the complete source ZIP into a tool-owned
+temporary directory and inspect only that immutable copy, with capacity checks
+for the ZIP, extracted database, and safety headroom. They verify the original
+path again before reporting success or publishing artifacts. The drill then
+extracts a disposable database, verifies the snapshot and baseline binding,
+simulates deletion of only the frozen reset IDs inside that temporary copy, and
+compares persona, chat, protected non-memory, foreign-key, integrity, and FTS
+evidence. It prints only content-free verification and discards the temporary
+copies. It has no live-database, output, apply, or deletion mode.
+
+Persona inventory includes raw core persona records, workspace links, behavioral
+configuration, visual-identity metadata, and dependent instruction/configuration
+digests. A metadata-only snapshot contains those database records but not the
+identity-reference image bytes. The exporter must label those artifacts
+`not_in_snapshot`; it must not report them as missing or claim byte-level
+preservation. A full snapshot is required to compare the stored reference
+digest with the included file bytes.
+
+The artifact is written to a user-selected private path outside the repository
+and delivered through the private Codex session. An ignored repository path is
+not considered sufficient protection merely because Git omits it. The export
+applies and verifies restrictive mode bits where POSIX permissions are
+available. On Windows it must report that inherited ACLs remain unverified and
+require operator review rather than claiming `chmod` established owner-only
+access. Artifact content must not be printed through terminal or application
+logs and must never appear in fixtures, screenshots, issues, commits, or pull
+requests. After delivery, the owner makes an explicit retain-or-delete choice
+for the export. Verified backups remain residual copies until their separately
+documented retention or deletion policy removes them.
 
 Before a live reset:
 
@@ -573,8 +646,10 @@ it does not replace them.
 
 ## Documentation transition
 
-During design, these ADRs and this plan remain proposed while existing documents
-continue to describe Memory v2 truthfully.
+ADR 0026, ADR 0027, ADR 0028, and this plan are accepted. Their target runtime
+behavior remains unshipped, so existing documents continue to describe Memory
+v2 truthfully. The offline Phase 1 tooling is documented separately and must
+not be interpreted as a v3 runtime cutover.
 
 As each implementation slice ships, the same change updates the applicable:
 

@@ -20,6 +20,9 @@
 18B. Identity-aware generation workflows — delivered.
 18C. Media editing and measured identity correction — delivered.
 19. Production hardening and observability — delivered.
+25A. Memory and Knowledge v3 design freeze — delivered.
+25B. Private memory baseline and reset-safety tooling — offline implementation
+    complete; owner deployment baseline pending.
 
 Step 6 removed the raw HTTP server and loopback bridge, added durable linked
 turn/job state, provider-neutral chat/media contracts, streamed Ollama output,
@@ -175,6 +178,23 @@ additional catalog breadth does not take priority over them.
     one-time supervised migration followed by remote update, guard
     rollback/re-update, one-container deployment, and browser acceptance. See
     ADR 0025.
+
+25. **Memory and Knowledge v3 — accepted architecture; phased implementation.**
+    ADRs 0026–0028 and the v3 plan now fix immutable chat identity, origin
+    separated from grants, source-persona-only automatic memory, grounded
+    lifecycle policy, and versioned document reference knowledge as the target
+    design. These decisions are accepted but their runtime behavior is not yet
+    shipped; Memory v2 remains review-first and single-scope.
+
+    Phase 1 provides a snapshot-only private baseline exporter and a
+    disposable-only reset drill. The exporter freezes exact legacy memory IDs,
+    conservatively closes possible persona-definition material across revision
+    links, and records canonical persona and protected non-memory digests. The
+    drill can simulate that exact reset only inside a temporary database
+    extracted from the bound snapshot. Neither tool accepts a live database or
+    can apply a production deletion. No owner deployment baseline or live reset
+    is claimed until an actual verified snapshot is privately exported,
+    reviewed, and separately authorized. See `docs/memory-and-knowledge-v3-plan.md`.
 
 Steps are delivered and reviewed independently. Step 11 cannot select providers
 until a future listening decision is approved. Any future deployment acceptance

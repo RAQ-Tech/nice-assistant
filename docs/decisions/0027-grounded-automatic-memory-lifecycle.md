@@ -1,6 +1,6 @@
 # ADR 0027: Grounded automatic memory lifecycle
 
-- Status: proposed
+- Status: accepted
 - Date: 2026-07-25
 - Owners: Nice Assistant maintainers
 - Related: ADR 0005, ADR 0021
@@ -23,10 +23,10 @@ persona.
 The product needs a precision-first automatic policy that can eventually
 activate clearly supported memories without making the model an access-control
 authority. It also needs to distinguish enduring facts from time-bounded facts
-and evolving projects or commitments. This ADR is a proposed replacement for
-the automatic-candidate review boundary in ADR 0005 and a proposed extension of
-ADR 0021's confirmation boundary. It does not describe behavior that is
-currently shipped.
+and evolving projects or commitments. This ADR is the accepted replacement
+design for the automatic-candidate review boundary in ADR 0005 and an accepted
+extension of ADR 0021's confirmation boundary. It does not describe behavior
+that is currently shipped.
 
 ## Decision
 
@@ -153,7 +153,7 @@ against a representative, human-labeled evaluation set. Predeclared quality and
 privacy gates must be met before activation is enabled. Until then, current ADR
 0005 review-first behavior remains authoritative in production.
 
-When this ADR is accepted, implemented, verified, and shipped, it supersedes
+When this ADR is implemented, verified, and shipped, it supersedes
 only ADR 0005's rule that every automatic candidate must remain pending. ADR
 0005's audited states, provenance, reversible forgetting, revision history, and
 active-only retrieval continue to apply. It extends ADR 0021 by replacing chat
@@ -202,10 +202,10 @@ reset or cutover. Persona definitions and instructions are outside the reset
 scope. Product disclosures about sensitive information remain useful, but they
 do not replace secret rejection, access isolation, deletion safety, or testing.
 
-Because this ADR is proposed, documentation and interfaces must continue to
-describe the current review-first behavior until the corresponding phase is
-implemented and verified. Acceptance of this design alone must not be presented
-as automatic memory being available.
+Because this ADR is accepted but not yet shipped, documentation and interfaces
+must continue to describe the current review-first behavior until the
+corresponding phase is implemented and verified. Acceptance of this design
+alone must not be presented as automatic memory being available.
 
 ## Verification
 

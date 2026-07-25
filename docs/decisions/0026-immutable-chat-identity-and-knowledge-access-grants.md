@@ -1,6 +1,6 @@
 # ADR 0026: Immutable chat identity and knowledge-access grants
 
-- Status: proposed
+- Status: accepted
 - Date: 2026-07-25
 - Owners: Nice Assistant maintainers
 
@@ -22,10 +22,11 @@ turning ordinary memories into globally available facts. The first release has
 one human owner, but hard-coding that singleton into ownership and access rows
 would make later multi-human support a destructive redesign.
 
-This ADR is a design proposal. None of the target behavior below is implemented
-merely by adding this document. Existing runtime behavior remains governed by
-the accepted ADRs and current implementation until this proposal is accepted,
-migrated, verified, and shipped.
+This decision is accepted as the target architecture. Acceptance does not make
+the target behavior available: existing runtime behavior remains governed by
+the current implementation and earlier shipped ADRs until the applicable v3
+migrations, services, interfaces, and acceptance tests are implemented and
+shipped.
 
 ## Decision
 
@@ -92,7 +93,7 @@ migrated, verified, and shipped.
   boundaries must reject or redact them rather than relying on access grants.
 
 This decision defines identity and authorization, not automatic-memory quality
-or activation policy. If accepted and shipped, it supersedes only the
+or activation policy. When implemented and shipped, it supersedes only the
 single-scope access assumptions in ADR 0005 and the access-selection assumptions
 of the chat memory proposal in ADR 0021. Their review, audit, critical-path, and
 truthful-lifecycle decisions remain in force unless a separate accepted ADR

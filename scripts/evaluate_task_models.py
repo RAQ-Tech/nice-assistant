@@ -31,6 +31,14 @@ from app.task_contracts import (  # noqa: E402
     TitleTaskInput,
     task_definition,
 )
+from scripts.memory_extraction_baseline import (  # noqa: E402
+    BASELINE_CANDIDATE_LIMIT,
+    assess_memory_baseline_case,
+    build_memory_baseline_report,
+    contract_failure_result,
+    load_memory_baseline_corpus,
+    raw_exact_duplicate_candidate_count,
+)
 
 
 @dataclass(frozen=True)
@@ -214,11 +222,67 @@ def run_case(provider, model: str, case: EvaluationCase, timeout_seconds: float,
         }
 
 
+def run_memory_baseline_case(
+    provider,
+    model: str,
+    corpus,
+    case,
+    timeout_seconds: float,
+    show_output: bool,
+) -> dict:
+    """Run one synthetic case directly against the Memory v2 task contract."""
+
+    definition = task_definition(MEMORY_EXTRACTION)
+    task_input = MemoryExtractionTaskInput(
+        case.user_text,
+        max_candidates=BASELINE_CANDIDATE_LIMIT,
+    )
+    started = time.monotonic()
+    try:
+        request = ChatRequest(
+            model=model,
+            messages=definition.messages(task_input),
+            options={
+                "num_predict": definition.default_max_output_tokens,
+                "temperature": definition.default_temperature,
+            },
+            response_format=definition.response_schema(task_input),
+            timeout_seconds=timeout_seconds,
+        )
+        raw = provider.generate(request, CancellationToken())
+        output = definition.parse_output(
+            raw,
+            task_input,
+            definition.default_max_output_tokens,
+        )
+        result = assess_memory_baseline_case(
+            corpus,
+            case,
+            output,
+            show_output=show_output,
+            parser_deduplicated_exact_candidate_count=raw_exact_duplicate_candidate_count(raw),
+        )
+        result["latency_ms"] = int((time.monotonic() - started) * 1000)
+        return result
+    except (ProviderError, ValueError) as exc:
+        return contract_failure_result(
+            case,
+            f"{exc.__class__.__name__}: {str(exc)}",
+            int((time.monotonic() - started) * 1000),
+        )
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--base-url", default=os.getenv("OLLAMA_BASE_URL", "http://127.0.0.1:11434"))
     parser.add_argument("--model", help="installed Ollama model; defaults to the first listed model")
-    parser.add_argument("--role", action="append", choices=[case.role for case in evaluation_cases()])
+    parser.add_argument(
+        "--suite",
+        choices=("quick", "memory-v2-baseline"),
+        default="quick",
+        help="quick contract screen or the synthetic observe-only Memory v2 quality baseline",
+    )
+    parser.add_argument("--role", action="append", choices=sorted({case.role for case in evaluation_cases()}))
     parser.add_argument("--timeout", type=float, default=90.0)
     parser.add_argument(
         "--show-output",
@@ -226,6 +290,9 @@ def main() -> int:
         help="include generated task output in stdout; output is omitted by default for privacy",
     )
     args = parser.parse_args()
+    selected_roles = set(args.role or [])
+    if args.suite == "memory-v2-baseline" and selected_roles - {MEMORY_EXTRACTION}:
+        parser.error("--suite memory-v2-baseline supports only --role memory_extraction")
     provider = OllamaChatProvider(args.base_url, timeout_seconds=args.timeout)
     models = provider.list_models()
     model = args.model or (models[0] if models else None)
@@ -233,7 +300,29 @@ def main() -> int:
         parser.error("Ollama returned no installed models; pass --base-url for the intended LAN service")
     if args.model and args.model not in models:
         parser.error(f"model is not installed at the selected Ollama service: {args.model}")
-    selected_roles = set(args.role or [])
+    if args.suite == "memory-v2-baseline":
+        corpus = load_memory_baseline_corpus()
+        results = [
+            run_memory_baseline_case(
+                provider,
+                model,
+                corpus,
+                case,
+                max(1.0, args.timeout),
+                args.show_output,
+            )
+            for case in corpus.cases
+        ]
+        payload = build_memory_baseline_report(
+            corpus,
+            results,
+            model=model,
+            base_url=args.base_url,
+            timeout_seconds=max(1.0, args.timeout),
+        )
+        print(json.dumps(payload, indent=2, ensure_ascii=False))
+        return 0 if payload["execution_complete"] else 1
+
     cases = [case for case in evaluation_cases() if not selected_roles or case.role in selected_roles]
     results = [run_case(provider, model, case, max(1.0, args.timeout), args.show_output) for case in cases]
     payload = {

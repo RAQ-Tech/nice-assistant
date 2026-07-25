@@ -68,6 +68,13 @@ change that alters them.
 - SQLite backup snapshots, archive retention, provider readiness checks,
   process/container smoke foundations, and an administrator restore-drill
   action that reports database integrity and migration compatibility.
+- Snapshot-only Memory v3 baseline export and disposable-only exact-ID reset
+  drills. The exporter keeps memory/persona content in unique private artifacts
+  outside the repository, freezes a reset/quarantine partition with revision
+  closure, and emits only content-free summaries. The drill is bound to that
+  snapshot and baseline, operates only on a temporary extracted database, and
+  verifies persona, chat, protected non-memory, FTS, foreign-key, and integrity
+  evidence without exposing a live/apply mode.
 - Same-origin write enforcement, strict/optionally secure session cookies,
   bounded login lockout, private-LAN provider URL policy, redacted structured
   correlation logs, request/provider/job metrics, readiness and storage reports,
@@ -89,6 +96,35 @@ change that alters them.
   finish work whose result is then discarded.
 - Memory retrieval is lexical FTS plus recency; semantic retrieval remains an
   optional future interface rather than implied functionality.
+- ADRs 0026–0028 and the Memory and Knowledge v3 plan are accepted target
+  architecture, but immutable chat bindings, human principals, origins and
+  grants, grounded automatic activation, temporal/stateful lifecycle, owner
+  profiles, and versioned document knowledge are not yet runtime behavior.
+  Memory v2 remains review-first and single-scope until those phases ship.
+- The offline baseline tools have not produced or reviewed an owner deployment
+  export merely by being implemented. They still require a verified private
+  snapshot. A live reset executor is intentionally absent and requires a fresh
+  export, backup, exact target review, separate implementation, and explicit
+  destructive confirmation.
+- POSIX baseline exports verify restrictive mode bits. Windows output remains
+  subject to the user-selected directory's inherited ACL; the tool reports that
+  owner-only access is unverified, and automated ACL establishment remains
+  future hardening rather than a claimed guarantee.
+- Legacy Memory v2 records do not retain a reliable immutable source-persona
+  binding or an extractor qualification rationale. The baseline must label
+  those fields unavailable rather than reconstruct them from a chat's mutable
+  current persona or model confidence.
+- Possible persona-definition detection in legacy memory is a conservative
+  deterministic quarantine aid, not a semantic classifier. False positives
+  require private owner review, and complete supersession/related-event closure
+  is retained to avoid severing provenance.
+- Metadata-only snapshots contain visual-identity database records but omit
+  identity-reference image bytes. They cannot prove byte-level reference
+  preservation; that gate requires a full snapshot.
+- The synthetic Memory v2 extraction baseline is observe-only. Its committed
+  cases and content-free report make current failures measurable, but no
+  automatic activation threshold has been accepted and confidence/scope do not
+  establish semantic correctness.
 - Rejected/forgotten memory retention is durable but does not yet have an
   administrator-approved automatic expiry policy. Users can permanently delete
   selected records, including their history, through explicit individual or

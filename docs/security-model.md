@@ -251,6 +251,15 @@ Backups also contain resource-control authorizations and endpoint fingerprints;
 restore them only into the deployment whose endpoint ownership was attested,
 and review them after topology changes.
 
+The offline memory-baseline exporter treats both its JSON and readable report as
+sensitive artifacts. It refuses repository-local output, publishes nothing
+until source-snapshot verification completes, and emits only counts and digests
+to standard output. POSIX mode bits are verified where supported; Windows
+inherited ACLs are explicitly reported as unverified and require operator
+review. The paired reset drill has no live-database or apply mode, re-derives
+the exact plan from the bound snapshot, rejects cross-owner revision links, and
+mutates only an internally extracted temporary database.
+
 ## Public repository privacy
 
 The public source tree must not become an infrastructure inventory. Exact

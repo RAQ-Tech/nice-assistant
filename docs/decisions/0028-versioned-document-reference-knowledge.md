@@ -1,6 +1,6 @@
 # ADR 0028: Versioned document reference knowledge
 
-- Status: proposed
+- Status: accepted
 - Date: 2026-07-25
 - Owners: Nice Assistant maintainers
 
@@ -17,7 +17,7 @@ with several personas or workspaces, a workspace grant must apply to future
 members, and a newer upload must not make citations to an older version
 ambiguous. Model-selected relevance must never expand access.
 
-This ADR defines the intended product and architecture contract. It does not
+This ADR is the accepted product and architecture contract. Acceptance does not
 claim that document upload, parsing, retrieval, or citations are currently
 implemented. Supported v1 formats, size and page limits, and the real OCR
 boundary remain phase-design decisions that must be documented and verified

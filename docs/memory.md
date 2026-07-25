@@ -4,6 +4,13 @@ Nice Assistant memory is review-first. Conversation extraction creates pending
 candidates; only active memories can enter prompts or media continuity context.
 `off` disables both retrieval and candidate extraction for that chat.
 
+ADR 0026, ADR 0027, ADR 0028, and the Memory and Knowledge v3 plan are accepted
+future architecture. They do not change this shipped Memory v2 behavior until
+their applicable runtime phases are implemented, migrated, verified, and
+documented as shipped. The repository's Phase 1 baseline tools inspect a
+supplied backup snapshot and exercise a proposed reset only on a disposable
+copy; they do not alter the running application or authorize live deletion.
+
 ## Lifecycle
 
 - `pending`: extracted from an explicit user statement and awaiting review.

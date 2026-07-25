@@ -59,6 +59,12 @@ linked job submission, and terminal results.
 `TaskModelService` owns separately configured title, summary, memory-extraction,
 and capability-planning roles, strict structured outputs, budgets, readiness,
 fallback, and content-free run audit records.
+`app.private_memory_baseline` is deliberately outside this runtime service
+graph. Its two command-line entrypoints accept only a backup snapshot, inspect
+an internal immutable ZIP/database copy, and either write a private baseline
+outside the repository or exercise an exact-ID reset on the disposable copy.
+The module is not dependency-injected into the application, registered as a
+route, or capable of opening the configured live database.
 `MediaCatalogService` owns resource metadata, compatibility, deterministic plan
 construction, immutable reviewed snapshots, retry replanning, and
 pre-submission resource revalidation; the pure selection
