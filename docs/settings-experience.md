@@ -76,8 +76,9 @@ and Workspaces now use the same approachable structure:
   full-image viewer used by chat pictures; they never launch a separate browser
   window.
 - The chat control popover keeps speech, `Blur images`, and `Stop audio` in the
-  common path. Workspace, model, memory mode, client state, and visualization are
-  preserved under `Chat details`; they are not removed or made read-only.
+  common path. The immutable persona/workspace context is shown rather than
+  editable. Model, memory mode, client state, and visualization remain
+  adjustable under `Chat details`.
 
 Provider tuning still controls direct actions. Media Catalog remains the
 operator source of truth for planned conversational generation. Technical plans
@@ -115,6 +116,30 @@ operator controls behind a consistent guided structure:
 
 The operator logic is split into focused typed modules so the settings shell no
 longer owns Task Model, media-catalog, coordination, or backup workflows.
+
+### Memory v3 Phase 2 — foundation delivered
+
+Starting a chat now uses a focused dialog that requires both a persona and an
+access context. `Personal` is explicit; workspace choices include only
+workspaces currently assigned to the selected persona. After creation those
+choices are durable labels, not chat settings. Changing persona or workspace
+means starting another chat, while model and memory-mode controls remain
+per-chat/turn configuration.
+
+An older or currently invalid binding keeps its transcript visible and replaces
+the composer with a concise read-only explanation plus `Start a new chat`.
+Ordinary valid chat has no additional memory reminders or administrative
+prompts.
+
+The Phase 2 backend exposes typed origin, validity, persona/workspace grants,
+grant history, and the explicit universal owner-profile API. Deliberately
+populated profile values reach each valid persona in a separate prompt block;
+the memory extractor cannot populate them. The existing Memory view still
+focuses on review/history and bulk forget/delete. It does not yet provide the
+planned searchable access map, persona/workspace filters and stats, grant
+editor, owner-profile form, pending-depth sign-in warning, or natural-language
+confirmation flow. Those owner-facing controls are Phase 3; the existence of an
+API is not presented as a finished settings experience.
 
 These chunks were intentionally separate. Visual Identity needed a new
 protected media-list contract and an interaction redesign; the everyday and

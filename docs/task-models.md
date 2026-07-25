@@ -23,6 +23,16 @@ ADR 0017. A narrow server guard also honors explicit exclusions such as
 "without you" even if the Task Model incorrectly marks the selected persona as
 the subject; generic scene exclusions cannot remove persona identity control.
 
+Memory-extraction output is also non-authoritative. The role sees the bounded
+user statement and may propose content plus confidence, but it cannot choose a
+human, persona, workspace, grant, lifecycle transition, or owner-profile field.
+After model work completes, the platform revalidates the exact source
+message/turn and immutable chat binding. Every admitted Phase 2 candidate is
+stored `pending`, with resolved origin and one automatic grant to the source
+persona only. This is true inside workspace chats as well. Automatic activation,
+conversational correction handling, and universal-profile promotion remain
+unimplemented.
+
 Chat-title generation runs while a chat still has a recognized placeholder.
 The browser creates the canonical `New chat` title, and the server also recognizes
 legacy `New conversation` and `Untitled chat` values so existing chats can recover
@@ -78,6 +88,10 @@ marks a running task failed with `interrupted by server restart`.
 
 The recent-run list in Settings is an operator diagnostic, not a model lab. It
 does not display conversation content.
+
+A Task Model or persona-model selection is not an identity decision. Switching
+models or restarting Ollama cannot alter a stored chat binding, memory origin,
+or access grant.
 
 ## Developer qualification
 

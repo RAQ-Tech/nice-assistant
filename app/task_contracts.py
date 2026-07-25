@@ -297,7 +297,6 @@ class SummaryTaskOutput:
 @dataclass(frozen=True)
 class MemoryCandidate:
     content: str
-    scope: str
     confidence: float
 
 
@@ -421,7 +420,8 @@ def _system_prompt(role: str) -> str:
         return shared + (
             "Extract only stable facts, preferences, identity details, relationships, or ongoing commitments "
             "explicitly stated by the user. Exclude secrets, credentials, transient requests, guesses, medical or "
-            "legal inferences, and assistant claims."
+            "legal inferences, and assistant claims. Do not choose or return access, scope, persona, workspace, "
+            "sharing, or globality; the platform assigns memory access from the verified source chat."
         )
     if role == CAPABILITY_PLANNING:
         return shared + (
@@ -521,10 +521,9 @@ def _memory_schema(task_input: MemoryExtractionTaskInput) -> dict:
                 "items": {
                     "type": "object",
                     "additionalProperties": False,
-                    "required": ["content", "scope", "confidence"],
+                    "required": ["content", "confidence"],
                     "properties": {
                         "content": {"type": "string", "minLength": 1, "maxLength": 500},
-                        "scope": {"type": "string", "enum": ["global", "workspace", "persona", "chat"]},
                         "confidence": {"type": "number", "minimum": 0, "maximum": 1},
                     },
                 },
@@ -547,15 +546,12 @@ def _parse_memory(
     candidates = []
     seen = set()
     for value in values:
-        value = _strict_mapping(value, {"content", "scope", "confidence"}, label="memory candidate")
+        value = _strict_mapping(value, {"content", "confidence"}, label="memory candidate")
         content = _bounded_text(value.get("content"), label="memory content", max_chars=500)
         normalized = content.casefold()
         if normalized in seen:
             continue
         seen.add(normalized)
-        scope = str(value.get("scope") or "").strip().lower()
-        if scope not in {"global", "workspace", "persona", "chat"}:
-            raise TaskContractError("task model returned an invalid memory scope")
         if isinstance(value.get("confidence"), bool):
             raise TaskContractError("task model returned invalid memory confidence")
         try:
@@ -564,7 +560,7 @@ def _parse_memory(
             raise TaskContractError("task model returned invalid memory confidence") from exc
         if not 0 <= confidence <= 1:
             raise TaskContractError("task model returned out-of-range memory confidence")
-        candidates.append(MemoryCandidate(content, scope, confidence))
+        candidates.append(MemoryCandidate(content, confidence))
         if len(candidates) >= limit:
             break
     return MemoryExtractionTaskOutput(tuple(candidates))

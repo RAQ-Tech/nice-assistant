@@ -27,6 +27,8 @@ HTTPS and identity controls at a reverse proxy or VPN.
 - Chat transcript memory actions create owner-scoped pending proposals. Assistant
   prose cannot enter prompt context until a user reviews and approves the edited
   fact.
+- Immutable chat identity/context and deterministic memory-grant authorization;
+  model output and mutable request fields cannot select or broaden access.
 - Explicit permission and confirmation policy for tools with side effects.
 
 These controls are implemented at the ASGI boundary and service entry points.
@@ -48,6 +50,67 @@ a recognized LAN/container hostname, or an exact
 literal IP targets are rejected. An allowlist entry is an operator trust grant,
 not proof that the remote service is private; public-internet providers remain
 fixed server adapters rather than browser-supplied URLs.
+
+## Chat and memory authorization
+
+Every new chat is bound in one transaction to the authenticated human
+principal, one explicit persona, and either personal or one explicit workspace
+context. Relational shape and owner-link guards require that the binding's human
+owns the chat; equivalent guards bind each memory record to the memory owner's
+human principal. Update and delete guards make those identities immutable.
+Recursive SQLite triggers ensure `INSERT OR REPLACE` cannot bypass guarded
+deletes. Deprecated persona/workspace values on chat updates or turns are
+accepted only when they exactly match the binding; they never rebind it. Changing
+the selected model, restarting Ollama, or restarting the application does not
+change the SQLite binding.
+
+Continuation is reauthorized before any user-message/job write and again before
+queued provider invocation. Personal chats require the bound persona to remain
+owned and available. Workspace chats additionally require the bound workspace
+to remain owned and the persona to remain a current member. A failed check
+leaves the existing transcript readable but permits no new turn or provider
+call. Pre-v3 chats are deliberately `legacy_unresolved` and follow this
+read-only path rather than inheriting an unverified historical scope. The same
+pre-provider and pre-write checks cover chat-bound title generation, capability
+planning, and memory extraction, so invalidated queued work cannot disclose its
+source text to a Task Model or apply a stale result.
+
+Memory access is not inferred from origin or old scope columns. The repository
+requires the authenticated human, an active valid chat binding, a current
+memory record, and an unrevoked grant matching either the bound persona or, for
+a workspace chat only, the bound workspace. These predicates are applied
+before FTS matching and recency fallback, so unauthorized rows cannot affect
+counts or generated context. FTS term matches use authorized-row recency
+ordering instead of global-corpus BM25, preventing another persona's or owner's
+documents from changing authorized result order. Workspace grants use current
+membership: future personas added to the workspace inherit the grant, while
+removal ends access without deleting the underlying memory. Grant additions and
+revocations produce durable events. Undoing a revision synchronizes the restored
+row to the current revision's access set before reactivation. Database triggers
+prohibit retargeting a grant or clearing a revocation, allow only the initial
+one-way revocation transition, and prevent direct deletion or mutation of grant
+events. Composite ownership keys also prevent an event from being attached to a
+different memory or human.
+
+Migration preserves every pre-v3 memory with immutable `legacy_migrated`
+lineage as `legacy_quarantined`, assigns `legacy_unknown` validity/type and
+unresolved provenance, and creates no access grant. New records receive
+immutable `native_v3` lineage and the record-shape constraint prevents them from
+being relabeled into legacy quarantine. Old rows therefore cannot enter prompt
+context merely because a previous mutable scope named a persona or workspace.
+The database also refuses grants for a record that is not grants-managed, and
+the offline baseline fails closed if a reset-eligible legacy row has any grant
+or grant-event ledger. New automatic extraction is
+platform-bound to the verified source persona and remains pending; the Task
+Model cannot nominate broader access or activate the candidate.
+
+The universal owner profile is a separate allowlisted record whose mutation is
+limited to explicit authenticated GET/PUT APIs. The extractor cannot write it.
+The audit trail records changed field names, not profile values. Prompt
+assembly reads populated values into a separate labeled universal-profile block
+for every valid persona, including with ordinary memory off. A browser editor,
+onboarding population, and confirmation-gated natural-language administration
+are not part of Phase 2.
 
 ## Deployment automation authority
 
@@ -259,6 +322,12 @@ inherited ACLs are explicitly reported as unverified and require operator
 review. The paired reset drill has no live-database or apply mode, re-derives
 the exact plan from the bound snapshot, rejects cross-owner revision links, and
 mutates only an internally extracted temporary database.
+
+The Phase 2 schema migration is nondestructive: it preserves all legacy memory
+and chat rows and adds quarantining metadata without granting access. It does
+not run the offline reset plan, expose a live-reset route, or authorize any
+automatic deletion. Existing explicit per-memory deletion remains a separate
+owner action with the backup consequences described in `docs/memory.md`.
 
 ## Public repository privacy
 

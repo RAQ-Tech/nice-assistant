@@ -8,6 +8,7 @@ import { composerState } from './composer_state';
 import { DEFAULT_PERSONA_AVATAR } from './constants';
 import { captureFocus, el, errorMessage, restoreFocus } from './dom';
 import { MediaController } from './media';
+import { newChatModal } from './new_chat_view';
 import { PlaybackController } from './playback';
 import { RecordingController } from './recording';
 import { Router } from './routing';
@@ -47,6 +48,7 @@ const chatDrawer = new ChatDrawer(state, api, chat, dialogs, {
   openNewChat: () => {
     state.showNewChatPersonaModal = true;
     state.newChatPersonaId = state.selectedPersonaId ?? state.personas[0]?.id ?? null;
+    state.newChatContextKey = '';
     render();
   },
   goHome: () => router.home(true),
@@ -209,7 +211,7 @@ function render(): void {
   }
   if (state.showSettings) root.append(settingsView.node());
   else root.append(shell());
-  if (state.showNewChatPersonaModal) root.append(newChatModal());
+  if (state.showNewChatPersonaModal) root.append(newChatModal(state, render, (selection) => chat.create(selection)));
   if (state.personaAvatarPreview) root.append(imageOverlay(state.personaAvatarPreview, 'Persona avatar', () => { state.personaAvatarPreview = ''; render(); }));
   if (state.chatImagePreview) root.append(imageOverlay(state.chatImagePreview, 'Image', () => { state.chatImagePreview = ''; render(); }));
   if (state.chatVideoPreview) root.append(videoOverlay(state.chatVideoPreview));
@@ -219,10 +221,14 @@ function render(): void {
 }
 
 function shell(): HTMLElement {
-  const personaId = state.selectedPersonaId ?? state.currentChat?.persona_id ?? state.personas[0]?.id ?? null;
+  const personaId = state.currentChat?.binding.persona_id ?? state.selectedPersonaId ?? state.personas[0]?.id ?? null;
   const persona = state.personas.find((item) => item.id === personaId);
-  const workspaceId = state.currentChat?.workspace_id ?? persona?.workspace_id ?? persona?.workspace_ids[0];
-  const workspaceName = state.workspaces.find((item) => item.id === workspaceId)?.name ?? 'Workspace';
+  const workspaceId = state.currentChat?.binding.context.workspace_id ?? null;
+  const workspaceName = state.currentChat?.binding.context.kind === 'personal'
+    ? 'Personal'
+    : state.currentChat?.binding.context.workspace_name
+      ?? state.workspaces.find((item) => item.id === workspaceId)?.name
+      ?? 'Unavailable workspace';
   const model = state.selectedModel ?? state.currentChat?.model_override ?? persona?.default_model ?? state.settings?.global_default_model ?? state.models[0] ?? '';
   const memoryMode = state.selectedMemoryMode ?? state.currentChat?.memory_mode ?? state.settings?.default_memory_mode ?? 'saved';
   const messages = [
@@ -265,7 +271,7 @@ function shell(): HTMLElement {
   return el('div', { class: 'app-shell' }, [
     chatDrawer.node(),
     el('main', { class: 'main-pane glass' }, [
-      topbar(persona?.name ?? 'Persona', persona?.avatar_url || DEFAULT_PERSONA_AVATAR),
+      topbar(state.currentChat?.binding.persona_name ?? persona?.name ?? 'Unavailable persona', persona?.avatar_url || DEFAULT_PERSONA_AVATAR),
       state.showChatControlsMenu ? chatControls(workspaceName, model, memoryMode) : null,
       pane,
       state.showJumpBottom
@@ -358,6 +364,29 @@ async function toggleChatImageBlur(): Promise<void> {
 }
 
 function composer(): HTMLElement {
+  const blocked = state.currentChat?.binding.can_continue === false;
+  if (blocked) {
+    return el('div', { class: 'composer blocked-chat-card', 'data-testid': 'chat-binding-blocked' }, [
+      el('div', {}, [
+        el('strong', { textContent: 'This chat is read-only' }),
+        el('div', {
+          class: 'meta',
+          textContent: state.currentChat?.binding.block_message
+            ?? 'Its original persona or access context can no longer be verified.',
+        }),
+      ]),
+      el('button', {
+        class: 'send-btn',
+        textContent: 'Start a new chat',
+        onclick: () => {
+          state.showNewChatPersonaModal = true;
+          state.newChatPersonaId = state.personas[0]?.id ?? null;
+          state.newChatContextKey = '';
+          render();
+        },
+      }),
+    ]);
+  }
   const { busy, inputLocked } = composerState(state.phase);
   const cancellableTurn = state.pendingRequest && ['queued', 'thinking'].includes(state.phase);
   return el('div', { class: 'composer' }, [
@@ -405,30 +434,6 @@ function composer(): HTMLElement {
       onpointerleave: (event: PointerEvent) => { if (event.buttons === 1) void recording.stop(); },
     }),
   ]);
-}
-
-function newChatModal(): HTMLElement {
-  return el('div', { class: 'modal-backdrop' }, [
-    el('div', { class: 'modal-card glass', role: 'dialog', 'aria-modal': 'true' }, [
-      el('h3', { textContent: 'Start a new chat' }),
-      el('label', { textContent: 'Persona' }),
-      el(
-        'select',
-        { class: 'chip-select', value: state.newChatPersonaId ?? '', 'data-testid': 'new-chat-persona', onchange: (event: Event) => { state.newChatPersonaId = (event.currentTarget as HTMLSelectElement).value || null; } },
-        state.personas.map((persona) => el('option', { value: persona.id, selected: persona.id === state.newChatPersonaId, textContent: persona.name })),
-      ),
-      el('div', { class: 'modal-actions' }, [
-        el('button', { class: 'pill-btn', textContent: 'Cancel', onclick: () => { state.showNewChatPersonaModal = false; render(); } }),
-        el('button', { class: 'send-btn', textContent: 'Create chat', 'data-testid': 'new-chat-confirm', onclick: () => void createNewChat() }),
-      ]),
-    ]),
-  ]);
-}
-
-async function createNewChat(): Promise<void> {
-  state.showNewChatPersonaModal = false;
-  await chat.create(state.newChatPersonaId);
-  render();
 }
 
 function modalNode(modal: ModalState): HTMLElement {

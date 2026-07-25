@@ -23,6 +23,8 @@
 25A. Memory and Knowledge v3 design freeze — delivered.
 25B. Private memory baseline and reset-safety tooling — offline implementation
     complete; owner deployment baseline pending.
+25C. Memory v3 Phase 2 identity, binding, grants, and validity foundation —
+    delivered.
 
 Step 6 removed the raw HTTP server and loopback bridge, added durable linked
 turn/job state, provider-neutral chat/media contracts, streamed Ollama output,
@@ -166,8 +168,9 @@ additional catalog breadth does not take priority over them.
     action creates an editable pending fact instead of promoting raw assistant
     text, default chat chrome uses progressive disclosure, and visible Cancel
     actions are scoped to work that can still be canceled. Deterministic scenario
-    evaluations cover long conversations, corrections, persona switching, memory
-    boundaries, media/provider degradation, and completed-file Kokoro behavior.
+    evaluations cover long conversations, corrections, persona changes through
+    fresh isolated chats, memory boundaries, media/provider degradation, and
+    completed-file Kokoro behavior.
     See ADR 0021.
 
 24. **Self-maintaining restricted deployment guard — implementation
@@ -179,22 +182,43 @@ additional catalog breadth does not take priority over them.
     rollback/re-update, one-container deployment, and browser acceptance. See
     ADR 0025.
 
-25. **Memory and Knowledge v3 — accepted architecture; phased implementation.**
+25. **Memory and Knowledge v3 — Phase 2 delivered; later phases pending.**
     ADRs 0026–0028 and the v3 plan now fix immutable chat identity, origin
     separated from grants, source-persona-only automatic memory, grounded
     lifecycle policy, and versioned document reference knowledge as the target
-    design. These decisions are accepted but their runtime behavior is not yet
-    shipped; Memory v2 remains review-first and single-scope.
+    design.
 
     Phase 1 provides a snapshot-only private baseline exporter and a
     disposable-only reset drill. The exporter freezes exact legacy memory IDs,
-    conservatively closes possible persona-definition material across revision
-    links, and records canonical persona and protected non-memory digests. The
-    drill can simulate that exact reset only inside a temporary database
-    extracted from the bound snapshot. Neither tool accepts a live database or
-    can apply a production deletion. No owner deployment baseline or live reset
-    is claimed until an actual verified snapshot is privately exported,
-    reviewed, and separately authorized. See `docs/memory-and-knowledge-v3-plan.md`.
+    limits reset eligibility to records already marked `legacy_quarantined`,
+    always keeps native v3 records, conservatively closes possible
+    persona-definition material across revision links, and records canonical
+    persona and protected non-memory digests. The drill can simulate that exact
+    reset only inside a temporary database extracted from the bound snapshot.
+    Neither tool accepts a live database or can apply a production deletion. No
+    owner deployment baseline or live reset is claimed until an actual verified
+    snapshot is privately exported, reviewed, and separately authorized. See
+    `docs/memory-and-knowledge-v3-plan.md`.
+
+    **Phase 2 is delivered.** Migration `0019_memory_v3_identity_access`
+    preserves every old chat and memory while adding human principals,
+    API-managed universal owner profiles, immutable new-chat persona/access
+    bindings, immutable memory origins, revocable persona/workspace grants, and
+    durable/temporal/stateful validity metadata. New chats require an explicit
+    persona plus personal/workspace context; legacy chats remain readable but
+    cannot continue. Old memory is quarantined with no grants. New automatic
+    extraction remains pending and source-persona-only, and retrieval applies
+    binding/grant/currentness authorization before lexical ranking. Model
+    switching and Ollama/application restarts do not change durable bindings.
+
+    **Phase 3 remains next:** complete owner-profile and memory access controls,
+    searchable persona/workspace views, disclosures, pending-depth warning, and
+    confirmation-gated natural-language proposals. Phase 4 remains the grounded
+    extraction/correction and measured automatic-activation policy. Phase 5
+    remains versioned document upload, indexing, grants, and citations. Phase 6
+    retains any separately authorized final migration/reset work. Phase 2 adds
+    no automatic activation, live reset/deletion, document knowledge, or
+    natural-language/correction feature.
 
 Steps are delivered and reviewed independently. Step 11 cannot select providers
 until a future listening decision is approved. Any future deployment acceptance

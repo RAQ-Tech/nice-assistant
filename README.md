@@ -3,13 +3,14 @@
 Private-LAN assistant foundation with a FastAPI service layer, typed modular browser,
 durable conversation
 turns and jobs, causally bounded Ollama chat, durable conversation summaries,
-review-first Memory v2, owner-scoped artifacts, permissioned media
-capabilities, separately configured platform Task Models, an operator-managed
-media resource catalog with deterministic execution plans, OpenAI STT, and
-consent-bound persona visual identity with a stateless CompreFace LAN adapter,
-truthful optional GPU capacity coordination across local providers,
-reviewed-reference ComfyUI persona conditioning with durable provenance, and
-completed-file OpenAI/Kokoro-compatible TTS. The
+the Memory v3 Phase 2 identity/access foundation with review-first extraction,
+owner-scoped artifacts, permissioned media capabilities, separately configured
+platform Task Models, an operator-managed media resource catalog with
+deterministic execution plans, OpenAI STT, and consent-bound persona visual
+identity with a stateless CompreFace LAN adapter, truthful optional GPU capacity
+coordination across local providers, reviewed-reference ComfyUI persona
+conditioning with durable provenance, and completed-file
+OpenAI/Kokoro-compatible TTS. The
 product direction is voice-first; realtime speech and natural turn-taking are
 deliberately still later roadmap work.
 
@@ -100,13 +101,15 @@ server, proxy, bridge, and second listener have been removed.
 - Same-origin write-header/origin enforcement, bounded login lockout, strict
   cookies, optional HTTPS `Secure` cookies, and private-LAN provider URL policy
 - First-login onboarding wizard (workspace + persona + default model + default memory mode)
-- Chat list/new chat + transcript + per-chat model and memory mode, with
-  explicit individual and bulk hide/delete actions
-- Tiered memory CRUD APIs + basic UI controls:
-  - global
-  - workspace
-  - persona
-  - per-chat history
+- Chat list/new chat + transcript + per-chat model and memory mode, with an
+  explicit immutable persona and personal/workspace context for every new chat
+  plus individual and bulk hide/delete actions
+- Legacy chats remain readable but cannot continue because their historical
+  persona/access intent is unresolved; a missing persona/workspace membership
+  similarly blocks new turns without hiding history
+- Memory v3 persona/workspace grant APIs, immutable origin, typed
+  durable/temporal/stateful validity, and grant/revocation history; full owner
+  controls in Settings remain Phase 3
 - Ollama model listing plus streamed NDJSON chat behind a provider-neutral contract
 - Durable conversation turns linked one-to-one with jobs; restart recovery marks
   unfinished work failed with `interrupted by server restart`
@@ -114,8 +117,15 @@ server, proxy, bridge, and second listener have been removed.
   prompts use explicit budgets with durable incremental summaries
 - `off`/`saved` memory modes with post-turn pending candidates, explicit approval,
   provenance, revision history, reversible forget/undo, permanent individual or
-  bulk delete, active-only scoped FTS retrieval, and editable pending proposals
-  from chat messages
+  bulk delete, and editable pending proposals from chat messages. New automatic
+  candidates are source-persona-only and never auto-activate in Phase 2
+- Memory retrieval validates the durable chat binding, current workspace
+  membership, grants, and lifecycle before lexical FTS ranking. Migrated legacy
+  memories are preserved, quarantined, and receive no grants
+- Explicit universal owner-profile GET/PUT API for allowlisted basics. Values
+  are injected as a separate universal profile block for every valid persona,
+  including when ordinary saved memory is off; there is no browser editor or
+  automatic extraction path yet
 - Per-model context allocation is sent to Ollama as `num_ctx` and recorded with
   estimated/actual prompt usage on the turn
 - Authenticated turn events over SSE with snapshots and bounded in-process replay
@@ -170,8 +180,8 @@ server, proxy, bridge, and second listener have been removed.
 - Typed and hold-to-talk controls remain available to manually interrupt current
   speech playback
 - Default chat chrome keeps persona and conversation essentials visible while
-  workspace, model, memory, state, and visualization controls remain under
-  progressive disclosure
+  immutable workspace context is shown and model, memory, state, and
+  visualization controls remain under progressive disclosure
 - STT/TTS provider settings in UI (disabled by default)
 - OpenAI STT plus OpenAI and Kokoro-compatible request/response TTS
 - Provider readiness checks in Settings for Ollama, OpenAI, Kokoro, Automatic1111, and ComfyUI
@@ -192,6 +202,9 @@ server, proxy, bridge, and second listener have been removed.
 - Admin-only backup center for restorable ZIP snapshots
 - Realtime/streaming TTS has no advertised endpoint because it is not implemented yet
 - Local STT is not implemented and cannot be selected in the UI
+- Natural-language memory administration, automatic correction/activation,
+  document upload/reference knowledge, citations, and live memory reset are not
+  implemented
 
 ## Build/run
 
@@ -323,6 +336,9 @@ For iPhone/Android browsers, microphone capture usually requires **HTTPS** (or l
 - `GET /ready`
 - `GET/POST /api/v1/chats`, `GET/PUT/DELETE /api/v1/chats/:id`
 - `POST /api/v1/chats/:id/turns`, `GET /api/v1/turns/:id`
+- `GET/POST /api/v1/memories`, `PUT /api/v1/memories/:id`
+- `PUT /api/v1/memories/:id/grants`, memory review/history/bulk-action routes
+- `GET/PUT /api/v1/owner-profile`
 - `GET /api/v1/turns/:id/events` (authenticated SSE)
 - `GET/DELETE /api/v1/jobs/:id`
 - `GET /api/v1/capabilities`, `GET /api/v1/capability-requests`

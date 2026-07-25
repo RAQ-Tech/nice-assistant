@@ -8,6 +8,7 @@ import type {
   Job,
   Memory,
   MemoryEvent,
+  MemoryGrantEvent,
   MemoryMode,
   MediaCatalog,
   MediaCatalogResource,
@@ -53,8 +54,10 @@ export class ApiError extends Error {
 }
 
 export interface ChatCreateInput {
-  workspace_id: string | null;
-  persona_id: string | null;
+  persona_id: string;
+  access_context:
+    | { kind: 'personal' }
+    | { kind: 'workspace'; workspace_id: string };
   model: string | null;
   memory_mode: MemoryMode;
   title: string;
@@ -83,8 +86,6 @@ export interface PersonaInput {
 
 export interface TurnInput {
   text: string;
-  workspace_id: string | null;
-  persona_id: string | null;
   model: string | null;
   memory_mode: MemoryMode;
   model_settings: {
@@ -318,7 +319,7 @@ export class ApiClient {
     return this.request(`/chats/${encodeURIComponent(id)}`);
   }
 
-  updateChat(id: string, input: Partial<Pick<Chat, 'title' | 'model_override' | 'memory_mode' | 'persona_id' | 'hidden_in_ui'>>): Promise<Chat> {
+  updateChat(id: string, input: Partial<Pick<Chat, 'title' | 'model_override' | 'memory_mode' | 'hidden_in_ui'>>): Promise<Chat> {
     return this.request(`/chats/${encodeURIComponent(id)}`, { method: 'PUT', body: JSON.stringify(input) });
   }
 
@@ -481,24 +482,37 @@ export class ApiClient {
     return this.request(`/memories${query}`);
   }
 
-  createMemory(scope: string, scopeId: string | null, content: string): Promise<Memory> {
+  createMemory(
+    content: string,
+    grants: Array<{ grant_type: 'persona' | 'workspace'; target_id: string }>,
+  ): Promise<Memory> {
     return this.request('/memories', {
       method: 'POST',
-      body: JSON.stringify({ scope, scope_id: scopeId, content }),
+      body: JSON.stringify({ content, grants }),
     });
   }
 
-  proposeMemory(scope: string, scopeId: string | null, content: string, sourceMessageId: string | null): Promise<Memory> {
+  proposeMemory(content: string, sourceMessageId: string | null): Promise<Memory> {
     return this.request('/memory-proposals', {
       method: 'POST',
-      body: JSON.stringify({ scope, scope_id: scopeId, content, source_message_id: sourceMessageId }),
+      body: JSON.stringify({ content, source_message_id: sourceMessageId }),
     });
   }
 
-  updateMemory(id: string, scope: string, scopeId: string | null, content: string): Promise<Memory> {
+  updateMemory(id: string, content: string): Promise<Memory> {
     return this.request(`/memories/${encodeURIComponent(id)}`, {
       method: 'PUT',
-      body: JSON.stringify({ scope, scope_id: scopeId, content }),
+      body: JSON.stringify({ content }),
+    });
+  }
+
+  replaceMemoryGrants(
+    id: string,
+    grants: Array<{ grant_type: 'persona' | 'workspace'; target_id: string }>,
+  ): Promise<Memory> {
+    return this.request(`/memories/${encodeURIComponent(id)}/grants`, {
+      method: 'PUT',
+      body: JSON.stringify({ grants }),
     });
   }
 
@@ -517,7 +531,7 @@ export class ApiClient {
     });
   }
 
-  memoryHistory(id: string): Promise<{ memory: Memory; events: MemoryEvent[] }> {
+  memoryHistory(id: string): Promise<{ memory: Memory; events: MemoryEvent[]; grant_events: MemoryGrantEvent[] }> {
     return this.request(`/memories/${encodeURIComponent(id)}/history`);
   }
 

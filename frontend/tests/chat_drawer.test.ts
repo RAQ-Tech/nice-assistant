@@ -10,9 +10,19 @@ describe('chat drawer bulk actions', () => {
   it('selects visible chats and hides them through one atomic request', async () => {
     const appState = createState();
     appState.drawerOpen = true;
+    const binding = {
+      human_id: 'human-1',
+      persona_id: 'persona-1',
+      persona_name: 'Avery',
+      binding_status: 'active' as const,
+      context: { kind: 'personal' as const, workspace_id: null, workspace_name: null },
+      can_continue: true,
+      block_code: null,
+      block_message: null,
+    };
     appState.chats = [
-      { id: 'one', workspace_id: null, persona_id: null, model_override: null, memory_mode: 'saved', title: 'One', hidden_in_ui: false, created_at: 1, updated_at: 1 },
-      { id: 'two', workspace_id: null, persona_id: null, model_override: null, memory_mode: 'saved', title: 'Two', hidden_in_ui: false, created_at: 1, updated_at: 1 },
+      { id: 'one', workspace_id: null, persona_id: 'persona-1', binding, model_override: null, memory_mode: 'saved', title: 'One', hidden_in_ui: false, created_at: 1, updated_at: 1 },
+      { id: 'two', workspace_id: null, persona_id: 'persona-1', binding, model_override: null, memory_mode: 'saved', title: 'Two', hidden_in_ui: false, created_at: 1, updated_at: 1 },
     ];
     const client = {
       bulkChatAction: vi.fn().mockResolvedValue({ action: 'hide', requested_count: 2, affected_count: 2, ids: ['one', 'two'] }),

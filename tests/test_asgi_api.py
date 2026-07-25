@@ -40,11 +40,21 @@ class AsgiApiTests(unittest.TestCase):
         ).json()
         memory = self.client.post(
             "/api/v1/memories",
-            json={"scope": "persona", "scope_id": persona["id"], "content": "Prefers short answers."},
+            json={
+                "content": "Prefers short answers.",
+                "grants": [{"grant_type": "persona", "target_id": persona["id"]}],
+            },
         ).json()
         chat = self.client.post(
             "/api/v1/chats",
-            json={"workspace_id": workspace["id"], "persona_id": persona["id"], "title": "New chat"},
+            json={
+                "persona_id": persona["id"],
+                "access_context": {
+                    "kind": "workspace",
+                    "workspace_id": workspace["id"],
+                },
+                "title": "New chat",
+            },
         ).json()
         started = self.client.post(
             f"/api/v1/chats/{chat['id']}/turns",
@@ -116,6 +126,34 @@ class AsgiApiTests(unittest.TestCase):
         self.assertEqual(accepted_schema["$ref"], "#/components/schemas/TurnAcceptedResponse")
         self.assertIn("JobRepresentation", document["components"]["schemas"])
         self.assertIn("TurnRepresentation", document["components"]["schemas"])
+        schemas = document["components"]["schemas"]
+        chat_create = schemas["ChatCreate"]
+        self.assertIn("access_context", chat_create["required"])
+        self.assertNotIn("workspace_id", chat_create["properties"])
+        self.assertEqual(
+            schemas["ChatRepresentation"]["properties"]["binding"]["$ref"],
+            "#/components/schemas/ChatBindingRepresentation",
+        )
+        self.assertEqual(
+            schemas["MemoryRepresentation"]["properties"]["origin"]["$ref"],
+            "#/components/schemas/MemoryOriginRepresentation",
+        )
+        self.assertEqual(
+            schemas["MemoryRepresentation"]["properties"]["grants"]["items"]["$ref"],
+            "#/components/schemas/MemoryGrantRepresentation",
+        )
+        self.assertEqual(
+            schemas["MemoryHistoryResponse"]["properties"]["grant_events"]["items"]["$ref"],
+            "#/components/schemas/MemoryGrantEventRepresentation",
+        )
+        for name in (
+            "ChatBindingContextRepresentation",
+            "ChatBindingRepresentation",
+            "MemoryOriginRepresentation",
+            "MemoryGrantRepresentation",
+            "MemoryGrantEventRepresentation",
+        ):
+            self.assertFalse(schemas[name]["additionalProperties"])
         import threading
 
         self.assertFalse(any("legacy-compatibility" in thread.name for thread in threading.enumerate()))

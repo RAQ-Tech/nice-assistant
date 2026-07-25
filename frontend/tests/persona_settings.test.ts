@@ -4,7 +4,7 @@ import type { ApiClient, PersonaInput } from '../src/api';
 import { normalizeSettings } from '../src/settings';
 import { SettingsView, type Dialogs } from '../src/settings_view';
 import { createState } from '../src/state';
-import type { Persona } from '../src/types';
+import type { Chat, Persona } from '../src/types';
 
 function persona(): Persona {
   return {
@@ -47,6 +47,34 @@ function configuredState() {
   appState.personas = [persona()];
   appState.workspaces = [{ id: 'home', name: 'Home', created_at: 1 }];
   return appState;
+}
+
+function boundChat(): Chat {
+  return {
+    id: 'chat-1',
+    workspace_id: 'home',
+    persona_id: 'guide',
+    binding: {
+      human_id: 'human-1',
+      persona_id: 'guide',
+      persona_name: 'Guide',
+      binding_status: 'active',
+      context: {
+        kind: 'workspace',
+        workspace_id: 'home',
+        workspace_name: 'Home',
+      },
+      can_continue: true,
+      block_code: null,
+      block_message: null,
+    },
+    model_override: null,
+    memory_mode: 'saved',
+    title: 'Bound chat',
+    hidden_in_ui: false,
+    created_at: 1,
+    updated_at: 1,
+  };
 }
 
 describe('persona settings', () => {
@@ -94,5 +122,43 @@ describe('persona settings', () => {
 
     await vi.waitFor(() => expect(updatePersona).toHaveBeenCalled());
     expect(updatePersona.mock.calls[0]?.[1]).toMatchObject({ allow_image_sends: false });
+  });
+
+  it('refreshes the current chat binding after a persona mutation', async () => {
+    const appState = configuredState();
+    const chat = boundChat();
+    const blocked = {
+      ...chat,
+      binding: {
+        ...chat.binding,
+        persona_name: 'Guide renamed',
+        can_continue: false,
+        block_code: 'persona_not_in_workspace',
+        block_message: 'This persona is no longer available in this workspace.',
+      },
+    } satisfies Chat;
+    appState.currentChat = chat;
+    appState.chats = [chat];
+    appState.newChatContextKey = 'workspace:home';
+    appState.personas[0]!.name = 'Guide renamed';
+    const updatePersona = vi.fn().mockResolvedValue({ ...persona(), name: 'Guide renamed' });
+    const chats = vi.fn().mockResolvedValue({ items: [blocked] });
+    const view = new SettingsView(
+      vi.fn(),
+      vi.fn(),
+      { prompt: vi.fn(), confirm: vi.fn(), info: vi.fn() } as unknown as Dialogs,
+      appState,
+      { updatePersona, chats } as unknown as ApiClient,
+    );
+
+    const node = view.node();
+    const save = [...node.querySelectorAll('button')]
+      .find((button) => button.textContent === 'Save persona') as HTMLButtonElement;
+    save.click();
+
+    await vi.waitFor(() => expect(chats).toHaveBeenCalledOnce());
+    expect(appState.currentChat?.binding.can_continue).toBe(false);
+    expect(appState.currentChat?.binding.persona_name).toBe('Guide renamed');
+    expect(appState.newChatContextKey).toBe('');
   });
 });

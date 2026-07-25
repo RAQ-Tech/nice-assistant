@@ -119,10 +119,7 @@ class TaskModelTests(unittest.TestCase):
             running.create_and_login()
             saved = updated_profile(running.client, TITLE_GENERATION, model="task-model")
             self.assertEqual(saved.status_code, 200, saved.text)
-            chat = running.client.post(
-                "/api/v1/chats",
-                json={"title": "New conversation", "model": "persona-model", "memory_mode": "off"},
-            ).json()
+            chat = running.create_chat({"title": "New conversation", "model": "persona-model", "memory_mode": "off"})
             accepted = running.client.post(
                 f"/api/v1/chats/{chat['id']}/turns",
                 json={"text": "Help me plan a garden", "model": "persona-model", "memory_mode": "off"},
@@ -153,10 +150,7 @@ class TaskModelTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp, TestApp(Path(tmp), chat_provider=provider) as running:
             running.create_and_login()
             updated_profile(running.client, TITLE_GENERATION, model="task-model")
-            chat = running.client.post(
-                "/api/v1/chats",
-                json={"title": "New conversation", "model": "persona-model", "memory_mode": "off"},
-            ).json()
+            chat = running.create_chat({"title": "New conversation", "model": "persona-model", "memory_mode": "off"})
             accepted = running.client.post(
                 f"/api/v1/chats/{chat['id']}/turns",
                 json={"text": "Help me plan a glass greenhouse", "model": "persona-model", "memory_mode": "off"},
@@ -219,6 +213,42 @@ class TaskModelTests(unittest.TestCase):
             self.assertEqual(run["status"], "failed")
             self.assertFalse(run["fallback_used"])
             self.assertNotIn("sk-private-secret", str(run))
+
+    def test_memory_contract_never_accepts_model_selected_access(self):
+        definition = task_definition(MEMORY_EXTRACTION)
+        task_input = definition.input_type("I prefer metric units.")
+        schema = definition.response_schema(task_input)
+        item = schema["properties"]["candidates"]["items"]
+        self.assertEqual(set(item["properties"]), {"content", "confidence"})
+        self.assertEqual(item["required"], ["content", "confidence"])
+        self.assertFalse(item["additionalProperties"])
+        system_prompt = definition.messages(task_input)[0]["content"].casefold()
+        self.assertIn("platform assigns memory access", system_prompt)
+
+        parsed = definition.parse_output(
+            '{"candidates":[{"content":"The user prefers metric units.","confidence":0.9}]}',
+            task_input,
+            definition.default_max_output_tokens,
+        )
+        self.assertEqual(parsed.candidates[0].content, "The user prefers metric units.")
+        self.assertEqual(parsed.candidates[0].confidence, 0.9)
+
+        for access_field, value in (
+            ("scope", '"global"'),
+            ("access", '"workspace"'),
+            ("persona_id", '"persona-other"'),
+            ("workspace_id", '"workspace-other"'),
+            ("grants", "[]"),
+        ):
+            with self.subTest(access_field=access_field), self.assertRaises(TaskContractError):
+                definition.parse_output(
+                    (
+                        '{"candidates":[{"content":"The user prefers metric units.",'
+                        f'"confidence":0.9,"{access_field}":{value}' + "}]}"
+                    ),
+                    task_input,
+                    definition.default_max_output_tokens,
+                )
 
     def test_capability_contract_excludes_media_resource_selection(self):
         task_input = CapabilityPlanningTaskInput(

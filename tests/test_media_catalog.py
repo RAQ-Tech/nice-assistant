@@ -185,7 +185,7 @@ class MediaCatalogTests(unittest.TestCase):
                 "status": "ready" if check == "openai" else "unreachable",
                 "message": "ready" if check == "openai" else "unreachable",
             }
-            chat = running.client.post("/api/v1/chats", json={"memory_mode": "off"}).json()
+            chat = running.create_chat({"memory_mode": "off"})
             turn = running.client.post(
                 f"/api/v1/chats/{chat['id']}/turns",
                 json={"text": "Create an image of a lighthouse in a storm", "memory_mode": "off"},
@@ -299,10 +299,11 @@ class MediaCatalogTests(unittest.TestCase):
             }
             correction = running.client.post("/api/v1/media-catalog/resources", json=correction)
             self.assertEqual(correction.status_code, 201, correction.text)
-            chat = running.client.post(
-                "/api/v1/chats",
-                json={"workspace_id": workspace["id"], "persona_id": persona["id"], "memory_mode": "off"},
-            ).json()
+            chat = running.create_chat(
+                {"memory_mode": "off"},
+                persona_id=persona["id"],
+                context={"kind": "workspace", "workspace_id": workspace["id"]},
+            )
             turn = running.client.post(
                 f"/api/v1/chats/{chat['id']}/turns", json={"text": "Show me your outfit", "memory_mode": "off"}
             ).json()
@@ -645,15 +646,11 @@ class MediaCatalogTests(unittest.TestCase):
                 "identity_image_bindings": [{"node_id": "100", "input_name": "image"}],
             }
             workflow = running.client.post("/api/v1/media-catalog/resources", json=workflow).json()
-            chat = running.client.post(
-                "/api/v1/chats",
-                json={
-                    "workspace_id": workspace["id"],
-                    "persona_id": persona["id"],
-                    "title": "Identity generation",
-                    "memory_mode": "off",
-                },
-            ).json()
+            chat = running.create_chat(
+                {"title": "Identity generation", "memory_mode": "off"},
+                persona_id=persona["id"],
+                context={"kind": "workspace", "workspace_id": workspace["id"]},
+            )
             turn = running.client.post(
                 f"/api/v1/chats/{chat['id']}/turns",
                 json={"text": "Show me your convention outfit", "memory_mode": "off"},
@@ -723,15 +720,11 @@ class MediaCatalogTests(unittest.TestCase):
             profile = running.client.get(f"/api/v1/personas/{persona['id']}/visual-identity").json()
             self.assertEqual(profile["conditioning_fallback"], "allow_unconditioned")
             running.client.get("/api/v1/media-catalog")
-            chat = running.client.post(
-                "/api/v1/chats",
-                json={
-                    "workspace_id": workspace["id"],
-                    "persona_id": persona["id"],
-                    "title": "Fallback identity generation",
-                    "memory_mode": "off",
-                },
-            ).json()
+            chat = running.create_chat(
+                {"title": "Fallback identity generation", "memory_mode": "off"},
+                persona_id=persona["id"],
+                context={"kind": "workspace", "workspace_id": workspace["id"]},
+            )
 
             turn = running.client.post(
                 f"/api/v1/chats/{chat['id']}/turns",
@@ -804,11 +797,29 @@ class MediaCatalogTests(unittest.TestCase):
                 },
             )
             self.assertEqual(allowed.status_code, 200, allowed.text)
+            drift_persona = running.client.post(
+                "/api/v1/personas",
+                json={"workspace_id": workspace["id"], "name": "Legacy column drift"},
+            ).json()
+            with UnitOfWork(
+                running.services.runtime.session_factory,
+                running.services.runtime.secret_store,
+            ) as uow:
+                durable_chat = uow.repo.chat(user_id, chat["id"])
+                durable_chat.persona_id = drift_persona["id"]
             retried = running.client.post(f"/api/v1/capability-requests/{strict['id']}/retry")
             self.assertEqual(retried.status_code, 200, retried.text)
             replacement = retried.json()
             self.assertEqual(replacement["permission_mode"], "auto")
             self.assertEqual(replacement["media_plan"]["status"], "ready")
+            self.assertEqual(
+                replacement["media_plan"]["identity_conditioning"]["persona_id"],
+                persona["id"],
+            )
+            self.assertNotEqual(
+                replacement["media_plan"]["identity_conditioning"]["persona_id"],
+                drift_persona["id"],
+            )
             self.assertEqual(replacement["media_plan"]["identity_conditioning"]["status"], "unconditioned")
             self.assertIsNotNone(replacement["job_id"])
             self.assertEqual(running.wait_job(replacement["job_id"])["status"], "completed")
@@ -843,15 +854,11 @@ class MediaCatalogTests(unittest.TestCase):
             self.assertIsNone(implicit["id"])
             self.assertEqual(implicit["conditioning_fallback"], "allow_unconditioned")
             catalog = running.client.get("/api/v1/media-catalog").json()
-            chat = running.client.post(
-                "/api/v1/chats",
-                json={
-                    "workspace_id": workspace["id"],
-                    "persona_id": persona["id"],
-                    "title": "Default fallback",
-                    "memory_mode": "off",
-                },
-            ).json()
+            chat = running.create_chat(
+                {"title": "Default fallback", "memory_mode": "off"},
+                persona_id=persona["id"],
+                context={"kind": "workspace", "workspace_id": workspace["id"]},
+            )
 
             first_turn = running.client.post(
                 f"/api/v1/chats/{chat['id']}/turns",
@@ -997,10 +1004,11 @@ class MediaCatalogTests(unittest.TestCase):
                 "identity_image_bindings": [{"node_id": "100", "input_name": "image"}],
             }
             running.client.post("/api/v1/media-catalog/resources", json=workflow)
-            chat = running.client.post(
-                "/api/v1/chats",
-                json={"persona_id": persona["id"], "memory_mode": "off"},
-            ).json()
+            chat = running.create_chat(
+                {"memory_mode": "off"},
+                persona_id=persona["id"],
+                context={"kind": "workspace", "workspace_id": workspace["id"]},
+            )
             turn = running.client.post(
                 f"/api/v1/chats/{chat['id']}/turns",
                 json={"text": "Generate a portrait", "memory_mode": "off"},
@@ -1071,7 +1079,7 @@ class MediaCatalogTests(unittest.TestCase):
                     content_tags=["pose.special"],
                 ),
             ).json()
-            chat = running.client.post("/api/v1/chats", json={"title": "Catalog", "memory_mode": "off"}).json()
+            chat = running.create_chat({"title": "Catalog", "memory_mode": "off"})
             accepted = running.client.post(
                 f"/api/v1/chats/{chat['id']}/turns",
                 json={"text": "Show a fantasy portrait", "memory_mode": "off"},
@@ -1140,7 +1148,7 @@ class MediaCatalogTests(unittest.TestCase):
                     operations=["generate", "inpaint"],
                 ),
             ).json()
-            chat = running.client.post("/api/v1/chats", json={"title": "Blocked", "memory_mode": "off"}).json()
+            chat = running.create_chat({"title": "Blocked", "memory_mode": "off"})
             turn = running.client.post(
                 f"/api/v1/chats/{chat['id']}/turns",
                 json={"text": "Inpaint this portrait", "memory_mode": "off"},

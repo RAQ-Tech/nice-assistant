@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 import mimetypes
 from pathlib import Path
-from typing import Literal
+from typing import Annotated, Literal
 
 from fastapi import APIRouter, Cookie, Depends, File, Header, Query, Request, Response, UploadFile
 from fastapi.responses import FileResponse, StreamingResponse
@@ -65,20 +65,34 @@ class PersonaWrite(StrictModel):
     preferred_tts_speed_local: str | None = None
 
 
+class MemoryGrantWrite(StrictModel):
+    grant_type: Literal["persona", "workspace"]
+    target_id: str = Field(min_length=1, max_length=160)
+
+
 class MemoryCreate(StrictModel):
-    scope: str = Field(pattern="^(global|workspace|persona|chat)$")
-    scope_id: str | None = None
     content: str = Field(min_length=1, max_length=8000)
+    grants: list[MemoryGrantWrite] = Field(min_length=1, max_length=200)
+    memory_type: Literal["durable", "temporal", "stateful"] = "durable"
+    valid_until: int | None = None
+    stateful_status: Literal["active", "completed", "cancelled", "superseded"] | None = None
 
 
-class MemoryProposalCreate(MemoryCreate):
-    source_message_id: str | None = None
+class MemoryProposalCreate(StrictModel):
+    content: str = Field(min_length=1, max_length=8000)
+    source_message_id: str = Field(min_length=1, max_length=128)
 
 
 class MemoryUpdate(StrictModel):
-    scope: str | None = Field(default=None, pattern="^(global|workspace|persona|chat)$")
-    scope_id: str | None = None
     content: str | None = Field(default=None, min_length=1, max_length=8000)
+    memory_type: Literal["durable", "temporal", "stateful"] | None = None
+    validity_status: Literal["current", "stale", "expired"] | None = None
+    valid_until: int | None = None
+    stateful_status: Literal["active", "completed", "cancelled", "superseded"] | None = None
+
+
+class MemoryGrantReplacement(StrictModel):
+    grants: list[MemoryGrantWrite] = Field(max_length=200)
 
 
 class MemoryBulkAction(StrictModel):
@@ -96,6 +110,38 @@ class BulkActionRepresentation(BaseModel):
     requested_count: int
     affected_count: int
     ids: list[str]
+
+
+class MemoryOriginRepresentation(StrictModel):
+    source_kind: Literal["legacy", "manual", "conversation", "edit", "owner_explicit"] | None = None
+    source_chat_id: str | None = None
+    source_persona_id: str | None = None
+    source_workspace_id: str | None = None
+    source_message_id: str | None = None
+    source_turn_id: str | None = None
+    evidence: dict[str, object] = Field(default_factory=dict)
+    provenance_status: Literal["resolved", "legacy_unresolved"] | None = None
+    revision_of_memory_id: str | None = None
+    created_at: int | None = None
+
+
+class MemoryGrantRepresentation(StrictModel):
+    id: str
+    grant_type: Literal["persona", "workspace"]
+    target_id: str
+    grant_source: Literal["owner", "automatic_source_persona"]
+    granted_by_human_id: str
+    granted_at: int
+
+
+class MemoryGrantEventRepresentation(StrictModel):
+    id: str
+    memory_id: str
+    grant_id: str
+    action: Literal["granted", "revoked"]
+    grant_type: Literal["persona", "workspace"]
+    target_id: str
+    created_at: int
 
 
 class MemoryRepresentation(BaseModel):
@@ -117,6 +163,14 @@ class MemoryRepresentation(BaseModel):
     reviewed_at: int | None = None
     forgotten_at: int | None = None
     can_undo: bool = False
+    access_state: str
+    memory_type: str
+    validity_status: str
+    valid_until: int | None = None
+    stateful_status: str | None = None
+    last_confirmed_at: int | None = None
+    origin: MemoryOriginRepresentation
+    grants: list[MemoryGrantRepresentation]
 
 
 class MemoryEventRepresentation(BaseModel):
@@ -137,11 +191,47 @@ class MemoryListResponse(BaseModel):
 class MemoryHistoryResponse(BaseModel):
     memory: MemoryRepresentation
     events: list[MemoryEventRepresentation]
+    grant_events: list[MemoryGrantEventRepresentation] = Field(default_factory=list)
+
+
+class OwnerProfileWrite(StrictModel):
+    name: str | None = Field(default=None, max_length=240)
+    name_pronunciation: str | None = Field(default=None, max_length=500)
+    pronouns: str | None = Field(default=None, max_length=240)
+    time_zone: str | None = Field(default=None, max_length=160)
+    locale: str | None = Field(default=None, max_length=160)
+    preferred_language: str | None = Field(default=None, max_length=160)
+    measurement_units: str | None = Field(default=None, max_length=160)
+    communication_needs: str | None = Field(default=None, max_length=2000)
+    accessibility_needs: str | None = Field(default=None, max_length=2000)
+
+
+class OwnerProfileRepresentation(OwnerProfileWrite):
+    human_id: str
+    revision: int
+    created_at: int
+    updated_at: int
+
+
+class PersonalChatAccessContext(StrictModel):
+    kind: Literal["personal"]
+    workspace_id: None = None
+
+
+class WorkspaceChatAccessContext(StrictModel):
+    kind: Literal["workspace"]
+    workspace_id: str = Field(min_length=1, max_length=160)
+
+
+ChatAccessContext = Annotated[
+    PersonalChatAccessContext | WorkspaceChatAccessContext,
+    Field(discriminator="kind"),
+]
 
 
 class ChatCreate(StrictModel):
-    workspace_id: str | None = None
-    persona_id: str | None = None
+    access_context: ChatAccessContext
+    persona_id: str
     model: str | None = None
     memory_mode: str = Field(default="saved", pattern="^(off|saved)$")
     title: str = "New chat"
@@ -288,6 +378,23 @@ CapabilityState = Literal[
 ]
 
 
+class ChatBindingContextRepresentation(StrictModel):
+    kind: Literal["personal", "workspace", "legacy_unresolved"] | None = None
+    workspace_id: str | None = None
+    workspace_name: str | None = None
+
+
+class ChatBindingRepresentation(StrictModel):
+    human_id: str | None = None
+    persona_id: str | None = None
+    persona_name: str | None = None
+    binding_status: Literal["active", "legacy_unresolved"]
+    context: ChatBindingContextRepresentation
+    can_continue: bool
+    block_code: str | None = None
+    block_message: str | None = None
+
+
 class ChatRepresentation(BaseModel):
     id: str
     workspace_id: str | None = None
@@ -298,6 +405,7 @@ class ChatRepresentation(BaseModel):
     hidden_in_ui: bool
     created_at: int
     updated_at: int
+    binding: ChatBindingRepresentation
 
 
 class ChatAttachmentRepresentation(BaseModel):
@@ -883,15 +991,22 @@ def delete_persona(persona_id: str, request: Request, context: AuthContext = Dep
 @router.get("/memories", tags=["memories"], response_model=MemoryListResponse)
 def list_memories(
     request: Request,
-    scope: str | None = Query(default=None, pattern="^(global|workspace|persona|chat)$"),
-    scope_id: str | None = None,
+    grant_type: str | None = Query(default=None, pattern="^(persona|workspace)$"),
+    grant_target_id: str | None = None,
     status: str | None = Query(
         default=None,
         pattern="^(pending|active|rejected|forgotten|superseded)(,(pending|active|rejected|forgotten|superseded))*$",
     ),
     context: AuthContext = Depends(current_user),
 ):
-    return {"items": services(request).memory.list(context.user_id, scope, scope_id, status)}
+    return {
+        "items": services(request).memory.list(
+            context.user_id,
+            status=status,
+            grant_type=grant_type,
+            grant_target_id=grant_target_id,
+        )
+    }
 
 
 @router.post("/memories", tags=["memories"], response_model=MemoryRepresentation)
@@ -919,6 +1034,20 @@ def update_memory(
         context.user_id,
         memory_id,
         body.model_dump(exclude_unset=True),
+    )
+
+
+@router.put("/memories/{memory_id}/grants", tags=["memories"], response_model=MemoryRepresentation)
+def replace_memory_grants(
+    memory_id: str,
+    body: MemoryGrantReplacement,
+    request: Request,
+    context: AuthContext = Depends(current_user),
+):
+    return services(request).memory.replace_grants(
+        context.user_id,
+        memory_id,
+        body.model_dump()["grants"],
     )
 
 
@@ -955,6 +1084,23 @@ def undo_memory(memory_id: str, request: Request, context: AuthContext = Depends
 @router.get("/memories/{memory_id}/history", tags=["memories"], response_model=MemoryHistoryResponse)
 def memory_history(memory_id: str, request: Request, context: AuthContext = Depends(current_user)):
     return services(request).memory.history(context.user_id, memory_id)
+
+
+@router.get("/owner-profile", tags=["owner-profile"], response_model=OwnerProfileRepresentation)
+def get_owner_profile(request: Request, context: AuthContext = Depends(current_user)):
+    return services(request).owner_profile.get(context.user_id)
+
+
+@router.put("/owner-profile", tags=["owner-profile"], response_model=OwnerProfileRepresentation)
+def update_owner_profile(
+    body: OwnerProfileWrite,
+    request: Request,
+    context: AuthContext = Depends(current_user),
+):
+    return services(request).owner_profile.update(
+        context.user_id,
+        body.model_dump(exclude_unset=True),
+    )
 
 
 @router.get("/chats", response_model=ChatListResponse, tags=["chats"])

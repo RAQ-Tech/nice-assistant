@@ -98,6 +98,7 @@ export function createState(): AppState {
     revealedImages: {},
     showNewChatPersonaModal: false,
     newChatPersonaId: null,
+    newChatContextKey: '',
     onboardingRunning: false,
     sessionTimer: null,
     lastActivityAt: Date.now(),

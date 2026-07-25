@@ -1,4 +1,15 @@
-from sqlalchemy import CheckConstraint, Float, ForeignKey, Index, Integer, String, Text, UniqueConstraint
+from sqlalchemy import (
+    CheckConstraint,
+    Float,
+    ForeignKey,
+    ForeignKeyConstraint,
+    Index,
+    Integer,
+    String,
+    Text,
+    UniqueConstraint,
+    text,
+)
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 
@@ -12,6 +23,48 @@ class User(Base):
     username: Mapped[str] = mapped_column(Text, unique=True, nullable=False)
     password_hash: Mapped[str] = mapped_column(Text, nullable=False)
     is_admin: Mapped[int] = mapped_column(Integer, default=0)
+    created_at: Mapped[int] = mapped_column(Integer, nullable=False)
+
+
+class HumanPrincipal(Base):
+    __tablename__ = "human_principals"
+    id: Mapped[str] = mapped_column(Text, primary_key=True)
+    user_id: Mapped[str] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=False, unique=True)
+    created_at: Mapped[int] = mapped_column(Integer, nullable=False)
+    updated_at: Mapped[int] = mapped_column(Integer, nullable=False)
+
+
+class OwnerProfile(Base):
+    __tablename__ = "owner_profiles"
+    __table_args__ = (CheckConstraint("revision >= 0", name="ck_owner_profiles_revision"),)
+    human_id: Mapped[str] = mapped_column(ForeignKey("human_principals.id", ondelete="CASCADE"), primary_key=True)
+    name: Mapped[str | None] = mapped_column(Text)
+    name_pronunciation: Mapped[str | None] = mapped_column(Text)
+    pronouns: Mapped[str | None] = mapped_column(Text)
+    time_zone: Mapped[str | None] = mapped_column(Text)
+    locale: Mapped[str | None] = mapped_column(Text)
+    preferred_language: Mapped[str | None] = mapped_column(Text)
+    measurement_units: Mapped[str | None] = mapped_column(Text)
+    communication_needs: Mapped[str | None] = mapped_column(Text)
+    accessibility_needs: Mapped[str | None] = mapped_column(Text)
+    revision: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    created_at: Mapped[int] = mapped_column(Integer, nullable=False)
+    updated_at: Mapped[int] = mapped_column(Integer, nullable=False)
+
+
+class OwnerProfileEvent(Base):
+    __tablename__ = "owner_profile_events"
+    __table_args__ = (
+        CheckConstraint(
+            "action IN ('created','updated','cleared')",
+            name="ck_owner_profile_events_action",
+        ),
+        Index("idx_owner_profile_events_human_created", "human_id", "created_at"),
+    )
+    id: Mapped[str] = mapped_column(Text, primary_key=True)
+    human_id: Mapped[str] = mapped_column(ForeignKey("human_principals.id", ondelete="CASCADE"), nullable=False)
+    action: Mapped[str] = mapped_column(Text, nullable=False)
+    changed_fields_json: Mapped[str] = mapped_column(Text, nullable=False, default="[]")
     created_at: Mapped[int] = mapped_column(Integer, nullable=False)
 
 
@@ -73,6 +126,37 @@ class Chat(Base):
     last_turn_sequence: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     created_at: Mapped[int] = mapped_column(Integer, nullable=False)
     updated_at: Mapped[int] = mapped_column(Integer, nullable=False)
+
+
+class ChatBinding(Base):
+    __tablename__ = "chat_bindings"
+    __table_args__ = (
+        CheckConstraint(
+            "context_kind IN ('personal','workspace','legacy_unresolved')",
+            name="ck_chat_bindings_context_kind",
+        ),
+        CheckConstraint(
+            "binding_status IN ('active','legacy_unresolved')",
+            name="ck_chat_bindings_status",
+        ),
+        CheckConstraint(
+            "(binding_status='active' AND persona_id IS NOT NULL AND "
+            "((context_kind='personal' AND workspace_id IS NULL) OR "
+            "(context_kind='workspace' AND workspace_id IS NOT NULL))) OR "
+            "(binding_status='legacy_unresolved' AND context_kind='legacy_unresolved')",
+            name="ck_chat_bindings_shape",
+        ),
+        Index("idx_chat_bindings_human_status", "human_id", "binding_status"),
+    )
+    chat_id: Mapped[str] = mapped_column(ForeignKey("chats.id", ondelete="CASCADE"), primary_key=True)
+    human_id: Mapped[str] = mapped_column(ForeignKey("human_principals.id", ondelete="CASCADE"), nullable=False)
+    persona_id: Mapped[str | None] = mapped_column(Text)
+    context_kind: Mapped[str] = mapped_column(Text, nullable=False)
+    workspace_id: Mapped[str | None] = mapped_column(Text)
+    binding_status: Mapped[str] = mapped_column(Text, nullable=False)
+    persona_name_snapshot: Mapped[str | None] = mapped_column(Text)
+    workspace_name_snapshot: Mapped[str | None] = mapped_column(Text)
+    created_at: Mapped[int] = mapped_column(Integer, nullable=False)
 
 
 class Message(Base):
@@ -188,6 +272,215 @@ class Memory(Base):
     updated_at: Mapped[int] = mapped_column(Integer, nullable=False)
     reviewed_at: Mapped[int | None] = mapped_column(Integer)
     forgotten_at: Mapped[int | None] = mapped_column(Integer)
+
+
+class MemoryRecord(Base):
+    __tablename__ = "memory_records"
+    __table_args__ = (
+        CheckConstraint(
+            "lineage IN ('legacy_migrated','native_v3')",
+            name="ck_memory_records_lineage",
+        ),
+        CheckConstraint(
+            "access_state IN ('grants','legacy_quarantined')",
+            name="ck_memory_records_access_state",
+        ),
+        CheckConstraint(
+            "memory_type IN ('durable','temporal','stateful','legacy_unknown')",
+            name="ck_memory_records_type",
+        ),
+        CheckConstraint(
+            "validity_status IN ('current','stale','expired','legacy_unknown')",
+            name="ck_memory_records_validity",
+        ),
+        CheckConstraint(
+            "stateful_status IS NULL OR stateful_status IN ('active','completed','cancelled','superseded')",
+            name="ck_memory_records_stateful_status",
+        ),
+        CheckConstraint(
+            "(lineage='legacy_migrated' AND access_state='legacy_quarantined' "
+            "AND memory_type='legacy_unknown' "
+            "AND validity_status='legacy_unknown' AND valid_until IS NULL "
+            "AND stateful_status IS NULL AND last_confirmed_at IS NULL) OR "
+            "(access_state='grants' AND memory_type IN ('durable','temporal','stateful') "
+            "AND validity_status IN ('current','stale','expired') "
+            "AND last_confirmed_at IS NOT NULL "
+            "AND ((memory_type='temporal' AND valid_until IS NOT NULL) "
+            "OR (memory_type!='temporal' AND valid_until IS NULL)) "
+            "AND ((memory_type='stateful' AND stateful_status IS NOT NULL) "
+            "OR (memory_type!='stateful' AND stateful_status IS NULL)))",
+            name="ck_memory_records_shape",
+        ),
+        UniqueConstraint("memory_id", "human_id", name="uq_memory_records_memory_human"),
+        Index(
+            "idx_memory_records_human_current",
+            "human_id",
+            "access_state",
+            "validity_status",
+            "memory_type",
+        ),
+    )
+    memory_id: Mapped[str] = mapped_column(ForeignKey("memories.id", ondelete="CASCADE"), primary_key=True)
+    human_id: Mapped[str] = mapped_column(ForeignKey("human_principals.id", ondelete="CASCADE"), nullable=False)
+    lineage: Mapped[str] = mapped_column(Text, nullable=False, default="native_v3", server_default="native_v3")
+    access_state: Mapped[str] = mapped_column(Text, nullable=False)
+    memory_type: Mapped[str] = mapped_column(Text, nullable=False)
+    validity_status: Mapped[str] = mapped_column(Text, nullable=False)
+    valid_until: Mapped[int | None] = mapped_column(Integer)
+    stateful_status: Mapped[str | None] = mapped_column(Text)
+    last_confirmed_at: Mapped[int | None] = mapped_column(Integer)
+    created_at: Mapped[int] = mapped_column(Integer, nullable=False)
+    updated_at: Mapped[int] = mapped_column(Integer, nullable=False)
+
+
+class MemoryOrigin(Base):
+    __tablename__ = "memory_origins"
+    __table_args__ = (
+        CheckConstraint(
+            "source_kind IN ('legacy','manual','conversation','edit','owner_explicit')",
+            name="ck_memory_origins_source_kind",
+        ),
+        CheckConstraint(
+            "provenance_status IN ('resolved','legacy_unresolved')",
+            name="ck_memory_origins_provenance_status",
+        ),
+        ForeignKeyConstraint(
+            ["memory_id", "human_id"],
+            ["memory_records.memory_id", "memory_records.human_id"],
+            ondelete="CASCADE",
+            name="fk_memory_origins_record_owner",
+        ),
+        Index("idx_memory_origins_human_chat", "human_id", "source_chat_id"),
+    )
+    memory_id: Mapped[str] = mapped_column(Text, primary_key=True)
+    human_id: Mapped[str] = mapped_column(Text, nullable=False)
+    source_kind: Mapped[str] = mapped_column(Text, nullable=False)
+    source_chat_id: Mapped[str | None] = mapped_column(Text)
+    source_persona_id: Mapped[str | None] = mapped_column(Text)
+    source_workspace_id: Mapped[str | None] = mapped_column(Text)
+    source_message_id: Mapped[str | None] = mapped_column(Text)
+    source_turn_id: Mapped[str | None] = mapped_column(Text)
+    evidence_json: Mapped[str] = mapped_column(Text, nullable=False, default="[]")
+    provenance_status: Mapped[str] = mapped_column(Text, nullable=False)
+    revision_of_memory_id: Mapped[str | None] = mapped_column(Text)
+    created_at: Mapped[int] = mapped_column(Integer, nullable=False)
+
+
+class MemoryGrant(Base):
+    __tablename__ = "memory_grants"
+    __table_args__ = (
+        CheckConstraint(
+            "grant_type IN ('persona','workspace')",
+            name="ck_memory_grants_type",
+        ),
+        CheckConstraint(
+            "(grant_type='persona' AND persona_id IS NOT NULL AND workspace_id IS NULL) OR "
+            "(grant_type='workspace' AND workspace_id IS NOT NULL AND persona_id IS NULL)",
+            name="ck_memory_grants_target",
+        ),
+        CheckConstraint(
+            "grant_source IN ('owner','automatic_source_persona')",
+            name="ck_memory_grants_source",
+        ),
+        CheckConstraint(
+            "grant_source!='automatic_source_persona' OR grant_type='persona'",
+            name="ck_memory_grants_automatic_target",
+        ),
+        CheckConstraint(
+            "(revoked_at IS NULL AND revoked_by_human_id IS NULL) OR "
+            "(revoked_at IS NOT NULL AND revoked_by_human_id IS NOT NULL AND revoked_at>=granted_at)",
+            name="ck_memory_grants_revocation",
+        ),
+        ForeignKeyConstraint(
+            ["memory_id", "human_id"],
+            ["memory_records.memory_id", "memory_records.human_id"],
+            ondelete="CASCADE",
+            name="fk_memory_grants_record_owner",
+        ),
+        UniqueConstraint(
+            "id",
+            "memory_id",
+            "human_id",
+            name="uq_memory_grants_id_memory_human",
+        ),
+        Index("idx_memory_grants_human_memory", "human_id", "memory_id"),
+        Index(
+            "idx_memory_grants_active_persona",
+            "human_id",
+            "persona_id",
+            "memory_id",
+            sqlite_where=text("revoked_at IS NULL AND grant_type='persona'"),
+        ),
+        Index(
+            "idx_memory_grants_active_workspace",
+            "human_id",
+            "workspace_id",
+            "memory_id",
+            sqlite_where=text("revoked_at IS NULL AND grant_type='workspace'"),
+        ),
+        Index(
+            "uq_memory_grants_active_persona",
+            "memory_id",
+            "persona_id",
+            unique=True,
+            sqlite_where=text("revoked_at IS NULL AND grant_type='persona'"),
+        ),
+        Index(
+            "uq_memory_grants_active_workspace",
+            "memory_id",
+            "workspace_id",
+            unique=True,
+            sqlite_where=text("revoked_at IS NULL AND grant_type='workspace'"),
+        ),
+    )
+    id: Mapped[str] = mapped_column(Text, primary_key=True)
+    memory_id: Mapped[str] = mapped_column(Text, nullable=False)
+    human_id: Mapped[str] = mapped_column(Text, nullable=False)
+    grant_type: Mapped[str] = mapped_column(Text, nullable=False)
+    persona_id: Mapped[str | None] = mapped_column(Text)
+    workspace_id: Mapped[str | None] = mapped_column(Text)
+    grant_source: Mapped[str] = mapped_column(Text, nullable=False)
+    granted_by_human_id: Mapped[str] = mapped_column(
+        ForeignKey("human_principals.id", ondelete="CASCADE"), nullable=False
+    )
+    granted_at: Mapped[int] = mapped_column(Integer, nullable=False)
+    revoked_by_human_id: Mapped[str | None] = mapped_column(ForeignKey("human_principals.id", ondelete="CASCADE"))
+    revoked_at: Mapped[int | None] = mapped_column(Integer)
+
+
+class MemoryGrantEvent(Base):
+    __tablename__ = "memory_grant_events"
+    __table_args__ = (
+        CheckConstraint(
+            "action IN ('granted','revoked')",
+            name="ck_memory_grant_events_action",
+        ),
+        CheckConstraint(
+            "grant_type IN ('persona','workspace')",
+            name="ck_memory_grant_events_type",
+        ),
+        ForeignKeyConstraint(
+            ["memory_id", "human_id"],
+            ["memory_records.memory_id", "memory_records.human_id"],
+            ondelete="CASCADE",
+            name="fk_memory_grant_events_record_owner",
+        ),
+        ForeignKeyConstraint(
+            ["grant_id", "memory_id", "human_id"],
+            ["memory_grants.id", "memory_grants.memory_id", "memory_grants.human_id"],
+            ondelete="CASCADE",
+            name="fk_memory_grant_events_grant_owner",
+        ),
+        Index("idx_memory_grant_events_memory_created", "memory_id", "created_at"),
+    )
+    id: Mapped[str] = mapped_column(Text, primary_key=True)
+    memory_id: Mapped[str] = mapped_column(Text, nullable=False)
+    grant_id: Mapped[str] = mapped_column(Text, nullable=False)
+    human_id: Mapped[str] = mapped_column(Text, nullable=False)
+    action: Mapped[str] = mapped_column(Text, nullable=False)
+    grant_type: Mapped[str] = mapped_column(Text, nullable=False)
+    target_id: Mapped[str] = mapped_column(Text, nullable=False)
+    created_at: Mapped[int] = mapped_column(Integer, nullable=False)
 
 
 class MemoryEvent(Base):

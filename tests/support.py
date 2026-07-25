@@ -178,6 +178,8 @@ class TestApp:
         )
         self.context = TestClient(self.app)
         self.client = None
+        self.current_user_id = None
+        self._bound_defaults = {}
 
     def __enter__(self):
         self.client = self.context.__enter__()
@@ -197,7 +199,39 @@ class TestApp:
         assert created.status_code == 200, created.text
         logged_in = self.client.post("/api/v1/session", json=credentials)
         assert logged_in.status_code == 200, logged_in.text
-        return logged_in.json().get("user_id") or created.json().get("id")
+        self.current_user_id = logged_in.json().get("user_id") or created.json().get("id")
+        return self.current_user_id
+
+    def ensure_bound_persona(self):
+        if not self.current_user_id:
+            raise AssertionError("create_and_login must be called first")
+        cached = self._bound_defaults.get(self.current_user_id)
+        if cached:
+            return cached
+        workspace = self.client.post("/api/v1/workspaces", json={"name": "Test workspace"})
+        assert workspace.status_code == 200, workspace.text
+        persona = self.client.post(
+            "/api/v1/personas",
+            json={"workspace_id": workspace.json()["id"], "name": "Test persona"},
+        )
+        assert persona.status_code == 200, persona.text
+        cached = (workspace.json(), persona.json())
+        self._bound_defaults[self.current_user_id] = cached
+        return cached
+
+    def create_chat(self, values=None, *, persona_id=None, context=None):
+        values = dict(values or {})
+        if not persona_id:
+            _workspace, persona = self.ensure_bound_persona()
+            persona_id = persona["id"]
+        payload = {
+            "persona_id": persona_id,
+            "access_context": context or {"kind": "personal"},
+            **values,
+        }
+        response = self.client.post("/api/v1/chats", json=payload)
+        assert response.status_code == 200, response.text
+        return response.json()
 
     def wait_job(self, job_id: str, *, timeout=5):
         deadline = time.monotonic() + timeout

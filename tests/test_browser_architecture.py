@@ -18,6 +18,7 @@ class BrowserArchitectureTests(unittest.TestCase):
             "everyday_settings_view.ts",
             "media.ts",
             "media_catalog_settings_view.ts",
+            "new_chat_view.ts",
             "identity_settings_view.ts",
             "model_settings_view.ts",
             "operations_settings_view.ts",

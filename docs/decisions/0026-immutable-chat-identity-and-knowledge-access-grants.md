@@ -1,6 +1,6 @@
 # ADR 0026: Immutable chat identity and knowledge-access grants
 
-- Status: accepted
+- Status: accepted; Phase 2 identity/access foundation implemented
 - Date: 2026-07-25
 - Owners: Nice Assistant maintainers
 
@@ -22,11 +22,11 @@ turning ordinary memories into globally available facts. The first release has
 one human owner, but hard-coding that singleton into ownership and access rows
 would make later multi-human support a destructive redesign.
 
-This decision is accepted as the target architecture. Acceptance does not make
-the target behavior available: existing runtime behavior remains governed by
-the current implementation and earlier shipped ADRs until the applicable v3
-migrations, services, interfaces, and acceptance tests are implemented and
-shipped.
+The Phase 2 identity/access foundation is implemented: new chats require an
+immutable persona/context binding, memory retrieval is grant-scoped, the
+explicit universal owner profile is separate from memory, and legacy rows are
+preserved but quarantined. The complete Settings grant/profile control surface
+and natural-language confirmation workflow remain later phases.
 
 ## Decision
 
@@ -47,6 +47,11 @@ shipped.
 
 ### Knowledge origin and grants
 
+- Every typed memory record has immutable lineage: `legacy_migrated` for rows
+  carried forward by the v3 migration and `native_v3` for records created by the
+  new system. Only `legacy_migrated` records that remain
+  `legacy_quarantined` can enter a legacy reset plan. Native lineage cannot be
+  changed or reshaped into legacy quarantine.
 - A memory's immutable origin records its human owner, source chat, source
   persona, source workspace context when applicable, and source turn/message
   evidence. Origin explains provenance; it does not itself grant access.
@@ -133,9 +138,12 @@ records, and auditable grant changes. APIs and Settings must resolve IDs to
 current display names, make origin distinct from current access, and explain
 that a persona grant follows the persona across valid contexts while a workspace
 grant follows current workspace membership. Legacy chats and memories require a
-deterministic, reversible migration; ambiguous records must be held for review
-rather than silently broadened. Existing global memories must not be converted
-automatically into the owner profile.
+deterministic, nondestructive forward migration; ambiguous records must be
+quarantined rather than silently broadened. Because removing
+binding/quarantine/grant metadata could reopen access, recovery to a pre-v3
+release uses the verified pre-migration backup instead of an in-place downgrade.
+Existing global memories must not be converted automatically into the owner
+profile.
 
 Authorization queries become more complex and must remain part of the database
 query boundary before retrieval or ranking. Membership changes can alter access
@@ -150,7 +158,8 @@ discipline now even though version one still presents a single-owner product.
 
 - Migration tests preserve persona definitions, chats, messages, memory text,
   provenance, and lifecycle history; ambiguous legacy access never broadens
-  silently, and legacy global records never auto-populate the owner profile.
+  silently, native lineage cannot be relabeled into the legacy reset pool, and
+  legacy global records never auto-populate the owner profile.
 - Chat tests prove creation requires a valid persona/context pair, IDs survive
   renames, mid-chat persona and context changes are rejected, and an invalidated
   chat remains readable while new turns are blocked.

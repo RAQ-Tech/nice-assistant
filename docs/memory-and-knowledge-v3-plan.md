@@ -391,9 +391,10 @@ requires a separate explicit confirmation.
 - Add owner-profile and named-grant service/API contracts without automatic
   extraction.
 
-Exit condition: migration, rollback, authorization, and cross-persona isolation
-tests pass with current Memory v2 behavior either deliberately adapted or
-compatibly isolated.
+Exit condition: migration, verified-backup recovery, authorization, and
+cross-persona isolation tests pass with current Memory v2 behavior either
+deliberately adapted or compatibly isolated. In-place downgrade is refused when
+it would remove access controls.
 
 ### Phase 3: owner controls, disclosure, and legacy isolation
 
@@ -501,12 +502,16 @@ is the machine-readable source for the reset drill; the text artifact is for
 private owner review.
 
 The baseline freezes the exact memory-ID population observed in that snapshot.
-The possible-persona keep/quarantine set is conservative and deterministic.
-Any memory related through supersession or memory-event revision links is
-included in the same protected revision closure so a later reset cannot sever
-retained provenance through a foreign-key `SET NULL`. The remaining exact IDs
-form the proposed reset set. These sets are evidence for review, not permission
-to mutate a live database.
+Only records with immutable `legacy_migrated` lineage that remain marked
+`legacy_quarantined` are reset-eligible; every `native_v3` memory is fixed in
+the keep set and cannot be relabeled into the legacy pool. The possible-persona
+keep/quarantine set for eligible legacy rows is conservative and deterministic.
+Any memory related through supersession, origin revision, or memory-event
+revision links is included in the same protected revision closure so a later
+reset cannot sever retained provenance through a foreign-key `SET NULL`.
+Eligible legacy rows linked to native v3 memory are quarantined rather than
+deleted. These sets are evidence for review, not permission to mutate a live
+database.
 
 Run the reset proof only against the same snapshot and its private baseline:
 
@@ -528,9 +533,9 @@ Persona inventory includes raw core persona records, workspace links, behavioral
 configuration, visual-identity metadata, and dependent instruction/configuration
 digests. A metadata-only snapshot contains those database records but not the
 identity-reference image bytes. The exporter must label those artifacts
-`not_in_snapshot`; it must not report them as missing or claim byte-level
-preservation. A full snapshot is required to compare the stored reference
-digest with the included file bytes.
+`not_included_by_metadata_only_snapshot`; it must not report them as missing or
+claim byte-level preservation. A full snapshot is required to compare the
+stored reference digest with the included file bytes.
 
 The artifact is written to a user-selected private path outside the repository
 and delivered through the private Codex session. An ignored repository path is

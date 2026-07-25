@@ -56,7 +56,6 @@ class FakeBaselineCliProvider:
                 "candidates": [
                     {
                         "content": candidate.content,
-                        "scope": candidate.scope,
                         "confidence": candidate.confidence,
                     }
                     for candidate in output.candidates
@@ -75,7 +74,8 @@ class MemoryExtractionBaselineTests(unittest.TestCase):
         return assess_memory_baseline_case(
             self.corpus,
             self.cases[case_id],
-            MemoryExtractionTaskOutput((MemoryCandidate(content, scope, confidence),)),
+            MemoryExtractionTaskOutput((MemoryCandidate(content, confidence),)),
+            evaluation_scope=scope,
             **kwargs,
         )
 
@@ -140,7 +140,7 @@ class MemoryExtractionBaselineTests(unittest.TestCase):
 
     def test_duplicate_exact_candidates_are_diagnosed_and_do_not_look_strictly_clean(self):
         case = self.cases["stable_preference_metric"]
-        candidate = MemoryCandidate("The user prefers metric units.", "persona", 0.9)
+        candidate = MemoryCandidate("The user prefers metric units.", 0.9)
         result = assess_memory_baseline_case(
             self.corpus,
             case,
@@ -157,8 +157,8 @@ class MemoryExtractionBaselineTests(unittest.TestCase):
         raw = json.dumps(
             {
                 "candidates": [
-                    {"content": content, "scope": "persona", "confidence": 0.9},
-                    {"content": content, "scope": "persona", "confidence": 0.9},
+                    {"content": content, "confidence": 0.9},
+                    {"content": content, "confidence": 0.9},
                 ]
             }
         )
@@ -237,7 +237,7 @@ class MemoryExtractionBaselineTests(unittest.TestCase):
         self.assertEqual(result["raw_lexically_matched_fact_count"], 1)
         self.assertEqual(result["raw_strict_grounded_fact_count"], 0)
 
-    def test_confidence_and_scope_are_diagnostic_only(self):
+    def test_confidence_and_evaluation_scope_metadata_are_diagnostic_only(self):
         content = "The user prefers metric units."
         low = self._result("stable_preference_metric", content, scope="chat", confidence=0.0)
         high = self._result("stable_preference_metric", content, scope="global", confidence=1.0)
@@ -249,6 +249,8 @@ class MemoryExtractionBaselineTests(unittest.TestCase):
         )
         self.assertEqual(low["scope_counts"]["chat"], 1)
         self.assertEqual(high["scope_counts"]["global"], 1)
+        self.assertEqual(low["scope_assignment_source"], "evaluation_metadata_not_runtime_output")
+        self.assertEqual(high["scope_assignment_source"], "evaluation_metadata_not_runtime_output")
         self.assertEqual(low["strict_grounded_confidence"]["mean"], 0.0)
         self.assertEqual(high["strict_grounded_confidence"]["mean"], 1.0)
 

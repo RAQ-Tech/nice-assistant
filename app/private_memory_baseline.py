@@ -1,4 +1,4 @@
-"""Offline, snapshot-only Memory v2 baseline export and reset-safety drill.
+"""Offline, snapshot-only memory baseline export and reset-safety drill.
 
 This module is intentionally not registered with the web application.  It reads
 only Nice Assistant snapshot ZIPs, extracts the database into an internally
@@ -29,9 +29,9 @@ from app.chat import persona_instruction_block
 
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
-CURRENT_SCHEMA_REVISION = "0018_human_image_delivery"
+CURRENT_SCHEMA_REVISION = "0019_memory_v3_identity_access"
 EXPORT_FORMAT = "nice-assistant-private-memory-baseline"
-EXPORT_FORMAT_VERSION = 1
+EXPORT_FORMAT_VERSION = 2
 MAX_BASELINE_BYTES = 512 * 1024 * 1024
 MAX_ARCHIVE_MEMBERS = 200_000
 MAX_MANIFEST_BYTES = 4 * 1024 * 1024
@@ -45,14 +45,23 @@ REQUIRED_TABLES = {
     "workspaces",
     "personas",
     "persona_workspace_links",
+    "human_principals",
+    "owner_profiles",
+    "owner_profile_events",
     "chats",
+    "chat_bindings",
     "messages",
     "conversation_turns",
     "memories",
     "memory_events",
+    "memory_records",
+    "memory_origins",
+    "memory_grants",
+    "memory_grant_events",
     "memory_fts",
     "async_jobs",
     "task_model_runs",
+    "media_files",
     "persona_visual_identities",
     "persona_identity_references",
 }
@@ -72,9 +81,24 @@ REQUIRED_COLUMNS = {
         "created_at",
     },
     "persona_workspace_links": {"persona_id", "workspace_id"},
+    "human_principals": {"id", "user_id", "created_at", "updated_at"},
+    "owner_profiles": {"human_id", "revision", "created_at", "updated_at"},
+    "owner_profile_events": {"id", "human_id", "action", "changed_fields_json", "created_at"},
     "chats": {"id", "user_id", "workspace_id", "persona_id", "title"},
+    "chat_bindings": {
+        "chat_id",
+        "human_id",
+        "persona_id",
+        "context_kind",
+        "workspace_id",
+        "binding_status",
+        "persona_name_snapshot",
+        "workspace_name_snapshot",
+        "created_at",
+    },
     "messages": {"id", "chat_id", "role", "text", "created_at"},
     "conversation_turns": {"id", "user_id", "chat_id"},
+    "media_files": {"id", "user_id"},
     "memories": {
         "id",
         "user_id",
@@ -107,6 +131,56 @@ REQUIRED_COLUMNS = {
         "snapshot_json",
         "created_at",
         "undone_at",
+    },
+    "memory_records": {
+        "memory_id",
+        "human_id",
+        "lineage",
+        "access_state",
+        "memory_type",
+        "validity_status",
+        "valid_until",
+        "stateful_status",
+        "last_confirmed_at",
+        "created_at",
+        "updated_at",
+    },
+    "memory_origins": {
+        "memory_id",
+        "human_id",
+        "source_kind",
+        "source_chat_id",
+        "source_persona_id",
+        "source_workspace_id",
+        "source_message_id",
+        "source_turn_id",
+        "evidence_json",
+        "provenance_status",
+        "revision_of_memory_id",
+        "created_at",
+    },
+    "memory_grants": {
+        "id",
+        "memory_id",
+        "human_id",
+        "grant_type",
+        "persona_id",
+        "workspace_id",
+        "grant_source",
+        "granted_by_human_id",
+        "granted_at",
+        "revoked_by_human_id",
+        "revoked_at",
+    },
+    "memory_grant_events": {
+        "id",
+        "memory_id",
+        "grant_id",
+        "human_id",
+        "action",
+        "grant_type",
+        "target_id",
+        "created_at",
     },
     "memory_fts": {"memory_id", "user_id", "content"},
     "async_jobs": {
@@ -152,7 +226,14 @@ REQUIRED_COLUMNS = {
         "review_status",
     },
 }
-MEMORY_TABLES = {"memories", "memory_events"}
+MEMORY_TABLES = {
+    "memories",
+    "memory_events",
+    "memory_records",
+    "memory_origins",
+    "memory_grants",
+    "memory_grant_events",
+}
 MEMORY_FTS_PREFIX = "memory_fts"
 RAW_PERSONA_TABLES = (
     "workspaces",
@@ -188,6 +269,10 @@ DIRECTIVE_VERB_PATTERN = re.compile(
 IMPERATIVE_INSTRUCTION_PATTERN = re.compile(
     r"(?:^|[.!?]\s*)(?:always\s+|never\s+)?"
     r"(?:respond|reply|speak|behave|act|use|avoid|address|call|refer|write|answer|format|keep|be)\b",
+    re.I,
+)
+PERSONA_DESCRIPTION_PATTERN = re.compile(
+    r"\b(?:is|are|was|were|has|acts|sounds|speaks|responds|uses|prefers)\b",
     re.I,
 )
 DEFINITION_STOP_WORDS = {
@@ -633,12 +718,139 @@ def _safe_json_object(value) -> dict | list | None:
     return parsed if isinstance(parsed, (dict, list)) else None
 
 
+def _validate_v3_reference_ownership(
+    connection: sqlite3.Connection,
+    owner_id: str,
+    memories: list[dict],
+    memory_v3: dict[str, list[dict]],
+) -> None:
+    workspace_owners = {
+        str(row[0]): str(row[1]) for row in connection.execute("SELECT id,user_id FROM workspaces").fetchall()
+    }
+    persona_owners = {
+        str(row[0]): str(row[1])
+        for row in connection.execute(
+            "SELECT p.id,w.user_id FROM personas p JOIN workspaces w ON w.id=p.workspace_id"
+        ).fetchall()
+    }
+    chat_owners = {str(row[0]): str(row[1]) for row in connection.execute("SELECT id,user_id FROM chats").fetchall()}
+    message_owners = {
+        str(row[0]): str(row[1])
+        for row in connection.execute("SELECT m.id,c.user_id FROM messages m JOIN chats c ON c.id=m.chat_id").fetchall()
+    }
+    turn_owners = {
+        str(row[0]): str(row[1]) for row in connection.execute("SELECT id,user_id FROM conversation_turns").fetchall()
+    }
+    memory_owners = {
+        str(row[0]): str(row[1]) for row in connection.execute("SELECT id,user_id FROM memories").fetchall()
+    }
+
+    def reject_other_owner(value, owners: dict[str, str], label: str) -> None:
+        if value is None:
+            return
+        referenced_owner = owners.get(str(value))
+        if referenced_owner is not None and referenced_owner != owner_id:
+            raise BaselineError(f"Memory v3 {label} crosses owner boundaries in the snapshot.")
+
+    for memory in memories:
+        reject_other_owner(
+            memory.get("source_message_id"),
+            message_owners,
+            "legacy source message",
+        )
+        reject_other_owner(
+            memory.get("source_turn_id"),
+            turn_owners,
+            "legacy source turn",
+        )
+        tier_owners = {
+            "workspace": workspace_owners,
+            "persona": persona_owners,
+            "chat": chat_owners,
+        }.get(str(memory.get("tier") or ""))
+        if tier_owners is not None:
+            reject_other_owner(
+                memory.get("tier_ref_id"),
+                tier_owners,
+                "legacy scope target",
+            )
+
+    for origin in memory_v3["memory_origins"]:
+        reject_other_owner(
+            origin.get("source_chat_id"),
+            chat_owners,
+            "source chat",
+        )
+        reject_other_owner(
+            origin.get("source_persona_id"),
+            persona_owners,
+            "source persona",
+        )
+        reject_other_owner(
+            origin.get("source_workspace_id"),
+            workspace_owners,
+            "source workspace",
+        )
+        reject_other_owner(
+            origin.get("source_message_id"),
+            message_owners,
+            "source message",
+        )
+        reject_other_owner(
+            origin.get("source_turn_id"),
+            turn_owners,
+            "source turn",
+        )
+        reject_other_owner(
+            origin.get("revision_of_memory_id"),
+            memory_owners,
+            "revision",
+        )
+    for grant in memory_v3["memory_grants"]:
+        target_owners = persona_owners if grant.get("grant_type") == "persona" else workspace_owners
+        reject_other_owner(
+            grant.get("persona_id") or grant.get("workspace_id"),
+            target_owners,
+            "grant target",
+        )
+    for event in memory_v3["memory_grant_events"]:
+        target_owners = persona_owners if event.get("grant_type") == "persona" else workspace_owners
+        reject_other_owner(
+            event.get("target_id"),
+            target_owners,
+            "grant-event target",
+        )
+
+
 def _source_and_task_resolution(
     connection: sqlite3.Connection,
     owner_id: str,
     memories: list[dict],
+    memory_v3: dict[str, list[dict]],
 ) -> tuple[list[dict], dict]:
     memory_ids = {str(row["id"]) for row in memories}
+    records_by_memory = {str(row["memory_id"]): row for row in memory_v3["memory_records"]}
+    origins_by_memory = {str(row["memory_id"]): row for row in memory_v3["memory_origins"]}
+    grants_by_memory: dict[str, list[dict]] = {memory_id: [] for memory_id in memory_ids}
+    for grant in memory_v3["memory_grants"]:
+        grants_by_memory.setdefault(str(grant["memory_id"]), []).append(grant)
+    grant_events_by_memory: dict[str, list[dict]] = {memory_id: [] for memory_id in memory_ids}
+    for event in memory_v3["memory_grant_events"]:
+        grant_events_by_memory.setdefault(str(event["memory_id"]), []).append(event)
+    for values in grants_by_memory.values():
+        values.sort(
+            key=lambda item: (
+                int(item.get("granted_at") or 0),
+                str(item.get("id") or ""),
+            )
+        )
+    for values in grant_events_by_memory.values():
+        values.sort(
+            key=lambda item: (
+                int(item.get("created_at") or 0),
+                str(item.get("id") or ""),
+            )
+        )
     if any(memory.get("supersedes_id") and str(memory["supersedes_id"]) not in memory_ids for memory in memories):
         raise BaselineError("Memory revision ownership is inconsistent in the snapshot.")
     owner_events = _rows(
@@ -671,8 +883,16 @@ def _source_and_task_resolution(
     for event in events:
         events_by_memory.setdefault(str(event["memory_id"]), []).append(event)
 
-    source_message_ids = sorted({str(row["source_message_id"]) for row in memories if row.get("source_message_id")})
-    source_turn_ids = sorted({str(row["source_turn_id"]) for row in memories if row.get("source_turn_id")})
+    source_message_ids = sorted(
+        {
+            str(row["source_message_id"])
+            for row in [*memories, *origins_by_memory.values()]
+            if row.get("source_message_id")
+        }
+    )
+    source_turn_ids = sorted(
+        {str(row["source_turn_id"]) for row in [*memories, *origins_by_memory.values()] if row.get("source_turn_id")}
+    )
     messages = {}
     turns = {}
     if source_message_ids:
@@ -785,16 +1005,27 @@ def _source_and_task_resolution(
     resolved = []
     for memory in memories:
         memory_id = str(memory["id"])
-        source_message = messages.get(str(memory.get("source_message_id") or ""))
-        source_turn = turns.get(str(memory.get("source_turn_id") or ""))
-        source_chat_id = None
-        if source_turn:
+        memory_record = records_by_memory.get(memory_id)
+        memory_origin = origins_by_memory.get(memory_id)
+        source_message_id = memory_origin.get("source_message_id") if memory_origin else memory.get("source_message_id")
+        source_turn_id = memory_origin.get("source_turn_id") if memory_origin else memory.get("source_turn_id")
+        source_message = messages.get(str(source_message_id or ""))
+        source_turn = turns.get(str(source_turn_id or ""))
+        source_chat_id = memory_origin.get("source_chat_id") if memory_origin else None
+        if not source_chat_id and source_turn:
             source_chat_id = source_turn.get("chat_id")
-        elif source_message:
+        elif not source_chat_id and source_message:
             source_chat_id = source_message.get("chat_id")
         source_chat = all_chats.get(str(source_chat_id or ""))
-        source_persona = persona_rows.get(str(source_chat.get("persona_id") or "")) if source_chat else None
-        source_workspace = workspace_rows.get(str(source_chat.get("workspace_id") or "")) if source_chat else None
+        provenance_resolved = bool(memory_origin and memory_origin.get("provenance_status") == "resolved")
+        source_persona_id = (
+            memory_origin.get("source_persona_id") if provenance_resolved else (source_chat or {}).get("persona_id")
+        )
+        source_workspace_id = (
+            memory_origin.get("source_workspace_id") if provenance_resolved else (source_chat or {}).get("workspace_id")
+        )
+        source_persona = persona_rows.get(str(source_persona_id or ""))
+        source_workspace = workspace_rows.get(str(source_workspace_id or ""))
 
         scope = str(memory.get("tier") or "")
         scope_id = memory.get("tier_ref_id")
@@ -837,15 +1068,15 @@ def _source_and_task_resolution(
                 "resolution_status": "unknown_legacy_scope",
             }
 
-        extraction = candidate_job.get(memory_id)
-        if extraction and extraction.get("task_run_id"):
-            run = task_runs.get(str(extraction["task_run_id"]))
-            extraction["task_run"] = run
-        elif memory.get("source_turn_id") and runs_by_turn.get(str(memory["source_turn_id"])):
-            run = runs_by_turn[str(memory["source_turn_id"])][0]
+        job_match = candidate_job.get(memory_id)
+        job_run = task_runs.get(str(job_match["task_run_id"])) if job_match and job_match.get("task_run_id") else None
+        if job_match and job_run:
+            extraction = {**job_match, "task_run": job_run}
+        elif source_turn_id and runs_by_turn.get(str(source_turn_id)):
+            run = runs_by_turn[str(source_turn_id)][0]
             extraction = {
                 "match_method": "source_turn_latest_memory_extraction_run",
-                "job": None,
+                "job": job_match.get("job") if job_match else None,
                 "task_run_id": run.get("id"),
                 "task_run": run,
             }
@@ -859,34 +1090,84 @@ def _source_and_task_resolution(
         if extraction.get("task_run") and extraction["task_run"].get("attempts_json") is not None:
             extraction["task_run"]["attempts"] = _safe_json_object(extraction["task_run"].get("attempts_json"))
 
+        if provenance_resolved:
+            unavailable_fields = {
+                key: value
+                for key, value in UNAVAILABLE_V2_FIELDS.items()
+                if key
+                in {
+                    "qualification_reason",
+                    "evidence_spans",
+                    "raw_extractor_output",
+                    "extractor_decision_trace",
+                }
+            }
+            immutable_source_persona = {
+                "available": True,
+                "id": source_persona_id,
+                "name": source_persona.get("name") if source_persona else None,
+                "value_status": ("captured" if source_persona_id else "not_applicable"),
+            }
+            immutable_source_workspace = {
+                "available": True,
+                "id": source_workspace_id,
+                "name": source_workspace.get("name") if source_workspace else None,
+                "value_status": ("captured" if source_workspace_id else "not_applicable"),
+            }
+        else:
+            unavailable_fields = dict(UNAVAILABLE_V2_FIELDS)
+            immutable_source_persona = {
+                "available": False,
+                "id": None,
+                "name": None,
+                "value_status": "legacy_unresolved",
+                "reason": "Legacy Memory v2 did not freeze the persona binding at extraction time.",
+            }
+            immutable_source_workspace = {
+                "available": False,
+                "id": None,
+                "name": None,
+                "value_status": "legacy_unresolved",
+                "reason": "Legacy Memory v2 did not freeze the workspace binding at extraction time.",
+            }
+
         resolved.append(
             {
                 "memory": memory,
+                "memory_record": memory_record,
+                "memory_origin": memory_origin,
+                "grants": grants_by_memory.get(memory_id, []),
+                "grant_events": grant_events_by_memory.get(memory_id, []),
                 "events": events_by_memory.get(memory_id, []),
                 "scope_resolution": scope_resolution,
                 "origin": {
                     "source_message": source_message,
                     "source_turn": source_turn,
                     "source_chat": source_chat,
-                    "immutable_source_persona": {
-                        "available": False,
-                        "reason": "Memory v2 did not freeze the persona binding at extraction time.",
-                    },
-                    "immutable_source_workspace": {
-                        "available": False,
-                        "reason": "Memory v2 did not freeze the workspace binding at extraction time.",
-                    },
+                    "immutable_source_persona": immutable_source_persona,
+                    "immutable_source_workspace": immutable_source_workspace,
+                    "evidence": (_safe_json_object(memory_origin.get("evidence_json")) if memory_origin else None),
                     "current_chat_binding_observation": {
                         "chat": source_chat,
-                        "persona": source_persona,
-                        "workspace": source_workspace,
+                        "persona": (
+                            persona_rows.get(str((source_chat or {}).get("persona_id") or "")) if source_chat else None
+                        ),
+                        "workspace": (
+                            workspace_rows.get(str((source_chat or {}).get("workspace_id") or ""))
+                            if source_chat
+                            else None
+                        ),
                         "observed_at_export": True,
                         "caveat": ("These are the chat's current bindings, not immutable extraction-time origin."),
                     },
-                    "resolution_status": "resolved" if source_chat else "source_chat_unavailable",
+                    "resolution_status": (
+                        str(memory_origin.get("provenance_status"))
+                        if memory_origin
+                        else "legacy_origin_record_unavailable"
+                    ),
                 },
                 "extraction": extraction,
-                "unavailable_current_v2_fields": dict(UNAVAILABLE_V2_FIELDS),
+                "unavailable_current_v2_fields": unavailable_fields,
             }
         )
     resolved.sort(key=lambda item: str(item["memory"]["id"]))
@@ -903,7 +1184,15 @@ def _identity_reference_asset_verification(
 ) -> dict:
     include_media = bool(snapshot.manifest.get("includeMedia"))
     asset_prefix = "data/identity_references/"
-    asset_names = [name for name in snapshot.archive_names if name.startswith(asset_prefix) and not name.endswith("/")]
+    expected_owner_members = set()
+    for reference in references:
+        if str(reference.get("review_status") or "") == "deleted":
+            continue
+        filename = str(reference.get("filename") or "")
+        safe_filename = Path(filename).name if filename and Path(filename).name == filename else None
+        if safe_filename:
+            expected_owner_members.add(f"{asset_prefix}{safe_filename}")
+    asset_names = sorted(name for name in expected_owner_members if name in snapshot.archive_names)
     asset_hashes: dict[str, str] = {}
     try:
         with zipfile.ZipFile(snapshot.snapshot_path, "r") as archive:
@@ -924,11 +1213,12 @@ def _identity_reference_asset_verification(
         raise BaselineError("Identity reference assets could not be safely verified.") from exc
     results = []
     for reference in references:
-        expected = str(reference.get("sha256") or "").lower()
-        filename = str(reference.get("filename") or "")
+        deleted = str(reference.get("review_status") or "") == "deleted"
+        expected = "" if deleted else str(reference.get("sha256") or "").lower()
+        filename = "" if deleted else str(reference.get("filename") or "")
         safe_filename = Path(filename).name if filename and Path(filename).name == filename else None
         expected_member = f"{asset_prefix}{safe_filename}" if safe_filename else None
-        if str(reference.get("review_status") or "") == "deleted":
+        if deleted:
             status = "metadata_deleted"
             matches = []
         elif not expected:
@@ -974,6 +1264,7 @@ def _identity_reference_asset_verification(
         )
     return {
         "include_media": include_media,
+        "asset_scope": "selected_owner_references_only",
         "archive_identity_asset_count": len(asset_names),
         "archive_identity_asset_hashes": [
             {"archive_member": name, "sha256": asset_hashes[name]} for name in sorted(asset_hashes)
@@ -1022,6 +1313,30 @@ def _persona_inventory(
         if "persona_identity_references" in available
         else []
     )
+    identity_ids = {str(row.get("id") or "") for row in visual_identities}
+    media_ids = {
+        str(row[0])
+        for row in connection.execute(
+            "SELECT id FROM media_files WHERE user_id=?",
+            (owner_id,),
+        ).fetchall()
+    }
+    for reference in references:
+        filename = str(reference.get("filename") or "")
+        local_path = str(reference.get("local_path") or "")
+        if str(reference.get("identity_id") or "") not in identity_ids:
+            raise BaselineError("Persona identity reference ownership is inconsistent in the snapshot.")
+        source_media_id = reference.get("source_media_id")
+        if source_media_id is not None and str(source_media_id) not in media_ids:
+            raise BaselineError("Persona identity reference ownership is inconsistent in the snapshot.")
+        if str(reference.get("review_status") or "") == "deleted":
+            if filename or local_path:
+                raise BaselineError("Persona identity asset ownership is inconsistent in the snapshot.")
+            continue
+        if not filename or "/" in filename or "\\" in filename or not filename.startswith(f"{owner_id}_"):
+            raise BaselineError("Persona identity asset ownership is inconsistent in the snapshot.")
+        if local_path and Path(local_path).name != filename:
+            raise BaselineError("Persona identity asset ownership is inconsistent in the snapshot.")
     if any(str(row.get("persona_id") or "") not in persona_ids for row in visual_identities + references):
         raise BaselineError("Persona identity metadata crosses owner boundaries.")
     raw_tables = {
@@ -1133,7 +1448,7 @@ def _persona_definition_material(persona_inventory: dict) -> dict:
 def _instruction_flags(memory: dict, persona_inventory: dict) -> list[str]:
     """Return conservative content-based quarantine reasons.
 
-    Scope and a common persona name alone are intentionally insufficient.  The
+    Scope and a common persona name alone are intentionally insufficient. The
     purpose is to preserve possible definition material, not every memory that
     happens to be persona-scoped.
     """
@@ -1179,12 +1494,20 @@ def _instruction_flags(memory: dict, persona_inventory: dict) -> list[str]:
         flags.append("persona_directive")
     if DIRECTIVE_VERB_PATTERN.search(content) and any(name in content for name in material["names"] if len(name) >= 2):
         flags.append("persona_name_plus_directive")
-    if str(memory.get("source_type") or "") in {"manual", "legacy"} and instruction_like:
-        flags.append("manual_or_legacy_instruction_like")
+    if PERSONA_DESCRIPTION_PATTERN.search(content) and any(
+        name in content for name in material["names"] if len(name) >= 2
+    ):
+        flags.append("persona_name_plus_description")
+    if instruction_like:
+        flags.append("instruction_like")
     return sorted(set(flags))
 
 
-def _memory_components(memories: list[dict], events: list[dict]) -> list[list[str]]:
+def _memory_components(
+    memories: list[dict],
+    events: list[dict],
+    origins: list[dict] = (),
+) -> list[list[str]]:
     memory_ids = {str(row["id"]) for row in memories}
     graph = {memory_id: set() for memory_id in memory_ids}
 
@@ -1199,6 +1522,11 @@ def _memory_components(memories: list[dict], events: list[dict]) -> list[list[st
         connect(memory.get("id"), memory.get("supersedes_id"))
     for event in events:
         connect(event.get("memory_id"), event.get("related_memory_id"))
+    for origin in origins:
+        connect(
+            origin.get("memory_id"),
+            origin.get("revision_of_memory_id"),
+        )
 
     components = []
     remaining = set(memory_ids)
@@ -1279,31 +1607,61 @@ def _build_reset_plan(
     memories: list[dict],
     events: list[dict],
 ) -> dict:
-    flags = {str(row["id"]): _instruction_flags(row, baseline["persona_inventory"]) for row in memories}
-    components = _memory_components(memories, events)
+    all_ids = {str(row["id"]) for row in memories}
+    records_by_memory = {str(row["memory_id"]): row for row in baseline["memory_v3"]["memory_records"]}
+    legacy_reset_ids = {
+        memory_id
+        for memory_id, record in records_by_memory.items()
+        if record.get("lineage") == "legacy_migrated" and record.get("access_state") == "legacy_quarantined"
+    }
+    native_v3_ids = all_ids - legacy_reset_ids
+    flags = {
+        str(row["id"]): (
+            _instruction_flags(row, baseline["persona_inventory"]) if str(row["id"]) in legacy_reset_ids else []
+        )
+        for row in memories
+    }
+    components = _memory_components(
+        memories,
+        events,
+        baseline["memory_v3"]["memory_origins"],
+    )
     quarantined = set()
     component_records = []
     for component in components:
-        reasons = sorted({reason for memory_id in component for reason in flags[memory_id]})
-        if reasons:
-            quarantined.update(component)
+        eligible_ids = sorted(set(component).intersection(legacy_reset_ids))
+        retained_v3_ids = sorted(set(component).intersection(native_v3_ids))
+        reasons = {reason for memory_id in eligible_ids for reason in flags[memory_id]}
+        if eligible_ids and retained_v3_ids:
+            reasons.add("linked_to_native_v3_memory")
+        reason_codes = sorted(reasons)
+        quarantined_ids = eligible_ids if reason_codes else []
+        quarantined.update(quarantined_ids)
+        if "linked_to_native_v3_memory" in reasons:
+            closure_reason = (
+                "Legacy members are retained because the same revision/event component contains native v3 memory."
+            )
+        elif reason_codes:
+            closure_reason = (
+                "Eligible legacy members are quarantined because at least one may contain persona instructions."
+            )
+        else:
+            closure_reason = None
         component_records.append(
             {
                 "component_id": _canonical_sha256(component)[:24],
                 "memory_ids": component,
-                "quarantined": bool(reasons),
-                "reason_codes": reasons,
-                "closure_reason": (
-                    "Entire revision/event component quarantined because at least one member may contain "
-                    "persona instructions."
-                    if reasons
-                    else None
-                ),
+                "legacy_reset_eligible_ids": eligible_ids,
+                "native_v3_keep_ids": retained_v3_ids,
+                "quarantined_memory_ids": quarantined_ids,
+                "quarantined": bool(quarantined_ids),
+                "reason_codes": reason_codes,
+                "closure_reason": closure_reason,
             }
         )
-    all_ids = sorted(str(row["id"]) for row in memories)
-    delete_ids = sorted(set(all_ids) - quarantined)
+    delete_ids = sorted(legacy_reset_ids - quarantined)
     quarantine_ids = sorted(quarantined)
+    keep_ids = sorted(native_v3_ids)
     fingerprints = _memory_fingerprints(memories, events)
     dependency_impact = _dependency_impact(
         connection,
@@ -1312,7 +1670,7 @@ def _build_reset_plan(
     )
     plan = {
         "format": "nice-assistant-disposable-memory-reset-plan",
-        "format_version": 1,
+        "format_version": EXPORT_FORMAT_VERSION,
         "generated_at": datetime.now(timezone.utc).isoformat(),
         "owner_id": baseline["owner"]["id"],
         "source": {
@@ -1324,7 +1682,7 @@ def _build_reset_plan(
         "dispositions": {
             "delete_ids": delete_ids,
             "quarantine_ids": quarantine_ids,
-            "keep_ids": [],
+            "keep_ids": keep_ids,
             "undecided_ids": [],
         },
         "memory_fingerprints": fingerprints,
@@ -1353,17 +1711,68 @@ def _build_baseline(snapshot: SnapshotDatabase, owner_id: str | None) -> tuple[d
         _validate_database(connection)
         owner = _owner_record(connection, owner_id)
         memories = _rows(connection, "memories", where="user_id=?", parameters=(owner["id"],))
-        resolved, support = _source_and_task_resolution(connection, owner["id"], memories)
+        memory_ids = sorted(str(row["id"]) for row in memories)
+        placeholders = ",".join("?" for _ in memory_ids)
+        memory_v3 = {}
+        for table in ("memory_records", "memory_origins", "memory_grants", "memory_grant_events"):
+            memory_v3[table] = (
+                _rows(
+                    connection,
+                    table,
+                    where=f"memory_id IN ({placeholders})",
+                    parameters=tuple(memory_ids),
+                )
+                if memory_ids
+                else []
+            )
+        expected_memory_ids = set(memory_ids)
+        for table in ("memory_records", "memory_origins"):
+            if {str(row.get("memory_id") or "") for row in memory_v3[table]} != expected_memory_ids:
+                raise BaselineError(f"Memory v3 {table} coverage is inconsistent in the snapshot.")
+        human_rows = connection.execute(
+            "SELECT id FROM human_principals WHERE user_id=?",
+            (owner["id"],),
+        ).fetchall()
+        if len(human_rows) != 1:
+            raise BaselineError("Memory principal ownership is inconsistent in the snapshot.")
+        human_id = str(human_rows[0][0])
+        if any(str(row.get("human_id") or "") != human_id for rows in memory_v3.values() for row in rows):
+            raise BaselineError("Memory v3 row ownership is inconsistent in the snapshot.")
+        if any(
+            str(grant.get("granted_by_human_id") or "") != human_id
+            or (grant.get("revoked_by_human_id") is not None and str(grant["revoked_by_human_id"]) != human_id)
+            for grant in memory_v3["memory_grants"]
+        ):
+            raise BaselineError("Memory grant actor ownership is inconsistent in the snapshot.")
+        reset_eligible_ids = {
+            str(record["memory_id"])
+            for record in memory_v3["memory_records"]
+            if record.get("lineage") == "legacy_migrated" and record.get("access_state") == "legacy_quarantined"
+        }
+        access_ledger_ids = {
+            str(row["memory_id"]) for table in ("memory_grants", "memory_grant_events") for row in memory_v3[table]
+        }
+        if reset_eligible_ids.intersection(access_ledger_ids):
+            raise BaselineError("A legacy reset-eligible memory has an access ledger in the snapshot.")
+        _validate_v3_reference_ownership(
+            connection,
+            owner["id"],
+            memories,
+            memory_v3,
+        )
+        resolved, support = _source_and_task_resolution(
+            connection,
+            owner["id"],
+            memories,
+            memory_v3,
+        )
         memory_events = support["events"]
         memory_schema = {
-            "memories": {
-                "columns": _table_columns(connection, "memories"),
-                "schema_sql": _schema_sql(connection, "memories"),
-            },
-            "memory_events": {
-                "columns": _table_columns(connection, "memory_events"),
-                "schema_sql": _schema_sql(connection, "memory_events"),
-            },
+            table: {
+                "columns": _table_columns(connection, table),
+                "schema_sql": _schema_sql(connection, table),
+            }
+            for table in sorted(MEMORY_TABLES)
         }
         baseline = {
             "format": EXPORT_FORMAT,
@@ -1380,6 +1789,7 @@ def _build_baseline(snapshot: SnapshotDatabase, owner_id: str | None) -> tuple[d
             "memory_schema": memory_schema,
             "memories": memories,
             "memory_events": memory_events,
+            "memory_v3": memory_v3,
             "resolved_memories": resolved,
             "persona_inventory": _persona_inventory(connection, owner["id"], snapshot),
             "protected_non_memory": _protected_non_memory_hashes(connection),
@@ -1389,6 +1799,10 @@ def _build_baseline(snapshot: SnapshotDatabase, owner_id: str | None) -> tuple[d
         baseline["counts"] = {
             "memories": len(memories),
             "memory_events": len(memory_events),
+            "memory_records": len(memory_v3["memory_records"]),
+            "memory_origins": len(memory_v3["memory_origins"]),
+            "memory_grants": len(memory_v3["memory_grants"]),
+            "memory_grant_events": len(memory_v3["memory_grant_events"]),
             "by_status": _count_values(memories, "status"),
             "by_scope": _count_values(memories, "tier"),
             "by_source_type": _count_values(memories, "source_type"),
@@ -1490,6 +1904,12 @@ def _permission_verification(directory: Path, files: tuple[Path, ...]) -> dict:
     }
 
 
+def _report_text(value) -> str:
+    """Render untrusted display text as one escaped, unambiguous line."""
+
+    return json.dumps(str(value), ensure_ascii=True)
+
+
 def _readable_summary(document: dict) -> str:
     baseline = document["baseline"]
     plan = document["reset_plan"]
@@ -1527,39 +1947,101 @@ def _readable_summary(document: dict) -> str:
     ]
     for item in baseline["resolved_memories"]:
         memory = item["memory"]
+        record = item.get("memory_record") or {}
+        source_persona = item["origin"]["immutable_source_persona"]
+        source_workspace = item["origin"]["immutable_source_workspace"]
         memory_id = str(memory["id"])
         component = component_by_id.get(memory_id) or {}
+        if source_persona.get("available"):
+            source_persona_text = str(source_persona.get("id") or "none captured")
+            if source_persona.get("name"):
+                source_persona_text += f" ({_report_text(source_persona['name'])})"
+        else:
+            source_persona_text = "unavailable for legacy unresolved provenance"
+        if source_workspace.get("available"):
+            source_workspace_text = str(source_workspace.get("id") or "none captured")
+            if source_workspace.get("name"):
+                source_workspace_text += f" ({_report_text(source_workspace['name'])})"
+        else:
+            source_workspace_text = "unavailable for legacy unresolved provenance"
+        grant_summaries = []
+        for grant in item.get("grants") or []:
+            target_id = grant.get("persona_id") or grant.get("workspace_id")
+            state = "revoked" if grant.get("revoked_at") is not None else "active"
+            details = [
+                state,
+                f"source={grant.get('grant_source')}",
+                f"granted_at={grant.get('granted_at')}",
+                f"granted_by={grant.get('granted_by_human_id')}",
+            ]
+            if grant.get("revoked_at") is not None:
+                details.extend(
+                    [
+                        f"revoked_at={grant.get('revoked_at')}",
+                        f"revoked_by={grant.get('revoked_by_human_id')}",
+                    ]
+                )
+            grant_summaries.append(f"{grant.get('grant_type')}:{target_id} ({', '.join(details)})")
+        grant_event_summaries = [
+            (
+                f"{event.get('action')} {event.get('grant_type')}:"
+                f"{event.get('target_id')} at {event.get('created_at')} "
+                f"(grant={event.get('grant_id')})"
+            )
+            for event in item.get("grant_events") or []
+        ]
+        unavailable_fields = sorted((item.get("unavailable_current_v2_fields") or {}).keys())
         lines.extend(
             [
                 f"[{disposition_by_id.get(memory_id, 'UNCLASSIFIED')}] {memory_id}",
                 f"Status: {memory.get('status')}",
-                f"Scope: {memory.get('tier')} / {memory.get('tier_ref_id')}",
-                f"Resolved scope: {item['scope_resolution'].get('name') or 'unavailable'}",
+                f"Access state: {record.get('access_state') or 'unavailable'}",
+                f"Memory type: {record.get('memory_type') or 'unavailable'}",
+                f"Validity: {record.get('validity_status') or 'unavailable'}",
+                f"Valid until: {record.get('valid_until') or 'not applicable'}",
+                f"Stateful status: {record.get('stateful_status') or 'not applicable'}",
+                f"Last confirmed: {record.get('last_confirmed_at') or 'unavailable'}",
+                f"Legacy scope: {memory.get('tier')} / {memory.get('tier_ref_id')}",
+                "Resolved legacy scope: "
+                + (
+                    _report_text(item["scope_resolution"]["name"])
+                    if item["scope_resolution"].get("name")
+                    else "unavailable"
+                ),
+                "Access grants: " + (", ".join(grant_summaries) or "none"),
+                "Grant events: " + (", ".join(grant_event_summaries) or "none"),
                 f"Source type: {memory.get('source_type')}",
                 f"Confidence: {memory.get('confidence')}",
-                f"Content: {memory.get('content')}",
+                f"Content: {_report_text(memory.get('content') or '')}",
                 "Quarantine flags: " + (", ".join(component.get("reason_codes") or []) or "none"),
                 f"Source chat: {(item['origin'].get('source_chat') or {}).get('id') or 'unavailable'}",
-                "Immutable source persona: unavailable in Memory v2",
-                "Immutable source workspace: unavailable in Memory v2",
+                f"Immutable source persona: {source_persona_text}",
+                f"Immutable source workspace: {source_workspace_text}",
                 "Current chat persona observation (not extraction-time origin): "
                 + (
-                    (item["origin"].get("current_chat_binding_observation", {}).get("persona") or {}).get("name")
-                    or "unavailable"
+                    _report_text(
+                        (item["origin"].get("current_chat_binding_observation", {}).get("persona") or {}).get("name")
+                    )
+                    if (item["origin"].get("current_chat_binding_observation", {}).get("persona") or {}).get("name")
+                    else "unavailable"
                 ),
                 "Current chat workspace observation (not extraction-time origin): "
                 + (
-                    (item["origin"].get("current_chat_binding_observation", {}).get("workspace") or {}).get("name")
-                    or "unavailable"
+                    _report_text(
+                        (item["origin"].get("current_chat_binding_observation", {}).get("workspace") or {}).get("name")
+                    )
+                    if (item["origin"].get("current_chat_binding_observation", {}).get("workspace") or {}).get("name")
+                    else "unavailable"
                 ),
                 f"Extraction match: {item['extraction'].get('match_method')}",
                 f"Event count: {len(item.get('events') or [])}",
+                "Fields unavailable for this record: " + (", ".join(unavailable_fields) or "none"),
                 "",
             ]
         )
     lines.extend(
         [
-            "Unavailable in Memory v2",
+            "Fields unavailable for legacy Memory v2 rows",
             "",
             *[f"- {key}: {value}" for key, value in sorted(UNAVAILABLE_V2_FIELDS.items())],
             "",
@@ -1705,6 +2187,10 @@ def _all_database_memory_state(connection: sqlite3.Connection) -> tuple[list[dic
     return memories, events, _memory_fingerprints(memories, events)
 
 
+def _memory_owned_dependency_state(connection: sqlite3.Connection) -> dict[str, list[dict]]:
+    return {table: _rows(connection, table) for table in sorted(MEMORY_TABLES - {"memories", "memory_events"})}
+
+
 def _baseline_without_generation_time(value: dict) -> dict:
     comparable = dict(value)
     comparable.pop("generated_at", None)
@@ -1762,6 +2248,7 @@ def drill_memory_reset(snapshot, baseline_json) -> dict:
 
         connection = sqlite3.connect(extracted.database_path)
         connection.execute("PRAGMA foreign_keys=ON")
+        connection.execute("PRAGMA recursive_triggers=ON")
         try:
             _validate_database(connection)
             owner_id = str(plan.get("owner_id") or "")
@@ -1803,6 +2290,7 @@ def drill_memory_reset(snapshot, baseline_json) -> dict:
                 raise BaselineError("Reset dependency impact does not match the frozen plan.")
 
             all_memories_before, all_events_before, all_fingerprints_before = _all_database_memory_state(connection)
+            owned_dependencies_before = _memory_owned_dependency_state(connection)
             target_set = set(delete_ids)
             all_fts_before = _rows(connection, "memory_fts")
             if _canonical_sha256(all_fts_before) != plan.get("memory_fts_sha256"):
@@ -1812,6 +2300,10 @@ def drill_memory_reset(snapshot, baseline_json) -> dict:
                 memory_id: fingerprint
                 for memory_id, fingerprint in all_fingerprints_before.items()
                 if memory_id not in target_set
+            }
+            retained_dependencies_before = {
+                table: [row for row in rows if str(row.get("memory_id") or "") not in target_set]
+                for table, rows in owned_dependencies_before.items()
             }
             target_event_ids = {
                 str(row["id"]) for row in all_events_before if str(row.get("memory_id") or "") in target_set
@@ -1852,6 +2344,12 @@ def drill_memory_reset(snapshot, baseline_json) -> dict:
             ).fetchone()[0]
             if target_memory_count or target_event_count or target_fts_count:
                 raise BaselineError("Disposable drill left target memory dependencies behind.")
+            owned_dependencies_after = _memory_owned_dependency_state(connection)
+            for table, rows in owned_dependencies_after.items():
+                if any(str(row.get("memory_id") or "") in target_set for row in rows):
+                    raise BaselineError(f"Disposable drill left target rows in {table}.")
+                if rows != retained_dependencies_before[table]:
+                    raise BaselineError(f"Disposable drill changed retained rows in {table}.")
             if _rows(connection, "memory_fts") != retained_fts_before:
                 raise BaselineError("Disposable drill changed retained memory search-index rows.")
 

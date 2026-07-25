@@ -46,7 +46,13 @@ class LanHardeningTests(unittest.TestCase):
             self.assertEqual(
                 running.client.post(
                     "/api/v1/chats",
-                    json={"workspace_id": workspace["id"], "persona_id": persona["id"]},
+                    json={
+                        "persona_id": persona["id"],
+                        "access_context": {
+                            "kind": "workspace",
+                            "workspace_id": workspace["id"],
+                        },
+                    },
                 ).status_code,
                 404,
             )
@@ -92,7 +98,13 @@ class LanHardeningTests(unittest.TestCase):
             ).json()
             chat = running.client.post(
                 "/api/v1/chats",
-                json={"workspace_id": workspace["id"], "persona_id": persona["id"]},
+                json={
+                    "persona_id": persona["id"],
+                    "access_context": {
+                        "kind": "workspace",
+                        "workspace_id": workspace["id"],
+                    },
+                },
             ).json()
             with mock.patch("app.speech_service.openai_speech", return_value=b"audio"):
                 made = running.client.post(

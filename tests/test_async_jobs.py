@@ -141,7 +141,7 @@ class AsyncJobTests(unittest.TestCase):
                     }
                 },
             )
-            chat = running.client.post("/api/v1/chats", json={"title": "New chat", "memory_mode": "off"}).json()
+            chat = running.create_chat({"title": "New chat", "memory_mode": "off"})
             accepted = running.client.post(
                 f"/api/v1/chats/{chat['id']}/turns",
                 json={"text": "Show me a garden", "memory_mode": "off"},
@@ -189,10 +189,7 @@ class AsyncJobTests(unittest.TestCase):
                     }
                 },
             )
-            chat = running.client.post(
-                "/api/v1/chats",
-                json={"title": "Already named", "memory_mode": "off"},
-            ).json()
+            chat = running.create_chat({"title": "Already named", "memory_mode": "off"})
             accepted = running.client.post(
                 f"/api/v1/chats/{chat['id']}/turns",
                 json={"text": "Would you make an image of a garden?", "memory_mode": "off"},
@@ -229,10 +226,7 @@ class AsyncJobTests(unittest.TestCase):
                 "/api/v1/settings",
                 json={"preferences": {"image_provider": "local/automatic1111"}},
             )
-            chat = running.client.post(
-                "/api/v1/chats",
-                json={"title": "Truthful media", "memory_mode": "off"},
-            ).json()
+            chat = running.create_chat({"title": "Truthful media", "memory_mode": "off"})
             accepted = running.client.post(
                 f"/api/v1/chats/{chat['id']}/turns",
                 json={"text": "Create a portrait of the persona", "memory_mode": "off"},
@@ -275,10 +269,7 @@ class AsyncJobTests(unittest.TestCase):
                 "/api/v1/settings",
                 json={"preferences": {"image_provider": "local/automatic1111"}},
             )
-            chat = running.client.post(
-                "/api/v1/chats",
-                json={"title": "Observed production regression", "memory_mode": "off"},
-            ).json()
+            chat = running.create_chat({"title": "Observed production regression", "memory_mode": "off"})
             accepted = running.client.post(
                 f"/api/v1/chats/{chat['id']}/turns",
                 json={
@@ -318,10 +309,7 @@ class AsyncJobTests(unittest.TestCase):
         provider = FakeChatProvider(["*taps the shutter* Ta-da!"])
         with tempfile.TemporaryDirectory() as tmp, TestApp(Path(tmp), chat_provider=provider) as running:
             running.create_and_login()
-            chat = running.client.post(
-                "/api/v1/chats",
-                json={"title": "Unavailable image provider", "memory_mode": "off"},
-            ).json()
+            chat = running.create_chat({"title": "Unavailable image provider", "memory_mode": "off"})
             accepted = running.client.post(
                 f"/api/v1/chats/{chat['id']}/turns",
                 json={"text": "Please generate an image of a blue cup.", "memory_mode": "off"},
@@ -352,10 +340,7 @@ class AsyncJobTests(unittest.TestCase):
         )
         with tempfile.TemporaryDirectory() as tmp, TestApp(Path(tmp), chat_provider=provider) as running:
             running.create_and_login()
-            chat = running.client.post(
-                "/api/v1/chats",
-                json={"title": "Sanitized reply", "memory_mode": "off"},
-            ).json()
+            chat = running.create_chat({"title": "Sanitized reply", "memory_mode": "off"})
             accepted = running.client.post(
                 f"/api/v1/chats/{chat['id']}/turns",
                 json={"text": "Say hello.", "memory_mode": "off"},
@@ -382,10 +367,7 @@ class AsyncJobTests(unittest.TestCase):
         provider = FakeChatProvider(["Safe next reply."])
         with tempfile.TemporaryDirectory() as tmp, TestApp(Path(tmp), chat_provider=provider) as running:
             running.create_and_login()
-            chat = running.client.post(
-                "/api/v1/chats",
-                json={"title": "Legacy sanitized history", "memory_mode": "off"},
-            ).json()
+            chat = running.create_chat({"title": "Legacy sanitized history", "memory_mode": "off"})
             with UnitOfWork(
                 running.services.runtime.session_factory,
                 running.services.runtime.secret_store,
@@ -415,7 +397,7 @@ class AsyncJobTests(unittest.TestCase):
         provider = FakeChatProvider(["still completes"], gate=gate)
         with tempfile.TemporaryDirectory() as tmp, TestApp(Path(tmp), chat_provider=provider) as running:
             running.create_and_login()
-            chat = running.client.post("/api/v1/chats", json={"title": "Disconnect"}).json()
+            chat = running.create_chat({"title": "Disconnect"})
             started = running.client.post(
                 f"/api/v1/chats/{chat['id']}/turns",
                 json={"text": "keep running"},
@@ -440,7 +422,7 @@ class AsyncJobTests(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as tmp, TestApp(Path(tmp), chat_provider=UnsafeProvider()) as running:
             running.create_and_login()
-            chat = running.client.post("/api/v1/chats", json={"title": "Failure"}).json()
+            chat = running.create_chat({"title": "Failure"})
             accepted = running.client.post(
                 f"/api/v1/chats/{chat['id']}/turns",
                 json={"text": "fail without leaking"},
@@ -528,7 +510,7 @@ class AsyncJobTests(unittest.TestCase):
                 json={"preferences": {"image_provider": "local/automatic1111"}},
             )
             self.assertEqual(saved.status_code, 200, saved.text)
-            chat = running.client.post("/api/v1/chats", json={"title": "Capability"}).json()
+            chat = running.create_chat({"title": "Capability"})
             started = running.client.post(
                 f"/api/v1/chats/{chat['id']}/turns",
                 json={"text": "Generate an image of a small cat"},
@@ -599,7 +581,7 @@ class AsyncJobTests(unittest.TestCase):
                 json={"preferences": {"image_provider": "local/automatic1111"}},
             )
             self.assertEqual(saved.status_code, 200, saved.text)
-            chat = running.client.post("/api/v1/chats", json={"title": "Text only"}).json()
+            chat = running.create_chat({"title": "Text only"})
             started = running.client.post(
                 f"/api/v1/chats/{chat['id']}/turns",
                 json={"text": "Reply with exactly: managed reclamation passed"},
@@ -620,11 +602,7 @@ class AsyncJobTests(unittest.TestCase):
         provider = FakeChatProvider(["Done."])
         with tempfile.TemporaryDirectory() as tmp, TestApp(Path(tmp), chat_provider=provider) as running:
             running.create_and_login()
-            workspace = running.client.post("/api/v1/workspaces", json={"name": "Home"}).json()
-            chat = running.client.post(
-                "/api/v1/chats",
-                json={"workspace_id": workspace["id"], "title": "New chat"},
-            ).json()
+            chat = running.create_chat({"title": "New chat"})
             started = running.client.post(
                 f"/api/v1/chats/{chat['id']}/turns",
                 json={"text": "unique current input"},
@@ -641,7 +619,7 @@ class AsyncJobTests(unittest.TestCase):
         provider = FakeChatProvider(["late response"], gate=gate)
         with tempfile.TemporaryDirectory() as tmp, TestApp(Path(tmp), chat_provider=provider) as running:
             running.create_and_login()
-            chat = running.client.post("/api/v1/chats", json={"title": "Cancel"}).json()
+            chat = running.create_chat({"title": "Cancel"})
             started = running.client.post(
                 f"/api/v1/chats/{chat['id']}/turns",
                 json={"text": "cancel me"},
@@ -668,7 +646,7 @@ class AsyncJobTests(unittest.TestCase):
         )
         with tempfile.TemporaryDirectory() as tmp, TestApp(Path(tmp), chat_provider=provider) as running:
             running.create_and_login()
-            chat = running.client.post("/api/v1/chats", json={"title": "Failure"}).json()
+            chat = running.create_chat({"title": "Failure"})
             started = running.client.post(
                 f"/api/v1/chats/{chat['id']}/turns",
                 json={"text": "fail safely"},

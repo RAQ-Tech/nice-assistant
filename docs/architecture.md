@@ -44,15 +44,20 @@ their model processes and hardware lifecycle.
 
 `app.asgi.create_app` builds one configured application and one dependency-injected
 service graph. `ResourceService` owns authenticated resources, `ConversationService`
-owns turn preparation and assistant persistence, `JobService` owns queue/state/
-cancellation, and `MediaService`, `SpeechService`, `ProviderService`, and
-`OperationsService` own their respective workflows. `ContextService` owns causal
-prompt planning, budgets, saved-memory selection, compaction, and accounting.
-`MemoryService` owns candidate extraction, review transitions, revision history,
-scope archival, explicit permanent deletion, atomic owner-scoped bulk actions,
-and FTS retrieval policy. `ConversationService` likewise separates chat hiding
-from permanent deletion and rejects destructive deletion while linked work is
-active. See ADR 0015.
+owns immutable chat creation/binding validation, turn preparation, and assistant
+persistence, `JobService` owns queue/state/cancellation, and `MediaService`,
+`SpeechService`, `ProviderService`, and `OperationsService` own their respective
+workflows. `ContextService` owns causal prompt planning, budgets, authorized
+saved-memory selection, compaction, and accounting. `MemoryService` owns
+candidate extraction, immutable origin creation, named access grants, typed
+validity/lifecycle metadata, review transitions, revision history, explicit
+permanent deletion, atomic owner-scoped bulk actions, and FTS retrieval policy.
+`OwnerProfileService` owns the explicit allowlisted universal owner-profile API.
+`ContextService` reads its deliberately populated values into a separate
+universal profile block for every valid chat; automatic extraction has no write
+path to that profile.
+`ConversationService` likewise separates chat hiding from permanent deletion
+and rejects destructive deletion while linked work is active. See ADR 0015.
 `CapabilityService` owns the registry, durable permission requests, automatic
 explicit-image admission, video approval/denial, idempotency, audit events,
 linked job submission, and terminal results.
@@ -117,6 +122,37 @@ assistant messages are persisted only after successful provider completion.
 On startup, unfinished jobs and turns become failed with the safe message
 `interrupted by server restart`.
 
+Every new chat also receives a relational `chat_bindings` row in its creation
+transaction. It names one human principal, one persona, and either personal or
+one named workspace context. Database ownership and immutability triggers require
+that the named human owns the chat and prevent identity/context mutation or
+replacement. Memory-record ownership is bound to the same user-to-human mapping.
+SQLite connections enable recursive triggers so `INSERT OR REPLACE` cannot
+bypass guarded deletes. The resolver validates the current persona, workspace,
+and membership before turn creation and again before queued provider work.
+Chat-bound title, capability-planning, and memory-extraction jobs also validate
+immediately before their external call and before persistence. Legacy chats are
+migrated as `legacy_unresolved`: they remain readable but cannot continue. A
+model override is ordinary turn configuration, not part of identity; model
+changes and Ollama/application restarts do not change the durable binding.
+
+Memory v3 Phase 2 stores ownership/currentness and immutable
+`legacy_migrated`/`native_v3` lineage in `memory_records`, immutable source
+provenance in `memory_origins`, and revocable persona/workspace access in
+`memory_grants`. Existing memories are preserved as `legacy_quarantined` with
+legacy lineage, unknown lifecycle, and no grants. New automatic candidates have
+native lineage, are pending, and are source-persona-only. Retrieval resolves the
+chat binding and applies human, grant, membership, lifecycle, and validity
+predicates before FTS matching.
+Authorized matches use deterministic row-local recency ordering rather than
+global BM25 corpus statistics. A workspace grant therefore follows current
+membership, including personas added after the grant, without copying memory or
+granting access to a personal chat. Grant identity fields are immutable,
+revocation is a one-way transition, and append-only grant events use a composite
+grant/memory/human foreign key so an event cannot be attached to another
+owner's or memory's grant. Revision undo synchronizes the restored record to the
+current revision's active grant set in the same transaction.
+
 Persona chat requests do not receive tools. After the persona reply, the typed
 capability-planning role may propose controlled semantic requirements. The
 deterministic catalog coordinator selects only explicitly described and
@@ -139,9 +175,11 @@ summaries compact old transcript prefixes; see `docs/conversation-context.md`.
 
 Eligible completed turns atomically create a durable memory-extraction job. The
 job uses its separately configured task role after turn completion and may
-create pending candidates with source provenance. Long-chat compaction likewise
-uses the summary task role. Only active memories cross the retrieval boundary;
-see `docs/memory.md` and `docs/task-models.md`.
+create pending candidates after revalidating the source turn and immutable chat
+binding. The platform, not the model, assigns one source-persona grant.
+Long-chat compaction likewise uses the summary task role. Only authorized,
+active, current memories cross the retrieval boundary; see `docs/memory.md` and
+`docs/task-models.md`.
 
 `ChatModelProvider` and `MediaProvider` normalize health, timeouts, cancellation,
 artifacts, and safe failures. Ollama implements streamed `/api/chat` NDJSON. The
@@ -205,6 +243,15 @@ legacy pending image approvals, and backfills recoverable generated chat media
 without exposing another user's, a missing artifact, or an identity-rejected
 candidate. Recovery preserves ordinary, unconditioned, verified, and unverified
 identity labels instead of inferring identity from a generic successful attempt.
+Migration `0019_memory_v3_identity_access` adds human principals, universal
+owner profiles and field-name-only events, immutable chat bindings, typed memory
+records, immutable origins, revocable persona/workspace grants, and grant
+events. It conservatively marks every existing chat `legacy_unresolved` and
+every existing memory `legacy_quarantined` with no grant; it neither guesses
+authorization nor deletes a row. The migration intentionally refuses an
+in-place downgrade because dropping binding, quarantine, provenance, and grant
+metadata could broaden access. Recovery continues to use a verified
+pre-migration backup with the previous application image.
 
 Installed containers execute the application tree shipped at
 `/opt/nice-assistant`; `/data` contains mutable state, not production source.
@@ -227,8 +274,13 @@ Task Models, Media Catalog, and Operations views own their typed interaction and
 API workflows; the settings shell only composes them. Provider execution remains
 outside the view layer.
 The default chat shell uses the same progressive-disclosure rule: persona,
-conversation, speech, and image-blur controls are primary; workspace, model,
-memory, client-state, and visualization controls remain available in chat details.
+conversation, speech, and image-blur controls are primary. Starting a chat uses
+an explicit persona plus personal/workspace context dialog. Bound persona and
+workspace are displayed but cannot be changed in that chat; model, memory,
+client-state, and visualization controls remain available in chat details.
+Legacy or currently invalid bindings render the transcript with a read-only
+explanation and a path to start a new chat rather than exposing a working
+composer.
 The focused visual-identity settings module provides consent, reference review,
 separate generation-unavailable and comparison-failure policy controls, provider
 readiness, validation, and correction history without moving biometric decisions

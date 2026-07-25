@@ -1,4 +1,5 @@
 import { api, type ApiClient, type PersonaInput } from './api';
+import { refreshChatBindingsAfterSettingsMutation } from './chat_binding_refresh';
 import { el, errorMessage, formatDate } from './dom';
 import { EverydaySettingsView, type EverydaySettingsSection } from './everyday_settings_view';
 import { IdentitySettingsView } from './identity_settings_view';
@@ -205,11 +206,13 @@ export class SettingsView {
   private memory(settings: Settings): HTMLElement[] {
     const groups = groupMemories(this.appState.memories);
     const selected = this.appState.memories.filter((memory) => this.selectedMemoryIds.has(memory.id));
-    const forgettable = selected.filter((memory) => ['pending', 'active'].includes(memory.status));
+    const forgettable = selected.filter(
+      (memory) => memory.access_state === 'grants' && ['pending', 'active'].includes(memory.status),
+    );
     return [
       settingsIntro(
         'Control what carries between conversations',
-        'Only approved active memories enter prompts. Review, forget, or permanently delete them here.',
+        'Only approved, active, current, and authorized memories can enter prompts. Review, forget, or permanently delete them here.',
       ),
       settingsCard([
         selectField(
@@ -266,13 +269,7 @@ export class SettingsView {
       this.memoryGroup('Active', groups.active, 'active'),
       this.memoryGroup('History', groups.history, 'history'),
       el('div', { class: 'persona-card' }, [
-        settingsHeading('Add a manual memory', 'Manual memories are global, immediately active facts you intentionally want the assistant to remember.', 'strong'),
-        el('button', {
-          class: 'pill-btn',
-          textContent: 'Add global memory',
-          'data-testid': 'memory-add',
-          onclick: () => void this.addMemory(),
-        }),
+        settingsHeading('Manual memory sharing', 'The old global-memory shortcut is unavailable because ordinary memories now require explicit persona or workspace access. Fine-grained controls arrive in the next memory-settings slice.', 'strong'),
       ]),
     ];
   }
@@ -455,6 +452,7 @@ export class SettingsView {
   }
 
   private memoryRow(memory: Memory): HTMLElement {
+    const readOnly = memory.access_state === 'legacy_quarantined';
     return el('div', { class: 'memory-row persona-card', 'data-testid': `memory-${memory.id}` }, [
       el('label', { class: 'checkbox-row memory-select' }, [
         el('input', {
@@ -469,14 +467,30 @@ export class SettingsView {
         }),
         'Select',
       ]),
-      textareaField('Memory', memory.content, (value) => { memory.content = value; }, false),
-      el('div', { class: 'meta', textContent: `${memory.status} · ${memory.scope}${memory.confidence === null ? '' : ` · ${Math.round(memory.confidence * 100)}% confidence`} · ${memory.source_type}` }),
+      textareaField(
+        'Memory',
+        memory.content,
+        (value) => { memory.content = value; },
+        false,
+        readOnly
+          ? 'This migrated memory is read-only because its original access and provenance could not be verified.'
+          : undefined,
+        readOnly,
+      ),
+      el('div', {
+        class: 'meta',
+        textContent: `${memory.status} · ${
+          readOnly
+            ? 'migrated memory · read-only'
+            : `${memory.grants.length} explicit ${memory.grants.length === 1 ? 'grant' : 'grants'}`
+        }${memory.confidence === null ? '' : ` · ${Math.round(memory.confidence * 100)}% confidence`} · ${memory.source_type}`,
+      }),
       el('div', { class: 'chips' }, [
-        memory.status === 'pending' ? el('button', { class: 'pill-btn', textContent: 'Approve', onclick: () => void this.memoryAction(memory, 'approve') }) : null,
-        memory.status === 'pending' ? el('button', { class: 'pill-btn', textContent: 'Reject', onclick: () => void this.memoryAction(memory, 'reject') }) : null,
-        ['pending', 'active'].includes(memory.status) ? el('button', { class: 'pill-btn', textContent: 'Forget', onclick: () => void this.memoryAction(memory, 'forget') }) : null,
-        !['superseded'].includes(memory.status) ? el('button', { class: 'pill-btn', textContent: 'Save edit', onclick: () => void this.saveMemory(memory) }) : null,
-        memory.can_undo ? el('button', { class: 'pill-btn', textContent: 'Undo', onclick: () => void this.memoryAction(memory, 'undo') }) : null,
+        !readOnly && memory.status === 'pending' ? el('button', { class: 'pill-btn', textContent: 'Approve', onclick: () => void this.memoryAction(memory, 'approve') }) : null,
+        !readOnly && memory.status === 'pending' ? el('button', { class: 'pill-btn', textContent: 'Reject', onclick: () => void this.memoryAction(memory, 'reject') }) : null,
+        !readOnly && ['pending', 'active'].includes(memory.status) ? el('button', { class: 'pill-btn', textContent: 'Forget', onclick: () => void this.memoryAction(memory, 'forget') }) : null,
+        !readOnly && !['superseded'].includes(memory.status) ? el('button', { class: 'pill-btn', textContent: 'Save edit', onclick: () => void this.saveMemory(memory) }) : null,
+        !readOnly && memory.can_undo ? el('button', { class: 'pill-btn', textContent: 'Undo', onclick: () => void this.memoryAction(memory, 'undo') }) : null,
         el('button', { class: 'icon-btn', textContent: 'History', onclick: () => void this.memoryHistory(memory) }),
         el('button', { class: 'icon-btn danger', textContent: 'Delete', onclick: () => void this.deleteMemory(memory) }),
       ]),
@@ -566,15 +580,8 @@ export class SettingsView {
     this.renderApp();
   }
 
-  private async addMemory(): Promise<void> {
-    const content = await this.dialogs.prompt('Add memory', 'Save an explicit global memory.');
-    if (!content?.trim()) return;
-    await this.client.createMemory('global', null, content.trim());
-    await this.refreshMemories();
-  }
-
   private async saveMemory(memory: Memory): Promise<void> {
-    await this.client.updateMemory(memory.id, memory.scope, memory.scope_id, memory.content);
+    await this.client.updateMemory(memory.id, memory.content);
     await this.refreshMemories();
   }
 
@@ -670,6 +677,8 @@ export class SettingsView {
     const input = personaInput(persona);
     const updated = await this.client.updatePersona(persona.id, input);
     this.appState.personas = this.appState.personas.map((item) => (item.id === updated.id ? updated : item));
+    this.appState.newChatContextKey = '';
+    await refreshChatBindingsAfterSettingsMutation(this.appState, this.client);
     this.renderApp();
   }
 
@@ -677,6 +686,14 @@ export class SettingsView {
     if (!(await this.dialogs.confirm('Delete persona', `Delete ${persona.name}?`, 'Delete'))) return;
     await this.client.deletePersona(persona.id);
     this.appState.personas = this.appState.personas.filter((item) => item.id !== persona.id);
+    if (this.appState.selectedPersonaId === persona.id) {
+      this.appState.selectedPersonaId = this.appState.personas[0]?.id ?? null;
+    }
+    if (this.appState.newChatPersonaId === persona.id) {
+      this.appState.newChatPersonaId = this.appState.personas[0]?.id ?? null;
+    }
+    this.appState.newChatContextKey = '';
+    await refreshChatBindingsAfterSettingsMutation(this.appState, this.client);
     this.renderApp();
   }
 
@@ -692,14 +709,18 @@ export class SettingsView {
     if (!name?.trim()) return;
     const updated = await this.client.updateWorkspace(id, name.trim());
     this.appState.workspaces = this.appState.workspaces.map((item) => (item.id === id ? updated : item));
+    this.appState.newChatContextKey = '';
+    await refreshChatBindingsAfterSettingsMutation(this.appState, this.client);
     this.renderApp();
   }
 
   private async deleteWorkspace(id: string, name: string): Promise<void> {
-    if (!(await this.dialogs.confirm('Delete workspace', `Delete ${name}? It must not contain personas or chats.`, 'Delete'))) return;
+    if (!(await this.dialogs.confirm('Delete workspace', `Delete ${name}? Remove its personas first. Existing chats will remain available as read-only history.`, 'Delete'))) return;
     try {
       await this.client.deleteWorkspace(id);
       this.appState.workspaces = this.appState.workspaces.filter((item) => item.id !== id);
+      this.appState.newChatContextKey = '';
+      await refreshChatBindingsAfterSettingsMutation(this.appState, this.client);
     } catch (error) {
       this.appState.settingsError = errorMessage(error, 'Unable to delete workspace.');
     }

@@ -127,7 +127,8 @@ Baseline-export tests cover bounded safe ZIP validation, current-revision table
 and column validation, owner selection and isolation, every available
 memory/event field, deterministic exact-ID freezing, canonical persona and
 protected non-memory hashes, raw persona discovery independent of
-workspace-link joins, and content-free command output. They prove possible
+workspace-link joins, resolved v3 lifecycle/origin/grant details in both JSON and
+readable output, and content-free command output. They prove possible
 persona-definition detection scans every legacy lifecycle/scope, emits reason
 codes rather than snippets, does not quarantine ordinary persona-scoped facts
 merely because of scope, and expands each protected candidate through its
@@ -156,7 +157,9 @@ and that neither script accepts a live database or apply mode.
 Backup-coverage tests distinguish `not_in_snapshot` from a missing or corrupt
 identity reference. Metadata-only snapshots can verify identity database rows
 but cannot pass a byte-level reference-file preservation gate. Full snapshots
-must match each included reference's bytes to its stored digest.
+must match each selected-owner reference's bytes to its stored digest, and a
+two-owner full snapshot proves that other owners' asset names and hashes never
+enter the selected owner's baseline.
 
 Permission checks require restrictive POSIX mode bits where supported. Windows
 tests require an explicit `windows_acl_not_verified` result; they do not treat
@@ -189,6 +192,61 @@ does not enable activation, and does not claim a quality gate has passed. Its
 command exit status represents execution/contract completion, not whether the
 quality observations are acceptable. Live provider evaluation remains opt-in;
 deterministic fakes and committed synthetic outcomes cover CI.
+
+## Memory v3 Phase 2 identity and access verification
+
+Migration tests upgrade a populated pre-v3 database and require one human
+principal per existing user, `legacy_unresolved` bindings for every old chat,
+and immutable `legacy_migrated` lineage, `legacy_quarantined` records,
+unresolved origins, and zero grants for every old memory. New records have
+immutable `native_v3` lineage. Tests prove the migration preserves row content
+and IDs, rejects relabeling native rows into the legacy reset pool, enforces
+immutable binding/origin and fail-closed validity/grant shapes, rejects grants
+on quarantined records and reset-eligible rows with access ledgers, blocks
+deleting and recreating binding or provenance rows while their underlying
+material exists, and refuses an in-place downgrade without removing quarantine,
+grant, or provenance state. Recovery to the pre-Memory-v3 release requires the
+verified pre-migration backup; none of this authorizes a live reset.
+Grant-ledger migration tests additionally reject target/source/grant-time
+mutation, revocation clearing, direct grant/event deletion, event mutation, and
+cross-memory or cross-human event linkage while proving permanent parent-memory
+deletion still cascades through grant history. Connection tests require
+`recursive_triggers=ON`, and replacement tests prove `INSERT OR REPLACE` cannot
+rewrite bindings, origins, grants, or grant events. Owner-link tests reject
+cross-human chat bindings and memory records.
+
+Chat-binding tests require explicit persona and personal/workspace context for
+new chats; rejection of omitted, malformed, or legacy top-level workspace
+selection; canonical immutable IDs across renames; rejection of update/turn
+rebinding; readable but non-continuable legacy chats; and immediate blocking
+when a persona, workspace, or membership disappears. A queued-turn race test
+removes membership after submission and proves the binding is checked again
+before the provider receives a request. Capability tests require image-edit
+admission, replanning, and retry to revalidate and use the immutable binding
+rather than mutable legacy chat columns. Browser unit and Playwright tests prove
+the new-chat dialog requires and sends explicit context, turn submission omits
+mutable identity fields, and a blocked chat keeps history readable while
+offering no composer or turn API call.
+
+Memory access tests require manual creation to name at least one valid grant,
+atomic complete grant replacement/revocation, revision-linked immutable origins,
+grant history, and source-persona-only manual proposals. Workspace-grant tests
+prove a persona added after the grant can retrieve it only in a workspace-bound
+chat, while personal chat cannot. Retrieval tests prove only approved,
+current, unexpired, active-state records with a matching grant can reach prompt
+context. Legacy quarantined rows cannot affect FTS output or be edited,
+transitioned, undone, or bulk-forgotten; history inspection and explicit
+permanent deletion remain available.
+
+Extraction tests prove every admitted candidate remains pending, receives one
+`automatic_source_persona` grant, and is discarded rather than broadened when
+its source turn/binding no longer validates. Owner-profile tests cover the
+allowlisted explicit GET/PUT contract, credential-shaped-value rejection, and
+field-name-only audit events. They also prove explicitly populated profile
+values reach multiple personas as a separate block even with ordinary memory
+off, without creating a memory row. No Phase 2 test claims automatic
+activation, natural-language administration, correction handling, document
+knowledge, a browser grant/profile editor, or live deletion.
 
 ## Test layers
 
@@ -291,17 +349,20 @@ deterministic fakes and committed synthetic outcomes cover CI.
   shutdown retains the old queue, blocks restart, and permits a stop retry to
   clear the failure only after that queue is idle.
   Deterministic fakes replace live GPU services in CI.
-- Context tests cover multi-worker causal ordering, independent chats, explicit
-  provider allocation, budget accounting, exact memory deduplication, oversized
-  protected content, durable summaries, and degraded summary fallback.
+- Context tests cover multi-worker causal ordering, independent chats, immutable
+  chat-derived identity/access, explicit provider allocation, budget accounting,
+  exact memory deduplication, oversized protected content, durable summaries,
+  and degraded summary fallback.
 - Memory tests cover legacy data migration, exact-duplicate supersession, FTS
-  population/ranking, active-only scoped retrieval, nonblocking extraction,
-  provenance, review transitions, superseding edits, forget/undo, extraction
-  failure, secret-like candidate rejection, forget-versus-delete semantics,
-  permanent history/FTS removal, atomic bulk actions, canonical routes, and owner
-  isolation. They also prove that edited chat-memory proposals remain pending and
-  cannot displace approved correction context before review. Chat data-action
-  tests distinguish bulk hide from permanent delete.
+  population/ranking after authorization, active/current grant retrieval,
+  source-persona-only nonblocking extraction, immutable provenance, typed
+  validity/lifecycle, atomic grant replacement/history, review transitions,
+  superseding edits, forget/undo, extraction failure, secret-like candidate
+  rejection, forget-versus-delete semantics, permanent history/FTS removal,
+  atomic bulk actions, canonical routes, and owner isolation. They also prove
+  that edited chat-memory proposals remain pending and cannot displace approved
+  context before review. Chat data-action tests distinguish bulk hide from
+  permanent delete.
 - Memory baseline/reset tests cover private output-path rejection inside the
   repository, unique artifact creation, no sensitive stdout/logging, schema and
   owner drift, exact persona and non-memory inventory, conservative
@@ -341,6 +402,8 @@ deterministic fakes and committed synthetic outcomes cover CI.
   administrator backup verification action and visible restore-drill result.
   Task Model and Media Catalog settings tests must preserve unsaved edits when
   refresh responses finish late.
+  Chat tests additionally require explicit persona/access-context creation,
+  immutable binding-derived turns, and read-only handling for invalid bindings.
   Playwright runs every browser journey in both a desktop Chromium context and
   a Pixel-class touch context. It waits for and inspects mutation requests
   rather than inferring a completed save from unrelated visible state.
@@ -357,10 +420,11 @@ deterministic fakes and committed synthetic outcomes cover CI.
   endpoint, returns to `idle`, and does not misreport acknowledged cancellation
   as an error.
 - The human-experience scenario gate selects real API and browser tests for
-  200-turn context, corrections, persona switching, memory scope, truthful media
-  wording, independent follow-ups, provider degradation, durable media retry and
-  reload, deterministic image fallback, completed-file Kokoro cleanup and
-  interruption, blur interaction, title reconciliation, and composer access.
+  200-turn context, corrections, persona changes through a fresh isolated chat,
+  memory access boundaries, truthful media wording, independent follow-ups,
+  provider degradation, durable media retry and reload, deterministic image
+  fallback, completed-file Kokoro cleanup and interruption, blur interaction,
+  title reconciliation, and composer access.
 - Deployment acceptance exercises real hardware, HTTPS microphone access,
   provider fallback, restart recovery, and backup restore.
 

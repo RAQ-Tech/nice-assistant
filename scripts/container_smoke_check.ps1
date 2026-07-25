@@ -322,11 +322,11 @@ try {
     -WebSession $session `
     -ContentType 'application/json' `
     -Body (@{
-      workspace_id = $workspace.id
       persona_id = $persona.id
+      access_context = @{ kind = 'workspace'; workspace_id = $workspace.id }
       memory_mode = 'off'
       title = 'Identity fallback smoke'
-    } | ConvertTo-Json)
+    } | ConvertTo-Json -Depth 4)
   $fallbackIdentityTurn = Invoke-RestMethod `
     -Method Post `
     -Uri "$base/api/v1/chats/$($fallbackIdentityChat.id)/turns" `
@@ -509,11 +509,11 @@ try {
     -WebSession $session `
     -ContentType 'application/json' `
     -Body (@{
-      workspace_id = $workspace.id
       persona_id = $persona.id
+      access_context = @{ kind = 'workspace'; workspace_id = $workspace.id }
       memory_mode = 'off'
       title = 'Identity smoke'
-    } | ConvertTo-Json)
+    } | ConvertTo-Json -Depth 4)
   $identityTurn = Invoke-RestMethod `
     -Method Post `
     -Uri "$base/api/v1/chats/$($identityChat.id)/turns" `
@@ -541,14 +541,38 @@ try {
     throw 'installed identity-conditioned plan was incomplete or misleading'
   }
 
-  $schemaRaw = docker exec $name python -c "import sqlite3,json; c=sqlite3.connect('/data/nice_assistant.db'); print(json.dumps({'version':c.execute('SELECT version_num FROM alembic_version').fetchone()[0],'plan_columns':[r[1] for r in c.execute('PRAGMA table_info(media_execution_plans)')],'media_columns':[r[1] for r in c.execute('PRAGMA table_info(media_files)')],'attempt_columns':[r[1] for r in c.execute('PRAGMA table_info(media_generation_attempts)')]}))"
+  $schemaScript = @'
+import json
+import sqlite3
+
+c = sqlite3.connect("/data/nice_assistant.db")
+memory_names = {
+    "human_principals",
+    "owner_profiles",
+    "chat_bindings",
+    "memory_records",
+    "memory_origins",
+    "memory_grants",
+    "memory_grant_events",
+}
+tables = [row[0] for row in c.execute("SELECT name FROM sqlite_master WHERE type='table'")]
+print(json.dumps({
+    "version": c.execute("SELECT version_num FROM alembic_version").fetchone()[0],
+    "plan_columns": [row[1] for row in c.execute("PRAGMA table_info(media_execution_plans)")],
+    "media_columns": [row[1] for row in c.execute("PRAGMA table_info(media_files)")],
+    "attempt_columns": [row[1] for row in c.execute("PRAGMA table_info(media_generation_attempts)")],
+    "memory_tables": sorted(memory_names.intersection(tables)),
+}))
+'@
+  $schemaRaw = docker exec $name python -c $schemaScript
   if ($LASTEXITCODE -ne 0) { throw 'media correction schema inspection failed' }
   $schema = $schemaRaw | ConvertFrom-Json
-  if ($schema.version -ne '0018_human_image_delivery' -or
+  if ($schema.version -ne '0019_memory_v3_identity_access' -or
       $schema.plan_columns -notcontains 'identity_conditioning_json' -or
       $schema.media_columns -notcontains 'generation_plan_id' -or
-      $schema.attempt_columns -notcontains 'attempt_number') {
-    throw 'installed image did not migrate to the media correction schema'
+      $schema.attempt_columns -notcontains 'attempt_number' -or
+      $schema.memory_tables.Count -ne 7) {
+    throw 'installed image did not migrate to the expected media and memory schema'
   }
 
   $withdrawnIdentity = Invoke-RestMethod `
@@ -569,11 +593,16 @@ try {
     -WebSession $session `
     -ContentType 'application/json' `
     -Body (@{
-      workspace_id = $workspace.id
       persona_id = $persona.id
+      access_context = @{ kind = 'workspace'; workspace_id = $workspace.id }
       memory_mode = 'off'
       title = 'New chat'
-    } | ConvertTo-Json)
+    } | ConvertTo-Json -Depth 4)
+  if ($chat.binding.binding_status -ne 'active' -or
+      $chat.binding.persona_id -ne $persona.id -or
+      $chat.binding.context.workspace_id -ne $workspace.id) {
+    throw 'container chat did not retain its explicit identity/access binding'
+  }
   $accepted = Invoke-RestMethod `
     -Method Post `
     -Uri "$base/api/v1/chats/$($chat.id)/turns" `

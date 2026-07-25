@@ -15,8 +15,16 @@ change that alters them.
 - Per-chat causal turn execution, provider-aware context budgets, exact saved
   memory deduplication, append-only summary checkpoints, and turn accounting.
 - Review-first memory candidates, provenance, status/history, revision
-  supersession, forget/undo, scope archival, active-only scoped FTS retrieval,
-  and editable pending proposals from the chat transcript.
+  supersession, forget/undo, explicit permanent deletion, and editable pending
+  proposals from the chat transcript.
+- Memory v3 Phase 2 human principals, explicit immutable new-chat
+  persona/access binding, readable/non-continuable legacy chats, immutable
+  memory origins, revocable persona/workspace grants and grant history,
+  durable/temporal/stateful validity metadata, source-persona-only pending
+  extraction, and authorization before lexical ranking.
+- An allowlisted explicit owner-profile GET/PUT API with field-name-only audit
+  events and separate universal prompt injection. Extraction cannot populate
+  the profile.
 - Strict TypeScript/Vite browser modules for API transport, state/routing,
   settings, chat/rendering, media, recording, playback, and visualization, with
   Vitest/Playwright coverage and deterministic generated assets.
@@ -95,12 +103,18 @@ change that alters them.
 - Provider cancellation is cooperative; providers without interrupt support may
   finish work whose result is then discarded.
 - Memory retrieval is lexical FTS plus recency; semantic retrieval remains an
-  optional future interface rather than implied functionality.
-- ADRs 0026–0028 and the Memory and Knowledge v3 plan are accepted target
-  architecture, but immutable chat bindings, human principals, origins and
-  grants, grounded automatic activation, temporal/stateful lifecycle, owner
-  profiles, and versioned document knowledge are not yet runtime behavior.
-  Memory v2 remains review-first and single-scope until those phases ship.
+  optional future interface rather than implied functionality. The shipped
+  query authorizes by human, immutable chat binding, current membership, active
+  grant, and validity/lifecycle before lexical rank or recency fallback.
+- ADRs 0026–0028 and the Memory and Knowledge v3 plan remain the target
+  architecture. Phase 2 now ships immutable chat bindings, human principals,
+  origins/grants, typed validity/lifecycle, source-persona-only pending
+  extraction, and an API-managed owner profile with separate universal prompt
+  injection. The full owner-profile/grant
+  settings experience, disclosure/confirmation flow, grounded qualification,
+  automatic activation, automatic correction/state transitions, and versioned
+  document knowledge remain future phases. Review-first pending extraction
+  remains the production policy.
 - The offline baseline tools have not produced or reviewed an owner deployment
   export merely by being implemented. They still require a verified private
   snapshot. A live reset executor is intentionally absent and requires a fresh
@@ -111,9 +125,11 @@ change that alters them.
   owner-only access is unverified, and automated ACL establishment remains
   future hardening rather than a claimed guarantee.
 - Legacy Memory v2 records do not retain a reliable immutable source-persona
-  binding or an extractor qualification rationale. The baseline must label
-  those fields unavailable rather than reconstruct them from a chat's mutable
-  current persona or model confidence.
+  binding or an extractor qualification rationale. Migration preserves them as
+  `legacy_quarantined` with unresolved provenance, unknown validity/type, and no
+  grants. The private baseline and future controls must keep unavailable fields
+  explicit rather than reconstructing them from an old chat scope or model
+  confidence.
 - Possible persona-definition detection in legacy memory is a conservative
   deterministic quarantine aid, not a semantic classifier. False positives
   require private owner review, and complete supersession/related-event closure
@@ -168,6 +184,15 @@ change that alters them.
 
 ## Placeholder or unimplemented
 
+- Memory v3 Phase 3 owner controls: browser owner-profile editing, searchable
+  persona/workspace access and origin views, grant editing, disclosures,
+  pending-depth warning, and confirmation-gated natural-language
+  administration.
+- Grounded automatic memory qualification/activation, automatic conversational
+  correction and lifecycle transitions, and confidence-independent quality
+  gates. Phase 2 keeps every automatic candidate pending.
+- Protected document upload/versioning, document grants, indexing, reference
+  knowledge, and claim-level citations.
 - Realtime/streaming TTS; no endpoint is advertised until Step 11 implements it.
 - Local STT; the setting is retained for migration compatibility but disabled in
   the UI until an adapter exists.

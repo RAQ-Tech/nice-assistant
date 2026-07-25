@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Create private Memory v2 baseline artifacts from a Nice Assistant snapshot."""
+"""Create private Memory v3 baseline artifacts from a Nice Assistant snapshot."""
 
 from __future__ import annotations
 

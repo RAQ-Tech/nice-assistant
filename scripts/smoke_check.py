@@ -433,14 +433,23 @@ def run_smoke_check() -> dict:
                 base_url,
                 "/api/v1/chats",
                 {
-                    "workspace_id": workspace["id"],
                     "persona_id": persona["id"],
+                    "access_context": {
+                        "kind": "workspace",
+                        "workspace_id": workspace["id"],
+                    },
                     "memory_mode": "saved",
                     "title": "Smoke chat",
                 },
                 cookie=cookie,
             )
             assert_status(status, 200, "chat create")
+            if (
+                chat.get("binding", {}).get("binding_status") != "active"
+                or chat.get("binding", {}).get("persona_id") != persona["id"]
+                or chat.get("binding", {}).get("context", {}).get("workspace_id") != workspace["id"]
+            ):
+                raise AssertionError(f"chat did not retain its explicit identity/access binding: {chat}")
             status, accepted, _headers = json_request(
                 "POST",
                 base_url,

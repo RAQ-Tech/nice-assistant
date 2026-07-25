@@ -13,13 +13,15 @@ class BulkDataActionTests(unittest.TestCase):
     def test_forget_and_delete_are_distinct_and_bulk_memory_delete_removes_history_and_fts(self):
         with tempfile.TemporaryDirectory() as tmp, TestApp(Path(tmp)) as running:
             user_id = running.create_and_login()
+            _workspace, persona = running.ensure_bound_persona()
+            grants = [{"grant_type": "persona", "target_id": persona["id"]}]
             first = running.client.post(
                 "/api/v1/memories",
-                json={"scope": "global", "content": "The first durable memory."},
+                json={"content": "The first durable memory.", "grants": grants},
             ).json()
             second = running.client.post(
                 "/api/v1/memories",
-                json={"scope": "global", "content": "The second durable memory."},
+                json={"content": "The second durable memory.", "grants": grants},
             ).json()
 
             forgotten = running.client.post(
@@ -51,15 +53,23 @@ class BulkDataActionTests(unittest.TestCase):
     def test_bulk_memory_actions_are_atomic_and_owner_scoped(self):
         with tempfile.TemporaryDirectory() as tmp, TestApp(Path(tmp)) as running:
             running.create_and_login("owner")
+            _owner_workspace, owner_persona = running.ensure_bound_persona()
             owner_memory = running.client.post(
                 "/api/v1/memories",
-                json={"scope": "global", "content": "Owner memory."},
+                json={
+                    "content": "Owner memory.",
+                    "grants": [{"grant_type": "persona", "target_id": owner_persona["id"]}],
+                },
             ).json()
             owner_cookie = running.client.cookies.get("nice_assistant_session")
             running.create_and_login("member")
+            _member_workspace, member_persona = running.ensure_bound_persona()
             member_memory = running.client.post(
                 "/api/v1/memories",
-                json={"scope": "global", "content": "Member memory."},
+                json={
+                    "content": "Member memory.",
+                    "grants": [{"grant_type": "persona", "target_id": member_persona["id"]}],
+                },
             ).json()
 
             denied = running.client.post(
@@ -80,8 +90,8 @@ class BulkDataActionTests(unittest.TestCase):
     def test_chat_hide_and_delete_are_distinct_bulk_actions(self):
         with tempfile.TemporaryDirectory() as tmp, TestApp(Path(tmp)) as running:
             running.create_and_login()
-            hidden = running.client.post("/api/v1/chats", json={"title": "Hide me"}).json()
-            deleted = running.client.post("/api/v1/chats", json={"title": "Delete me"}).json()
+            hidden = running.create_chat({"title": "Hide me"})
+            deleted = running.create_chat({"title": "Delete me"})
             turn = running.client.post(
                 f"/api/v1/chats/{deleted['id']}/turns",
                 json={"text": "Create durable transcript state.", "memory_mode": "off"},
@@ -119,7 +129,7 @@ class BulkDataActionTests(unittest.TestCase):
         provider = FakeChatProvider(gate=gate)
         with tempfile.TemporaryDirectory() as tmp, TestApp(Path(tmp), chat_provider=provider) as running:
             running.create_and_login()
-            chat = running.client.post("/api/v1/chats", json={"title": "Active chat"}).json()
+            chat = running.create_chat({"title": "Active chat"})
             turn = running.client.post(
                 f"/api/v1/chats/{chat['id']}/turns",
                 json={"text": "Wait for the gate.", "memory_mode": "off"},

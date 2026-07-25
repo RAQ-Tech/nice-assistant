@@ -844,7 +844,7 @@ class MediaRecoveryTests(unittest.TestCase):
                 "/api/v1/settings",
                 json={"preferences": {"image_provider": "local/automatic1111"}},
             )
-            chat = running.client.post("/api/v1/chats", json={"memory_mode": "off"}).json()
+            chat = running.create_chat({"memory_mode": "off"})
             started = running.client.post(
                 "/api/v1/media/image-jobs",
                 json={"prompt": "a garden", "chat_id": chat["id"]},

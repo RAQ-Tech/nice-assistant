@@ -5,10 +5,11 @@ import shutil
 import subprocess
 import time
 
+from app.chat_binding import resolve_chat_binding
 from app.provider_contracts import ProviderError
 from app.providers import user_safe_provider_error
 from app.repositories import UnitOfWork
-from app.service_errors import NotFoundError, RequestError
+from app.service_errors import ConflictError, NotFoundError, RequestError
 from app.speech_clients import kokoro_list_voices, kokoro_speech, openai_speech, openai_stt
 from app.storage import write_artifact_atomic
 
@@ -63,12 +64,18 @@ class SpeechService:
             repo = uow.repo
             settings = repo.settings(user_id)
             persona_id = values.get("persona_id")
+            chat_id = values.get("chat_id")
+            chat = repo.chat(user_id, chat_id) if chat_id else None
+            if chat_id and not chat:
+                raise NotFoundError("chat not found")
+            if chat:
+                binding = resolve_chat_binding(repo, user_id, chat)
+                if persona_id and persona_id != binding.persona_id:
+                    raise ConflictError("Speech playback cannot use a different persona than this chat.")
+                persona_id = binding.persona_id
             persona = repo.persona(user_id, persona_id) if persona_id else None
             if persona_id and not persona:
                 raise NotFoundError("persona not found")
-            chat_id = values.get("chat_id")
-            if chat_id and not repo.chat(user_id, chat_id):
-                raise NotFoundError("chat not found")
             if not settings or settings["tts_provider"] == "disabled":
                 raise RequestError("TTS disabled", 400)
             provider = settings["tts_provider"]

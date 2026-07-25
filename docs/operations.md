@@ -515,6 +515,26 @@ owner scoped and atomic, and permanent chat deletion is rejected while linked
 jobs are queued or running. Generated media, audio, and completed job/audit
 records remain independently retained when a chat is deleted.
 
+Memory v3 Phase 2 changes the authorization boundary without running a memory
+reset. New-chat creation requires an explicit persona and either personal or
+one named workspace context. That binding is immutable; changing the selected
+model or restarting Ollama/the application does not alter it. After migration,
+old chat transcripts remain available but are intentionally read-only because
+their binding is `legacy_unresolved`. If an active workspace chat loses its
+workspace or persona membership, it also becomes read-only. The operator should
+start a new chat after restoring or choosing the intended access context rather
+than editing database binding rows.
+
+New automatic candidates remain pending and receive one source-persona grant,
+even in workspace chats. Manual `POST /api/v1/memories` calls must name at least
+one persona/workspace grant. Grant replacement is an atomic full-set operation
+at `PUT /api/v1/memories/{id}/grants`; an empty set revokes all current access
+without deleting memory content or origin. Owner-profile mutation is
+explicit-only and has no Settings interface in Phase 2. Populated allowlisted
+profile values are supplied separately to every valid persona prompt, including
+when ordinary saved memory is off. Use these contracts as an administrative
+foundation, not as a substitute for the Phase 3 owner-control experience.
+
 ## Backup and migration recovery
 
 Database backups use SQLite's online backup API and are integrity-checked before
@@ -550,15 +570,24 @@ per-image approval, and recovers only proven, existing legacy chat outputs.
 The migration also repairs existing generated image/video files to
 host-readable `0644` where supported; identity references, databases, and
 secrets remain private.
+Migration `0019_memory_v3_identity_access` adds one human principal and blank
+owner profile per existing user, immutable chat bindings, typed memory records,
+immutable origins, revocable grants, and grant/profile audit events. It marks
+all existing chats `legacy_unresolved` and all existing memories
+`legacy_quarantined` with immutable `legacy_migrated` lineage, unknown
+validity/type, and no grants. New records use immutable `native_v3` lineage. It
+preserves the old rows, content, IDs, persona definitions, and workspace links;
+it does not infer authorization, run the offline reset plan, or delete live
+data.
 Startup first reconciles an already-persisted generated artifact, then marks
 truly interrupted queued/running attachments failed and retryable; it never
 restarts provider work.
-Schema migrations are
-forward-only. Rollback means
-stopping the service,
+Schema migrations are forward-only. Rollback means stopping the service,
 restoring the verified pre-migration backup, restoring the previous application
-image, and then restarting. Do not use `alembic downgrade` as a production
-recovery mechanism.
+image, and then restarting. Migration `0019` refuses an in-place downgrade so
+that removing binding, quarantine, provenance, or grant metadata cannot silently
+broaden access. Do not use `alembic downgrade` as a production recovery
+mechanism.
 
 Before relying on a snapshot, an admin can call
 `POST /api/v1/admin/backups/{name}/verify`, or run the offline, non-mutating
@@ -577,8 +606,9 @@ key.
 
 ### Private Memory v3 baseline and disposable reset drill
 
-The accepted Memory and Knowledge v3 plan begins with offline evidence, not a
-live reset. These tools accept a Nice Assistant snapshot ZIP only. They do not
+The accepted Memory and Knowledge v3 plan began with offline evidence, not a
+live reset. Phase 2's nondestructive migration does not change that safety
+boundary. These tools accept a Nice Assistant snapshot ZIP only. They do not
 connect to the running application or configured database, and neither command
 has an apply or live-data mode.
 
@@ -605,12 +635,20 @@ ZIP, the extracted database, and safety headroom. The source snapshot is never
 modified. The exporter then creates unique private JSON and readable text
 artifacts, inventories every available legacy memory field and event, freezes
 the exact memory-ID population, and records canonical persona and protected
-non-memory digests. Possible persona-definition or instruction material is
-conservatively assigned to a proposed quarantine set. Supersession and
-related-event links expand that set to a complete revision closure; the reset
-candidate set contains only the remaining exact frozen IDs. Missing legacy
-rationale or immutable origin-persona metadata is labeled unavailable rather
-than reconstructed.
+non-memory digests. The JSON and readable report include each v3 record's typed
+lifecycle, immutable origin, persona/workspace grants, grant/revocation
+timestamps and actors, and append-only grant events. Reset eligibility is
+limited to exact records with immutable `legacy_migrated` lineage that remain
+marked `legacy_quarantined`; `native_v3` records are always in the keep set.
+Any access-grant ledger on an otherwise reset-eligible legacy row makes the
+baseline fail closed. Possible persona-definition or instruction material
+among those eligible legacy records is conservatively assigned to a proposed
+quarantine set. Supersession, origin revision, and related-event links expand
+that set to a complete revision closure. If a component also contains a native
+v3 record, its eligible legacy members are quarantined rather than deleted.
+Missing legacy rationale or unresolved Memory v2 origin metadata is labeled
+unavailable rather than reconstructed; resolved v3 provenance is reported from
+its immutable row.
 
 Standard output is content-free: it reports counts, digests, and the local
 permission-verification result, but not artifact paths, owner IDs, memory text,
@@ -636,11 +674,14 @@ database path or output/apply option and cannot delete live memory.
 Snapshot type affects what persona preservation can prove. Both full and
 metadata-only snapshots contain core persona, workspace-link, voice/model,
 visual-identity metadata, validation, and audit rows in SQLite. Only a full
-snapshot contains identity-reference image bytes. For a metadata-only snapshot,
-the exporter reports those bytes as `not_in_snapshot`; that state is not
-evidence that the deployed file is missing, and the drill cannot claim
-byte-level identity-reference preservation. Use a full snapshot when that proof
-is required.
+snapshot contains identity-reference image bytes. Asset names and hashes are
+reported only for references belonging to the selected owner; other accounts'
+archive members are neither inventoried nor emitted. For a metadata-only
+snapshot, the exporter reports those bytes as
+`not_included_by_metadata_only_snapshot`; that state is not evidence that the
+deployed file is missing, and the drill cannot claim byte-level
+identity-reference preservation. Use a full snapshot when that proof is
+required.
 
 Implementing or running these commands does not create a production baseline by
 itself. Record that a private export exists only after the intended owner has

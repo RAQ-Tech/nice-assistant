@@ -11,6 +11,16 @@ function chatWithTitle(title: string): Chat {
     id: 'chat-1',
     workspace_id: null,
     persona_id: 'persona-1',
+    binding: {
+      human_id: 'human-1',
+      persona_id: 'persona-1',
+      persona_name: 'Persona One',
+      binding_status: 'active',
+      context: { kind: 'personal', workspace_id: null, workspace_name: null },
+      can_continue: true,
+      block_code: null,
+      block_message: null,
+    },
     model_override: 'persona-model',
     memory_mode: 'saved',
     title,
@@ -58,16 +68,48 @@ function readyState(chat: Chat) {
 }
 
 describe('ChatController', () => {
-  it('creates chats with the server-recognized automatic-title placeholder', async () => {
+  it('creates chats only with an explicit persona and access context', async () => {
     const appState = createState();
+    appState.personas = [{
+      id: 'persona-1',
+      workspace_id: 'workspace-1',
+      workspace_ids: ['workspace-1'],
+      name: 'Persona One',
+      avatar_url: null,
+      system_prompt: null,
+      personality_details: null,
+      traits: {},
+      default_model: 'persona-model',
+      allow_image_sends: true,
+      preferred_voice: null,
+      preferred_tts_model: null,
+      preferred_tts_speed: null,
+      preferred_voice_openai: null,
+      preferred_tts_model_openai: null,
+      preferred_tts_speed_openai: null,
+      preferred_voice_local: null,
+      preferred_tts_model_local: null,
+      preferred_tts_speed_local: null,
+      created_at: 1,
+    }];
     appState.settings = {
       global_default_model: 'persona-model',
       default_memory_mode: 'saved',
     } as Settings;
     const chat: Chat = {
       id: 'chat-1',
-      workspace_id: null,
-      persona_id: null,
+      workspace_id: 'workspace-1',
+      persona_id: 'persona-1',
+      binding: {
+        human_id: 'human-1',
+        persona_id: 'persona-1',
+        persona_name: 'Persona One',
+        binding_status: 'active',
+        context: { kind: 'workspace', workspace_id: 'workspace-1', workspace_name: 'Workspace One' },
+        can_continue: true,
+        block_code: null,
+        block_message: null,
+      },
       model_override: 'persona-model',
       memory_mode: 'saved',
       title: 'New chat',
@@ -83,9 +125,16 @@ describe('ChatController', () => {
       client,
     );
 
-    await controller.create();
+    await controller.create({
+      personaId: 'persona-1',
+      context: { kind: 'workspace', workspaceId: 'workspace-1' },
+    });
 
-    expect(client.createChat).toHaveBeenCalledWith(expect.objectContaining({ title: 'New chat' }));
+    expect(client.createChat).toHaveBeenCalledWith(expect.objectContaining({
+      title: 'New chat',
+      persona_id: 'persona-1',
+      access_context: { kind: 'workspace', workspace_id: 'workspace-1' },
+    }));
   });
 
   it('clears request-scoped identity setup context when switching chats', async () => {
@@ -94,6 +143,11 @@ describe('ChatController', () => {
     appState.currentChat = {
       id: 'chat-a', workspace_id: null, persona_id: 'persona-a', model_override: null,
       memory_mode: 'saved', title: 'Chat A', hidden_in_ui: false, created_at: 1, updated_at: 1,
+      binding: {
+        human_id: 'human-1', persona_id: 'persona-a', persona_name: 'Persona A',
+        binding_status: 'active', context: { kind: 'personal', workspace_id: null, workspace_name: null },
+        can_continue: true, block_code: null, block_message: null,
+      },
     };
     appState.mediaCatalogIdentitySetupIntent = {
       capability_request_id: 'request-a', chat_id: 'chat-a', persona_id: 'persona-a',
@@ -103,6 +157,11 @@ describe('ChatController', () => {
     const nextChat: Chat = {
       id: 'chat-b', workspace_id: null, persona_id: 'persona-b', model_override: null,
       memory_mode: 'saved', title: 'Chat B', hidden_in_ui: false, created_at: 2, updated_at: 2,
+      binding: {
+        human_id: 'human-1', persona_id: 'persona-b', persona_name: 'Persona B',
+        binding_status: 'active', context: { kind: 'personal', workspace_id: null, workspace_name: null },
+        can_continue: true, block_code: null, block_message: null,
+      },
     };
     const client = {
       chat: vi.fn().mockResolvedValue({ chat: nextChat, messages: [] }),
@@ -144,6 +203,33 @@ describe('ChatController', () => {
       chat.id,
       expect.objectContaining({ text: 'Please pause and answer this instead' }),
     );
+    const submitted = client.createTurn.mock.calls[0]?.[1];
+    expect(submitted).not.toHaveProperty('persona_id');
+    expect(submitted).not.toHaveProperty('workspace_id');
+  });
+
+  it('does not add optimistic messages or call the API for a blocked chat', async () => {
+    const chat = chatWithTitle('Read-only history');
+    chat.binding = {
+      ...chat.binding,
+      can_continue: false,
+      block_code: 'persona_not_in_workspace',
+      block_message: 'This persona is no longer available in this workspace.',
+    };
+    const appState = readyState(chat);
+    const client = { createTurn: vi.fn() };
+    const controller = new ChatController(
+      { stop: vi.fn() } as unknown as PlaybackController,
+      appState,
+      new ClientStateMachine(appState),
+      client as unknown as ApiClient,
+    );
+
+    await controller.send('Do not queue this');
+
+    expect(client.createTurn).not.toHaveBeenCalled();
+    expect(appState.messages).toEqual([]);
+    expect(appState.uiError).toContain('no longer available');
   });
 
   it('renders the generated chat title before waiting for speech synthesis', async () => {

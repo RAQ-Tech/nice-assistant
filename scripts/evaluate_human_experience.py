@@ -16,8 +16,8 @@ ROOT = Path(__file__).resolve().parents[1]
 BACKEND_SCENARIOS = (
     "tests.test_context_service.ContextServiceTests.test_two_hundred_turn_transcript_stays_inside_budget",
     "tests.test_human_experience_scenarios.HumanExperienceScenarioTests.test_a_pending_correction_cannot_silently_replace_approved_memory",
-    "tests.test_human_experience_scenarios.HumanExperienceScenarioTests.test_persona_switching_changes_the_next_turn_without_leaking_the_prior_persona",
-    "tests.test_memory_v2.MemoryV2Tests.test_only_approved_scoped_fts_results_reach_context",
+    "tests.test_human_experience_scenarios.HumanExperienceScenarioTests.test_changing_personas_requires_a_new_chat_and_does_not_copy_prior_history",
+    "tests.test_memory_v2.MemoryV2Tests.test_only_current_granted_approved_records_reach_context",
     "tests.test_async_jobs.AsyncJobTests.test_premature_persona_media_claim_is_never_streamed_or_persisted",
     "tests.test_async_jobs.AsyncJobTests.test_title_and_capability_followups_are_distinct_jobs_after_reply_delivery",
     "tests.test_context_service.ContextServiceTests.test_summary_failure_degrades_without_failing_main_turn",
@@ -52,8 +52,8 @@ def main() -> int:
             "conversation_integrity": [
                 "long conversations",
                 "corrections",
-                "persona switching",
-                "memory boundaries",
+                "persona changes through fresh chats",
+                "memory grant boundaries",
                 "truthful media claims",
                 "reply critical-path ordering",
             ],

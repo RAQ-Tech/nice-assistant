@@ -128,6 +128,16 @@ describe('durable chat attachments', () => {
     appState.currentChat = {
       id: 'chat-1', workspace_id: null, persona_id: null, model_override: null, memory_mode: 'saved',
       title: 'Memory proposal', hidden_in_ui: false, created_at: 1, updated_at: 1,
+      binding: {
+        human_id: 'human-1',
+        persona_id: 'persona-1',
+        persona_name: 'Avery',
+        binding_status: 'active',
+        context: { kind: 'personal', workspace_id: null, workspace_name: null },
+        can_continue: true,
+        block_code: null,
+        block_message: null,
+      },
     };
     const proposeMemory = vi.fn().mockResolvedValue({});
     const client = {
@@ -149,7 +159,7 @@ describe('durable chat attachments', () => {
     (node.querySelector('[title="Propose a memory fact"]') as HTMLButtonElement).click();
 
     await vi.waitFor(() => expect(proposeMemory).toHaveBeenCalledWith(
-      'chat', 'chat-1', 'The user prefers concise answers.', 'message-1',
+      'The user prefers concise answers.', 'message-1',
     ));
     expect(appState.statusText).toBe('Memory fact proposed for review');
   });

@@ -5,6 +5,29 @@ is submitted. Turns in one chat execute in durable sequence; separate chats may
 run concurrently. Later queued user messages are outside an earlier turn's
 context boundary.
 
+## Chat identity and access boundary
+
+Every new chat is permanently bound to one explicitly chosen persona and one
+explicit context: personal, or a named workspace in which that persona is a
+current member. The API and browser do not silently select a persona or infer a
+workspace. Persona/workspace IDs supplied to deprecated update or turn fields
+cannot rebind the chat; a different identity requires a new chat.
+
+The binding is stored independently of model choice. Selecting another model
+for a later turn, restarting Ollama, or restarting Nice Assistant does not
+change the chat's persona or access context. Current persona/workspace names are
+resolved for display while the immutable IDs and original name snapshots remain
+durable.
+
+Chats migrated from before this contract are `legacy_unresolved`: their
+transcript remains readable, but they cannot continue. An otherwise active chat
+also becomes non-continuable if its human principal, persona, or workspace is
+gone, or if its persona is no longer a member of the bound workspace. The
+service checks this before writing a turn and again when queued work starts,
+before provider invocation. Chat-bound title, capability-planning, and
+memory-extraction follow-ups repeat the same binding check immediately before
+their external model call and again before applying a result.
+
 ## Authority and freshness
 
 Instruction authority is application policy, persona instructions, the current
@@ -57,16 +80,36 @@ individually oversized prior turn may use a labeled head-and-tail excerpt.
 
 `saved` uses active memories and enables post-turn candidate extraction; `off`
 uses none and creates no candidates. The old `auto` and `manual` values migrate
-to `saved`. Extraction creates pending review rows after conversation completion;
-pending, rejected, forgotten, and superseded rows never enter prompts.
+to `saved`. Extraction creates pending review rows after conversation completion
+and grants each new candidate only to the immutable source persona, including
+inside a workspace chat. The extractor cannot choose access and Phase 2 never
+automatically activates a candidate.
 
 Memory comparison uses Unicode normalization, case folding, and whitespace
-collapse. Exact duplicates prefer chat, persona, workspace, then global scope;
-the newest entry wins within one scope. Fuzzy matching is intentionally avoided.
-Existing legacy memories are retained with honest legacy provenance. Exact live
-duplicates in one scope are represented as a supersession chain, and verbatim
-transcript duplicates are not injected. FTS relevance plus recency bounds the
-owner-scoped candidate set before token-budget selection.
+collapse. Exact duplicates for the same source persona are skipped; revision
+edits preserve a supersession chain. Fuzzy matching is intentionally avoided,
+and verbatim transcript duplicates are not injected.
+
+Retrieval derives authorization from the durable chat binding rather than from
+mutable request parameters. It verifies the human principal, current persona,
+workspace existence/membership when applicable, active unrevoked
+persona/workspace grants, lifecycle state, and temporal validity before lexical
+FTS matching or recency fallback. Authorized FTS matches use deterministic
+recency ordering rather than BM25 statistics from the global memory corpus, so
+an unauthorized persona or owner cannot affect prompt selection. A personal
+chat receives persona-granted memory only. A workspace chat may also receive
+memory granted to that workspace, which means a persona added to the workspace
+later can use its existing workspace-granted knowledge. Removing that
+membership removes access immediately.
+
+Pending, rejected, forgotten, superseded, stale, expired, completed, and
+cancelled memories never enter prompts. Existing pre-v3 rows are retained as
+`legacy_quarantined` with no grants and are likewise excluded.
+
+The universal owner profile is deliberately separate from ordinary memories.
+Its explicitly populated allowlisted values are added to a labeled profile
+block for every valid persona, including when ordinary saved memory is `off`.
+The extractor cannot populate or alter it.
 
 ## Long-chat compaction
 

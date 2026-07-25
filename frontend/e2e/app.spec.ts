@@ -1,4 +1,5 @@
 import { expect, type Page, test } from '@playwright/test';
+import type { Chat } from '../src/types';
 
 const session = { user_id: 'user-1', expires_at: 4_000_000_000, ttl_seconds: 1800, is_admin: true };
 const workspace = { id: 'workspace-1', name: 'Main Workspace', created_at: 100 };
@@ -23,6 +24,20 @@ const persona = {
   preferred_tts_model_local: null,
   preferred_tts_speed_local: null,
   created_at: 100,
+};
+const workspaceBinding: Chat['binding'] = {
+  human_id: 'human-1',
+  persona_id: persona.id,
+  persona_name: persona.name,
+  binding_status: 'active',
+  context: {
+    kind: 'workspace',
+    workspace_id: workspace.id,
+    workspace_name: workspace.name,
+  },
+  can_continue: true,
+  block_code: null,
+  block_message: null,
 };
 const settings = {
   global_default_model: 'demo',
@@ -141,7 +156,43 @@ test('typed chat streams a turn and persists the canonical result', async ({ pag
   await expect(page.getByTestId('client-phase')).toHaveText('Idle');
   expect(fixture.turnBody?.text).toBe('Hello there');
   expect(fixture.turnBody?.model_settings.context_window_tokens).toBe(4096);
-  expect(fixture.turnBody).toHaveProperty('workspace_id', workspace.id);
+  expect(fixture.turnBody).not.toHaveProperty('workspace_id');
+  expect(fixture.turnBody).not.toHaveProperty('persona_id');
+});
+
+test('new chats require and submit an explicit persona and access context', async ({ page }) => {
+  const fixture = await installAuthenticatedFixture(page);
+  await page.goto('/#/chats/chat-1');
+
+  await page.getByRole('button', { name: '☰' }).click();
+  await page.getByTestId('new-chat').click();
+  await expect(page.getByRole('dialog').getByText('Start a new chat')).toBeVisible();
+  await expect(page.getByTestId('new-chat-confirm')).toBeDisabled();
+  await page.getByTestId('new-chat-context').selectOption(`workspace:${workspace.id}`);
+  await page.getByTestId('new-chat-confirm').click();
+
+  await expect.poll(() => fixture.chatBody).not.toBeNull();
+  expect(fixture.chatBody).toMatchObject({
+    persona_id: persona.id,
+    access_context: {
+      kind: 'workspace',
+      workspace_id: workspace.id,
+    },
+  });
+  expect(fixture.chatBody).not.toHaveProperty('workspace_id');
+});
+
+test('invalidated chat bindings keep history visible and replace the composer with a read-only state', async ({ page }) => {
+  const fixture = await installAuthenticatedFixture(page, { blockedChat: true });
+  await page.goto('/#/chats/chat-1');
+
+  await expect(page.getByText('Earlier reply')).toBeVisible();
+  await expect(page.getByTestId('chat-binding-blocked')).toContainText('This chat is read-only');
+  await expect(page.getByTestId('chat-binding-blocked')).toContainText('no longer available');
+  await expect(page.getByTestId('chat-input')).toHaveCount(0);
+  await page.getByTestId('chat-binding-blocked').getByRole('button', { name: 'Start a new chat' }).click();
+  await expect(page.getByRole('dialog').getByText('Start a new chat')).toBeVisible();
+  expect(fixture.turnBody).toBeNull();
 });
 
 test('completed turns refresh the generated chat title in the visible header', async ({ page }) => {
@@ -381,7 +432,7 @@ test('visual identity guides reference setup without exposing internal media IDs
 test('model video requests remain pending until the user approves them', async ({ page }) => {
   const chat = {
     id: 'chat-1', workspace_id: workspace.id, persona_id: persona.id, model_override: 'demo', memory_mode: 'saved',
-    title: 'Capability chat', hidden_in_ui: false, created_at: 100, updated_at: 100,
+    binding: workspaceBinding, title: 'Capability chat', hidden_in_ui: false, created_at: 100, updated_at: 100,
   };
   const messages = [
     { id: 'user-1', role: 'user', text: 'Show me a garden video', created_at: 100 },
@@ -448,9 +499,10 @@ test('model video requests remain pending until the user approves them', async (
 
 async function installAuthenticatedFixture(
   page: Page,
-  options: { holdMedia?: boolean; renameOnTurn?: boolean } = {},
+  options: { holdMedia?: boolean; renameOnTurn?: boolean; blockedChat?: boolean } = {},
 ): Promise<{
   requestedPaths: string[];
+  chatBody: Record<string, unknown> | null;
   turnBody: CapturedTurnBody | null;
   memoryApproved: boolean;
   settingsUpdated: boolean;
@@ -461,6 +513,7 @@ async function installAuthenticatedFixture(
 }> {
   const result: {
     requestedPaths: string[];
+    chatBody: Record<string, unknown> | null;
     turnBody: CapturedTurnBody | null;
     memoryApproved: boolean;
     settingsUpdated: boolean;
@@ -470,6 +523,7 @@ async function installAuthenticatedFixture(
     mediaCancelled: boolean;
   } = {
     requestedPaths: [],
+    chatBody: null,
     turnBody: null,
     memoryApproved: false,
     settingsUpdated: false,
@@ -478,10 +532,18 @@ async function installAuthenticatedFixture(
     mediaCatalogUpdated: false,
     mediaCancelled: false,
   };
-  let chat = {
+  let chat: Chat = {
     id: 'chat-1',
     workspace_id: workspace.id,
     persona_id: persona.id,
+    binding: options.blockedChat
+      ? {
+          ...workspaceBinding,
+          can_continue: false,
+          block_code: 'persona_not_in_workspace',
+          block_message: 'This persona is no longer available in this workspace.',
+        }
+      : workspaceBinding,
     model_override: 'demo',
     memory_mode: 'saved',
     title: 'Existing chat',
@@ -512,8 +574,32 @@ async function installAuthenticatedFixture(
     reviewed_at: null as number | null,
     forgotten_at: null,
     can_undo: false,
+    access_state: 'grants',
+    memory_type: 'durable',
+    validity_status: 'current',
+    valid_until: null,
+    stateful_status: null,
+    last_confirmed_at: 102,
+    origin: {
+      source_kind: 'conversation',
+      source_chat_id: chat.id,
+      source_persona_id: persona.id,
+      source_workspace_id: workspace.id,
+      source_message_id: 'user-old',
+      source_turn_id: 'turn-old',
+      provenance_status: 'resolved',
+      revision_of_memory_id: null,
+    },
+    grants: [{
+      id: 'grant-1',
+      grant_type: 'persona',
+      target_id: persona.id,
+      grant_source: 'automatic_source_persona',
+      granted_at: 102,
+    }],
   };
   let mediaResource = { ...baseMediaResource };
+  let createdChat: Chat | null = null;
   let explicitCapability: Record<string, unknown> | null = null;
   let explicitAttachment: ReturnType<typeof chatAttachment> | null = null;
 
@@ -531,7 +617,41 @@ async function installAuthenticatedFixture(
       result.personaUpdated = request.postDataJSON().allow_image_sends === false;
       await json(route, { ...persona, ...request.postDataJSON() });
     }
-    else if (path === '/api/v1/chats' && method === 'GET') await json(route, { items: [chat] });
+    else if (path === '/api/v1/chats' && method === 'POST') {
+      result.chatBody = request.postDataJSON();
+      const input = result.chatBody as {
+        persona_id: string;
+        access_context: { kind: 'personal' | 'workspace'; workspace_id?: string };
+        model?: string | null;
+        memory_mode?: 'off' | 'saved';
+        title?: string;
+      };
+      const workspaceContext = input.access_context.kind === 'workspace';
+      createdChat = {
+        ...chat,
+        id: 'chat-2',
+        workspace_id: workspaceContext ? input.access_context.workspace_id ?? null : null,
+        persona_id: input.persona_id,
+        binding: {
+          ...workspaceBinding,
+          persona_id: input.persona_id,
+          context: {
+            kind: input.access_context.kind,
+            workspace_id: workspaceContext ? input.access_context.workspace_id ?? null : null,
+            workspace_name: workspaceContext ? workspace.name : null,
+          },
+        },
+        model_override: input.model ?? null,
+        memory_mode: input.memory_mode ?? 'saved',
+        title: input.title ?? 'New chat',
+        created_at: 110,
+        updated_at: 110,
+      };
+      await json(route, createdChat);
+    }
+    else if (path === '/api/v1/chats' && method === 'GET') {
+      await json(route, { items: createdChat ? [createdChat, chat] : [chat] });
+    }
     else if (path === '/api/v1/settings' && method === 'GET') await json(route, settings);
     else if (path === '/api/v1/settings' && method === 'PUT') {
       result.settingsUpdated = request.postDataJSON().preferences.general_theme === 'light';
@@ -593,6 +713,9 @@ async function installAuthenticatedFixture(
         ? { ...message, attachments: [explicitAttachment] }
         : message),
     });
+    else if (path === '/api/v1/chats/chat-2' && method === 'GET' && createdChat) {
+      await json(route, { chat: createdChat, messages: [] });
+    }
     else if (path === '/api/v1/chats/chat-1/turns' && method === 'POST') {
       const turnBody = request.postDataJSON() as CapturedTurnBody;
       result.turnBody = turnBody;
@@ -679,7 +802,6 @@ async function formControlTheme(page: Page): Promise<{
 
 interface CapturedTurnBody {
   text: string;
-  workspace_id: string | null;
   model_settings: { context_window_tokens?: number };
 }
 

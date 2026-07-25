@@ -7,6 +7,7 @@ import unicodedata
 from sqlalchemy.exc import IntegrityError
 
 from app.auth import redact_sensitive_text
+from app.chat_binding import resolve_chat_binding
 from app.job_service import JobExecution, JobService
 from app.provider_contracts import ProviderError
 from app.repositories import UnitOfWork, now_ts
@@ -14,8 +15,11 @@ from app.service_errors import ConflictError, NotFoundError, RequestError
 from app.task_contracts import MEMORY_EXTRACTION, MemoryExtractionTaskInput
 
 
-EXTRACTOR_VERSION = "memory-candidates-task-v2"
+EXTRACTOR_VERSION = "memory-candidates-task-v3"
 MEMORY_STATUSES = {"pending", "active", "rejected", "forgotten", "superseded"}
+MEMORY_TYPES = {"durable", "temporal", "stateful"}
+MEMORY_VALIDITY_STATUSES = {"current", "stale", "expired"}
+MEMORY_STATEFUL_STATUSES = {"active", "completed", "cancelled", "superseded"}
 SEARCH_STOP_WORDS = {
     "about",
     "and",
@@ -65,7 +69,63 @@ def memory_candidate_is_sensitive(value: str) -> bool:
     return redact_sensitive_text(text) != text or SENSITIVE_MEMORY_PATTERN.search(text) is not None
 
 
-def memory_response(row, *, can_undo: bool = False) -> dict:
+def memory_origin_response(row) -> dict:
+    if not row:
+        return {}
+    try:
+        evidence = json.loads(row.evidence_json or "{}")
+    except (TypeError, ValueError):
+        evidence = {}
+    if not isinstance(evidence, dict):
+        evidence = {}
+    return {
+        "source_kind": row.source_kind,
+        "source_chat_id": row.source_chat_id,
+        "source_persona_id": row.source_persona_id,
+        "source_workspace_id": row.source_workspace_id,
+        "source_message_id": row.source_message_id,
+        "source_turn_id": row.source_turn_id,
+        "evidence": evidence,
+        "provenance_status": row.provenance_status,
+        "revision_of_memory_id": row.revision_of_memory_id,
+        "created_at": row.created_at,
+    }
+
+
+def memory_grant_response(row) -> dict:
+    target_id = row.persona_id if row.grant_type == "persona" else row.workspace_id
+    return {
+        "id": row.id,
+        "grant_type": row.grant_type,
+        "target_id": target_id,
+        "grant_source": row.grant_source,
+        "granted_by_human_id": row.granted_by_human_id,
+        "granted_at": row.granted_at,
+    }
+
+
+def memory_grant_event_response(row) -> dict:
+    return {
+        "id": row.id,
+        "memory_id": row.memory_id,
+        "grant_id": row.grant_id,
+        "action": row.action,
+        "grant_type": row.grant_type,
+        "target_id": row.target_id,
+        "created_at": row.created_at,
+    }
+
+
+def memory_response(
+    row,
+    *,
+    record=None,
+    origin=None,
+    grants=(),
+    can_undo: bool = False,
+) -> dict:
+    # `scope` and `scope_id` are retained only so legacy records remain
+    # diagnosable. Access is always determined from MemoryRecord + active grants.
     return {
         "id": row.id,
         "scope": row.tier,
@@ -85,6 +145,14 @@ def memory_response(row, *, can_undo: bool = False) -> dict:
         "reviewed_at": row.reviewed_at,
         "forgotten_at": row.forgotten_at,
         "can_undo": can_undo,
+        "access_state": record.access_state if record else "legacy_quarantined",
+        "memory_type": record.memory_type if record else "legacy_unknown",
+        "validity_status": record.validity_status if record else "legacy_unknown",
+        "valid_until": record.valid_until if record else None,
+        "stateful_status": record.stateful_status if record else None,
+        "last_confirmed_at": record.last_confirmed_at if record else None,
+        "origin": memory_origin_response(origin),
+        "grants": [memory_grant_response(grant) for grant in grants],
     }
 
 
@@ -121,16 +189,158 @@ class MemoryService:
     def _uow(self):
         return UnitOfWork(self.session_factory, self.secret_store)
 
-    def list(self, user_id: str, scope=None, scope_id=None, status=None) -> list[dict]:
+    @staticmethod
+    def _response(repo, user_id: str, row, *, can_undo: bool = False) -> dict:
+        return memory_response(
+            row,
+            record=repo.memory_record(row.id),
+            origin=repo.memory_origin(row.id),
+            grants=repo.active_memory_grants(row.id),
+            can_undo=can_undo,
+        )
+
+    @staticmethod
+    def _require_mutable_memory(repo, row) -> None:
+        record = repo.memory_record(row.id)
+        origin = repo.memory_origin(row.id)
+        if not record or record.access_state != "grants" or not origin or origin.provenance_status != "resolved":
+            raise ConflictError(
+                "This migrated memory is read-only until its access and origin are explicitly assigned."
+            )
+
+    @staticmethod
+    def _validated_extraction_source(
+        repo,
+        *,
+        user_id: str,
+        chat_id: str,
+        turn_id: str,
+        message_id: str,
+        user_text: str,
+        workspace_id: str | None,
+        persona_id: str | None,
+    ) -> dict | None:
+        chat = repo.chat(user_id, chat_id)
+        source = repo.message(message_id)
+        turn = repo.turn(user_id, turn_id)
+        binding = resolve_chat_binding(repo, user_id, chat) if chat else None
+        human = repo.human_principal(user_id)
+        if not (
+            chat
+            and source
+            and source.chat_id == chat_id
+            and source.role == "user"
+            and normalize_memory_content(source.text) == normalize_memory_content(user_text)
+            and turn
+            and turn.chat_id == chat_id
+            and turn.user_message_id == message_id
+            and binding
+            and binding.can_continue
+            and binding.human_id
+            and binding.persona_id
+            and persona_id == binding.persona_id
+            and workspace_id == binding.workspace_id
+            and human
+            and human.id == binding.human_id
+        ):
+            return None
+        return {
+            "chat": chat,
+            "source": source,
+            "turn": turn,
+            "binding": binding,
+            "human": human,
+        }
+
+    @staticmethod
+    def _metadata(values: dict, *, base=None, last_confirmed_at: int | None = None) -> dict:
+        memory_type = str(
+            values.get("memory_type") if "memory_type" in values else getattr(base, "memory_type", "durable")
+        )
+        validity_status = str(
+            values.get("validity_status")
+            if "validity_status" in values
+            else getattr(base, "validity_status", "current")
+        )
+        valid_until = values.get("valid_until") if "valid_until" in values else getattr(base, "valid_until", None)
+        stateful_status = (
+            values.get("stateful_status") if "stateful_status" in values else getattr(base, "stateful_status", None)
+        )
+        if memory_type not in MEMORY_TYPES:
+            raise ValueError("invalid memory type")
+        if validity_status not in MEMORY_VALIDITY_STATUSES:
+            raise ValueError("invalid memory validity status")
+        if valid_until is not None:
+            try:
+                valid_until = int(valid_until)
+            except (TypeError, ValueError) as exc:
+                raise ValueError("valid_until must be a timestamp") from exc
+            if valid_until <= 0:
+                raise ValueError("valid_until must be a positive timestamp")
+        if stateful_status is not None:
+            stateful_status = str(stateful_status)
+        if memory_type == "temporal":
+            if valid_until is None:
+                raise ValueError("temporal memories require valid_until")
+            if stateful_status is not None:
+                raise ValueError("temporal memories cannot have a stateful status")
+        elif memory_type == "stateful":
+            if stateful_status not in MEMORY_STATEFUL_STATUSES:
+                raise ValueError("stateful memories require a lifecycle status")
+            if valid_until is not None:
+                raise ValueError("stateful memories cannot have valid_until")
+        elif valid_until is not None or stateful_status is not None:
+            raise ValueError("durable memories cannot have temporal or lifecycle metadata")
+        return {
+            "memory_type": memory_type,
+            "validity_status": validity_status,
+            "valid_until": valid_until,
+            "stateful_status": stateful_status,
+            "last_confirmed_at": (
+                last_confirmed_at if last_confirmed_at is not None else getattr(base, "last_confirmed_at", None)
+            ),
+        }
+
+    @staticmethod
+    def _diagnostic_scope(grants: list[dict]) -> tuple[str, str]:
+        first = sorted(
+            grants,
+            key=lambda value: (value["grant_type"], value["target_id"]),
+        )[0]
+        return first["grant_type"], first["target_id"]
+
+    @staticmethod
+    def _reject_sensitive(content: str) -> None:
+        if memory_candidate_is_sensitive(content):
+            raise ValueError("Credentials and credential-shaped content cannot be stored as memory.")
+
+    def list(
+        self,
+        user_id: str,
+        scope=None,
+        scope_id=None,
+        status=None,
+        grant_type=None,
+        grant_target_id=None,
+    ) -> list[dict]:
         statuses = None
         if status:
             statuses = {item.strip() for item in str(status).split(",") if item.strip()}
             if not statuses or not statuses.issubset(MEMORY_STATUSES):
                 raise RequestError("invalid memory status", 400)
         with self._uow() as uow:
-            rows = uow.repo.memories(user_id, scope, scope_id, statuses)
+            rows = uow.repo.memories(
+                user_id,
+                scope,
+                scope_id,
+                statuses,
+                grant_type=grant_type,
+                grant_target_id=grant_target_id,
+            )
             return [
-                memory_response(
+                self._response(
+                    uow.repo,
+                    user_id,
                     row,
                     can_undo=uow.repo.latest_undoable_memory_event(user_id, row.id) is not None,
                 )
@@ -140,12 +350,20 @@ class MemoryService:
     def create(self, user_id: str, values: dict) -> dict:
         try:
             with self._uow() as uow:
-                scope = str(values.get("scope") or "global")
-                scope_id = uow.repo.validate_memory_scope(user_id, scope, values.get("scope_id"))
+                human = uow.repo.human_principal(user_id)
+                if not human:
+                    raise LookupError("human principal not found")
+                grants = uow.repo.validate_memory_grants(user_id, values.get("grants") or [])
                 content = self._content(values.get("content"))
+                self._reject_sensitive(content)
                 normalized = normalize_memory_content(content)
-                if uow.repo.live_memory_duplicate(user_id, scope, scope_id, normalized):
-                    raise ConflictError("An active or pending memory already contains this text in that scope.")
+                for grant in grants:
+                    if grant["grant_type"] == "persona" and uow.repo.v3_memory_duplicate(
+                        user_id, normalized, grant["target_id"]
+                    ):
+                        raise ConflictError("An active or pending memory already contains this text for that persona.")
+                metadata = self._metadata(values, last_confirmed_at=now_ts())
+                scope, scope_id = self._diagnostic_scope(grants)
                 row = uow.repo.create_memory(
                     user_id=user_id,
                     scope=scope,
@@ -155,55 +373,110 @@ class MemoryService:
                     status="active",
                     source_type="manual",
                 )
+                uow.repo.create_memory_record(
+                    row.id,
+                    human_id=human.id,
+                    access_state="grants",
+                    **metadata,
+                )
+                uow.repo.create_memory_origin(
+                    row.id,
+                    human_id=human.id,
+                    source_kind="manual",
+                    evidence={"explicit_owner_action": True},
+                    provenance_status="resolved",
+                )
+                for grant in grants:
+                    uow.repo.add_memory_grant(
+                        row.id,
+                        human_id=human.id,
+                        grant_type=grant["grant_type"],
+                        target_id=grant["target_id"],
+                        grant_source="owner",
+                        granted_by_human_id=human.id,
+                    )
                 uow.repo.add_memory_event(
                     row,
                     "created",
                     from_status=None,
                     to_status="active",
                 )
-                return memory_response(row)
+                return self._response(uow.repo, user_id, row)
         except LookupError as exc:
             raise NotFoundError(str(exc)) from exc
         except ValueError as exc:
             raise RequestError(str(exc), 400) from exc
         except IntegrityError as exc:
-            raise ConflictError("An active or pending memory already contains this text in that scope.") from exc
+            raise ConflictError("An active or pending memory conflicts with this grant assignment.") from exc
 
     def propose(self, user_id: str, values: dict) -> dict:
         """Create an editable user proposal that requires review before context use."""
 
         try:
             with self._uow() as uow:
-                scope = str(values.get("scope") or "global")
-                scope_id = uow.repo.validate_memory_scope(user_id, scope, values.get("scope_id"))
                 source_message_id = str(values.get("source_message_id") or "").strip() or None
-                if source_message_id:
-                    source = uow.repo.message(source_message_id)
-                    source_chat = uow.repo.chat(user_id, source.chat_id) if source else None
-                    source_scope_matches = bool(
-                        source_chat
-                        and (
-                            scope == "global"
-                            or (scope == "chat" and source.chat_id == scope_id)
-                            or (scope == "workspace" and source_chat.workspace_id == scope_id)
-                            or (scope == "persona" and source_chat.persona_id == scope_id)
-                        )
-                    )
-                    if not source or not source_scope_matches:
-                        raise NotFoundError("source message not found")
+                if not source_message_id:
+                    raise ValueError("source_message_id is required")
+                source = uow.repo.message(source_message_id)
+                source_chat = uow.repo.chat(user_id, source.chat_id) if source else None
+                if not source or not source_chat:
+                    raise NotFoundError("source message not found")
+                binding = resolve_chat_binding(uow.repo, user_id, source_chat)
+                if not binding.can_continue or not binding.human_id or not binding.persona_id:
+                    raise ConflictError("The source chat no longer has a valid persona and access binding.")
+                human = uow.repo.human_principal(user_id)
+                if not human or human.id != binding.human_id:
+                    raise ConflictError("The source chat owner binding is no longer valid.")
                 content = self._content(values.get("content"))
+                self._reject_sensitive(content)
                 normalized = normalize_memory_content(content)
-                if uow.repo.live_memory_duplicate(user_id, scope, scope_id, normalized):
-                    raise ConflictError("An active or pending memory already contains this text in that scope.")
+                if uow.repo.v3_memory_duplicate(user_id, normalized, binding.persona_id):
+                    raise ConflictError(
+                        "An active or pending memory already contains this text for the source persona."
+                    )
+                source_turn_id = None
+                for turn in uow.repo.turns_for_chat(user_id, source_chat.id):
+                    if source_message_id in {turn.user_message_id, turn.assistant_message_id}:
+                        source_turn_id = turn.id
+                        break
                 row = uow.repo.create_memory(
                     user_id=user_id,
-                    scope=scope,
-                    scope_id=scope_id,
+                    scope="persona",
+                    scope_id=binding.persona_id,
                     content=content,
                     normalized_content=normalized,
                     status="pending",
                     source_type="manual",
                     source_message_id=source_message_id,
+                    source_turn_id=source_turn_id,
+                )
+                uow.repo.create_memory_record(
+                    row.id,
+                    human_id=human.id,
+                    access_state="grants",
+                    memory_type="durable",
+                    validity_status="current",
+                    last_confirmed_at=now_ts(),
+                )
+                uow.repo.create_memory_origin(
+                    row.id,
+                    human_id=human.id,
+                    source_kind="manual",
+                    source_chat_id=source_chat.id,
+                    source_persona_id=binding.persona_id,
+                    source_workspace_id=binding.workspace_id,
+                    source_message_id=source_message_id,
+                    source_turn_id=source_turn_id,
+                    evidence={"explicit_owner_proposal": True},
+                    provenance_status="resolved",
+                )
+                uow.repo.add_memory_grant(
+                    row.id,
+                    human_id=human.id,
+                    grant_type="persona",
+                    target_id=binding.persona_id,
+                    grant_source="owner",
+                    granted_by_human_id=human.id,
                 )
                 uow.repo.add_memory_event(
                     row,
@@ -211,36 +484,48 @@ class MemoryService:
                     from_status=None,
                     to_status="pending",
                 )
-                return memory_response(row)
+                return self._response(uow.repo, user_id, row)
         except LookupError as exc:
             raise NotFoundError(str(exc)) from exc
         except ValueError as exc:
             raise RequestError(str(exc), 400) from exc
         except IntegrityError as exc:
-            raise ConflictError("An active or pending memory already contains this text in that scope.") from exc
+            raise ConflictError("An active or pending memory conflicts with this source persona.") from exc
 
     def revise(self, user_id: str, memory_id: str, values: dict) -> dict:
         try:
             with self._uow() as uow:
+                unexpected = set(values) - {
+                    "content",
+                    "memory_type",
+                    "validity_status",
+                    "valid_until",
+                    "stateful_status",
+                }
+                if unexpected:
+                    raise ValueError("Memory edits cannot change access or origin.")
                 old = uow.repo.memory(user_id, memory_id)
                 if not old:
                     raise NotFoundError("memory not found")
                 if old.status == "superseded":
                     raise ConflictError("A superseded memory cannot be edited.")
-                scope = str(values.get("scope") or old.tier)
-                scope_id_value = values.get("scope_id") if "scope_id" in values else old.tier_ref_id
-                scope_id = uow.repo.validate_memory_scope(user_id, scope, scope_id_value)
+                old_record = uow.repo.memory_record(old.id)
+                old_grants = list(uow.repo.active_memory_grants(old.id))
+                self._require_mutable_memory(uow.repo, old)
                 content = self._content(values.get("content", old.content))
+                self._reject_sensitive(content)
                 normalized = normalize_memory_content(content)
-                duplicate = uow.repo.live_memory_duplicate(
-                    user_id,
-                    scope,
-                    scope_id,
-                    normalized,
-                    excluding_id=old.id,
-                )
-                if duplicate:
-                    raise ConflictError("An active or pending memory already contains this text in that scope.")
+                for grant in old_grants:
+                    if grant.grant_type != "persona":
+                        continue
+                    if uow.repo.v3_memory_duplicate(
+                        user_id,
+                        normalized,
+                        grant.persona_id,
+                        excluding_id=old.id,
+                    ):
+                        raise ConflictError("An active or pending memory already contains this text for that persona.")
+                metadata = self._metadata(values, base=old_record, last_confirmed_at=now_ts())
                 previous_status = old.status
                 snapshot = {
                     "reviewed_at": old.reviewed_at,
@@ -255,8 +540,8 @@ class MemoryService:
                 new_status = "active" if previous_status == "active" else "pending"
                 row = uow.repo.create_memory(
                     user_id=user_id,
-                    scope=scope,
-                    scope_id=scope_id,
+                    scope=old.tier,
+                    scope_id=old.tier_ref_id,
                     content=content,
                     normalized_content=normalized,
                     status=new_status,
@@ -269,6 +554,12 @@ class MemoryService:
                     extractor_model=old.extractor_model,
                     extractor_version=old.extractor_version,
                 )
+                uow.repo.copy_memory_v3(old.id, row.id)
+                new_record = uow.repo.memory_record(row.id)
+                for field, value in metadata.items():
+                    setattr(new_record, field, value)
+                new_record.updated_at = stamp
+                uow.session.flush()
                 uow.repo.add_memory_event(
                     old,
                     "superseded",
@@ -284,13 +575,36 @@ class MemoryService:
                     related_memory_id=old.id,
                     snapshot=snapshot,
                 )
-                return memory_response(row, can_undo=True)
+                return self._response(uow.repo, user_id, row, can_undo=True)
         except LookupError as exc:
             raise NotFoundError(str(exc)) from exc
         except ValueError as exc:
             raise RequestError(str(exc), 400) from exc
         except IntegrityError as exc:
-            raise ConflictError("An active or pending memory already contains this text in that scope.") from exc
+            raise ConflictError("An active or pending memory conflicts with this revision.") from exc
+
+    def replace_grants(self, user_id: str, memory_id: str, grants: list[dict]) -> dict:
+        """Atomically validate and replace a memory's complete active grant set."""
+
+        try:
+            with self._uow() as uow:
+                row = uow.repo.memory(user_id, memory_id)
+                if not row:
+                    raise NotFoundError("memory not found")
+                self._require_mutable_memory(uow.repo, row)
+                uow.repo.replace_memory_grants(user_id, memory_id, grants)
+                return self._response(
+                    uow.repo,
+                    user_id,
+                    row,
+                    can_undo=uow.repo.latest_undoable_memory_event(user_id, row.id) is not None,
+                )
+        except LookupError as exc:
+            raise NotFoundError(str(exc)) from exc
+        except ValueError as exc:
+            raise RequestError(str(exc), 400) from exc
+        except IntegrityError as exc:
+            raise ConflictError("The requested memory grants conflict with existing access.") from exc
 
     def approve(self, user_id: str, memory_id: str) -> dict:
         return self._transition(user_id, memory_id, "approved", {"pending"}, "active")
@@ -323,6 +637,8 @@ class MemoryService:
                     uow.repo.delete_memory(row)
                 affected = len(rows)
             elif action == "forget":
+                for row in rows:
+                    self._require_mutable_memory(uow.repo, row)
                 invalid = [row for row in rows if row.status not in {"pending", "active", "forgotten"}]
                 if invalid:
                     raise ConflictError("Only pending or active memories can be forgotten.")
@@ -360,8 +676,11 @@ class MemoryService:
                 row = uow.repo.memory(user_id, memory_id)
                 if not row:
                     raise NotFoundError("memory not found")
+                self._require_mutable_memory(uow.repo, row)
                 if row.status == target:
-                    return memory_response(
+                    return self._response(
+                        uow.repo,
+                        user_id,
                         row,
                         can_undo=uow.repo.latest_undoable_memory_event(user_id, row.id) is not None,
                     )
@@ -381,7 +700,7 @@ class MemoryService:
                     to_status=target,
                     snapshot=snapshot,
                 )
-                return memory_response(row, can_undo=True)
+                return self._response(uow.repo, user_id, row, can_undo=True)
         except IntegrityError as exc:
             raise ConflictError("This memory conflicts with another active memory in the same scope.") from exc
 
@@ -391,6 +710,7 @@ class MemoryService:
                 row = uow.repo.memory(user_id, memory_id)
                 if not row:
                     raise NotFoundError("memory not found")
+                self._require_mutable_memory(uow.repo, row)
                 event = uow.repo.latest_undoable_memory_event(user_id, memory_id)
                 if not event:
                     raise ConflictError("There is no memory action to undo.")
@@ -403,6 +723,24 @@ class MemoryService:
                     previous = uow.repo.memory(user_id, event.related_memory_id) if event.related_memory_id else None
                     if not previous:
                         raise ConflictError("The superseded memory revision is unavailable.")
+                    current_record = uow.repo.memory_record(row.id)
+                    previous_record = uow.repo.memory_record(previous.id)
+                    if not current_record or not previous_record:
+                        raise ConflictError("The memory revision's access metadata is unavailable.")
+                    grants_managed = current_record.access_state == "grants" or previous_record.access_state == "grants"
+                    if grants_managed:
+                        if current_record.access_state != "grants" or previous_record.access_state != "grants":
+                            raise ConflictError("The memory revision's access metadata is inconsistent.")
+                        try:
+                            uow.repo.sync_memory_grants_from_revision(
+                                user_id,
+                                source_memory_id=row.id,
+                                target_memory_id=previous.id,
+                            )
+                        except LookupError as exc:
+                            raise ConflictError(
+                                "The memory revision's access grants could not be restored safely."
+                            ) from exc
                     row.status = "superseded"
                     row.updated_at = stamp
                     row.reviewed_at = stamp
@@ -420,7 +758,7 @@ class MemoryService:
                         to_status=previous.status,
                         related_memory_id=row.id,
                     )
-                    return memory_response(previous)
+                    return self._response(uow.repo, user_id, previous)
                 row.status = event.from_status or "pending"
                 row.updated_at = stamp
                 row.reviewed_at = snapshot.get("reviewed_at")
@@ -432,7 +770,9 @@ class MemoryService:
                     from_status=event.to_status,
                     to_status=row.status,
                 )
-                return memory_response(
+                return self._response(
+                    uow.repo,
+                    user_id,
                     row,
                     can_undo=uow.repo.latest_undoable_memory_event(user_id, row.id) is not None,
                 )
@@ -445,11 +785,16 @@ class MemoryService:
             if not row:
                 raise NotFoundError("memory not found")
             return {
-                "memory": memory_response(
+                "memory": self._response(
+                    uow.repo,
+                    user_id,
                     row,
                     can_undo=uow.repo.latest_undoable_memory_event(user_id, row.id) is not None,
                 ),
                 "events": [memory_event_response(event) for event in uow.repo.memory_events(user_id, memory_id)],
+                "grant_events": [
+                    memory_grant_event_response(event) for event in uow.repo.memory_grant_events(user_id, memory_id)
+                ],
             }
 
     def prepare_extraction_job(self, repo, *, user_id: str, chat_id: str) -> str:
@@ -474,6 +819,25 @@ class MemoryService:
         persona_id: str | None,
     ) -> None:
         def execute(token):
+            with self._uow() as source_uow:
+                if not self._validated_extraction_source(
+                    source_uow.repo,
+                    user_id=user_id,
+                    chat_id=chat_id,
+                    turn_id=turn_id,
+                    message_id=message_id,
+                    user_text=user_text,
+                    workspace_id=workspace_id,
+                    persona_id=persona_id,
+                ):
+                    return {
+                        "candidates": [],
+                        "filtered_sensitive_count": 0,
+                        "source_binding_valid": False,
+                        "task_run_id": None,
+                        "task_provider": None,
+                        "task_model": None,
+                    }
             try:
                 outcome = self.task_models.run(
                     user_id,
@@ -501,43 +865,52 @@ class MemoryService:
                 "candidates": [
                     {
                         "content": candidate.content,
-                        "scope": candidate.scope,
                         "confidence": candidate.confidence,
                     }
                     for candidate in safe_candidates
                 ],
                 "filtered_sensitive_count": len(outcome.output.candidates) - len(safe_candidates),
+                "source_binding_valid": True,
                 "task_run_id": outcome.run_id,
                 "task_provider": outcome.provider,
                 "task_model": outcome.model,
             }
 
         def on_success(repo, result):
+            validated = self._validated_extraction_source(
+                repo,
+                user_id=user_id,
+                chat_id=chat_id,
+                turn_id=turn_id,
+                message_id=message_id,
+                user_text=user_text,
+                workspace_id=workspace_id,
+                persona_id=persona_id,
+            )
+            if not validated:
+                return {
+                    "candidate_count": 0,
+                    "candidate_ids": [],
+                    "filtered_sensitive_count": (result or {}).get("filtered_sensitive_count", 0),
+                    "source_binding_valid": False,
+                    "task_run_id": (result or {}).get("task_run_id"),
+                }
+            source = validated["source"]
+            binding = validated["binding"]
+            human = validated["human"]
             created = []
             for candidate in (result or {}).get("candidates") or []:
                 if memory_candidate_is_sensitive(candidate.get("content")):
                     continue
-                scope = candidate["scope"]
-                scope_id = {
-                    "global": None,
-                    "workspace": workspace_id,
-                    "persona": persona_id,
-                    "chat": chat_id,
-                }.get(scope)
-                if scope != "global" and not scope_id:
-                    scope, scope_id = "chat", chat_id
-                try:
-                    scope_id = repo.validate_memory_scope(user_id, scope, scope_id)
-                except (LookupError, ValueError):
-                    scope, scope_id = "chat", chat_id
-                normalized = normalize_memory_content(candidate["content"])
-                if repo.live_memory_duplicate(user_id, scope, scope_id, normalized):
+                content = self._content(candidate.get("content"))
+                normalized = normalize_memory_content(content)
+                if repo.v3_memory_duplicate(user_id, normalized, binding.persona_id):
                     continue
                 row = repo.create_memory(
                     user_id=user_id,
-                    scope=scope,
-                    scope_id=scope_id,
-                    content=candidate["content"],
+                    scope="persona",
+                    scope_id=binding.persona_id,
+                    content=content,
                     normalized_content=normalized,
                     status="pending",
                     source_type="conversation",
@@ -547,6 +920,34 @@ class MemoryService:
                     extractor_provider=(result or {}).get("task_provider"),
                     extractor_model=(result or {}).get("task_model"),
                     extractor_version=EXTRACTOR_VERSION,
+                )
+                repo.create_memory_record(
+                    row.id,
+                    human_id=human.id,
+                    access_state="grants",
+                    memory_type="durable",
+                    validity_status="current",
+                    last_confirmed_at=source.created_at,
+                )
+                repo.create_memory_origin(
+                    row.id,
+                    human_id=human.id,
+                    source_kind="conversation",
+                    source_chat_id=chat_id,
+                    source_persona_id=binding.persona_id,
+                    source_workspace_id=binding.workspace_id,
+                    source_message_id=message_id,
+                    source_turn_id=turn_id,
+                    evidence={"source_message_role": "user"},
+                    provenance_status="resolved",
+                )
+                repo.add_memory_grant(
+                    row.id,
+                    human_id=human.id,
+                    grant_type="persona",
+                    target_id=binding.persona_id,
+                    grant_source="automatic_source_persona",
+                    granted_by_human_id=human.id,
                 )
                 repo.add_memory_event(
                     row,
@@ -559,6 +960,7 @@ class MemoryService:
                 "candidate_count": len(created),
                 "candidate_ids": created,
                 "filtered_sensitive_count": (result or {}).get("filtered_sensitive_count", 0),
+                "source_binding_valid": True,
                 "task_run_id": (result or {}).get("task_run_id"),
             }
 

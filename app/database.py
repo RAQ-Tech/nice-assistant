@@ -26,6 +26,7 @@ def build_engine(path):
     def configure_sqlite(dbapi_connection, _connection_record):
         cursor = dbapi_connection.cursor()
         cursor.execute("PRAGMA foreign_keys=ON")
+        cursor.execute("PRAGMA recursive_triggers=ON")
         cursor.execute("PRAGMA busy_timeout=5000")
         cursor.execute("PRAGMA journal_mode=WAL")
         cursor.close()
@@ -37,6 +38,7 @@ def connect_sqlite(path):
     conn = sqlite3.connect(path, timeout=5)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA foreign_keys=ON")
+    conn.execute("PRAGMA recursive_triggers=ON")
     conn.execute("PRAGMA busy_timeout=5000")
     conn.execute("PRAGMA journal_mode=WAL")
     return conn

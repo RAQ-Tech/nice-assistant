@@ -8,7 +8,7 @@ VALID_OUTPUTS = {
     "specific_title": '{"title":"Vegetable Garden Irrigation"}',
     "summary_retains_corrections": '{"summary":"The trip is in December. The venue remains undecided."}',
     "memory_extracts_stable_preferences": (
-        '{"candidates":[{"content":"The user lives in Portland, Maine.","scope":"global","confidence":0.95}]}'
+        '{"candidates":[{"content":"The user lives in Portland, Maine.","confidence":0.95}]}'
     ),
     "memory_excludes_credentials": '{"candidates":[]}',
     "capability_skips_ordinary_text": '{"requests":[]}',

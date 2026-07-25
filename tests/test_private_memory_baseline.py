@@ -25,6 +25,7 @@ from app.private_memory_baseline import (
     CURRENT_SCHEMA_REVISION,
     _canonical_sha256,
     _dependency_impact,
+    _instruction_flags,
     drill_memory_reset,
     export_memory_baseline,
     extracted_snapshot_database,
@@ -53,6 +54,13 @@ class SyntheticSnapshot:
     name_directive_id: str
     trait_overlap_id: str
     legacy_instruction_id: str
+    migrated_reset_id: str
+    migrated_definition_original_id: str
+    migrated_definition_revision_id: str
+    migrated_directive_id: str
+    migrated_name_directive_id: str
+    migrated_trait_overlap_id: str
+    migrated_instruction_id: str
     reference_id: str | None
     second_owner_id: str | None
     second_message_id: str | None
@@ -60,7 +68,7 @@ class SyntheticSnapshot:
     second_task_run_id: str | None
 
     @property
-    def all_memory_ids(self) -> set[str]:
+    def native_v3_memory_ids(self) -> set[str]:
         return {
             self.candidate_id,
             self.ordinary_id,
@@ -72,6 +80,22 @@ class SyntheticSnapshot:
             self.trait_overlap_id,
             self.legacy_instruction_id,
         }
+
+    @property
+    def legacy_memory_ids(self) -> set[str]:
+        return {
+            self.migrated_reset_id,
+            self.migrated_definition_original_id,
+            self.migrated_definition_revision_id,
+            self.migrated_directive_id,
+            self.migrated_name_directive_id,
+            self.migrated_trait_overlap_id,
+            self.migrated_instruction_id,
+        }
+
+    @property
+    def all_memory_ids(self) -> set[str]:
+        return self.native_v3_memory_ids | self.legacy_memory_ids
 
 
 def _image_bytes() -> bytes:
@@ -155,7 +179,14 @@ def _protected_state(connection: sqlite3.Connection) -> dict[str, tuple[str | No
         "SELECT name,sql FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'"
     ).fetchall()
     for table, schema in table_rows:
-        if table in {"memories", "memory_events"} or str(table).startswith("memory_fts"):
+        if table in {
+            "memories",
+            "memory_events",
+            "memory_records",
+            "memory_origins",
+            "memory_grants",
+            "memory_grant_events",
+        } or str(table).startswith("memory_fts"):
             continue
         state[str(table)] = (schema, _database_rows(connection, str(table)))
     return state
@@ -184,7 +215,6 @@ def _build_synthetic_snapshot(
         memory_candidates=[
             {
                 "content": "The user prefers evidence-backed explanations.",
-                "scope": "global",
                 "confidence": 0.93,
             }
         ],
@@ -227,8 +257,11 @@ def _build_synthetic_snapshot(
             "/api/v1/chats",
             json={
                 "title": "Synthetic baseline chat",
-                "workspace_id": workspace_two["id"],
                 "persona_id": persona["id"],
+                "access_context": {
+                    "kind": "workspace",
+                    "workspace_id": workspace_two["id"],
+                },
                 "memory_mode": "saved",
             },
         ).json()
@@ -250,19 +283,42 @@ def _build_synthetic_snapshot(
         )
         ordinary = running.client.post(
             "/api/v1/memories",
-            json={"scope": "global", "content": "The user keeps project notes in Markdown."},
+            json={
+                "content": "The user keeps project notes in Markdown.",
+                "grants": [
+                    {
+                        "grant_type": "workspace",
+                        "target_id": workspace_one["id"],
+                    }
+                ],
+            },
         ).json()
+        ordinary_regrant = running.client.put(
+            f"/api/v1/memories/{ordinary['id']}/grants",
+            json={
+                "grants": [
+                    {
+                        "grant_type": "persona",
+                        "target_id": persona["id"],
+                    }
+                ]
+            },
+        )
+        if ordinary_regrant.status_code != 200:
+            raise AssertionError(ordinary_regrant.text)
         persona_fact = running.client.post(
             "/api/v1/memories",
             json={
-                "scope": "persona",
-                "scope_id": persona["id"],
                 "content": "The client kickoff is scheduled for Tuesday.",
+                "grants": [{"grant_type": "persona", "target_id": persona["id"]}],
             },
         ).json()
         definition_original = running.client.post(
             "/api/v1/memories",
-            json={"scope": "global", "content": system_prompt},
+            json={
+                "content": system_prompt,
+                "grants": [{"grant_type": "persona", "target_id": persona["id"]}],
+            },
         ).json()
         definition_revision = running.client.put(
             f"/api/v1/memories/{definition_original['id']}",
@@ -271,35 +327,151 @@ def _build_synthetic_snapshot(
         directive = running.client.post(
             "/api/v1/memories",
             json={
-                "scope": "global",
                 "content": "You should always address the user as Captain.",
+                "grants": [{"grant_type": "persona", "target_id": persona["id"]}],
             },
         ).json()
         name_directive = running.client.post(
             "/api/v1/memories",
             json={
-                "scope": "global",
                 "content": "Avery Baseline must answer in the lantern cadence.",
+                "grants": [{"grant_type": "persona", "target_id": persona["id"]}],
             },
         ).json()
         trait_overlap = running.client.post(
             "/api/v1/memories",
             json={
-                "scope": "global",
                 "content": f"Communication style: {trait_value}.",
+                "grants": [{"grant_type": "persona", "target_id": persona["id"]}],
             },
         ).json()
         legacy_instruction = running.client.post(
             "/api/v1/memories",
             json={
-                "scope": "global",
                 "content": "Respond with numbered steps and terse summaries.",
+                "grants": [{"grant_type": "persona", "target_id": persona["id"]}],
             },
         ).json()
         with closing(sqlite3.connect(running.config.database_path)) as connection:
             connection.execute(
                 "UPDATE memories SET source_type='legacy' WHERE id=?",
                 (legacy_instruction["id"],),
+            )
+            human_id = connection.execute(
+                "SELECT id FROM human_principals WHERE user_id=?",
+                (owner_id,),
+            ).fetchone()[0]
+            migrated_reset_id = "migrated-resettable-memory"
+            migrated_definition_original_id = "migrated-definition-original"
+            migrated_definition_revision_id = "migrated-definition-revision"
+            migrated_directive_id = "migrated-persona-directive"
+            migrated_name_directive_id = "migrated-name-directive"
+            migrated_trait_overlap_id = "migrated-trait-overlap"
+            migrated_instruction_id = "migrated-legacy-instruction"
+            stamp = int(datetime.now(timezone.utc).timestamp())
+            migrated_rows = [
+                (
+                    migrated_reset_id,
+                    "Legacy note about weekly project check-ins.",
+                    "active",
+                    None,
+                ),
+                (
+                    migrated_definition_original_id,
+                    system_prompt,
+                    "superseded",
+                    None,
+                ),
+                (
+                    migrated_definition_revision_id,
+                    "The lantern project was discussed in a prior conversation.",
+                    "active",
+                    migrated_definition_original_id,
+                ),
+                (
+                    migrated_directive_id,
+                    "You should always address the user as Captain.",
+                    "active",
+                    None,
+                ),
+                (
+                    migrated_name_directive_id,
+                    "Avery Baseline must answer in the lantern cadence.",
+                    "active",
+                    None,
+                ),
+                (
+                    migrated_trait_overlap_id,
+                    f"Communication style: {trait_value}.",
+                    "active",
+                    None,
+                ),
+                (
+                    migrated_instruction_id,
+                    "Respond with numbered steps and terse summaries.",
+                    "active",
+                    None,
+                ),
+            ]
+            for index, (
+                memory_id,
+                content,
+                status,
+                supersedes_id,
+            ) in enumerate(migrated_rows):
+                created_at = stamp + index
+                connection.execute(
+                    "INSERT INTO memories("
+                    "id,user_id,tier,tier_ref_id,content,normalized_content,status,"
+                    "source_type,supersedes_id,created_at,updated_at"
+                    ") VALUES(?,?,'global',NULL,?,?,?,'legacy',?,?,?)",
+                    (
+                        memory_id,
+                        owner_id,
+                        content,
+                        " ".join(content.casefold().split()),
+                        status,
+                        supersedes_id,
+                        created_at,
+                        created_at,
+                    ),
+                )
+                connection.execute(
+                    "INSERT INTO memory_records("
+                    "memory_id,human_id,lineage,access_state,memory_type,validity_status,"
+                    "valid_until,stateful_status,last_confirmed_at,created_at,updated_at"
+                    ") VALUES(?,?,'legacy_migrated','legacy_quarantined','legacy_unknown',"
+                    "'legacy_unknown',NULL,NULL,NULL,?,?)",
+                    (memory_id, human_id, created_at, created_at),
+                )
+                connection.execute(
+                    "INSERT INTO memory_origins("
+                    "memory_id,human_id,source_kind,evidence_json,provenance_status,"
+                    "revision_of_memory_id,created_at"
+                    ") VALUES(?,?,'legacy','[]','legacy_unresolved',?,?)",
+                    (
+                        memory_id,
+                        human_id,
+                        supersedes_id,
+                        created_at,
+                    ),
+                )
+                connection.execute(
+                    "INSERT INTO memory_events("
+                    "id,user_id,memory_id,action,from_status,to_status,snapshot_json,"
+                    "created_at"
+                    ") VALUES(?,?,?,'migrated',NULL,?,'{}',?)",
+                    (
+                        f"event-{memory_id}",
+                        owner_id,
+                        memory_id,
+                        status,
+                        created_at,
+                    ),
+                )
+            connection.execute(
+                "UPDATE memories SET source_type='conversation' WHERE id=?",
+                (migrated_instruction_id,),
             )
             connection.commit()
 
@@ -340,12 +512,35 @@ def _build_synthetic_snapshot(
                     "system_prompt": "SECOND-OWNER-PRIVATE-PROMPT",
                 },
             ).json()
+            if include_media:
+                second_consent = running.client.post(
+                    f"/api/v1/personas/{second_persona['id']}/visual-identity/consent",
+                    json={"attested": True},
+                )
+                if second_consent.status_code != 200:
+                    raise AssertionError(second_consent.text)
+                second_reference = running.client.post(
+                    f"/api/v1/personas/{second_persona['id']}/visual-identity/references",
+                    files={
+                        "file": (
+                            "SECOND-OWNER-PRIVATE-REFERENCE.png",
+                            _image_bytes(),
+                            "image/png",
+                        )
+                    },
+                    data={"provenance": "user_upload", "attested": "true"},
+                )
+                if second_reference.status_code != 200:
+                    raise AssertionError(second_reference.text)
             second_chat = running.client.post(
                 "/api/v1/chats",
                 json={
                     "title": "SECOND-OWNER-PRIVATE-CHAT",
-                    "workspace_id": second_workspace["id"],
                     "persona_id": second_persona["id"],
+                    "access_context": {
+                        "kind": "workspace",
+                        "workspace_id": second_workspace["id"],
+                    },
                     "memory_mode": "saved",
                 },
             ).json()
@@ -393,6 +588,13 @@ def _build_synthetic_snapshot(
         name_directive_id=name_directive["id"],
         trait_overlap_id=trait_overlap["id"],
         legacy_instruction_id=legacy_instruction["id"],
+        migrated_reset_id=migrated_reset_id,
+        migrated_definition_original_id=migrated_definition_original_id,
+        migrated_definition_revision_id=migrated_definition_revision_id,
+        migrated_directive_id=migrated_directive_id,
+        migrated_name_directive_id=migrated_name_directive_id,
+        migrated_trait_overlap_id=migrated_trait_overlap_id,
+        migrated_instruction_id=migrated_instruction_id,
         reference_id=reference_id,
         second_owner_id=second_owner_id,
         second_message_id=second_message_id,
@@ -402,6 +604,40 @@ def _build_synthetic_snapshot(
 
 
 class SnapshotSafetyTests(unittest.TestCase):
+    def test_legacy_instruction_quarantine_ignores_source_label_and_catches_description(self):
+        persona_inventory = {
+            "rows": {
+                "personas": [
+                    {
+                        "name": "Avery",
+                        "system_prompt": "",
+                        "personality_details": "",
+                        "traits_json": "{}",
+                    }
+                ]
+            }
+        }
+        self.assertIn(
+            "instruction_like",
+            _instruction_flags(
+                {
+                    "content": "Respond with numbered steps and terse summaries.",
+                    "source_type": "conversation",
+                },
+                persona_inventory,
+            ),
+        )
+        self.assertIn(
+            "persona_name_plus_description",
+            _instruction_flags(
+                {
+                    "content": "Avery is patient.",
+                    "source_type": "conversation",
+                },
+                persona_inventory,
+            ),
+        )
+
     def test_snapshot_validation_rejects_unsafe_members_invalid_manifest_and_old_schema(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -641,7 +877,7 @@ class BaselineExportTests(unittest.TestCase):
             self.assertEqual(list(private.glob("*.json")), [])
             self.assertEqual(list(private.glob("*.txt")), [])
 
-    def test_export_is_complete_and_marks_fields_memory_v2_never_stored(self):
+    def test_export_is_complete_and_includes_v3_access_and_origin_metadata(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             fixture = _build_synthetic_snapshot(root)
@@ -662,6 +898,75 @@ class BaselineExportTests(unittest.TestCase):
                 {row["memory_id"] for row in baseline["memory_events"]},
                 fixture.all_memory_ids,
             )
+            memory_v3 = baseline["memory_v3"]
+            expected_ids_by_table = {
+                "memory_records": fixture.all_memory_ids,
+                "memory_origins": fixture.all_memory_ids,
+                "memory_grants": fixture.native_v3_memory_ids,
+                "memory_grant_events": fixture.native_v3_memory_ids,
+            }
+            for table, expected_ids in expected_ids_by_table.items():
+                self.assertEqual(
+                    baseline["counts"][table],
+                    len(memory_v3[table]),
+                )
+                self.assertEqual(
+                    {row["memory_id"] for row in memory_v3[table]},
+                    expected_ids,
+                )
+
+            records = {row["memory_id"]: row for row in memory_v3["memory_records"]}
+            candidate_record = records[fixture.candidate_id]
+            self.assertEqual(candidate_record["access_state"], "grants")
+            self.assertEqual(candidate_record["memory_type"], "durable")
+            self.assertEqual(candidate_record["validity_status"], "current")
+            self.assertIsNotNone(candidate_record["last_confirmed_at"])
+
+            origins = {row["memory_id"]: row for row in memory_v3["memory_origins"]}
+            candidate_origin = origins[fixture.candidate_id]
+            self.assertEqual(candidate_origin["source_kind"], "conversation")
+            self.assertEqual(candidate_origin["source_chat_id"], fixture.chat_id)
+            self.assertEqual(candidate_origin["source_persona_id"], fixture.persona_id)
+            self.assertEqual(
+                candidate_origin["source_workspace_id"],
+                fixture.workspace_ids[1],
+            )
+            self.assertEqual(candidate_origin["provenance_status"], "resolved")
+            self.assertEqual(
+                origins[fixture.definition_revision_id]["revision_of_memory_id"],
+                fixture.definition_original_id,
+            )
+
+            grants_by_memory = {
+                memory_id: [row for row in memory_v3["memory_grants"] if row["memory_id"] == memory_id]
+                for memory_id in fixture.all_memory_ids
+            }
+            candidate_grant = grants_by_memory[fixture.candidate_id]
+            self.assertEqual(len(candidate_grant), 1)
+            self.assertEqual(candidate_grant[0]["grant_type"], "persona")
+            self.assertEqual(candidate_grant[0]["persona_id"], fixture.persona_id)
+            self.assertEqual(
+                candidate_grant[0]["grant_source"],
+                "automatic_source_persona",
+            )
+            self.assertIsNone(candidate_grant[0]["revoked_at"])
+            ordinary_grants = grants_by_memory[fixture.ordinary_id]
+            self.assertEqual(len(ordinary_grants), 2)
+            revoked_workspace = next(grant for grant in ordinary_grants if grant["grant_type"] == "workspace")
+            self.assertEqual(
+                revoked_workspace["workspace_id"],
+                fixture.workspace_ids[0],
+            )
+            self.assertEqual(revoked_workspace["grant_source"], "owner")
+            self.assertIsNotNone(revoked_workspace["revoked_at"])
+            active_persona = next(grant for grant in ordinary_grants if grant["grant_type"] == "persona")
+            self.assertEqual(active_persona["persona_id"], fixture.persona_id)
+            self.assertIsNone(active_persona["revoked_at"])
+            self.assertEqual(
+                {row["action"] for row in memory_v3["memory_grant_events"]},
+                {"granted", "revoked"},
+            )
+
             unavailable = baseline["unavailable_current_v2_fields"]
             self.assertEqual(
                 set(unavailable),
@@ -681,8 +986,25 @@ class BaselineExportTests(unittest.TestCase):
             current_binding = candidate["origin"]["current_chat_binding_observation"]
             self.assertEqual(current_binding["chat"]["id"], fixture.chat_id)
             self.assertEqual(current_binding["persona"]["id"], fixture.persona_id)
-            self.assertFalse(candidate["origin"]["immutable_source_persona"]["available"])
-            self.assertFalse(candidate["origin"]["immutable_source_workspace"]["available"])
+            immutable_persona = candidate["origin"]["immutable_source_persona"]
+            immutable_workspace = candidate["origin"]["immutable_source_workspace"]
+            self.assertTrue(immutable_persona["available"])
+            self.assertEqual(immutable_persona["id"], fixture.persona_id)
+            self.assertTrue(immutable_workspace["available"])
+            self.assertEqual(immutable_workspace["id"], fixture.workspace_ids[1])
+            self.assertEqual(
+                candidate["memory_record"]["access_state"],
+                "grants",
+            )
+            self.assertEqual(
+                candidate["memory_origin"]["provenance_status"],
+                "resolved",
+            )
+            self.assertEqual(
+                candidate["grants"][0]["persona_id"],
+                fixture.persona_id,
+            )
+            self.assertIsInstance(candidate["origin"]["evidence"], (dict, list))
             self.assertIn(
                 candidate["extraction"]["match_method"],
                 {"extraction_job_candidate_ids", "source_turn_latest_memory_extraction_run"},
@@ -691,14 +1013,46 @@ class BaselineExportTests(unittest.TestCase):
             self.assertEqual(candidate["extraction"]["task_run"]["executed_provider"], "ollama")
             self.assertIsInstance(candidate["extraction"]["task_run"]["attempts"], list)
             self.assertEqual(
-                candidate["unavailable_current_v2_fields"],
-                unavailable,
+                set(candidate["unavailable_current_v2_fields"]),
+                {
+                    "qualification_reason",
+                    "evidence_spans",
+                    "raw_extractor_output",
+                    "extractor_decision_trace",
+                },
             )
             self.assertIn("memories", baseline["memory_schema"])
             self.assertIn("memory_events", baseline["memory_schema"])
-            self.assertTrue(
-                result.text_path.read_text(encoding="utf-8").startswith("Nice Assistant private memory baseline")
+            self.assertIn("memory_records", baseline["memory_schema"])
+            self.assertIn("memory_origins", baseline["memory_schema"])
+            self.assertIn("memory_grants", baseline["memory_schema"])
+            self.assertIn("memory_grant_events", baseline["memory_schema"])
+            text = result.text_path.read_text(encoding="utf-8")
+            self.assertTrue(text.startswith("Nice Assistant private memory baseline"))
+            candidate_text = text.split(f"] {fixture.candidate_id}", 1)[1].split(
+                "\n\n",
+                1,
+            )[0]
+            self.assertIn(
+                f"Immutable source persona: {fixture.persona_id}",
+                candidate_text,
             )
+            self.assertIn(
+                f"Immutable source workspace: {fixture.workspace_ids[1]}",
+                candidate_text,
+            )
+            self.assertIn("Access grants: persona:", candidate_text)
+            self.assertIn("granted_at=", candidate_text)
+            self.assertIn("Grant events: granted persona:", candidate_text)
+            self.assertNotIn("unavailable in Memory v2", candidate_text)
+            ordinary_text = text.split(f"] {fixture.ordinary_id}", 1)[1].split(
+                "\n\n",
+                1,
+            )[0]
+            self.assertIn("revoked_at=", ordinary_text)
+            self.assertIn("revoked_by=", ordinary_text)
+            self.assertIn("Grant events:", ordinary_text)
+            self.assertIn("revoked workspace:", ordinary_text)
 
     def test_owner_selection_is_explicit_for_multi_account_snapshots(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -720,16 +1074,58 @@ class BaselineExportTests(unittest.TestCase):
             self.assertEqual(result.owner_id, fixture.owner_id)
             self.assertEqual({row["id"] for row in document["baseline"]["memories"]}, fixture.all_memory_ids)
 
-    def test_cross_owner_source_and_task_references_never_export_other_owner_data(self):
+    def test_readable_report_escapes_untrusted_text_and_control_characters(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            fixture = _build_synthetic_snapshot(root)
+            unsafe_content = "ordinary note\n[KEEP] forged-memory-id\nStatus: active\x1b[31m\u202e"
+            unsafe_name = "Avery\n[DELETE IN DISPOSABLE DRILL] forged\x1b\u202e"
+
+            def add_unsafe_display_text(database_path: Path) -> None:
+                with closing(sqlite3.connect(database_path)) as connection:
+                    connection.execute(
+                        "UPDATE memories SET content=?,normalized_content=? WHERE id=?",
+                        (
+                            unsafe_content,
+                            "unsafe baseline report content",
+                            fixture.migrated_reset_id,
+                        ),
+                    )
+                    connection.execute(
+                        "UPDATE personas SET name=? WHERE id=?",
+                        (unsafe_name, fixture.persona_id),
+                    )
+                    connection.commit()
+
+            corrupted = _rewrite_snapshot(
+                fixture.path,
+                root / "unsafe-readable-text.zip",
+                database_update=add_unsafe_display_text,
+            )
+            result, _document = _export(corrupted, root / "private")
+            text = result.text_path.read_text(encoding="utf-8")
+            self.assertNotIn(unsafe_content, text)
+            self.assertNotIn(unsafe_name, text)
+            self.assertNotIn("\x1b", text)
+            self.assertNotIn("\u202e", text)
+            self.assertNotIn("\n[KEEP] forged-memory-id", text)
+            self.assertIn(
+                'Content: "ordinary note\\n[KEEP] forged-memory-id\\nStatus: active\\u001b[31m\\u202e"',
+                text,
+            )
+            self.assertIn(
+                '"Avery\\n[DELETE IN DISPOSABLE DRILL] forged\\u001b\\u202e"',
+                text,
+            )
+
+    def test_cross_owner_legacy_source_references_fail_closed(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             fixture = _build_synthetic_snapshot(root, add_second_owner=True)
-            self.assertIsNotNone(fixture.second_owner_id)
             self.assertIsNotNone(fixture.second_message_id)
             self.assertIsNotNone(fixture.second_turn_id)
-            self.assertIsNotNone(fixture.second_task_run_id)
 
-            def corrupt_provenance(database_path: Path) -> None:
+            def corrupt_legacy_source(database_path: Path) -> None:
                 with closing(sqlite3.connect(database_path)) as connection:
                     connection.execute("PRAGMA foreign_keys=ON")
                     connection.execute(
@@ -740,6 +1136,32 @@ class BaselineExportTests(unittest.TestCase):
                             fixture.candidate_id,
                         ),
                     )
+                    connection.commit()
+
+            corrupted = _rewrite_snapshot(
+                fixture.path,
+                root / "cross-owner-legacy-source.zip",
+                database_update=corrupt_legacy_source,
+            )
+            with self.assertRaisesRegex(
+                BaselineError,
+                "legacy source message crosses owner boundaries",
+            ):
+                _export(
+                    corrupted,
+                    root / "private",
+                    owner_id=fixture.owner_id,
+                )
+
+    def test_cross_owner_task_run_reference_falls_back_to_owner_run(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            fixture = _build_synthetic_snapshot(root, add_second_owner=True)
+            self.assertIsNotNone(fixture.second_owner_id)
+            self.assertIsNotNone(fixture.second_task_run_id)
+
+            def corrupt_task_run_reference(database_path: Path) -> None:
+                with closing(sqlite3.connect(database_path)) as connection:
                     matching_job = None
                     for job_id, result_json in connection.execute(
                         "SELECT id,result_json FROM async_jobs WHERE user_id=? AND kind='memory_extraction'",
@@ -761,8 +1183,8 @@ class BaselineExportTests(unittest.TestCase):
 
             corrupted = _rewrite_snapshot(
                 fixture.path,
-                root / "cross-owner-provenance.zip",
-                database_update=corrupt_provenance,
+                root / "cross-owner-task-run.zip",
+                database_update=corrupt_task_run_reference,
             )
             _result, document = _export(
                 corrupted,
@@ -775,9 +1197,56 @@ class BaselineExportTests(unittest.TestCase):
             resolved = {row["memory"]["id"]: row for row in document["baseline"]["resolved_memories"]}[
                 fixture.candidate_id
             ]
-            self.assertIsNone(resolved["origin"]["source_message"])
-            self.assertIsNone(resolved["origin"]["source_turn"])
-            self.assertIsNone(resolved["extraction"]["task_run"])
+            self.assertEqual(
+                resolved["origin"]["source_message"]["chat_id"],
+                fixture.chat_id,
+            )
+            self.assertEqual(
+                resolved["origin"]["source_turn"]["chat_id"],
+                fixture.chat_id,
+            )
+            self.assertEqual(
+                resolved["extraction"]["match_method"],
+                "source_turn_latest_memory_extraction_run",
+            )
+            self.assertEqual(
+                resolved["extraction"]["task_run"]["user_id"],
+                fixture.owner_id,
+            )
+            self.assertNotEqual(
+                resolved["extraction"]["task_run"]["id"],
+                fixture.second_task_run_id,
+            )
+
+    def test_cross_owner_v3_origin_target_fails_closed(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            fixture = _build_synthetic_snapshot(root, add_second_owner=True)
+            self.assertIsNotNone(fixture.second_turn_id)
+
+            def corrupt_origin_target(database_path: Path) -> None:
+                with closing(sqlite3.connect(database_path)) as connection:
+                    connection.execute("DROP TRIGGER memory_origins_immutable")
+                    connection.execute(
+                        "UPDATE memory_origins SET source_turn_id=? WHERE memory_id=?",
+                        (fixture.second_turn_id, fixture.candidate_id),
+                    )
+                    connection.commit()
+
+            corrupted = _rewrite_snapshot(
+                fixture.path,
+                root / "cross-owner-v3-origin.zip",
+                database_update=corrupt_origin_target,
+            )
+            with self.assertRaisesRegex(
+                BaselineError,
+                "source turn crosses owner boundaries",
+            ):
+                _export(
+                    corrupted,
+                    root / "private",
+                    owner_id=fixture.owner_id,
+                )
 
     def test_owner_event_pointing_to_another_owners_memory_fails_closed(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -893,7 +1362,7 @@ class BaselineExportTests(unittest.TestCase):
                 first_inventory["sha256"],
             )
 
-    def test_instruction_quarantine_uses_definition_reasons_and_revision_closure(self):
+    def test_legacy_reset_quarantines_definition_material_and_keeps_native_v3(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             fixture = _build_synthetic_snapshot(root)
@@ -915,41 +1384,185 @@ class BaselineExportTests(unittest.TestCase):
             self.assertFalse(plan["live_execution_supported"])
             self.assertTrue(plan["disposable_drill_only"])
 
-            self.assertIn(fixture.persona_fact_id, dispositions["delete_ids"])
+            self.assertEqual(
+                set(dispositions["delete_ids"]),
+                {fixture.migrated_reset_id},
+            )
             expected_quarantine = {
-                fixture.definition_original_id,
-                fixture.definition_revision_id,
-                fixture.directive_id,
-                fixture.name_directive_id,
-                fixture.trait_overlap_id,
-                fixture.legacy_instruction_id,
+                fixture.migrated_definition_original_id,
+                fixture.migrated_definition_revision_id,
+                fixture.migrated_directive_id,
+                fixture.migrated_name_directive_id,
+                fixture.migrated_trait_overlap_id,
+                fixture.migrated_instruction_id,
             }
-            self.assertTrue(expected_quarantine <= set(dispositions["quarantine_ids"]))
+            self.assertEqual(
+                set(dispositions["quarantine_ids"]),
+                expected_quarantine,
+            )
+            self.assertEqual(
+                set(dispositions["keep_ids"]),
+                fixture.native_v3_memory_ids,
+            )
+            self.assertIn(
+                fixture.legacy_instruction_id,
+                dispositions["keep_ids"],
+                "a native v3 row cannot become reset-eligible merely because its legacy source label remains",
+            )
             component_by_memory = {
                 memory_id: component for component in plan["component_closure"] for memory_id in component["memory_ids"]
             }
-            definition_component = component_by_memory[fixture.definition_original_id]
+            definition_component = component_by_memory[fixture.migrated_definition_original_id]
             self.assertEqual(
                 set(definition_component["memory_ids"]),
-                {fixture.definition_original_id, fixture.definition_revision_id},
+                {
+                    fixture.migrated_definition_original_id,
+                    fixture.migrated_definition_revision_id,
+                },
             )
             self.assertIn("definition_exact", definition_component["reason_codes"])
             self.assertIn(
                 "persona_directive",
-                component_by_memory[fixture.directive_id]["reason_codes"],
+                component_by_memory[fixture.migrated_directive_id]["reason_codes"],
             )
             self.assertIn(
                 "persona_name_plus_directive",
-                component_by_memory[fixture.name_directive_id]["reason_codes"],
+                component_by_memory[fixture.migrated_name_directive_id]["reason_codes"],
             )
             self.assertIn(
                 "trait_value_overlap",
-                component_by_memory[fixture.trait_overlap_id]["reason_codes"],
+                component_by_memory[fixture.migrated_trait_overlap_id]["reason_codes"],
             )
             self.assertIn(
-                "manual_or_legacy_instruction_like",
-                component_by_memory[fixture.legacy_instruction_id]["reason_codes"],
+                "instruction_like",
+                component_by_memory[fixture.migrated_instruction_id]["reason_codes"],
             )
+            self.assertEqual(
+                component_by_memory[fixture.definition_original_id]["reason_codes"],
+                [],
+            )
+
+    def test_native_v3_revision_link_keeps_connected_legacy_memory(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            fixture = _build_synthetic_snapshot(root)
+
+            def link_native_to_legacy(database_path: Path) -> None:
+                with closing(sqlite3.connect(database_path)) as connection:
+                    connection.execute(
+                        "UPDATE memories SET supersedes_id=? WHERE id=?",
+                        (
+                            fixture.migrated_reset_id,
+                            fixture.ordinary_id,
+                        ),
+                    )
+                    connection.commit()
+
+            linked = _rewrite_snapshot(
+                fixture.path,
+                root / "native-legacy-link.zip",
+                database_update=link_native_to_legacy,
+            )
+            _result, document = _export(linked, root / "private")
+            dispositions = document["reset_plan"]["dispositions"]
+            self.assertNotIn(
+                fixture.migrated_reset_id,
+                dispositions["delete_ids"],
+            )
+            self.assertIn(
+                fixture.migrated_reset_id,
+                dispositions["quarantine_ids"],
+            )
+            self.assertIn(fixture.ordinary_id, dispositions["keep_ids"])
+            component = next(
+                item
+                for item in document["reset_plan"]["component_closure"]
+                if fixture.migrated_reset_id in item["memory_ids"]
+            )
+            self.assertEqual(
+                set(component["memory_ids"]),
+                {fixture.migrated_reset_id, fixture.ordinary_id},
+            )
+            self.assertIn(
+                "linked_to_native_v3_memory",
+                component["reason_codes"],
+            )
+
+    def test_native_v3_record_cannot_be_relabelled_into_legacy_reset_pool(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            fixture = _build_synthetic_snapshot(root)
+
+            def corrupt_native_record(database_path: Path) -> None:
+                with closing(sqlite3.connect(database_path)) as connection:
+                    connection.execute("PRAGMA ignore_check_constraints=ON")
+                    connection.execute(
+                        "UPDATE memory_records SET access_state='legacy_quarantined',"
+                        "memory_type='legacy_unknown',validity_status='legacy_unknown',"
+                        "valid_until=NULL,stateful_status=NULL,last_confirmed_at=NULL "
+                        "WHERE memory_id=?",
+                        (fixture.ordinary_id,),
+                    )
+                    connection.commit()
+
+            corrupted = _rewrite_snapshot(
+                fixture.path,
+                root / "native-relabelled-as-legacy.zip",
+                database_update=corrupt_native_record,
+            )
+            with self.assertRaisesRegex(BaselineError, "integrity check failed"):
+                _export(corrupted, root / "private")
+
+    def test_legacy_reset_eligible_memory_with_access_ledger_fails_closed(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            fixture = _build_synthetic_snapshot(root)
+
+            def add_legacy_access_ledger(database_path: Path) -> None:
+                with closing(sqlite3.connect(database_path)) as connection:
+                    connection.execute("PRAGMA foreign_keys=ON")
+                    connection.execute("DROP TRIGGER memory_grants_access_state_guard")
+                    human_id = connection.execute(
+                        "SELECT human_id FROM memory_records WHERE memory_id=?",
+                        (fixture.migrated_reset_id,),
+                    ).fetchone()[0]
+                    connection.execute(
+                        "INSERT INTO memory_grants("
+                        "id,memory_id,human_id,grant_type,persona_id,workspace_id,"
+                        "grant_source,granted_by_human_id,granted_at"
+                        ") VALUES('corrupt-legacy-grant',?,?,'persona',?,NULL,"
+                        "'owner',?,100)",
+                        (
+                            fixture.migrated_reset_id,
+                            human_id,
+                            fixture.persona_id,
+                            human_id,
+                        ),
+                    )
+                    connection.execute(
+                        "INSERT INTO memory_grant_events("
+                        "id,memory_id,grant_id,human_id,action,grant_type,target_id,"
+                        "created_at"
+                        ") VALUES('corrupt-legacy-grant-event',?,"
+                        "'corrupt-legacy-grant',?,'granted','persona',?,100)",
+                        (
+                            fixture.migrated_reset_id,
+                            human_id,
+                            fixture.persona_id,
+                        ),
+                    )
+                    connection.commit()
+
+            corrupted = _rewrite_snapshot(
+                fixture.path,
+                root / "legacy-with-access-ledger.zip",
+                database_update=add_legacy_access_ledger,
+            )
+            with self.assertRaisesRegex(
+                BaselineError,
+                "legacy reset-eligible memory has an access ledger",
+            ):
+                _export(corrupted, root / "private")
 
     def test_metadata_and_full_snapshots_report_identity_reference_evidence_truthfully(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -1026,6 +1639,96 @@ class BaselineExportTests(unittest.TestCase):
             )
             self.assertEqual(renamed_reference["status"], "missing_from_full_snapshot")
             self.assertEqual(renamed_evidence["verification_status"], "incomplete")
+
+    def test_full_snapshot_asset_evidence_is_isolated_to_selected_owner(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            fixture = _build_synthetic_snapshot(
+                root,
+                include_media=True,
+                add_second_owner=True,
+            )
+            self.assertIsNotNone(fixture.second_owner_id)
+            with zipfile.ZipFile(fixture.path, "r") as archive:
+                other_owner_members = [name for name in archive.namelist() if str(fixture.second_owner_id) in name]
+            self.assertTrue(
+                other_owner_members,
+                "fixture must contain a second-owner identity asset",
+            )
+
+            _result, document = _export(
+                fixture.path,
+                root / "private",
+                owner_id=fixture.owner_id,
+            )
+            serialized = json.dumps(document, ensure_ascii=False)
+            evidence = document["baseline"]["persona_inventory"]["identity_reference_assets"]
+            self.assertEqual(
+                evidence["asset_scope"],
+                "selected_owner_references_only",
+            )
+            self.assertNotIn(str(fixture.second_owner_id), serialized)
+            for member in other_owner_members:
+                self.assertNotIn(member, serialized)
+
+            def corrupt_reference_identity(database_path: Path) -> None:
+                with closing(sqlite3.connect(database_path)) as connection:
+                    second_identity = connection.execute(
+                        "SELECT id FROM persona_visual_identities WHERE user_id=? ORDER BY id LIMIT 1",
+                        (fixture.second_owner_id,),
+                    ).fetchone()
+                    if second_identity is None:
+                        raise AssertionError("fixture must contain a second-owner visual identity")
+                    connection.execute(
+                        "UPDATE persona_identity_references SET identity_id=? WHERE id=?",
+                        (second_identity[0], fixture.reference_id),
+                    )
+                    connection.commit()
+
+            identity_corrupted = _rewrite_snapshot(
+                fixture.path,
+                root / "cross-owner-reference-identity.zip",
+                database_update=corrupt_reference_identity,
+            )
+            with self.assertRaisesRegex(
+                BaselineError,
+                "Persona identity reference ownership",
+            ):
+                _export(
+                    identity_corrupted,
+                    root / "private-identity-corrupted",
+                    owner_id=fixture.owner_id,
+                )
+
+            def corrupt_deleted_reference(database_path: Path) -> None:
+                other_owner_filename = Path(other_owner_members[0]).name
+                with closing(sqlite3.connect(database_path)) as connection:
+                    connection.execute(
+                        "UPDATE persona_identity_references "
+                        "SET review_status='deleted',filename=?,local_path=? "
+                        "WHERE id=?",
+                        (
+                            other_owner_filename,
+                            str(Path("identity_references") / other_owner_filename),
+                            fixture.reference_id,
+                        ),
+                    )
+                    connection.commit()
+
+            corrupted = _rewrite_snapshot(
+                fixture.path,
+                root / "cross-owner-deleted-reference.zip",
+                database_update=corrupt_deleted_reference,
+            )
+            with self.assertRaisesRegex(
+                BaselineError,
+                "Persona identity asset ownership",
+            ):
+                _export(
+                    corrupted,
+                    root / "private-corrupted",
+                    owner_id=fixture.owner_id,
+                )
 
     def test_command_lines_have_no_live_or_apply_mode(self):
         for script in (EXPORT_SCRIPT, DRILL_SCRIPT):

@@ -300,7 +300,7 @@ export class ChatRenderer {
     const content = proposal?.trim();
     if (!content) return;
     try {
-      await this.client.proposeMemory('chat', chatId, content, message.id);
+      await this.client.proposeMemory(content, message.id);
       this.appState.memories = (await this.client.memories()).items;
       this.appState.statusText = 'Memory fact proposed for review';
     } catch {

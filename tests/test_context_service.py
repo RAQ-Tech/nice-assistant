@@ -72,7 +72,7 @@ class ContextServiceTests(unittest.TestCase):
         self.assertIn("Use saved memory", source)
         self.assertIn("Chat details", source)
         self.assertIn("A proposed memory that does not enter prompts until you approve it", source)
-        self.assertIn("Only approved active memories enter prompts", source)
+        self.assertIn("Only approved, active, current, and authorized memories can enter prompts", source)
         self.assertIn("Default memory mode", source)
         self.assertIn("Approve", source)
         self.assertIn("Undo", source)
@@ -83,7 +83,7 @@ class ContextServiceTests(unittest.TestCase):
     def test_context_diagnostics_are_owner_scoped(self):
         with tempfile.TemporaryDirectory() as tmp, TestApp(Path(tmp)) as running:
             running.create_and_login("owner")
-            chat = running.client.post("/api/v1/chats", json={"title": "Private"}).json()
+            chat = running.create_chat({"title": "Private"})
             running.client.delete("/api/v1/session")
             running.create_and_login("other")
             self.assertEqual(
@@ -98,7 +98,7 @@ class ContextServiceTests(unittest.TestCase):
             TestApp(Path(tmp), chat_provider=provider, interactive_workers=2) as running,
         ):
             running.create_and_login()
-            chat = running.client.post("/api/v1/chats", json={"title": "Causal"}).json()
+            chat = running.create_chat({"title": "Causal"})
             first = running.client.post(f"/api/v1/chats/{chat['id']}/turns", json={"text": "first user turn"}).json()
             self.assertTrue(provider.started.wait(2))
             second = running.client.post(f"/api/v1/chats/{chat['id']}/turns", json={"text": "second user turn"}).json()
@@ -121,7 +121,7 @@ class ContextServiceTests(unittest.TestCase):
         provider = FailFirstTurnProvider()
         with tempfile.TemporaryDirectory() as tmp, TestApp(Path(tmp), chat_provider=provider) as running:
             running.create_and_login()
-            chat = running.client.post("/api/v1/chats", json={"title": "Recovering"}).json()
+            chat = running.create_chat({"title": "Recovering"})
             failed = running.client.post(
                 f"/api/v1/chats/{chat['id']}/turns",
                 json={"text": "send a garden selfie"},
@@ -148,7 +148,7 @@ class ContextServiceTests(unittest.TestCase):
         provider.first_release.set()
         with tempfile.TemporaryDirectory() as tmp, TestApp(Path(tmp), chat_provider=provider) as running:
             running.create_and_login()
-            chat = running.client.post("/api/v1/chats", json={"title": "Budget"}).json()
+            chat = running.create_chat({"title": "Budget"})
             started = running.client.post(
                 f"/api/v1/chats/{chat['id']}/turns",
                 json={
@@ -182,15 +182,16 @@ class ContextServiceTests(unittest.TestCase):
         provider = FakeChatProvider(["remembered"])
         with tempfile.TemporaryDirectory() as tmp, TestApp(Path(tmp), chat_provider=provider) as running:
             running.create_and_login()
-            chat = running.client.post("/api/v1/chats", json={"title": "Memory"}).json()
+            chat = running.create_chat({"title": "Memory"})
+            grants = [{"grant_type": "persona", "target_id": chat["persona_id"]}]
             response = running.client.post(
                 "/api/v1/memories",
-                json={"scope": "global", "content": "Favorite   color is Blue"},
+                json={"content": "Favorite   color is Blue", "grants": grants},
             )
             self.assertEqual(response.status_code, 200, response.text)
             duplicate = running.client.post(
                 "/api/v1/memories",
-                json={"scope": "global", "content": "favorite color is blue"},
+                json={"content": "favorite color is blue", "grants": grants},
             )
             self.assertEqual(duplicate.status_code, 409, duplicate.text)
             started = running.client.post(
@@ -213,7 +214,7 @@ class ContextServiceTests(unittest.TestCase):
         provider = FakeChatProvider(["compact reply"])
         with tempfile.TemporaryDirectory() as tmp, TestApp(Path(tmp), chat_provider=provider) as running:
             user_id = running.create_and_login()
-            chat = running.client.post("/api/v1/chats", json={"title": "Long"}).json()
+            chat = running.create_chat({"title": "Long"})
             with UnitOfWork(
                 running.services.runtime.session_factory,
                 running.services.runtime.secret_store,
@@ -242,7 +243,7 @@ class ContextServiceTests(unittest.TestCase):
         provider = FakeChatProvider(["safe reply"])
         with tempfile.TemporaryDirectory() as tmp, TestApp(Path(tmp), chat_provider=provider) as running:
             user_id = running.create_and_login()
-            chat = running.client.post("/api/v1/chats", json={"title": "Legacy summary"}).json()
+            chat = running.create_chat({"title": "Legacy summary"})
             with UnitOfWork(
                 running.services.runtime.session_factory,
                 running.services.runtime.secret_store,
@@ -287,7 +288,7 @@ class ContextServiceTests(unittest.TestCase):
         provider = FakeChatProvider(["safe reply"])
         with tempfile.TemporaryDirectory() as tmp, TestApp(Path(tmp), chat_provider=provider) as running:
             user_id = running.create_and_login()
-            chat = running.client.post("/api/v1/chats", json={"title": "Summary reuse"}).json()
+            chat = running.create_chat({"title": "Summary reuse"})
             with UnitOfWork(
                 running.services.runtime.session_factory,
                 running.services.runtime.secret_store,
@@ -341,7 +342,7 @@ class ContextServiceTests(unittest.TestCase):
         provider = FakeChatProvider(["safe reply"])
         with tempfile.TemporaryDirectory() as tmp, TestApp(Path(tmp), chat_provider=provider) as running:
             user_id = running.create_and_login()
-            chat = running.client.post("/api/v1/chats", json={"title": "Protected summary checkpoint"}).json()
+            chat = running.create_chat({"title": "Protected summary checkpoint"})
             with UnitOfWork(
                 running.services.runtime.session_factory,
                 running.services.runtime.secret_store,
@@ -381,7 +382,7 @@ class ContextServiceTests(unittest.TestCase):
         provider = SummaryFailureProvider()
         with tempfile.TemporaryDirectory() as tmp, TestApp(Path(tmp), chat_provider=provider) as running:
             running.create_and_login()
-            chat = running.client.post("/api/v1/chats", json={"title": "Fallback"}).json()
+            chat = running.create_chat({"title": "Fallback"})
             with UnitOfWork(
                 running.services.runtime.session_factory,
                 running.services.runtime.secret_store,
@@ -408,7 +409,7 @@ class ContextServiceTests(unittest.TestCase):
         provider = FakeChatProvider(["bounded reply"])
         with tempfile.TemporaryDirectory() as tmp, TestApp(Path(tmp), chat_provider=provider) as running:
             running.create_and_login()
-            chat = running.client.post("/api/v1/chats", json={"title": "Two hundred turns"}).json()
+            chat = running.create_chat({"title": "Two hundred turns"})
             with UnitOfWork(
                 running.services.runtime.session_factory,
                 running.services.runtime.secret_store,
@@ -441,7 +442,7 @@ class ContextServiceTests(unittest.TestCase):
     def test_oversized_current_request_fails_without_assistant_message(self):
         with tempfile.TemporaryDirectory() as tmp, TestApp(Path(tmp)) as running:
             running.create_and_login()
-            chat = running.client.post("/api/v1/chats", json={"title": "Too large"}).json()
+            chat = running.create_chat({"title": "Too large"})
             started = running.client.post(
                 f"/api/v1/chats/{chat['id']}/turns",
                 json={

@@ -4,6 +4,7 @@ import json
 import secrets
 
 from app.auth import redact_sensitive_text
+from app.chat_binding import require_continuable_chat
 from app.capability_contracts import (
     CAPABILITY_LEGAL_TRANSITIONS,
     CAPABILITY_TERMINAL_STATES,
@@ -313,6 +314,7 @@ class CapabilityService:
             arguments = _json_object(row.arguments_json)
             definition = self.registry.by_key(row.capability_key)
             chat = uow.repo.chat(user_id, row.chat_id) if row.chat_id else None
+            binding = require_continuable_chat(uow.repo, user_id, chat) if chat else None
             requirements = {
                 "kind": definition.kind,
                 "operation": arguments.get("operation") or "generate",
@@ -320,10 +322,10 @@ class CapabilityService:
                 "content_tags": arguments.get("content_tags") or [],
                 "required_features": arguments.get("required_features") or [],
             }
-            persona_id = chat.persona_id if chat else None
+            persona_id = binding.persona_id if binding else None
             adopted_legacy_persona_id = None
             if "identity_control" in requirements["required_features"]:
-                if current.persona_id and (not chat or chat.persona_id != current.persona_id):
+                if current.persona_id and (not binding or binding.persona_id != current.persona_id):
                     raise ConflictError(
                         "The chat persona changed after this identity request was planned. Create a new request."
                     )
@@ -390,6 +392,10 @@ class CapabilityService:
         chat = repo.chat(user_id, chat_id)
         if not chat:
             raise NotFoundError("chat not found")
+        binding = require_continuable_chat(repo, user_id, chat)
+        if originating_persona_id and originating_persona_id != binding.persona_id:
+            raise ConflictError("The capability request persona does not match this chat's permanent binding.")
+        originating_persona_id = binding.persona_id
         turn = repo.turn_by_id(turn_id)
         if not turn or not turn.assistant_message_id:
             raise ConflictError("The assistant reply must be durable before media can be attached.")
@@ -563,6 +569,8 @@ class CapabilityService:
             chat = uow.repo.chat(user_id, chat_id) if chat_id else None
             if chat_id and not chat:
                 raise NotFoundError("chat not found")
+            if chat:
+                require_continuable_chat(uow.repo, user_id, chat)
             row, created = uow.repo.add_capability_request(
                 user_id=user_id,
                 chat_id=chat_id,
@@ -641,6 +649,7 @@ class CapabilityService:
             chat = uow.repo.chat(user_id, original.chat_id)
             if not chat:
                 raise NotFoundError("chat not found")
+            binding = require_continuable_chat(uow.repo, user_id, chat)
             auto_execute = True
             status = "queued"
             permission_mode = "auto"
@@ -669,7 +678,7 @@ class CapabilityService:
                         "content_tags": arguments.get("content_tags") or [],
                         "required_features": arguments.get("required_features") or [],
                     },
-                    persona_id=chat.persona_id,
+                    persona_id=binding.persona_id,
                     ready_backends=self._ready_media_backends(uow.repo, user_id, definition.kind),
                 )
             else:
@@ -765,8 +774,11 @@ class CapabilityService:
         durable_key = f"explicit:{idempotency_key}" if idempotency_key else f"explicit:{secrets.token_hex(16)}"
         submit = False
         with self._uow() as uow:
-            if chat_id and not uow.repo.chat(user_id, chat_id):
+            chat = uow.repo.chat(user_id, chat_id) if chat_id else None
+            if chat_id and not chat:
                 raise NotFoundError("chat not found")
+            if chat:
+                require_continuable_chat(uow.repo, user_id, chat)
             row, created = uow.repo.add_capability_request(
                 user_id=user_id,
                 chat_id=chat_id,
@@ -830,6 +842,11 @@ class CapabilityService:
             row = uow.repo.capability_request(user_id, request_id)
             if not row:
                 return None
+            if row.chat_id:
+                chat = uow.repo.chat(user_id, row.chat_id)
+                if not chat:
+                    raise NotFoundError("chat not found")
+                require_continuable_chat(uow.repo, user_id, chat)
             definition = self.registry.by_key(row.capability_key)
             if definition.kind == "image":
                 raise ConflictError("Image requests run without per-image approval. Retry this picture instead.")

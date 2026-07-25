@@ -9,6 +9,7 @@ from app.chat import (
     parse_model_options,
     persona_instruction_block,
 )
+from app.chat_binding import require_continuable_chat, resolve_chat_binding
 from app.capability_service import attachment_response
 from app.job_service import JobExecution, JobService, turn_response
 from app.context_service import ContextService
@@ -48,11 +49,13 @@ def _persona_mapping(persona):
     }
 
 
-def _chat_response(chat) -> dict:
+def _chat_response(repo, user_id: str, chat) -> dict:
+    binding = resolve_chat_binding(repo, user_id, chat)
     return {
         "id": chat.id,
-        "workspace_id": chat.workspace_id,
-        "persona_id": chat.persona_id,
+        "workspace_id": binding.workspace_id if binding.context_kind == "workspace" else None,
+        "persona_id": binding.persona_id,
+        "binding": binding.as_dict(),
         "model_override": chat.model_override,
         "memory_mode": chat.memory_mode,
         "title": chat.title,
@@ -92,7 +95,7 @@ class ConversationService:
 
     def list_chats(self, user_id: str) -> list[dict]:
         with self._uow() as uow:
-            return [_chat_response(chat) for chat in uow.repo.chats(user_id)]
+            return [_chat_response(uow.repo, user_id, chat) for chat in uow.repo.chats(user_id)]
 
     def create_chat(self, user_id: str, values: dict) -> dict:
         with self._uow() as uow:
@@ -100,7 +103,9 @@ class ConversationService:
                 chat = uow.repo.create_chat(user_id, values)
             except LookupError as exc:
                 raise NotFoundError(str(exc)) from exc
-            return _chat_response(chat)
+            except ValueError as exc:
+                raise RequestError(str(exc), 400) from exc
+            return _chat_response(uow.repo, user_id, chat)
 
     def get_chat(self, user_id: str, chat_id: str) -> dict | None:
         with self._uow() as uow:
@@ -120,25 +125,30 @@ class ConversationService:
                 }
                 for row in uow.repo.messages(chat_id)
             ]
-            return {"chat": _chat_response(chat), "messages": messages}
+            return {"chat": _chat_response(uow.repo, user_id, chat), "messages": messages}
 
     def update_chat(self, user_id: str, chat_id: str, values: dict) -> dict | None:
         with self._uow() as uow:
             chat = uow.repo.chat(user_id, chat_id)
             if not chat:
                 return None
-            if "persona_id" in values and values["persona_id"]:
-                persona = uow.repo.persona(user_id, values["persona_id"])
-                if not persona:
-                    raise NotFoundError("persona not found")
-                chat.persona_id = persona.id
+            binding = resolve_chat_binding(uow.repo, user_id, chat)
+            if "persona_id" in values and values["persona_id"] != binding.persona_id:
+                raise ConflictError(
+                    "This chat is permanently bound to its original persona. Start a new chat to use another persona."
+                )
+            if "workspace_id" in values and values["workspace_id"] != binding.workspace_id:
+                raise ConflictError(
+                    "This chat is permanently bound to its original access context. "
+                    "Start a new chat to use another context."
+                )
             for field in ("title", "model_override", "memory_mode"):
                 if field in values:
                     setattr(chat, field, self._memory_mode(values[field]) if field == "memory_mode" else values[field])
             if "hidden_in_ui" in values:
                 chat.hidden_in_ui = int(bool(values["hidden_in_ui"]))
             chat.updated_at = now_ts()
-            return _chat_response(chat)
+            return _chat_response(uow.repo, user_id, chat)
 
     def hide_chat(self, user_id: str, chat_id: str) -> bool:
         with self._uow() as uow:
@@ -205,18 +215,20 @@ class ConversationService:
             chat = repo.chat(user_id, chat_id)
             if not chat:
                 raise NotFoundError("chat not found")
-            requested_persona_id = values.get("persona_id") or chat.persona_id
-            persona = repo.persona(user_id, requested_persona_id) if requested_persona_id else None
-            if requested_persona_id and not persona:
-                raise NotFoundError("persona not found")
+            binding = require_continuable_chat(repo, user_id, chat)
+            if values.get("persona_id") is not None and values["persona_id"] != binding.persona_id:
+                raise ConflictError(
+                    "This chat is permanently bound to its original persona. Start a new chat to use another persona."
+                )
+            if values.get("workspace_id") is not None and values["workspace_id"] != binding.workspace_id:
+                raise ConflictError(
+                    "This chat is permanently bound to its original access context. "
+                    "Start a new chat to use another context."
+                )
+            requested_persona_id = binding.persona_id
+            workspace_id = binding.workspace_id if binding.context_kind == "workspace" else None
+            persona = repo.persona(user_id, requested_persona_id)
             allow_persona_image_sends = bool(persona.allow_image_sends) if persona else True
-            workspace_id = (
-                values.get("workspace_id") or chat.workspace_id or (persona.workspace_id if persona else None)
-            )
-            if workspace_id and not repo.workspace(user_id, workspace_id):
-                raise NotFoundError("workspace not found")
-            if persona and workspace_id not in repo.persona_workspace_ids(persona.id):
-                raise NotFoundError("persona not found")
             settings = repo.settings(user_id) or {
                 "global_default_model": None,
                 "default_memory_mode": "saved",
@@ -242,8 +254,6 @@ class ConversationService:
                 chat.title = deterministic_title
             chat.updated_at = stamp
             chat.memory_mode = memory_mode
-            chat.persona_id = requested_persona_id
-            chat.workspace_id = workspace_id
             chat.model_override = values.get("model") or chat.model_override
             turn = repo.add_turn(
                 user_id=user_id,
@@ -279,7 +289,34 @@ class ConversationService:
                 operation="generate",
             )
 
+        def followup_binding_is_current(repo) -> bool:
+            durable_chat = repo.chat(user_id, chat_id)
+            if not durable_chat:
+                return False
+            try:
+                current_binding = require_continuable_chat(repo, user_id, durable_chat)
+            except ConflictError:
+                return False
+            return bool(
+                current_binding.persona_id == requested_persona_id
+                and current_binding.context_kind == binding.context_kind
+                and current_binding.workspace_id == workspace_id
+            )
+
         def execute(token):
+            with self._uow() as binding_uow:
+                durable_chat = binding_uow.repo.chat(user_id, chat_id)
+                if not durable_chat:
+                    raise NotFoundError("chat not found")
+                current_binding = require_continuable_chat(binding_uow.repo, user_id, durable_chat)
+                if (
+                    current_binding.persona_id != requested_persona_id
+                    or current_binding.context_kind != binding.context_kind
+                    or current_binding.workspace_id != workspace_id
+                ):
+                    raise ConflictError(
+                        "This chat's persona or access context changed unexpectedly. Start a new chat to continue."
+                    )
             provider = self.providers.chat(provider_name)
             planning_definitions = self.capabilities.planning_definitions(
                 user_id,
@@ -386,6 +423,13 @@ class ConversationService:
             }
 
         def execute_title_followup(token):
+            with self._uow() as binding_uow:
+                if not followup_binding_is_current(binding_uow.repo):
+                    return {
+                        "task_title": None,
+                        "task_run_id": None,
+                        "source_binding_valid": False,
+                    }
             try:
                 outcome = self.task_models.run(
                     user_id,
@@ -395,22 +439,41 @@ class ConversationService:
                     chat_id=chat_id,
                     turn_id=turn.id,
                 )
-                return {"task_title": outcome.output.title, "task_run_id": outcome.run_id}
+                return {
+                    "task_title": outcome.output.title,
+                    "task_run_id": outcome.run_id,
+                    "source_binding_valid": True,
+                }
             except ProviderError as exc:
                 if exc.code == "cancelled" or token.cancelled:
                     raise
-                return {"task_title": None, "task_run_id": None}
+                return {
+                    "task_title": None,
+                    "task_run_id": None,
+                    "source_binding_valid": True,
+                }
 
         def on_title_followup_success(repo, result):
             output = dict(result or {})
             task_title = output.get("task_title")
             durable_chat = repo.chat(user_id, chat_id)
+            if not followup_binding_is_current(repo):
+                output["source_binding_valid"] = False
+                task_title = None
             if should_generate_title and task_title and durable_chat and durable_chat.title == deterministic_title:
                 durable_chat.title = task_title
                 durable_chat.updated_at = now_ts()
             return output
 
         def execute_capability_followup(token):
+            with self._uow() as binding_uow:
+                if not followup_binding_is_current(binding_uow.repo):
+                    return {
+                        "planned_capabilities": [],
+                        "task_run_id": None,
+                        "planning_source": "binding_invalid",
+                        "source_binding_valid": False,
+                    }
             planning_definitions = self.capabilities.planning_definitions(
                 user_id,
                 allow_images=allow_persona_image_sends,
@@ -466,6 +529,9 @@ class ConversationService:
             output = dict(result or {})
             planned_capabilities = list(output.pop("planned_capabilities", []))
             planning_source = str(output.pop("planning_source", "task_model"))
+            if not followup_binding_is_current(repo):
+                output["source_binding_valid"] = False
+                planned_capabilities = []
             if planned_capabilities:
                 capability_requests = self.capabilities.prepare_planned_requests(
                     repo,

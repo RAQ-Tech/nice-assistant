@@ -167,6 +167,20 @@ export interface Chat {
   id: Id;
   workspace_id: Id | null;
   persona_id: Id | null;
+  binding: {
+    human_id: Id | null;
+    persona_id: Id | null;
+    persona_name: string | null;
+    binding_status: 'active' | 'legacy_unresolved';
+    context: {
+      kind: 'personal' | 'workspace' | 'legacy_unresolved' | null;
+      workspace_id: Id | null;
+      workspace_name: string | null;
+    };
+    can_continue: boolean;
+    block_code: string | null;
+    block_message: string | null;
+  };
   model_override: string | null;
   memory_mode: MemoryMode;
   title: string | null;
@@ -225,6 +239,32 @@ export interface Memory {
   reviewed_at: number | null;
   forgotten_at: number | null;
   can_undo: boolean;
+  access_state: 'grants' | 'legacy_quarantined';
+  memory_type: 'durable' | 'temporal' | 'stateful' | 'legacy_unknown';
+  validity_status: 'current' | 'stale' | 'expired' | 'legacy_unknown';
+  valid_until: number | null;
+  stateful_status: 'active' | 'completed' | 'cancelled' | 'superseded' | null;
+  last_confirmed_at: number | null;
+  origin: {
+    source_kind: 'legacy' | 'manual' | 'conversation' | 'edit' | 'owner_explicit';
+    source_chat_id: Id | null;
+    source_persona_id: Id | null;
+    source_workspace_id: Id | null;
+    source_message_id: Id | null;
+    source_turn_id: Id | null;
+    evidence: Record<string, unknown>;
+    provenance_status: 'resolved' | 'legacy_unresolved';
+    revision_of_memory_id: Id | null;
+    created_at: number;
+  };
+  grants: Array<{
+    id: Id;
+    grant_type: 'persona' | 'workspace';
+    target_id: Id;
+    grant_source: 'owner' | 'automatic_source_persona';
+    granted_by_human_id: Id;
+    granted_at: number;
+  }>;
 }
 
 export interface MemoryEvent {
@@ -236,6 +276,16 @@ export interface MemoryEvent {
   to_status: MemoryStatus | null;
   created_at: number;
   undone_at: number | null;
+}
+
+export interface MemoryGrantEvent {
+  id: Id;
+  memory_id: Id;
+  grant_id: Id;
+  action: 'granted' | 'revoked';
+  grant_type: 'persona' | 'workspace';
+  target_id: Id;
+  created_at: number;
 }
 
 export interface BulkActionResult {
@@ -773,6 +823,7 @@ export interface AppState {
   revealedImages: Record<string, boolean>;
   showNewChatPersonaModal: boolean;
   newChatPersonaId: Id | null;
+  newChatContextKey: string;
   onboardingRunning: boolean;
   sessionTimer: number | null;
   lastActivityAt: number;

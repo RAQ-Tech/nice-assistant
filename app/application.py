@@ -11,6 +11,7 @@ from app.compreface_identity_provider import CompreFaceIdentityProvider
 from app.identity_service import IdentityService
 from app.job_service import JobService
 from app.memory_service import MemoryService
+from app.owner_profile_service import OwnerProfileService
 from app.media_adapters import LocalImageProvider, OpenAIImageProvider, OpenAIVideoProvider
 from app.media_catalog_service import MediaCatalogService
 from app.media_service import MediaService
@@ -38,6 +39,7 @@ class ApplicationServices:
     conversations: ConversationService
     context: ContextService
     memory: MemoryService
+    owner_profile: OwnerProfileService
     media: MediaService
     media_catalog: MediaCatalogService
     identity: IdentityService
@@ -199,6 +201,7 @@ def build_services(
         runtime.logger,
         config.memory_candidate_limit,
     )
+    owner_profile = OwnerProfileService(runtime.session_factory, runtime.secret_store)
     conversations = ConversationService(
         runtime.session_factory,
         runtime.secret_store,
@@ -229,6 +232,7 @@ def build_services(
         conversations=conversations,
         context=context,
         memory=memory,
+        owner_profile=owner_profile,
         media=media,
         media_catalog=media_catalog,
         identity=identity,

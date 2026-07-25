@@ -38,6 +38,7 @@ export function textareaField(
   change: (value: string) => void,
   rerender = true,
   help?: string,
+  disabled = false,
 ): HTMLElement {
   const id = `settings-control-${++controlSequence}`;
   return el('div', { class: 'setting-row' }, [
@@ -47,6 +48,7 @@ export function textareaField(
       class: 'search-input',
       rows: 3,
       value,
+      disabled,
       oninput: (event: Event) => change((event.currentTarget as HTMLTextAreaElement).value),
       onchange: rerender ? (event: Event) => change((event.currentTarget as HTMLTextAreaElement).value) : undefined,
     }),

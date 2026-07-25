@@ -126,7 +126,7 @@ class CapabilityTests(unittest.TestCase):
         )
         with tempfile.TemporaryDirectory() as tmp, TestApp(Path(tmp), chat_provider=provider) as running:
             running.create_and_login()
-            chat = running.client.post("/api/v1/chats", json={"title": "Disabled", "memory_mode": "off"}).json()
+            chat = running.create_chat({"title": "Disabled", "memory_mode": "off"})
             accepted = running.client.post(
                 f"/api/v1/chats/{chat['id']}/turns",
                 json={"text": "Show a garden", "memory_mode": "off"},
@@ -185,15 +185,11 @@ class CapabilityTests(unittest.TestCase):
                     "allow_image_sends": False,
                 },
             ).json()
-            chat = running.client.post(
-                "/api/v1/chats",
-                json={
-                    "workspace_id": workspace["id"],
-                    "persona_id": persona["id"],
-                    "title": "Tools",
-                    "memory_mode": "off",
-                },
-            ).json()
+            chat = running.create_chat(
+                {"title": "Tools", "memory_mode": "off"},
+                persona_id=persona["id"],
+                context={"kind": "workspace", "workspace_id": workspace["id"]},
+            )
             accepted = running.client.post(
                 f"/api/v1/chats/{chat['id']}/turns",
                 json={"text": "Show me a moonlit garden video", "memory_mode": "off"},
@@ -249,6 +245,63 @@ class CapabilityTests(unittest.TestCase):
             )
             self.assertNotEqual(owner_id, "")
 
+    def test_replan_uses_permanent_binding_when_legacy_chat_column_drifts(self):
+        with tempfile.TemporaryDirectory() as tmp, TestApp(Path(tmp)) as running:
+            user_id = running.create_and_login()
+            workspace = running.client.post("/api/v1/workspaces", json={"name": "Bound plans"}).json()
+            bound_persona = running.client.post(
+                "/api/v1/personas",
+                json={"workspace_id": workspace["id"], "name": "Bound persona"},
+            ).json()
+            drift_persona = running.client.post(
+                "/api/v1/personas",
+                json={"workspace_id": workspace["id"], "name": "Legacy column drift"},
+            ).json()
+            chat = running.create_chat(
+                {"memory_mode": "off"},
+                persona_id=bound_persona["id"],
+                context={"kind": "workspace", "workspace_id": workspace["id"]},
+            )
+            requirements = {
+                "kind": "image",
+                "operation": "generate",
+                "domains": [],
+                "content_tags": [],
+                "required_features": ["identity_control"],
+            }
+            with UnitOfWork(
+                running.services.runtime.session_factory,
+                running.services.runtime.secret_store,
+            ) as uow:
+                request, _created = uow.repo.add_capability_request(
+                    user_id=user_id,
+                    chat_id=chat["id"],
+                    turn_id=None,
+                    capability_key="media.generate_image",
+                    arguments={"prompt": "A bound portrait.", **requirements},
+                    status="pending_confirmation",
+                    permission_mode="confirm",
+                    idempotency_key="binding-replan",
+                )
+                plan = running.services.media_catalog.create_coordinator_plan(
+                    uow.repo,
+                    user_id,
+                    request.id,
+                    requirements,
+                    persona_id=bound_persona["id"],
+                )
+                self.assertEqual(plan.status, "blocked")
+                durable_chat = uow.repo.chat(user_id, chat["id"])
+                durable_chat.persona_id = drift_persona["id"]
+                request_id = request.id
+
+            replanned = running.client.post(f"/api/v1/capability-requests/{request_id}/replan")
+
+            self.assertEqual(replanned.status_code, 200, replanned.text)
+            conditioning = replanned.json()["media_plan"]["identity_conditioning"]
+            self.assertEqual(conditioning["persona_id"], bound_persona["id"])
+            self.assertNotEqual(conditioning["persona_id"], drift_persona["id"])
+
     def test_explicit_image_request_runs_automatically_as_a_reload_safe_attachment(self):
         planned = {
             "capability_key": "media.generate_image",
@@ -271,7 +324,7 @@ class CapabilityTests(unittest.TestCase):
                 "/api/v1/settings",
                 json={"preferences": {"image_provider": "local/automatic1111"}},
             )
-            chat = running.client.post("/api/v1/chats", json={"memory_mode": "off"}).json()
+            chat = running.create_chat({"memory_mode": "off"})
             accepted = running.client.post(
                 f"/api/v1/chats/{chat['id']}/turns",
                 json={"text": "Show me a moonlit garden", "memory_mode": "off"},
@@ -343,14 +396,11 @@ class CapabilityTests(unittest.TestCase):
                     "allow_image_sends": False,
                 },
             ).json()
-            chat = running.client.post(
-                "/api/v1/chats",
-                json={
-                    "workspace_id": workspace["id"],
-                    "persona_id": persona["id"],
-                    "memory_mode": "off",
-                },
-            ).json()
+            chat = running.create_chat(
+                {"memory_mode": "off"},
+                persona_id=persona["id"],
+                context={"kind": "workspace", "workspace_id": workspace["id"]},
+            )
 
             accepted = running.client.post(
                 f"/api/v1/chats/{chat['id']}/turns",
@@ -415,14 +465,11 @@ class CapabilityTests(unittest.TestCase):
                     "allow_image_sends": False,
                 },
             ).json()
-            chat = running.client.post(
-                "/api/v1/chats",
-                json={
-                    "workspace_id": workspace["id"],
-                    "persona_id": origin["id"],
-                    "memory_mode": "off",
-                },
-            ).json()
+            chat = running.create_chat(
+                {"memory_mode": "off"},
+                persona_id=origin["id"],
+                context={"kind": "workspace", "workspace_id": workspace["id"]},
+            )
 
             accepted = running.client.post(
                 f"/api/v1/chats/{chat['id']}/turns",
@@ -435,7 +482,8 @@ class CapabilityTests(unittest.TestCase):
                 f"/api/v1/chats/{chat['id']}",
                 json={"persona_id": replacement["id"]},
             )
-            self.assertEqual(switched.status_code, 200, switched.text)
+            self.assertEqual(switched.status_code, 409, switched.text)
+            self.assertIn("permanently bound", switched.json()["error"]["message"])
 
             planning_gate.set()
             running.wait_job(primary["result"]["followup_job_id"])
@@ -456,7 +504,7 @@ class CapabilityTests(unittest.TestCase):
                 "/api/v1/settings",
                 json={"preferences": {"image_provider": "local/automatic1111"}},
             )
-            chat = running.client.post("/api/v1/chats", json={"memory_mode": "off"}).json()
+            chat = running.create_chat({"memory_mode": "off"})
             started = running.client.post(
                 "/api/v1/media/image-jobs",
                 json={"prompt": "a garden", "chat_id": chat["id"]},
@@ -527,10 +575,11 @@ class CapabilityTests(unittest.TestCase):
                 "/api/v1/personas",
                 json={"workspace_id": workspace["id"], "name": "Companion"},
             ).json()
-            chat = running.client.post(
-                "/api/v1/chats",
-                json={"title": "Images", "memory_mode": "off", "persona_id": persona["id"]},
-            ).json()
+            chat = running.create_chat(
+                {"title": "Images", "memory_mode": "off"},
+                persona_id=persona["id"],
+                context={"kind": "workspace", "workspace_id": workspace["id"]},
+            )
 
             turn = running.client.post(
                 f"/api/v1/chats/{chat['id']}/turns",
@@ -590,7 +639,6 @@ class CapabilityTests(unittest.TestCase):
             memory_candidates=[
                 {
                     "content": "The user prefers moonlit gardens.",
-                    "scope": "chat",
                     "confidence": 0.8,
                 }
             ],
@@ -602,10 +650,7 @@ class CapabilityTests(unittest.TestCase):
                 "/api/v1/settings",
                 json={"preferences": {"image_provider": "local/automatic1111"}},
             )
-            chat = running.client.post(
-                "/api/v1/chats",
-                json={"title": "Memory with tools", "memory_mode": "saved"},
-            ).json()
+            chat = running.create_chat({"title": "Memory with tools", "memory_mode": "saved"})
             accepted = running.client.post(
                 f"/api/v1/chats/{chat['id']}/turns",
                 json={

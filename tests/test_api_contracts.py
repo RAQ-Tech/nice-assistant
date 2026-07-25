@@ -79,8 +79,11 @@ class BrowserApiContractTests(unittest.TestCase):
         chat = self.client.post(
             "/api/v1/chats",
             json={
-                "workspace_id": workspace_id,
                 "persona_id": persona_id,
+                "access_context": {
+                    "kind": "workspace",
+                    "workspace_id": workspace_id,
+                },
                 "title": "Contract chat",
                 "memory_mode": "saved",
             },
@@ -94,7 +97,10 @@ class BrowserApiContractTests(unittest.TestCase):
 
         memory = self.client.post(
             "/api/v1/memories",
-            json={"scope": "chat", "scope_id": chat_id, "content": "Remember this."},
+            json={
+                "content": "Remember this.",
+                "grants": [{"grant_type": "persona", "target_id": persona_id}],
+            },
         )
         self.assertEqual(memory.status_code, 200, memory.text)
         memory_id = memory.json()["id"]
@@ -102,7 +108,7 @@ class BrowserApiContractTests(unittest.TestCase):
         self.assertEqual([item["id"] for item in memories], [memory_id])
         revised = self.client.put(
             f"/api/v1/memories/{memory_id}",
-            json={"content": "Revised.", "scope": "chat", "scope_id": chat_id},
+            json={"content": "Revised."},
         )
         self.assertEqual(revised.status_code, 200, revised.text)
         self.assertEqual(revised.json()["content"], "Revised.")

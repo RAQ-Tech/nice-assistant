@@ -21,11 +21,21 @@ Record the following locally for each real deployment:
 - chat, memory, completed-file speech, media, cancellation, and protected-file
   behavior for capabilities the build truthfully supports;
 - first-turn title delivery before nonessential follow-ups, editable pending
-  memory proposals, persona switching, and progressive chat-detail controls;
+  memory proposals, explicit new-chat persona/access-context selection,
+  rejection of in-chat rebinding, and progressive chat-detail controls;
+- readable/non-continuable legacy chats; personal versus workspace retrieval;
+  workspace-grant access for a newly added member persona; and immediate block
+  after workspace membership is removed;
+- Phase 2 migration counts proving old chats/memories were preserved, old
+  memories received no grants, and no reset or live deletion ran;
+- explicit owner-profile API behavior, including universal prompt visibility
+  across two personas with saved memory off, no extracted memory row, and no
+  exposed browser editor;
 - truthful image wording, reload-safe compact attachments, blur-off default,
   reveal-then-preview when enabled, scoped cancel/retry, and conversation or
   recording while media or completed-file Kokoro playback is active;
-- restart recovery and clean-shutdown evidence;
+- restart recovery and clean-shutdown evidence, including proof that model
+  selection and Ollama/application restart do not alter durable chat binding;
 - backup archive, SQLite-integrity, migration, and rollback-drill results;
 - provider outage and capacity-pressure behavior;
 - unavailable or deliberately deferred capabilities.
@@ -101,6 +111,16 @@ The supported private-LAN deployment has completed chat, memory, completed-file
 speech, managed local-media cleanup, running cancellation, restart recovery, and
 non-destructive backup verification. This is a product-status statement, not a
 portable performance claim.
+
+The current application build also includes the Memory v3 Phase 2
+identity/access foundation: explicit immutable new-chat binding,
+source-persona-only pending extraction, grant-gated current-memory retrieval,
+legacy chat/memory quarantine, typed validity/lifecycle metadata, and the
+explicit owner-profile/grant APIs. Each installed deployment must still record
+its own migration and browser evidence above. Full Settings owner controls,
+grounded automatic activation/correction, natural-language administration,
+document knowledge/citations, and a live memory reset are not accepted
+capabilities.
 
 Provider-neutral streaming TTS, local STT, natural turn-taking, barge-in, and
 real visual-identity deployment acceptance remain separate future work. A

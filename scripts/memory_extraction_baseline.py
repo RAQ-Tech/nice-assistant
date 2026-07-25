@@ -24,9 +24,10 @@ from app.task_contracts import (
 
 
 BASELINE_CORPUS_PATH = Path(__file__).resolve().parent / "evaluation_data" / "memory-v2-extraction-baseline.v1.json"
-BASELINE_REPORT_SCHEMA_VERSION = 2
-BASELINE_EVALUATOR_VERSION = "memory-v2-observe-only-v2"
+BASELINE_REPORT_SCHEMA_VERSION = 3
+BASELINE_EVALUATOR_VERSION = "memory-v2-observe-only-v3"
 BASELINE_CANDIDATE_LIMIT = 5
+EVALUATION_SCOPE_ASSIGNMENT = "persona"
 REQUIRED_BASELINE_TAGS = {
     "acceptance",
     "credential",
@@ -380,9 +381,12 @@ def assess_memory_baseline_case(
     show_output: bool = False,
     sensitive_filter: Callable[[str], bool] = memory_candidate_is_sensitive,
     parser_deduplicated_exact_candidate_count: int = 0,
+    evaluation_scope: str = EVALUATION_SCOPE_ASSIGNMENT,
 ) -> dict:
     """Assess parsed Memory v2 output using a conservative grounding lower bound."""
 
+    if evaluation_scope not in {"global", "workspace", "persona", "chat"}:
+        raise ValueError("evaluation_scope must be a legacy Memory v2 scope")
     allowed_values = {_normalized(value) for value in case.allowed_values}
     raw_lexical_fact_matches = {fact.id: 0 for fact in case.facts}
     post_filter_lexical_fact_matches = {fact.id: 0 for fact in case.facts}
@@ -453,7 +457,11 @@ def assess_memory_baseline_case(
 
         observation = {
             "index": index,
-            "scope": candidate.scope,
+            # Runtime extraction no longer assigns access. Keep a fixed or
+            # caller-supplied legacy scope only as evaluation metadata so old
+            # Phase 1 reports remain comparable without trusting model output.
+            "scope": evaluation_scope,
+            "scope_source": "evaluation_metadata",
             "confidence": candidate.confidence,
             "grounding_status": grounding_status,
             "strict_grounded": strict_grounded,
@@ -495,8 +503,7 @@ def assess_memory_baseline_case(
         )
 
     scope_counts = {scope: 0 for scope in ("global", "workspace", "persona", "chat")}
-    for candidate in output.candidates:
-        scope_counts[candidate.scope] += 1
+    scope_counts[evaluation_scope] = len(output.candidates)
     grounding_status_counts = {
         status: sum(item["grounding_status"] == status for item in candidate_observations)
         for status in (
@@ -539,6 +546,7 @@ def assess_memory_baseline_case(
         "missing_post_filter_strict_grounding_fact_ids": missing_post_filter_strict,
         "issues": issues,
         "scope_counts": scope_counts,
+        "scope_assignment_source": "evaluation_metadata_not_runtime_output",
         "strict_grounded_confidence": _confidence_summary(strict_grounded_confidences),
         "non_strict_confidence": _confidence_summary(non_strict_confidences),
         "candidate_observations": candidate_observations,
@@ -598,6 +606,7 @@ def contract_failure_result(case: MemoryBaselineCase, failure: str, latency_ms: 
         "missing_post_filter_strict_grounding_fact_ids": [fact.id for fact in case.facts],
         "issues": ["contract_error"],
         "scope_counts": {scope: 0 for scope in ("global", "workspace", "persona", "chat")},
+        "scope_assignment_source": "evaluation_metadata_not_runtime_output",
         "strict_grounded_confidence": _confidence_summary([]),
         "non_strict_confidence": _confidence_summary([]),
         "candidate_observations": [],
@@ -689,6 +698,7 @@ def build_memory_baseline_report(
         "suite": "memory-v2-baseline",
         "mode": "memory_v2_observe_only",
         "automatic_activation_enabled": False,
+        "scope_assignment_source": "evaluation_metadata_not_runtime_output",
         "quality_gate": None,
         "execution_complete": contract_error_count == 0,
         "provider": {
@@ -768,9 +778,9 @@ def build_memory_baseline_report(
     return payload
 
 
-def example_output(case: MemoryBaselineCase, *, scope: str = "persona", confidence: float = 0.9):
+def example_output(case: MemoryBaselineCase, *, confidence: float = 0.9):
     """Build a deterministic known-good parsed output for offline tests."""
 
     if case.expectation == "abstain":
         return MemoryExtractionTaskOutput(tuple())
-    return MemoryExtractionTaskOutput(tuple(MemoryCandidate(fact.example, scope, confidence) for fact in case.facts))
+    return MemoryExtractionTaskOutput(tuple(MemoryCandidate(fact.example, confidence) for fact in case.facts))

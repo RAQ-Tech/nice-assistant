@@ -16,8 +16,10 @@ from app.models import (
     CapabilityRequest,
     Chat,
     ChatAttachment,
+    ChatBinding,
     ConversationTurn,
     ConversationSummary,
+    HumanPrincipal,
     MediaCatalogResource,
     MediaCatalogSetting,
     MediaExecutionPlan,
@@ -26,6 +28,10 @@ from app.models import (
     MediaResourceCompatibility,
     Memory,
     MemoryEvent,
+    MemoryGrant,
+    MemoryGrantEvent,
+    MemoryOrigin,
+    MemoryRecord,
     Message,
     Persona,
     PersonaIdentityEvent,
@@ -33,6 +39,8 @@ from app.models import (
     PersonaIdentityValidation,
     PersonaVisualIdentity,
     PersonaWorkspaceLink,
+    OwnerProfile,
+    OwnerProfileEvent,
     ResourceControlAuthorization,
     ResourceCoordinationEvent,
     ResourceCoordinationSetting,
@@ -95,19 +103,76 @@ class ApplicationRepository:
         return self.session.get(User, user_id)
 
     def create_user(self, username: str, password_hash: str) -> User:
+        stamp = now_ts()
         user = User(
             id=secrets.token_hex(8),
             username=username,
             password_hash=password_hash,
             is_admin=1 if self.user_count() == 0 else 0,
-            created_at=now_ts(),
+            created_at=stamp,
         )
         self.session.add(user)
         try:
             self.session.flush()
         except IntegrityError as exc:
             raise ValueError("username exists") from exc
+        human = HumanPrincipal(
+            id=secrets.token_hex(12),
+            user_id=user.id,
+            created_at=stamp,
+            updated_at=stamp,
+        )
+        self.session.add(human)
+        self.session.flush()
+        self.session.add(
+            OwnerProfile(
+                human_id=human.id,
+                revision=0,
+                created_at=stamp,
+                updated_at=stamp,
+            )
+        )
+        self.session.flush()
         return user
+
+    def human_principal(self, user_id: str):
+        return self.session.scalar(select(HumanPrincipal).where(HumanPrincipal.user_id == user_id))
+
+    def owner_profile(self, human_id: str):
+        return self.session.get(OwnerProfile, human_id)
+
+    def save_owner_profile(self, human_id: str, values: dict):
+        row = self.owner_profile(human_id)
+        if not row:
+            stamp = now_ts()
+            row = OwnerProfile(human_id=human_id, revision=0, created_at=stamp, updated_at=stamp)
+            self.session.add(row)
+        for field, value in values.items():
+            setattr(row, field, value)
+        row.revision = int(row.revision or 0) + 1
+        row.updated_at = now_ts()
+        self.session.flush()
+        return row
+
+    def add_owner_profile_event(
+        self,
+        human_id: str,
+        changed_fields: list[str],
+        *,
+        action: str = "updated",
+    ):
+        if action not in {"created", "updated", "cleared"}:
+            raise ValueError("invalid owner profile event action")
+        event = OwnerProfileEvent(
+            id=secrets.token_hex(12),
+            human_id=human_id,
+            action=action,
+            changed_fields_json=json.dumps(sorted(set(changed_fields)), separators=(",", ":")),
+            created_at=now_ts(),
+        )
+        self.session.add(event)
+        self.session.flush()
+        return event
 
     def session_record(self, token: str):
         return self.session.execute(
@@ -600,12 +665,8 @@ class ApplicationRepository:
             .select_from(PersonaWorkspaceLink)
             .where(PersonaWorkspaceLink.workspace_id == workspace_id)
         )
-        chats = self.session.scalar(
-            select(func.count()).select_from(Chat).where(Chat.user_id == user_id, Chat.workspace_id == workspace_id)
-        )
-        if personas or chats:
-            raise ValueError("workspace not empty; remove personas/chats first")
-        self.archive_scope_memories(user_id, "workspace", workspace_id)
+        if personas:
+            raise ValueError("workspace not empty; remove personas first")
         self.session.delete(row)
         return True
 
@@ -687,15 +748,15 @@ class ApplicationRepository:
         row = self.persona(user_id, persona_id)
         if not row:
             return False
-        self.archive_scope_memories(user_id, "persona", persona_id)
-        for chat in self.session.scalars(select(Chat).where(Chat.user_id == user_id, Chat.persona_id == persona_id)):
-            chat.persona_id = None
         self.session.delete(row)
         return True
 
     # Chats and messages
     def chat(self, user_id: str, chat_id: str):
         return self.session.scalar(select(Chat).where(Chat.id == chat_id, Chat.user_id == user_id))
+
+    def chat_binding(self, chat_id: str):
+        return self.session.get(ChatBinding, chat_id)
 
     def chats(self, user_id: str, include_hidden: bool = False):
         query = select(Chat).where(Chat.user_id == user_id)
@@ -723,17 +784,36 @@ class ApplicationRepository:
         self.session.delete(row)
 
     def create_chat(self, user_id: str, values: dict) -> Chat:
-        workspace_id = values.get("workspace_id")
+        if "workspace_id" in values:
+            raise ValueError("workspace_id is not accepted; use an explicit access_context")
         persona_id = values.get("persona_id")
-        if workspace_id and not self.workspace(user_id, workspace_id):
+        if not persona_id:
+            raise ValueError("persona_id is required")
+        persona = self.persona(user_id, persona_id)
+        if not persona:
+            raise LookupError("persona not found")
+
+        context = values.get("access_context")
+        if not isinstance(context, dict):
+            raise ValueError("access_context is required")
+        context_kind = str(context.get("kind") or "").strip().lower()
+        workspace_id = context.get("workspace_id")
+        if context_kind not in {"personal", "workspace"}:
+            raise ValueError("access context must be personal or workspace")
+        if context_kind == "personal":
+            if workspace_id:
+                raise ValueError("personal access context cannot include a workspace")
+            workspace_id = None
+        elif not workspace_id:
+            raise ValueError("workspace access context requires workspace_id")
+        workspace = self.workspace(user_id, workspace_id) if workspace_id else None
+        if workspace_id and not workspace:
             raise LookupError("workspace not found")
-        persona = self.persona(user_id, persona_id) if persona_id else None
-        if persona_id and not persona:
+        if workspace_id and workspace_id not in self.persona_workspace_ids(persona.id):
             raise LookupError("persona not found")
-        if persona and not workspace_id:
-            workspace_id = persona.workspace_id
-        if persona and workspace_id not in self.persona_workspace_ids(persona.id):
-            raise LookupError("persona not found")
+        human = self.human_principal(user_id)
+        if not human:
+            raise LookupError("human principal not found")
         stamp = now_ts()
         row = Chat(
             id=secrets.token_hex(8),
@@ -748,6 +828,20 @@ class ApplicationRepository:
             updated_at=stamp,
         )
         self.session.add(row)
+        self.session.flush()
+        self.session.add(
+            ChatBinding(
+                chat_id=row.id,
+                human_id=human.id,
+                persona_id=persona.id,
+                context_kind=context_kind,
+                workspace_id=workspace_id,
+                binding_status="active",
+                persona_name_snapshot=persona.name,
+                workspace_name_snapshot=workspace.name if workspace else None,
+                created_at=stamp,
+            )
+        )
         self.session.flush()
         return row
 
@@ -790,6 +884,8 @@ class ApplicationRepository:
         scope: str | None = None,
         scope_id: str | None = None,
         statuses: set[str] | None = None,
+        grant_type: str | None = None,
+        grant_target_id: str | None = None,
     ):
         query = select(Memory).where(Memory.user_id == user_id)
         if scope:
@@ -798,32 +894,106 @@ class ApplicationRepository:
             query = query.where(Memory.tier_ref_id == scope_id)
         if statuses:
             query = query.where(Memory.status.in_(statuses))
+        if grant_type or grant_target_id:
+            grant_query = select(MemoryGrant.id).where(
+                MemoryGrant.memory_id == Memory.id,
+                MemoryGrant.revoked_at.is_(None),
+            )
+            if grant_type:
+                grant_query = grant_query.where(MemoryGrant.grant_type == grant_type)
+            if grant_target_id:
+                if grant_type == "workspace":
+                    grant_query = grant_query.where(MemoryGrant.workspace_id == grant_target_id)
+                elif grant_type == "persona":
+                    grant_query = grant_query.where(MemoryGrant.persona_id == grant_target_id)
+                else:
+                    grant_query = grant_query.where(
+                        or_(
+                            MemoryGrant.persona_id == grant_target_id,
+                            MemoryGrant.workspace_id == grant_target_id,
+                        )
+                    )
+            query = query.where(grant_query.exists())
         return self.session.scalars(query.order_by(Memory.updated_at.desc(), Memory.id.desc())).all()
 
     def relevant_memories(
         self,
         user_id: str,
         *,
-        workspace_id: str | None,
-        persona_id: str | None,
+        workspace_id: str | None = None,
+        persona_id: str | None = None,
         chat_id: str,
         search_query: str | None = None,
         limit: int = 40,
     ):
-        scopes = [Memory.tier == "global"]
-        if workspace_id:
-            scopes.append(and_(Memory.tier == "workspace", Memory.tier_ref_id == workspace_id))
-        if persona_id:
-            scopes.append(and_(Memory.tier == "persona", Memory.tier_ref_id == persona_id))
-        scopes.append(and_(Memory.tier == "chat", Memory.tier_ref_id == chat_id))
+        del workspace_id, persona_id
+        chat = self.chat(user_id, chat_id)
+        binding = self.chat_binding(chat_id) if chat else None
+        human = self.human_principal(user_id)
+        if (
+            not chat
+            or not binding
+            or not human
+            or binding.human_id != human.id
+            or binding.binding_status != "active"
+            or not binding.persona_id
+        ):
+            return []
+        persona = self.persona(user_id, binding.persona_id)
+        if not persona:
+            return []
+        if binding.context_kind == "workspace":
+            if (
+                not binding.workspace_id
+                or not self.workspace(user_id, binding.workspace_id)
+                or binding.workspace_id not in self.persona_workspace_ids(binding.persona_id)
+            ):
+                return []
+
         limit = min(100, max(1, int(limit)))
+        stamp = now_ts()
+        grant_access = select(MemoryGrant.id).where(
+            MemoryGrant.memory_id == Memory.id,
+            MemoryGrant.human_id == human.id,
+            MemoryGrant.revoked_at.is_(None),
+            or_(
+                and_(
+                    MemoryGrant.grant_type == "persona",
+                    MemoryGrant.persona_id == binding.persona_id,
+                ),
+                and_(
+                    binding.context_kind == "workspace",
+                    MemoryGrant.grant_type == "workspace",
+                    MemoryGrant.workspace_id == binding.workspace_id,
+                    select(PersonaWorkspaceLink.persona_id)
+                    .where(
+                        PersonaWorkspaceLink.persona_id == binding.persona_id,
+                        PersonaWorkspaceLink.workspace_id == binding.workspace_id,
+                    )
+                    .exists(),
+                ),
+            ),
+        )
         recent = list(
             self.session.scalars(
                 select(Memory)
+                .join(MemoryRecord, MemoryRecord.memory_id == Memory.id)
                 .where(
                     Memory.user_id == user_id,
                     Memory.status == "active",
-                    or_(*scopes),
+                    MemoryRecord.human_id == human.id,
+                    MemoryRecord.access_state == "grants",
+                    MemoryRecord.validity_status == "current",
+                    or_(
+                        MemoryRecord.memory_type != "temporal",
+                        MemoryRecord.valid_until.is_(None),
+                        MemoryRecord.valid_until > stamp,
+                    ),
+                    or_(
+                        MemoryRecord.memory_type != "stateful",
+                        MemoryRecord.stateful_status == "active",
+                    ),
+                    grant_access.exists(),
                 )
                 .order_by(Memory.updated_at.desc(), Memory.id.desc())
                 .limit(limit)
@@ -832,24 +1002,38 @@ class ApplicationRepository:
         if not search_query:
             return recent
 
-        clauses = ["m.tier='global'"]
-        params = {"user_id": user_id, "query": search_query, "limit": limit}
-        if workspace_id:
-            clauses.append("(m.tier='workspace' AND m.tier_ref_id=:workspace_id)")
-            params["workspace_id"] = workspace_id
-        if persona_id:
-            clauses.append("(m.tier='persona' AND m.tier_ref_id=:persona_id)")
-            params["persona_id"] = persona_id
-        clauses.append("(m.tier='chat' AND m.tier_ref_id=:chat_id)")
-        params["chat_id"] = chat_id
+        workspace_grant = ""
+        params = {
+            "user_id": user_id,
+            "human_id": human.id,
+            "persona_id": binding.persona_id,
+            "query": search_query,
+            "limit": limit,
+            "now": stamp,
+        }
+        if binding.context_kind == "workspace" and binding.workspace_id:
+            params["workspace_id"] = binding.workspace_id
+            workspace_grant = (
+                " OR (g.grant_type='workspace' AND g.workspace_id=:workspace_id "
+                "AND EXISTS (SELECT 1 FROM persona_workspace_links pw "
+                "WHERE pw.persona_id=:persona_id AND pw.workspace_id=:workspace_id))"
+            )
         matched_ids = list(
             self.session.scalars(
                 sql_text(
                     "SELECT m.id FROM memory_fts "
                     "JOIN memories m ON m.id=memory_fts.memory_id "
+                    "JOIN memory_records r ON r.memory_id=m.id "
                     "WHERE memory_fts MATCH :query AND m.user_id=:user_id AND m.status='active' "
-                    f"AND ({' OR '.join(clauses)}) "
-                    "ORDER BY bm25(memory_fts),m.updated_at DESC,m.id DESC LIMIT :limit"
+                    "AND r.human_id=:human_id AND r.access_state='grants' "
+                    "AND r.validity_status='current' "
+                    "AND (r.memory_type!='temporal' OR r.valid_until IS NULL OR r.valid_until>:now) "
+                    "AND (r.memory_type!='stateful' OR r.stateful_status='active') "
+                    "AND EXISTS (SELECT 1 FROM memory_grants g "
+                    "WHERE g.memory_id=m.id AND g.human_id=:human_id AND g.revoked_at IS NULL "
+                    "AND ((g.grant_type='persona' AND g.persona_id=:persona_id)"
+                    f"{workspace_grant})) "
+                    "ORDER BY m.updated_at DESC,m.id DESC LIMIT :limit"
                 ),
                 params,
             ).all()
@@ -867,6 +1051,350 @@ class ApplicationRepository:
 
     def memory(self, user_id: str, memory_id: str):
         return self.session.scalar(select(Memory).where(Memory.id == memory_id, Memory.user_id == user_id))
+
+    def memory_record(self, memory_id: str):
+        return self.session.get(MemoryRecord, memory_id)
+
+    def memory_origin(self, memory_id: str):
+        return self.session.get(MemoryOrigin, memory_id)
+
+    def active_memory_grants(self, memory_id: str):
+        return self.session.scalars(
+            select(MemoryGrant)
+            .where(MemoryGrant.memory_id == memory_id, MemoryGrant.revoked_at.is_(None))
+            .order_by(MemoryGrant.grant_type, MemoryGrant.persona_id, MemoryGrant.workspace_id, MemoryGrant.id)
+        ).all()
+
+    def memory_grant_events(self, user_id: str, memory_id: str):
+        human = self.human_principal(user_id)
+        if not human:
+            return []
+        return self.session.scalars(
+            select(MemoryGrantEvent)
+            .where(MemoryGrantEvent.memory_id == memory_id, MemoryGrantEvent.human_id == human.id)
+            .order_by(MemoryGrantEvent.created_at.desc(), MemoryGrantEvent.id.desc())
+        ).all()
+
+    def validate_memory_grants(
+        self,
+        user_id: str,
+        grants: list[dict],
+        *,
+        allow_empty: bool = False,
+    ) -> list[dict]:
+        if not grants and not allow_empty:
+            raise ValueError("at least one persona or workspace grant is required")
+        normalized = []
+        seen = set()
+        for value in grants:
+            if not isinstance(value, dict):
+                raise ValueError("invalid memory grant")
+            grant_type = str(value.get("grant_type") or "").strip().lower()
+            target_id = str(value.get("target_id") or "").strip()
+            if grant_type not in {"persona", "workspace"} or not target_id:
+                raise ValueError("invalid memory grant")
+            key = (grant_type, target_id)
+            if key in seen:
+                continue
+            seen.add(key)
+            if grant_type == "persona":
+                if not self.persona(user_id, target_id):
+                    raise LookupError("persona not found")
+            elif not self.workspace(user_id, target_id):
+                raise LookupError("workspace not found")
+            normalized.append({"grant_type": grant_type, "target_id": target_id})
+        if not normalized and not allow_empty:
+            raise ValueError("at least one persona or workspace grant is required")
+        return normalized
+
+    def create_memory_record(
+        self,
+        memory_id: str,
+        *,
+        human_id: str,
+        lineage: str = "native_v3",
+        access_state: str = "grants",
+        memory_type: str = "durable",
+        validity_status: str = "current",
+        valid_until: int | None = None,
+        stateful_status: str | None = None,
+        last_confirmed_at: int | None = None,
+    ):
+        stamp = now_ts()
+        row = MemoryRecord(
+            memory_id=memory_id,
+            human_id=human_id,
+            lineage=lineage,
+            access_state=access_state,
+            memory_type=memory_type,
+            validity_status=validity_status,
+            valid_until=valid_until,
+            stateful_status=stateful_status,
+            last_confirmed_at=last_confirmed_at,
+            created_at=stamp,
+            updated_at=stamp,
+        )
+        self.session.add(row)
+        self.session.flush()
+        return row
+
+    def create_memory_origin(
+        self,
+        memory_id: str,
+        *,
+        human_id: str,
+        source_kind: str,
+        source_chat_id: str | None = None,
+        source_persona_id: str | None = None,
+        source_workspace_id: str | None = None,
+        source_message_id: str | None = None,
+        source_turn_id: str | None = None,
+        evidence: dict | None = None,
+        provenance_status: str = "resolved",
+        revision_of_memory_id: str | None = None,
+    ):
+        row = MemoryOrigin(
+            memory_id=memory_id,
+            human_id=human_id,
+            source_kind=source_kind,
+            source_chat_id=source_chat_id,
+            source_persona_id=source_persona_id,
+            source_workspace_id=source_workspace_id,
+            source_message_id=source_message_id,
+            source_turn_id=source_turn_id,
+            evidence_json=json.dumps(evidence or {}, separators=(",", ":")),
+            provenance_status=provenance_status,
+            revision_of_memory_id=revision_of_memory_id,
+            created_at=now_ts(),
+        )
+        self.session.add(row)
+        self.session.flush()
+        return row
+
+    def add_memory_grant(
+        self,
+        memory_id: str,
+        *,
+        human_id: str,
+        grant_type: str,
+        target_id: str,
+        grant_source: str,
+        granted_by_human_id: str,
+    ):
+        stamp = now_ts()
+        row = MemoryGrant(
+            id=secrets.token_hex(12),
+            memory_id=memory_id,
+            human_id=human_id,
+            grant_type=grant_type,
+            persona_id=target_id if grant_type == "persona" else None,
+            workspace_id=target_id if grant_type == "workspace" else None,
+            grant_source=grant_source,
+            granted_by_human_id=granted_by_human_id,
+            granted_at=stamp,
+            revoked_by_human_id=None,
+            revoked_at=None,
+        )
+        self.session.add(row)
+        self.session.flush()
+        self._add_memory_grant_event(row, "granted", target_id, stamp)
+        return row
+
+    def _add_memory_grant_event(self, grant, action: str, target_id: str, created_at: int):
+        event = MemoryGrantEvent(
+            id=secrets.token_hex(12),
+            memory_id=grant.memory_id,
+            grant_id=grant.id,
+            human_id=grant.human_id,
+            action=action,
+            grant_type=grant.grant_type,
+            target_id=target_id,
+            created_at=created_at,
+        )
+        self.session.add(event)
+        self.session.flush()
+        return event
+
+    def replace_memory_grants(self, user_id: str, memory_id: str, grants: list[dict]):
+        memory = self.memory(user_id, memory_id)
+        if not memory:
+            raise LookupError("memory not found")
+        human = self.human_principal(user_id)
+        if not human:
+            raise LookupError("human principal not found")
+        desired = self.validate_memory_grants(user_id, grants, allow_empty=True)
+        desired_keys = {(value["grant_type"], value["target_id"]) for value in desired}
+        active = list(self.active_memory_grants(memory_id))
+        active_by_key = {
+            (
+                row.grant_type,
+                row.persona_id if row.grant_type == "persona" else row.workspace_id,
+            ): row
+            for row in active
+        }
+        stamp = now_ts()
+        for key, row in active_by_key.items():
+            if key in desired_keys:
+                continue
+            row.revoked_by_human_id = human.id
+            row.revoked_at = stamp
+            self._add_memory_grant_event(row, "revoked", str(key[1]), stamp)
+        for grant_type, target_id in sorted(desired_keys - set(active_by_key)):
+            self.add_memory_grant(
+                memory_id,
+                human_id=human.id,
+                grant_type=grant_type,
+                target_id=target_id,
+                grant_source="owner",
+                granted_by_human_id=human.id,
+            )
+        record = self.memory_record(memory_id)
+        if record:
+            record.access_state = "grants"
+            record.updated_at = stamp
+        self.session.flush()
+        return self.active_memory_grants(memory_id)
+
+    def sync_memory_grants_from_revision(
+        self,
+        user_id: str,
+        *,
+        source_memory_id: str,
+        target_memory_id: str,
+    ):
+        """Copy one revision's active access set without re-resolving deleted targets."""
+
+        source = self.memory(user_id, source_memory_id)
+        target = self.memory(user_id, target_memory_id)
+        if not source or not target:
+            raise LookupError("memory not found")
+        human = self.human_principal(user_id)
+        source_record = self.memory_record(source_memory_id)
+        target_record = self.memory_record(target_memory_id)
+        source_origin = self.memory_origin(source_memory_id)
+        target_origin = self.memory_origin(target_memory_id)
+        if (
+            not human
+            or not source_record
+            or not target_record
+            or not source_origin
+            or not target_origin
+            or source_record.human_id != human.id
+            or target_record.human_id != human.id
+            or source_record.access_state != "grants"
+            or target_record.access_state != "grants"
+            or source_origin.provenance_status != "resolved"
+            or target_origin.provenance_status != "resolved"
+        ):
+            raise LookupError("memory access metadata not found")
+
+        source_grants = list(self.active_memory_grants(source_memory_id))
+        desired_by_key = {
+            (
+                row.grant_type,
+                row.persona_id if row.grant_type == "persona" else row.workspace_id,
+            ): row
+            for row in source_grants
+        }
+        target_grants = list(self.active_memory_grants(target_memory_id))
+        target_by_key = {
+            (
+                row.grant_type,
+                row.persona_id if row.grant_type == "persona" else row.workspace_id,
+            ): row
+            for row in target_grants
+        }
+        stamp = now_ts()
+        for key, row in target_by_key.items():
+            if key in desired_by_key:
+                continue
+            row.revoked_by_human_id = human.id
+            row.revoked_at = stamp
+            self._add_memory_grant_event(row, "revoked", str(key[1]), stamp)
+        for key in sorted(set(desired_by_key) - set(target_by_key)):
+            source_grant = desired_by_key[key]
+            self.add_memory_grant(
+                target_memory_id,
+                human_id=human.id,
+                grant_type=source_grant.grant_type,
+                target_id=str(key[1]),
+                grant_source=source_grant.grant_source,
+                granted_by_human_id=human.id,
+            )
+        target_record.updated_at = stamp
+        self.session.flush()
+        return self.active_memory_grants(target_memory_id)
+
+    def copy_memory_v3(self, old_memory_id: str, new_memory_id: str):
+        old_record = self.memory_record(old_memory_id)
+        old_origin = self.memory_origin(old_memory_id)
+        if not old_record or not old_origin:
+            raise LookupError("memory metadata not found")
+        self.create_memory_record(
+            new_memory_id,
+            human_id=old_record.human_id,
+            lineage=old_record.lineage,
+            access_state=old_record.access_state,
+            memory_type=old_record.memory_type,
+            validity_status=old_record.validity_status,
+            valid_until=old_record.valid_until,
+            stateful_status=old_record.stateful_status,
+            last_confirmed_at=old_record.last_confirmed_at,
+        )
+        self.create_memory_origin(
+            new_memory_id,
+            human_id=old_origin.human_id,
+            source_kind="edit",
+            source_chat_id=old_origin.source_chat_id,
+            source_persona_id=old_origin.source_persona_id,
+            source_workspace_id=old_origin.source_workspace_id,
+            source_message_id=old_origin.source_message_id,
+            source_turn_id=old_origin.source_turn_id,
+            evidence={"revision_of": old_memory_id},
+            provenance_status=old_origin.provenance_status,
+            revision_of_memory_id=old_memory_id,
+        )
+        for grant in self.active_memory_grants(old_memory_id):
+            target_id = grant.persona_id if grant.grant_type == "persona" else grant.workspace_id
+            self.add_memory_grant(
+                new_memory_id,
+                human_id=grant.human_id,
+                grant_type=grant.grant_type,
+                target_id=target_id,
+                grant_source=grant.grant_source,
+                granted_by_human_id=grant.granted_by_human_id,
+            )
+
+    def v3_memory_duplicate(
+        self,
+        user_id: str,
+        normalized_content: str,
+        persona_id: str,
+        *,
+        excluding_id: str | None = None,
+    ):
+        human = self.human_principal(user_id)
+        if not human:
+            return None
+        query = (
+            select(Memory)
+            .join(MemoryRecord, MemoryRecord.memory_id == Memory.id)
+            .join(MemoryGrant, MemoryGrant.memory_id == Memory.id)
+            .where(
+                Memory.user_id == user_id,
+                Memory.normalized_content == normalized_content,
+                Memory.status.in_({"pending", "active"}),
+                MemoryRecord.human_id == human.id,
+                MemoryRecord.access_state == "grants",
+                MemoryGrant.human_id == human.id,
+                MemoryGrant.grant_type == "persona",
+                MemoryGrant.persona_id == persona_id,
+                MemoryGrant.revoked_at.is_(None),
+            )
+        )
+        if excluding_id:
+            query = query.where(Memory.id != excluding_id)
+        return self.session.scalar(query.order_by(Memory.updated_at.desc()).limit(1))
 
     def memories_by_ids(self, user_id: str, memory_ids: list[str]):
         if not memory_ids:

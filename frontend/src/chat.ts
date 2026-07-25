@@ -7,6 +7,13 @@ import { clearIdentitySetupContextForChat, machine, state, type ClientStateMachi
 import type { AppState, CapabilityRequest, Chat, Job, Message, TurnEvent } from './types';
 import type { PlaybackController } from './playback';
 
+export type ChatCreateSelection = {
+  personaId: string;
+  context:
+    | { kind: 'personal' }
+    | { kind: 'workspace'; workspaceId: string };
+};
+
 export class ChatController {
   private onChange: () => void = () => undefined;
   private onNavigate: (chatId: string) => void = () => undefined;
@@ -57,13 +64,17 @@ export class ChatController {
     }
   }
 
-  async create(personaId?: string | null): Promise<Chat> {
-    const persona = this.appState.personas.find((item) => item.id === (personaId ?? this.appState.selectedPersonaId));
+  async create(selection: ChatCreateSelection): Promise<Chat> {
+    const persona = this.appState.personas.find((item) => item.id === selection.personaId);
+    if (!persona) throw new Error('Choose an available persona before starting a chat.');
+    const accessContext = selection.context.kind === 'workspace'
+      ? { kind: 'workspace' as const, workspace_id: selection.context.workspaceId }
+      : { kind: 'personal' as const };
     const settings = this.requiredSettings();
     const chat = await this.client.createChat({
-      workspace_id: persona?.workspace_id ?? this.appState.workspaces[0]?.id ?? null,
-      persona_id: persona?.id ?? null,
-      model: persona?.default_model ?? (settings.global_default_model || null),
+      persona_id: persona.id,
+      access_context: accessContext,
+      model: persona.default_model ?? (settings.global_default_model || null),
       memory_mode: settings.default_memory_mode,
       title: 'New chat',
     });
@@ -83,15 +94,25 @@ export class ChatController {
   async send(rawText: string): Promise<void> {
     const text = rawText.trim();
     if (!text) return;
+    const chat = this.appState.currentChat;
+    if (!chat) {
+      this.appState.uiError = 'Start a new chat and choose its persona and access context before sending a message.';
+      this.onChange();
+      return;
+    }
+    if (!chat.binding.can_continue) {
+      this.appState.uiError = chat.binding.block_message
+        || 'This chat is read-only. Start a new chat to continue.';
+      this.onChange();
+      return;
+    }
     if (this.appState.phase === 'speaking') this.playback.stop(false);
     if (this.appState.pendingRequest) return;
     if (this.appState.phase === 'error') this.stateMachine.recover();
     if (!['idle', 'transcribing'].includes(this.appState.phase)) return;
-    const chat = this.appState.currentChat ?? (await this.create(this.appState.selectedPersonaId));
     const settings = this.requiredSettings();
-    const personaId = this.appState.selectedPersonaId ?? chat.persona_id;
+    const personaId = chat.binding.persona_id;
     const persona = this.appState.personas.find((item) => item.id === personaId);
-    const workspaceId = chat.workspace_id ?? persona?.workspace_id ?? null;
     const model = this.appState.selectedModel ?? chat.model_override ?? persona?.default_model ?? settings.global_default_model;
     const memoryMode = this.appState.selectedMemoryMode ?? chat.memory_mode ?? settings.default_memory_mode;
     const optimisticUser: Message = {
@@ -117,8 +138,6 @@ export class ChatController {
     try {
       const accepted = await this.client.createTurn(chat.id, {
         text,
-        workspace_id: workspaceId,
-        persona_id: personaId,
         model: model || null,
         memory_mode: memoryMode,
         model_settings: modelSettings(settings, model || ''),
