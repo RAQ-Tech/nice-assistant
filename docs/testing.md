@@ -146,6 +146,13 @@ installed-browser acceptance.
   rejection message surfacing. Both suites price one shared card, so a change to
   either side's labels or estimator fails a test instead of showing the operator
   a number the platform will not honour.
+- History floor tests cover no yielding when the conversation already fits,
+  reverse-authority yielding, yielding only as far as the floor requires, a first
+  turn with no history keeping its context, and protected sections surviving.
+  Example dialogue tests cover block splitting, placeholder substitution, whole
+  exchanges included or omitted rather than truncated, substituted text reaching
+  the provider, its absence from platform task prompts, and no example section for
+  a persona without one.
 - Persona identity tests cover explicit consent, safe image normalization,
   pending/approved/rejected/deleted references, encrypted verifier credentials,
   protected owner-scoped delivery, passed/below-threshold claims, provider

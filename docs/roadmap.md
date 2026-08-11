@@ -186,6 +186,17 @@ additional catalog breadth does not take priority over them.
     budgeted sections in `docs/persona-depth-spec.md` and remain gated by the
     unresolved 8k-context-versus-VRAM question. See ADR 0026.
 
+26. **Conversation history floor and persona example dialogue — delivered.**
+    Conversation history now keeps a reserved share of the prompt budget. When the
+    assembled prompt would leave less, optional sections yield in reverse authority
+    order — summary, saved memory, then example dialogue — and the turn reports what
+    it dropped instead of claiming to have used it. Nothing yields on a turn with no
+    history, and protected material never yields. On top of that floor, personas
+    carry `<START>`-delimited example exchanges that show how they speak, included
+    whole or not at all under a 10 percent allowance and never reaching the
+    summary, memory, or capability roles. It deliberately does not add lorebooks.
+    See ADR 0027.
+
 Steps are delivered and reviewed independently. Step 11 cannot select providers
 until a future listening decision is approved. Any future deployment acceptance
 must use the intended LAN hardware and service topology.
