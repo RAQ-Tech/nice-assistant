@@ -16,6 +16,33 @@ class BrowserApiContractTests(unittest.TestCase):
         self.test_app.__exit__(None, None, None)
         self.tmp.cleanup()
 
+    def test_speech_settings_reject_values_the_runtime_cannot_honor(self):
+        """A saved setting must change runtime behavior, not fail later at use."""
+        self.running.create_and_login()
+        base = {"default_memory_mode": "saved"}
+        for field, value in (
+            ("stt_provider", "whisper-local-does-not-exist"),
+            ("tts_provider", "totally-bogus"),
+            ("tts_format", "flac-not-supported"),
+        ):
+            response = self.client.put("/api/v1/settings", json={**base, field: value})
+            self.assertEqual(response.status_code, 422, f"{field}={value}: {response.text}")
+            self.assertIn(field, response.text)
+
+        # Every value the runtime recognizes still saves, including the legacy
+        # local STT selection that answers 501 at use rather than at save.
+        for field, value in (
+            ("stt_provider", "openai"),
+            ("stt_provider", "local"),
+            ("stt_provider", "disabled"),
+            ("tts_provider", "local"),
+            ("tts_format", "flac"),
+            ("tts_format", "pcm"),
+        ):
+            response = self.client.put("/api/v1/settings", json={**base, field: value})
+            self.assertEqual(response.status_code, 200, f"{field}={value}: {response.text}")
+            self.assertEqual(response.json()[field], value)
+
     def test_session_settings_workspace_persona_chat_and_memory_contracts(self):
         self.running.create_and_login()
         session = self.client.get("/api/v1/session")
