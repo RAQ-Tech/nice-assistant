@@ -133,9 +133,19 @@ installed-browser acceptance.
   aliases still save in canonical form, and that an unchanged stored value does
   not block saving unrelated settings.
 - API tests use isolated temporary databases and deterministic fake providers.
-- Migration tests upgrade pre-0004/0005/0007/0008/0009/0010/0011/0012/0013/0014/0015/0016/0017 databases and prove
+- Migration tests upgrade pre-0004/0005/0007/0008/0009/0010/0011/0012/0013/0014/0015/0016/0017/0019 databases and prove
   chats, messages, jobs, media, memories, turn ordering, stored artifact links,
   Task Model profiles, and imported catalog resources survive.
+- Persona character card tests cover render order and empty-card neutrality, the
+  budget arithmetic at 4096 and 8192, the narrowest-configured-window rule, the
+  422 message naming estimate/cap/budget/window, an over-limit save leaving the
+  stored card unchanged, owner isolation, refusal of card fields on the general
+  persona route, and a card saved at the cap planning and reaching the provider
+  without `context_too_large`. Browser tests cover live per-field counts, the
+  budget meter and its warning state, saving through the card route, and the
+  rejection message surfacing. Both suites price one shared card, so a change to
+  either side's labels or estimator fails a test instead of showing the operator
+  a number the platform will not honour.
 - Persona identity tests cover explicit consent, safe image normalization,
   pending/approved/rejected/deleted references, encrypted verifier credentials,
   protected owner-scoped delivery, passed/below-threshold claims, provider

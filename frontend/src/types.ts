@@ -58,6 +58,14 @@ export interface Persona {
   allow_image_sends?: boolean;
   system_prompt: string | null;
   personality_details: string | null;
+  card_definition?: string | null;
+  card_personality?: string | null;
+  card_style?: string | null;
+  card_behavior?: string | null;
+  card_token_estimate?: number;
+  card_cap_tokens?: number;
+  card_prompt_budget_tokens?: number;
+  card_context_window_tokens?: number;
   traits: Partial<PersonaTraits>;
   default_model: string | null;
   preferred_voice: string | null;

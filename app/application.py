@@ -146,6 +146,11 @@ def build_services(
         registry,
         runtime.logger,
     )
+    context_policy = ContextPolicy(
+        default_context_window_tokens=config.default_context_window_tokens,
+        summary_trigger_ratio=config.context_summary_trigger_ratio,
+        max_compaction_passes=config.context_max_compaction_passes,
+    )
     resources = ResourceService(
         runtime.session_factory,
         runtime.secret_store,
@@ -156,6 +161,7 @@ def build_services(
         persona_delete_hook=identity.prepare_persona_deletion,
         provider_url_policy=provider_url_policy,
         media_catalog=media_catalog,
+        context_policy=context_policy,
     )
     provider_service = ProviderService(
         runtime.session_factory,
@@ -186,11 +192,7 @@ def build_services(
     context = ContextService(
         runtime.session_factory,
         runtime.secret_store,
-        ContextPolicy(
-            default_context_window_tokens=config.default_context_window_tokens,
-            summary_trigger_ratio=config.context_summary_trigger_ratio,
-            max_compaction_passes=config.context_max_compaction_passes,
-        ),
+        context_policy,
         task_models,
     )
     memory = MemoryService(

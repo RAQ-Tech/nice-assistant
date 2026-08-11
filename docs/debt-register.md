@@ -52,6 +52,9 @@ change that alters them.
   expose targeted setup/recheck actions when strict planning blocks. Identity
   extension/model installation remains deployment-owned; guided graph import,
   provider-schema inspection, and exact binding are delivered in the product.
+- Authored persona character cards in the protected prompt section, capped when
+  saved rather than when a turn is planned, with the cap taken against the
+  narrowest configured context window and a live cost meter in the editor.
 - Consent-bound persona visual identity profiles, normalized protected
   references, explicit review/deletion, stateless LAN comparison, durable
   validation history, and truthful verified/rejected/unverified media state.
@@ -136,6 +139,11 @@ change that alters them.
 - Local STT; the setting is retained for migration compatibility but disabled in
   the UI until an adapter exists.
 - Realtime turn detection, partial transcripts, barge-in, and speech fallback.
+- Persona example dialogue and lorebooks. `docs/persona-depth-spec.md` phases 2
+  and 3 are specified but unbuilt; no column, route, or setting advertises them.
+  Both are budgeted data sections and are gated by the same unresolved question:
+  whether an 8k context allocation fits the deployment's VRAM alongside speech.
+  The character card is useful at 4096; a full card plus lore is not.
 - Multi-reference fusion and automatic mask creation. Identity-stage latency and
   capacity are unaccepted until the real verifier, consented references, and a
   compatible ComfyUI identity workflow are deployed; the completed Step 20 base

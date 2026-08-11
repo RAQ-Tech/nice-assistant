@@ -1,6 +1,7 @@
 # Spec: character cards and lorebooks
 
-Status: proposal, not approved
+Status: phase 1 (character card) delivered under ADR 0026. Phases 2 and 3 remain
+proposals; the 8k context question in section 4 gates them.
 Targets: persona backstory, voice consistency, and "interesting" — not memory recall
 
 ## Goal

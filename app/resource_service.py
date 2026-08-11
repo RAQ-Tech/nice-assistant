@@ -4,6 +4,14 @@ import json
 from pathlib import Path
 
 from app.auth import hash_password, is_masked_secret, mask_secret, verify_password
+from app.context_policy import ContextPolicy
+from app.persona_card import (
+    CARD_FIELDS,
+    CardBudget,
+    card_budget,
+    card_token_estimate,
+    card_too_large_message,
+)
 from app.repositories import UnitOfWork, now_ts
 from app.settings import normalize_media_preferences, validate_media_preferences
 from app.service_errors import (
@@ -11,6 +19,7 @@ from app.service_errors import (
     AuthorizationError,
     ConflictError,
     NotFoundError,
+    PersonaCardTooLargeError,
     RequestError,
 )
 
@@ -35,12 +44,15 @@ def workspace_response(row) -> dict:
     return {"id": row.id, "name": row.name, "created_at": row.created_at}
 
 
-def persona_response(repo, row) -> dict:
+def persona_response(repo, row, budget: CardBudget) -> dict:
     try:
         traits = json.loads(row.traits_json or "{}")
     except (TypeError, ValueError):
         traits = {}
     return {
+        "card_cap_tokens": budget.cap_tokens,
+        "card_prompt_budget_tokens": budget.prompt_budget_tokens,
+        "card_context_window_tokens": budget.context_window_tokens,
         "id": row.id,
         "workspace_id": row.workspace_id,
         "workspace_ids": repo.persona_workspace_ids(row.id),
@@ -48,6 +60,8 @@ def persona_response(repo, row) -> dict:
         "avatar_url": row.avatar_url,
         "system_prompt": row.system_prompt,
         "personality_details": row.personality_details,
+        **{field: getattr(row, field, None) for field in CARD_FIELDS},
+        "card_token_estimate": int(row.card_token_estimate or 0),
         "traits": traits,
         "default_model": row.default_model,
         "allow_image_sends": bool(row.allow_image_sends),
@@ -91,7 +105,9 @@ class ResourceService:
         persona_delete_hook=None,
         provider_url_policy=None,
         media_catalog=None,
+        context_policy: ContextPolicy | None = None,
     ):
+        self.context_policy = context_policy or ContextPolicy()
         self.session_factory = session_factory
         self.secret_store = secret_store
         self.allow_public_signup = allow_public_signup
@@ -229,24 +245,44 @@ class ResourceService:
 
     def list_personas(self, user_id: str) -> list[dict]:
         with self._uow() as uow:
-            return [persona_response(uow.repo, row) for row in uow.repo.personas(user_id)]
+            budget = self._card_budget(uow.repo, user_id)
+            return [persona_response(uow.repo, row, budget) for row in uow.repo.personas(user_id)]
 
     def get_persona(self, user_id: str, persona_id: str) -> dict:
         with self._uow() as uow:
             row = uow.repo.persona(user_id, persona_id)
             if not row:
                 raise NotFoundError("persona not found")
-            return persona_response(uow.repo, row)
+            return persona_response(uow.repo, row, self._card_budget(uow.repo, user_id))
 
     def save_persona(self, user_id: str, values: dict, persona_id: str | None = None) -> dict:
         try:
             with self._uow() as uow:
                 row = uow.repo.save_persona(user_id, values, persona_id)
-                return persona_response(uow.repo, row)
+                return persona_response(uow.repo, row, self._card_budget(uow.repo, user_id))
         except LookupError as exc:
             raise NotFoundError(str(exc)) from exc
         except ValueError as exc:
             raise RequestError(str(exc), 400) from exc
+
+    def save_persona_card(self, user_id: str, persona_id: str, values: dict) -> dict:
+        """Reject a card that cannot fit instead of letting the turn fail on it later."""
+
+        values = {field: str(values.get(field) or "").strip() for field in CARD_FIELDS}
+        estimate = card_token_estimate(values)
+        with self._uow() as uow:
+            budget = self._card_budget(uow.repo, user_id)
+            if estimate > budget.cap_tokens:
+                raise PersonaCardTooLargeError(card_too_large_message(estimate, budget))
+            try:
+                row = uow.repo.save_persona_card(user_id, persona_id, values, estimate)
+            except LookupError as exc:
+                raise NotFoundError(str(exc)) from exc
+            return persona_response(uow.repo, row, budget)
+
+    def _card_budget(self, repo, user_id: str) -> CardBudget:
+        preferences = (repo.settings(user_id) or {}).get("preferences") or {}
+        return card_budget(preferences, self.context_policy)
 
     def delete_persona(self, user_id: str, persona_id: str) -> None:
         cleanup = self.persona_delete_hook(user_id, persona_id) if self.persona_delete_hook else None

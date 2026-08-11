@@ -176,6 +176,16 @@ additional catalog breadth does not take priority over them.
     rollback/re-update, one-container deployment, and browser acceptance. See
     ADR 0025.
 
+25. **Persona character card — delivered.** Personas carry authored definition,
+    personality, style, and behavior material that is always present in the
+    protected prompt section. Because that section fails a turn rather than
+    degrading, the card is capped when it is saved, against the narrowest context
+    window the account has configured, and the rejection names the estimate, cap,
+    prompt budget, and window. The editor prices each field as it is typed. It
+    deliberately does not add example dialogue or lorebooks: those are separate
+    budgeted sections in `docs/persona-depth-spec.md` and remain gated by the
+    unresolved 8k-context-versus-VRAM question. See ADR 0026.
+
 Steps are delivered and reviewed independently. Step 11 cannot select providers
 until a future listening decision is approved. Any future deployment acceptance
 must use the intended LAN hardware and service topology.

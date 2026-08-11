@@ -1,6 +1,8 @@
 import json
 import re
 
+from app.persona_card import render_card_block
+
 
 CHAT_TITLE_PLACEHOLDERS = {"new chat", "new conversation", "untitled chat"}
 CHAT_TITLE_MAX_LENGTH = 48
@@ -127,6 +129,9 @@ def persona_instruction_block(persona_row):
         lines.append(f"Persona gender: {traits['gender']}")
     if traits["age"]:
         lines.append(f"Persona age: {traits['age']}")
+    card = render_card_block(persona_row)
+    if card:
+        lines.append(card)
     if persona_row["personality_details"]:
         lines.append(f"Persona details: {persona_row['personality_details']}")
     if persona_row["system_prompt"]:
