@@ -133,7 +133,7 @@ installed-browser acceptance.
   aliases still save in canonical form, and that an unchanged stored value does
   not block saving unrelated settings.
 - API tests use isolated temporary databases and deterministic fake providers.
-- Migration tests upgrade pre-0004/0005/0007/0008/0009/0010/0011/0012/0013/0014/0015/0016/0017/0019 databases and prove
+- Migration tests upgrade pre-0004/0005/0007/0008/0009/0010/0011/0012/0013/0014/0015/0016/0017/0019/0021 databases and prove
   chats, messages, jobs, media, memories, turn ordering, stored artifact links,
   Task Model profiles, and imported catalog resources survive.
 - Persona character card tests cover render order and empty-card neutrality, the
@@ -146,6 +146,17 @@ installed-browser acceptance.
   rejection message surfacing. Both suites price one shared card, so a change to
   either side's labels or estimator fails a test instead of showing the operator
   a number the platform will not honour.
+- Lorebook tests cover word-boundary matching, case sensitivity, literal handling
+  of pattern-looking keys, punctuation keys, secondary keys as an additional
+  requirement, `always_on` without keys, the bounded scan window, an entry falling
+  out of it, injected lore not triggering further entries, priority and recency
+  ordering, whole-entry inclusion with skipped entries not blocking smaller ones,
+  key parsing bounds, CRUD and validation, preview contents, disabled entries
+  excluded from preview and turns, cross-persona entry access, owner isolation on
+  every route, and a fired entry reaching the provider while a quiet one does not.
+  Browser tests cover deferred loading, firing summaries, always-on and disabled
+  labelling, keyword list editing, preview results including what did not fit,
+  rejection surfacing, and deletion.
 - History floor tests cover no yielding when the conversation already fits,
   reverse-authority yielding, yielding only as far as the floor requires, a first
   turn with no history keeping its context, and protected sections surviving.

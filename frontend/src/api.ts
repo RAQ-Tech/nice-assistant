@@ -23,6 +23,8 @@ import type {
   IdentityValidationSettings,
   IdentityWorkflowInspection,
   Persona,
+  PersonaLoreEntry,
+  PersonaLorePreview,
   ProviderCheckResult,
   ResourceCoordinationEvent,
   ResourceCoordinationStatus,
@@ -80,6 +82,17 @@ export interface PersonaInput {
   preferred_voice_local?: string | null;
   preferred_tts_model_local?: string | null;
   preferred_tts_speed_local?: string | null;
+}
+
+export interface PersonaLoreInput {
+  title: string;
+  content: string;
+  keys: string[];
+  secondary_keys: string[];
+  always_on: boolean;
+  case_sensitive: boolean;
+  priority: number;
+  enabled: boolean;
 }
 
 export interface TurnInput {
@@ -208,6 +221,38 @@ export class ApiClient {
     return this.request(`/personas/${encodeURIComponent(id)}/card`, {
       method: 'PUT',
       body: JSON.stringify(card),
+    });
+  }
+
+  personaLore(personaId: string): Promise<{ items: PersonaLoreEntry[] }> {
+    return this.request(`/personas/${encodeURIComponent(personaId)}/lore`);
+  }
+
+  createPersonaLore(personaId: string, entry: PersonaLoreInput): Promise<PersonaLoreEntry> {
+    return this.request(`/personas/${encodeURIComponent(personaId)}/lore`, {
+      method: 'POST',
+      body: JSON.stringify(entry),
+    });
+  }
+
+  updatePersonaLore(personaId: string, entryId: string, entry: PersonaLoreInput): Promise<PersonaLoreEntry> {
+    return this.request(
+      `/personas/${encodeURIComponent(personaId)}/lore/${encodeURIComponent(entryId)}`,
+      { method: 'PUT', body: JSON.stringify(entry) },
+    );
+  }
+
+  deletePersonaLore(personaId: string, entryId: string): Promise<{ ok: boolean }> {
+    return this.request(
+      `/personas/${encodeURIComponent(personaId)}/lore/${encodeURIComponent(entryId)}`,
+      { method: 'DELETE' },
+    );
+  }
+
+  previewPersonaLore(personaId: string, text: string): Promise<PersonaLorePreview> {
+    return this.request(`/personas/${encodeURIComponent(personaId)}/lore/preview`, {
+      method: 'POST',
+      body: JSON.stringify({ text }),
     });
   }
 

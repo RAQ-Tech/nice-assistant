@@ -4,7 +4,14 @@ import json
 from pathlib import Path
 
 from app.auth import hash_password, is_masked_secret, mask_secret, verify_password
-from app.context_policy import ContextPolicy
+from app.context_policy import ContextPolicy, TokenEstimator
+from app.persona_lore import (
+    entry_from_row,
+    matching_entries,
+    parse_keys,
+    scan_window,
+    select_lore,
+)
 from app.persona_card import (
     CARD_FIELDS,
     CARD_STORED_FIELDS,
@@ -85,6 +92,25 @@ def persona_response(repo, row, budget: CardBudget) -> dict:
         "preferred_tts_model_local": row.preferred_tts_model_local,
         "preferred_tts_speed_local": row.preferred_tts_speed_local,
         "created_at": row.created_at,
+    }
+
+
+def lore_entry_response(row, budget: CardBudget) -> dict:
+    return {
+        "id": row.id,
+        "persona_id": row.persona_id,
+        "title": row.title,
+        "keys": list(parse_keys(row.keys_json)),
+        "secondary_keys": list(parse_keys(row.secondary_keys_json)),
+        "content": row.content,
+        "always_on": bool(row.always_on),
+        "case_sensitive": bool(row.case_sensitive),
+        "priority": int(row.priority),
+        "enabled": bool(row.enabled),
+        "token_estimate": int(row.token_estimate or 0),
+        "budget_tokens": budget.lore_tokens,
+        "created_at": row.created_at,
+        "updated_at": row.updated_at,
     }
 
 
@@ -290,6 +316,95 @@ class ResourceService:
             except LookupError as exc:
                 raise NotFoundError(str(exc)) from exc
             return persona_response(uow.repo, row, budget)
+
+    def list_persona_lore(self, user_id: str, persona_id: str) -> list[dict]:
+        with self._uow() as uow:
+            if not uow.repo.persona(user_id, persona_id):
+                raise NotFoundError("persona not found")
+            budget = self._card_budget(uow.repo, user_id)
+            return [lore_entry_response(row, budget) for row in uow.repo.persona_lore_entries(user_id, persona_id)]
+
+    def save_persona_lore(self, user_id: str, persona_id: str, values: dict, entry_id: str | None = None) -> dict:
+        values = self._validated_lore(values)
+        with self._uow() as uow:
+            budget = self._card_budget(uow.repo, user_id)
+            try:
+                row = uow.repo.save_persona_lore_entry(
+                    user_id,
+                    persona_id,
+                    values,
+                    TokenEstimator.text(values["content"]),
+                    entry_id,
+                )
+            except LookupError as exc:
+                raise NotFoundError(str(exc)) from exc
+            return lore_entry_response(row, budget)
+
+    def delete_persona_lore(self, user_id: str, persona_id: str, entry_id: str) -> None:
+        with self._uow() as uow:
+            existing = uow.repo.persona_lore_entry(user_id, entry_id)
+            # The path names a persona, so it has to be that persona's entry.
+            if not existing or existing.persona_id != persona_id:
+                raise NotFoundError("lore entry not found")
+            uow.repo.delete_persona_lore_entry(user_id, entry_id)
+
+    def preview_persona_lore(self, user_id: str, persona_id: str, text: str) -> dict:
+        """Show which entries a message fires. Without this, keyword tuning is guesswork."""
+
+        with self._uow() as uow:
+            if not uow.repo.persona(user_id, persona_id):
+                raise NotFoundError("persona not found")
+            budget = self._card_budget(uow.repo, user_id)
+            rows = uow.repo.persona_lore_entries(user_id, persona_id, enabled_only=True)
+            entries = [entry_from_row(row) for row in rows]
+            included = select_lore(entries, text, [], budget.lore_tokens)
+            included_ids = {entry.id for entry in included}
+            fired = matching_entries(entries, scan_window(text, []))
+            return {
+                "budget_tokens": budget.lore_tokens,
+                "used_tokens": sum(TokenEstimator.text(entry.content) + 3 for entry in included),
+                "items": [
+                    {
+                        "id": entry.id,
+                        "title": entry.title,
+                        "always_on": entry.always_on,
+                        "priority": entry.priority,
+                        "token_estimate": TokenEstimator.text(entry.content),
+                        "included": entry.id in included_ids,
+                    }
+                    for entry in fired
+                ],
+            }
+
+    @staticmethod
+    def _validated_lore(values: dict) -> dict:
+        title = str(values.get("title") or "").strip()
+        content = str(values.get("content") or "").strip()
+        if not title:
+            raise RequestError("A lore entry needs a title so you can find it later.", 400)
+        if not content:
+            raise RequestError("A lore entry needs content to inject.", 400)
+        keys = parse_keys(values.get("keys"))
+        always_on = bool(values.get("always_on"))
+        if not always_on and not keys:
+            raise RequestError(
+                "A lore entry needs at least one keyword, or turn on 'always include' instead.",
+                400,
+            )
+        priority = values.get("priority")
+        priority = 50 if priority is None else int(priority)
+        if not 0 <= priority <= 100:
+            raise RequestError("Priority must be between 0 and 100.", 400)
+        return {
+            "title": title,
+            "content": content,
+            "keys": list(keys),
+            "secondary_keys": list(parse_keys(values.get("secondary_keys"))),
+            "always_on": always_on,
+            "case_sensitive": bool(values.get("case_sensitive")),
+            "priority": priority,
+            "enabled": True if values.get("enabled") is None else bool(values.get("enabled")),
+        }
 
     def _card_budget(self, repo, user_id: str) -> CardBudget:
         preferences = (repo.settings(user_id) or {}).get("preferences") or {}

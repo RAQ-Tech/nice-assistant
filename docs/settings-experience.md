@@ -63,6 +63,12 @@ and Workspaces now use the same approachable structure:
   typed, and a budget meter reports the total against the limit and what is left
   for conversation history. Going over the limit warns before saving rather than
   after, and the card saves through its own action, separate from Save persona.
+- Each persona also has a closed Lorebook. Entries are collapsed by name — the
+  same convention Media Catalog and Task Models use — and each summarizes what it
+  fires on, whether it is always included, and whether it is switched off. A
+  preview box takes a pasted message and reports which entries fire, which fit the
+  allowance, and which were left out, so keyword tuning is observed rather than
+  guessed. Entries load only when the section is opened.
 - Local image connection choices remain readily available while sampling,
   authentication, and raw JSON controls live under advanced disclosure.
 - Enabling an image provider seeds a starter Media Catalog model only when no

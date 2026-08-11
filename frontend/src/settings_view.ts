@@ -6,6 +6,7 @@ import { MediaCatalogSettingsView } from './media_catalog_settings_view';
 import { ModelSettingsView } from './model_settings_view';
 import { OperationsSettingsView } from './operations_settings_view';
 import { PersonaCardView } from './persona_card_view';
+import { PersonaLoreView } from './persona_lore_view';
 import {
   resetSettingsSection,
   SETTINGS_DEFAULTS,
@@ -45,6 +46,7 @@ export class SettingsView {
   private readonly mediaCatalogView: MediaCatalogSettingsView;
   private readonly operationsView: OperationsSettingsView;
   private readonly personaCardView: PersonaCardView;
+  private readonly personaLoreView: PersonaLoreView;
   private readonly selectedMemoryIds = new Set<string>();
   private memoryActionBusy = false;
 
@@ -88,6 +90,7 @@ export class SettingsView {
     );
     this.taskModelView = new TaskModelSettingsView(renderApp, appState, client);
     this.personaCardView = new PersonaCardView(renderApp, appState, client);
+    this.personaLoreView = new PersonaLoreView(renderApp, appState, client);
     this.operationsView = new OperationsSettingsView(renderApp, appState, client, dialogs);
   }
 
@@ -427,6 +430,7 @@ export class SettingsView {
         { testId: `persona-advanced-${persona.id}` },
       ),
       this.personaCardView.node(persona),
+      this.personaLoreView.node(persona),
       el('div', { class: 'chips' }, [
         el('button', { class: 'send-btn', textContent: 'Save persona', onclick: () => void this.savePersona(persona) }),
         el('button', { class: 'icon-btn danger', textContent: 'Delete', onclick: () => void this.deletePersona(persona) }),

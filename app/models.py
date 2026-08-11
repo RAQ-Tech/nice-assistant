@@ -60,6 +60,31 @@ class Persona(Base):
     created_at: Mapped[int] = mapped_column(Integer, nullable=False)
 
 
+class PersonaLoreEntry(Base):
+    __tablename__ = "persona_lore_entries"
+    __table_args__ = (
+        CheckConstraint("always_on IN (0,1)", name="ck_persona_lore_always_on"),
+        CheckConstraint("case_sensitive IN (0,1)", name="ck_persona_lore_case_sensitive"),
+        CheckConstraint("enabled IN (0,1)", name="ck_persona_lore_enabled"),
+        CheckConstraint("priority >= 0 AND priority <= 100", name="ck_persona_lore_priority"),
+        Index("idx_persona_lore_owner_persona_enabled", "user_id", "persona_id", "enabled"),
+    )
+    id: Mapped[str] = mapped_column(Text, primary_key=True)
+    user_id: Mapped[str] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    persona_id: Mapped[str] = mapped_column(ForeignKey("personas.id", ondelete="CASCADE"), nullable=False)
+    title: Mapped[str] = mapped_column(Text, nullable=False)
+    keys_json: Mapped[str] = mapped_column(Text, nullable=False, default="[]")
+    secondary_keys_json: Mapped[str] = mapped_column(Text, nullable=False, default="[]")
+    content: Mapped[str] = mapped_column(Text, nullable=False)
+    always_on: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    case_sensitive: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    priority: Mapped[int] = mapped_column(Integer, nullable=False, default=50)
+    enabled: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    token_estimate: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    created_at: Mapped[int] = mapped_column(Integer, nullable=False)
+    updated_at: Mapped[int] = mapped_column(Integer, nullable=False)
+
+
 class PersonaWorkspaceLink(Base):
     __tablename__ = "persona_workspace_links"
     persona_id: Mapped[str] = mapped_column(ForeignKey("personas.id", ondelete="CASCADE"), primary_key=True)

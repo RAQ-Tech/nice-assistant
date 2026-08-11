@@ -1,10 +1,11 @@
 # Spec: character cards and lorebooks
 
-Status: phase 1 (character card) delivered under ADR 0026. Phase 2 (example
-dialogue) delivered under ADR 0027, together with the conversation history floor
-that section 8 asked for — that floor is what makes the section 4 recommendation
-to defer unnecessary, because optional material now yields before the
-conversation does. Phase 3 (lorebooks) remains a proposal.
+Status: delivered. Phase 1 (character card) under ADR 0026, phase 2 (example
+dialogue) under ADR 0027 together with the conversation history floor section 8
+asked for, and phase 3 (lorebooks) under ADR 0028. That floor is what makes the
+section 4 recommendation to defer unnecessary: optional material now yields
+before the conversation does, at any window size. Open question 2 is answered as
+proposed — lore is persona-scoped, and workspace sharing is a later addition.
 Targets: persona backstory, voice consistency, and "interesting" — not memory recall
 
 ## Goal

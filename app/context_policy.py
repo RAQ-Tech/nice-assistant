@@ -40,5 +40,6 @@ class ContextPolicy:
     summary_ratio: float = 0.20
     card_max_ratio: float = 0.30
     example_ratio: float = 0.10
+    lore_ratio: float = 0.12
     history_floor_ratio: float = 0.25
     recent_messages_to_preserve: int = 8
