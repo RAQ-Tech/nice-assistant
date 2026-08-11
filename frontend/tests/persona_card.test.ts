@@ -1,7 +1,14 @@
 import { describe, expect, it, vi } from 'vitest';
 
 import type { ApiClient } from '../src/api';
-import { personaCardBudget, personaCardTokens, renderPersonaCard } from '../src/persona_card';
+import {
+  exampleDialogueBlocks,
+  personaCardBudget,
+  personaCardTokens,
+  renderExampleBlock,
+  renderPersonaCard,
+  selectedExampleBlocks,
+} from '../src/persona_card';
 import { normalizeSettings } from '../src/settings';
 import { SettingsView, type Dialogs } from '../src/settings_view';
 import { createState } from '../src/state';
@@ -32,10 +39,15 @@ function persona(overrides: Partial<Persona> = {}): Persona {
     card_personality: null,
     card_style: null,
     card_behavior: null,
+    card_example_dialogue: null,
     card_token_estimate: 0,
     card_cap_tokens: 998,
     card_prompt_budget_tokens: 3328,
     card_context_window_tokens: 4096,
+    example_block_count: 0,
+    example_blocks_included: 0,
+    example_token_estimate: 0,
+    example_budget_tokens: 332,
     traits: {},
     default_model: null,
     preferred_voice: null,
@@ -100,6 +112,61 @@ describe('character card accounting', () => {
 
   it('shows no history left once the card would consume the whole budget', () => {
     expect(personaCardBudget(persona({ card_definition: 'x'.repeat(9000) })).remainingForHistory).toBe(0);
+  });
+});
+
+describe('example dialogue', () => {
+  const RAW = [
+    '<START>',
+    '{{user}}: You up?',
+    '{{char}}: Barely.',
+    '<START>',
+    '{{user}}: I got the job.',
+    '{{char}}: Shut up. Start from the beginning.',
+  ].join('\n');
+
+  it('splits on the delimiter and ignores empty sections', () => {
+    expect(exampleDialogueBlocks('<START>\n\n<START>\nfirst\n<START>\n   \n<START>\nsecond')).toEqual([
+      'first',
+      'second',
+    ]);
+  });
+
+  it('substitutes both placeholders at render', () => {
+    expect(renderExampleBlock('{{user}}: hi\n{{char}}: hello', 'Ada')).toBe('User: hi\nAda: hello');
+  });
+
+  it('includes whole exchanges and drops later ones first', () => {
+    expect(selectedExampleBlocks(RAW, 'Ada', 1000)).toHaveLength(2);
+    const trimmed = selectedExampleBlocks(RAW, 'Ada', 20);
+    expect(trimmed).toHaveLength(1);
+    expect(trimmed[0]).toContain('You up?');
+  });
+
+  it('reports which exchanges will not fit', () => {
+    const node = view(configuredState(persona({ card_example_dialogue: RAW, example_budget_tokens: 20 })), {}).node();
+    const meter = node.querySelector('[data-testid="character-card-example-meter-guide"]') as HTMLElement;
+    expect(meter.textContent).toContain('2 exchanges');
+    expect(meter.textContent).toContain('the first 1 fit');
+  });
+
+  it('says so plainly when everything fits', () => {
+    const node = view(configuredState(persona({ card_example_dialogue: RAW, example_budget_tokens: 332 })), {}).node();
+    const meter = node.querySelector('[data-testid="character-card-example-meter-guide"]') as HTMLElement;
+    expect(meter.textContent).toContain('all of which fit');
+  });
+
+  it('sends example dialogue with the card', async () => {
+    const current = persona();
+    const appState = configuredState(current);
+    const updatePersonaCard = vi.fn().mockResolvedValue(persona({ card_example_dialogue: RAW }));
+    const node = view(appState, { updatePersonaCard }).node();
+
+    current.card_example_dialogue = RAW;
+    (node.querySelector('[data-testid="character-card-save-guide"]') as HTMLButtonElement).click();
+
+    await vi.waitFor(() => expect(updatePersonaCard).toHaveBeenCalled());
+    expect(updatePersonaCard.mock.calls[0]?.[1]).toMatchObject({ card_example_dialogue: RAW });
   });
 });
 

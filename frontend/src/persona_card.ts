@@ -15,6 +15,9 @@ export const PERSONA_CARD_FIELDS = [
 
 export type PersonaCardField = (typeof PERSONA_CARD_FIELDS)[number];
 
+/** Sent together on the card route; only the four above are capped. */
+export const PERSONA_CARD_STORED_FIELDS = [...PERSONA_CARD_FIELDS, 'card_example_dialogue'] as const;
+
 export const PERSONA_CARD_LABELS: Record<PersonaCardField, string> = {
   card_definition: 'Character definition (facts about who this persona is)',
   card_personality: 'Character personality (disposition, values, flaws, fears)',
@@ -36,7 +39,53 @@ export const PERSONA_CARD_HELP: Record<PersonaCardField, string> = {
   card_behavior: 'How this persona acts: initiative, humor, conflict, affection.',
 };
 
-export type PersonaCardValues = Partial<Record<PersonaCardField, string | null>>;
+export const EXAMPLE_BLOCK_DELIMITER = '<START>';
+export const EXAMPLE_USER_PLACEHOLDER = '{{user}}';
+export const EXAMPLE_CHAR_PLACEHOLDER = '{{char}}';
+export const EXAMPLE_USER_NAME = 'User';
+
+export type PersonaCardValues = Partial<Record<PersonaCardField, string | null>> & {
+  card_example_dialogue?: string | null;
+};
+
+export function exampleDialogueBlocks(raw: string | null | undefined): string[] {
+  const blocks: string[] = [];
+  let current: string[] = [];
+  for (const line of String(raw ?? '').split('\n')) {
+    if (line.trim() === EXAMPLE_BLOCK_DELIMITER) {
+      if (current.some((item) => item.trim())) blocks.push(current.join('\n').trim());
+      current = [];
+      continue;
+    }
+    current.push(line);
+  }
+  if (current.some((item) => item.trim())) blocks.push(current.join('\n').trim());
+  return blocks;
+}
+
+export function renderExampleBlock(block: string, personaName: string): string {
+  return block
+    .split(EXAMPLE_CHAR_PLACEHOLDER)
+    .join(personaName || 'Assistant')
+    .split(EXAMPLE_USER_PLACEHOLDER)
+    .join(EXAMPLE_USER_NAME);
+}
+
+/** Whole exchanges up to the budget; later ones are dropped first. Mirrors persona_card.py. */
+export function selectedExampleBlocks(
+  raw: string | null | undefined,
+  personaName: string,
+  budgetTokens: number,
+): string[] {
+  const selected: string[] = [];
+  for (const block of exampleDialogueBlocks(raw)) {
+    const candidate = [...selected, renderExampleBlock(block, personaName)];
+    if (estimateTokens(candidate.join('\n\n')) > budgetTokens) break;
+    selected.length = 0;
+    selected.push(...candidate);
+  }
+  return selected;
+}
 
 export function personaCardValues(source: PersonaCardValues): Record<PersonaCardField, string> {
   return PERSONA_CARD_FIELDS.reduce(

@@ -55,6 +55,11 @@ change that alters them.
 - Authored persona character cards in the protected prompt section, capped when
   saved rather than when a turn is planned, with the cap taken against the
   narrowest configured context window and a live cost meter in the editor.
+- A conversation history floor. Optional prompt sections yield in reverse
+  authority order before the conversation is starved, nothing yields when there
+  is no history to protect, and a turn that dropped sections is marked degraded
+  and reports the material as omitted. Persona example dialogue rides on that
+  floor as whole `<START>`-delimited exchanges.
 - Consent-bound persona visual identity profiles, normalized protected
   references, explicit review/deletion, stateless LAN comparison, durable
   validation history, and truthful verified/rejected/unverified media state.
@@ -139,11 +144,11 @@ change that alters them.
 - Local STT; the setting is retained for migration compatibility but disabled in
   the UI until an adapter exists.
 - Realtime turn detection, partial transcripts, barge-in, and speech fallback.
-- Persona example dialogue and lorebooks. `docs/persona-depth-spec.md` phases 2
-  and 3 are specified but unbuilt; no column, route, or setting advertises them.
-  Both are budgeted data sections and are gated by the same unresolved question:
-  whether an 8k context allocation fits the deployment's VRAM alongside speech.
-  The character card is useful at 4096; a full card plus lore is not.
+- Persona lorebooks. `docs/persona-depth-spec.md` phase 3 is specified but
+  unbuilt; no table, route, or setting advertises it. Keyword matching and the
+  preview route that makes keyword tuning tractable are both absent, and the
+  entry-selection behavior it needs is not the whole-blob selection example
+  dialogue uses.
 - Multi-reference fusion and automatic mask creation. Identity-stage latency and
   capacity are unaccepted until the real verifier, consented references, and a
   compatible ComfyUI identity workflow are deployed; the completed Step 20 base

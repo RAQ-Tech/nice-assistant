@@ -1,11 +1,17 @@
 import { api, type ApiClient } from './api';
 import { el, errorMessage } from './dom';
 import {
+  EXAMPLE_BLOCK_DELIMITER,
+  EXAMPLE_CHAR_PLACEHOLDER,
+  EXAMPLE_USER_PLACEHOLDER,
   PERSONA_CARD_EDITOR_LABELS,
   PERSONA_CARD_FIELDS,
   PERSONA_CARD_HELP,
+  PERSONA_CARD_STORED_FIELDS,
+  exampleDialogueBlocks,
   personaCardBudget,
   personaCardFieldTokens,
+  selectedExampleBlocks,
   type PersonaCardField,
 } from './persona_card';
 import { textareaField } from './settings_controls';
@@ -18,6 +24,19 @@ import type { AppState, Persona } from './types';
  * cost before the save-time cap rejects it, and saves through the card route so the cap
  * keeps a single enforcement point.
  */
+function exampleDialogueSummary(persona: Persona): string {
+  const authored = exampleDialogueBlocks(persona.card_example_dialogue).length;
+  if (!authored) return `No example exchanges yet. Separate each one with a ${EXAMPLE_BLOCK_DELIMITER} line.`;
+  const budget = persona.example_budget_tokens ?? 0;
+  const included = selectedExampleBlocks(persona.card_example_dialogue, persona.name, budget).length;
+  const noun = authored === 1 ? 'exchange' : 'exchanges';
+  if (included >= authored) return `${authored} ${noun}, all of which fit in the ${budget}-token allowance.`;
+  return (
+    `${authored} ${noun}; the first ${included} fit in the ${budget}-token allowance and the rest are left out. `
+    + 'Shorten them, or raise the model context allocation in Settings.'
+  );
+}
+
 export class PersonaCardView {
   constructor(
     private readonly renderApp: () => void,
@@ -30,6 +49,10 @@ export class PersonaCardView {
       class: 'meta character-card-meter',
       'data-testid': `character-card-meter-${persona.id}`,
     });
+    const exampleMeter = el('div', {
+      class: 'meta character-card-meter',
+      'data-testid': `character-card-example-meter-${persona.id}`,
+    });
     const counts = new Map<PersonaCardField, HTMLElement>();
     const refresh = (): void => {
       const budget = personaCardBudget(persona);
@@ -40,6 +63,7 @@ export class PersonaCardView {
         ? `${budget.used} of ${budget.cap} tokens — ${budget.overBy} over the limit. Saving this card will be rejected.`
         : `${budget.used} of ${budget.cap} tokens · about ${budget.remainingForHistory} tokens left for conversation history.`;
       meter.classList.toggle('settings-warning', budget.over);
+      exampleMeter.textContent = exampleDialogueSummary(persona);
     };
     const fields = PERSONA_CARD_FIELDS.map((field) => {
       const count = el('span', { class: 'meta', 'data-testid': `character-card-count-${field}-${persona.id}` });
@@ -58,13 +82,30 @@ export class PersonaCardView {
         count,
       ]);
     });
+    const examples = el('div', { class: 'character-card-field' }, [
+      textareaField(
+        'Example dialogue',
+        persona.card_example_dialogue ?? '',
+        (value) => {
+          persona.card_example_dialogue = value;
+          refresh();
+        },
+        false,
+        `Sample exchanges that show how this persona talks. Separate each one with a ${EXAMPLE_BLOCK_DELIMITER} `
+          + `line, and write ${EXAMPLE_CHAR_PLACEHOLDER} for the persona and ${EXAMPLE_USER_PLACEHOLDER} for whoever `
+          + 'is talking to them.',
+      ),
+    ]);
     refresh();
     return advancedSettings(
       'Character card',
-      'Durable character material sent with every turn. It is never dropped to make room, so it is capped when you save it.',
+      'Durable character material sent with every turn. The card is never dropped to make room, so it is capped when '
+        + 'you save it. Example dialogue is optional context: it yields before the conversation does.',
       [
         ...fields,
         meter,
+        examples,
+        exampleMeter,
         el('div', { class: 'chips' }, [
           el('button', {
             class: 'pill-btn',
@@ -79,7 +120,7 @@ export class PersonaCardView {
   }
 
   private async save(persona: Persona): Promise<void> {
-    const card = PERSONA_CARD_FIELDS.reduce<Record<string, string>>((values, field) => {
+    const card = PERSONA_CARD_STORED_FIELDS.reduce<Record<string, string>>((values, field) => {
       values[field] = persona[field] ?? '';
       return values;
     }, {});

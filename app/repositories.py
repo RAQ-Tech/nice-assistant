@@ -44,7 +44,7 @@ from app.models import (
     Workspace,
     IdentityValidationSetting,
 )
-from app.persona_card import CARD_FIELDS
+from app.persona_card import CARD_STORED_FIELDS
 from app.secret_store import SecretStore
 from app.task_contracts import TASK_DEFINITIONS, TASK_ROLES
 from app.typed_settings import value_type
@@ -688,7 +688,7 @@ class ApplicationRepository:
         row = self.persona(user_id, persona_id)
         if not row:
             raise LookupError("persona not found")
-        for field in CARD_FIELDS:
+        for field in CARD_STORED_FIELDS:
             setattr(row, field, values.get(field) or None)
         row.card_token_estimate = int(token_estimate)
         self.session.flush()

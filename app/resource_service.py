@@ -7,10 +7,12 @@ from app.auth import hash_password, is_masked_secret, mask_secret, verify_passwo
 from app.context_policy import ContextPolicy
 from app.persona_card import (
     CARD_FIELDS,
+    CARD_STORED_FIELDS,
     CardBudget,
     card_budget,
     card_token_estimate,
     card_too_large_message,
+    example_dialogue_fit,
 )
 from app.repositories import UnitOfWork, now_ts
 from app.settings import normalize_media_preferences, validate_media_preferences
@@ -49,10 +51,18 @@ def persona_response(repo, row, budget: CardBudget) -> dict:
         traits = json.loads(row.traits_json or "{}")
     except (TypeError, ValueError):
         traits = {}
+    authored, included, example_tokens = example_dialogue_fit(
+        getattr(row, "card_example_dialogue", None), row.name, budget
+    )
     return {
         "card_cap_tokens": budget.cap_tokens,
         "card_prompt_budget_tokens": budget.prompt_budget_tokens,
         "card_context_window_tokens": budget.context_window_tokens,
+        "card_example_dialogue": getattr(row, "card_example_dialogue", None),
+        "example_block_count": authored,
+        "example_blocks_included": included,
+        "example_token_estimate": example_tokens,
+        "example_budget_tokens": budget.example_tokens,
         "id": row.id,
         "workspace_id": row.workspace_id,
         "workspace_ids": repo.persona_workspace_ids(row.id),
@@ -268,7 +278,8 @@ class ResourceService:
     def save_persona_card(self, user_id: str, persona_id: str, values: dict) -> dict:
         """Reject a card that cannot fit instead of letting the turn fail on it later."""
 
-        values = {field: str(values.get(field) or "").strip() for field in CARD_FIELDS}
+        values = {field: str(values.get(field) or "").strip() for field in CARD_STORED_FIELDS}
+        # Only the always-present card is capped; example dialogue is clipped at turn time.
         estimate = card_token_estimate(values)
         with self._uow() as uow:
             budget = self._card_budget(uow.repo, user_id)
