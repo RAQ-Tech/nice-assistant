@@ -7,6 +7,7 @@ from pathlib import Path
 import shutil
 import sqlite3
 import tempfile
+import threading
 import time
 import zipfile
 
@@ -21,6 +22,8 @@ class OperationsService:
     def __init__(self, config, logger):
         self.config = config
         self.logger = logger
+        self._stop = threading.Event()
+        self._thread: threading.Thread | None = None
         self.backups = BackupStore(
             db_path=config.database_path,
             settings_json=config.settings_json,
@@ -37,6 +40,33 @@ class OperationsService:
             logger=logger,
             log_event=self.log,
         )
+
+    def start(self) -> None:
+        """Repeat maintenance while the process runs.
+
+        Retention and the dated backup are otherwise applied once per process
+        start. A container left running for weeks would report a configured
+        retention window in the admin observability payload while never
+        enforcing it, and would hold one backup rather than a daily series.
+        """
+
+        self._stop.clear()
+        self._thread = threading.Thread(target=self._maintenance_loop, name="operations-maintenance", daemon=True)
+        self._thread.start()
+
+    def stop(self) -> None:
+        self._stop.set()
+        if self._thread:
+            self._thread.join(timeout=10)
+            self._thread = None
+
+    def _maintenance_loop(self) -> None:
+        # startup_maintenance() already ran synchronously, so wait before repeating.
+        while not self._stop.wait(self.config.maintenance_interval_seconds):
+            try:
+                self.startup_maintenance()
+            except Exception as exc:
+                self.logger.warning("scheduled maintenance failed error=%s", exc.__class__.__name__)
 
     def startup_maintenance(self) -> None:
         stamp = datetime.now(timezone.utc).strftime("%Y%m%d")

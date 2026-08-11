@@ -53,11 +53,13 @@ class ApplicationServices:
     def start(self):
         self.runtime.start()
         self.operations.startup_maintenance()
+        self.operations.start()
         self.resource_coordination.start()
         self.jobs.start()
 
     def stop(self):
         self.jobs.stop()
+        self.operations.stop()
         self.resource_coordination.stop()
         self.broker.stop()
         self.runtime.stop()

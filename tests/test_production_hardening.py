@@ -1,6 +1,7 @@
 import os
 from pathlib import Path
 import tempfile
+import threading
 import time
 import unittest
 from unittest import mock
@@ -200,6 +201,33 @@ class ProductionHardeningTests(unittest.TestCase):
                 services.operations.startup_maintenance()
                 self.assertFalse(old_audio.exists())
                 self.assertTrue(recent_audio.exists())
+
+    def test_retention_keeps_running_after_startup_and_stops_cleanly(self):
+        """Retention is advertised as a policy, so it cannot be a one-shot at boot."""
+        with tempfile.TemporaryDirectory() as tmp:
+            app = build_app(
+                Path(tmp),
+                audio_archive_retention_days=1,
+                maintenance_interval_seconds=1,
+            )
+            with TestClient(app):
+                services = app.state.services
+                # Written after the startup pass, so only a later pass can prune it.
+                expired = services.runtime.config.archive_dir / "audio" / "expired.wav"
+                expired.parent.mkdir(parents=True, exist_ok=True)
+                expired.write_bytes(b"expired")
+                old_stamp = time.time() - 2 * 86400
+                os.utime(expired, (old_stamp, old_stamp))
+
+                deadline = time.monotonic() + 15
+                while expired.exists() and time.monotonic() < deadline:
+                    time.sleep(0.2)
+                self.assertFalse(expired.exists(), "scheduled maintenance never pruned the expired artifact")
+
+            self.assertFalse(
+                any(thread.name == "operations-maintenance" for thread in threading.enumerate()),
+                "maintenance thread outlived application shutdown",
+            )
 
     def test_audio_rotation_updates_the_protected_replay_path(self):
         with tempfile.TemporaryDirectory() as tmp:
