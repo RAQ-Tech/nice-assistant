@@ -501,7 +501,6 @@ class MemoryService:
                 "candidates": [
                     {
                         "content": candidate.content,
-                        "scope": candidate.scope,
                         "confidence": candidate.confidence,
                     }
                     for candidate in safe_candidates
@@ -517,15 +516,10 @@ class MemoryService:
             for candidate in (result or {}).get("candidates") or []:
                 if memory_candidate_is_sensitive(candidate.get("content")):
                     continue
-                scope = candidate["scope"]
-                scope_id = {
-                    "global": None,
-                    "workspace": workspace_id,
-                    "persona": persona_id,
-                    "chat": chat_id,
-                }.get(scope)
-                if scope != "global" and not scope_id:
-                    scope, scope_id = "chat", chat_id
+                # The platform, not the extraction model, owns this access boundary.
+                # An automatically learned fact stays with the persona that heard it,
+                # and falls back to the narrower chat scope when no persona is selected.
+                scope, scope_id = ("persona", persona_id) if persona_id else ("chat", chat_id)
                 try:
                     scope_id = repo.validate_memory_scope(user_id, scope, scope_id)
                 except (LookupError, ValueError):

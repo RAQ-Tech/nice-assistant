@@ -297,7 +297,6 @@ class SummaryTaskOutput:
 @dataclass(frozen=True)
 class MemoryCandidate:
     content: str
-    scope: str
     confidence: float
 
 
@@ -521,10 +520,9 @@ def _memory_schema(task_input: MemoryExtractionTaskInput) -> dict:
                 "items": {
                     "type": "object",
                     "additionalProperties": False,
-                    "required": ["content", "scope", "confidence"],
+                    "required": ["content", "confidence"],
                     "properties": {
                         "content": {"type": "string", "minLength": 1, "maxLength": 500},
-                        "scope": {"type": "string", "enum": ["global", "workspace", "persona", "chat"]},
                         "confidence": {"type": "number", "minimum": 0, "maximum": 1},
                     },
                 },
@@ -547,15 +545,16 @@ def _parse_memory(
     candidates = []
     seen = set()
     for value in values:
-        value = _strict_mapping(value, {"content", "scope", "confidence"}, label="memory candidate")
+        # "scope" is accepted and discarded. It was previously a required field, so a
+        # model still emitting it is following an older contract rather than
+        # misbehaving; failing extraction would silently stop memory learning. The
+        # platform now assigns the access scope, so the value carries no authority.
+        value = _strict_mapping(value, {"content", "confidence", "scope"}, label="memory candidate")
         content = _bounded_text(value.get("content"), label="memory content", max_chars=500)
         normalized = content.casefold()
         if normalized in seen:
             continue
         seen.add(normalized)
-        scope = str(value.get("scope") or "").strip().lower()
-        if scope not in {"global", "workspace", "persona", "chat"}:
-            raise TaskContractError("task model returned an invalid memory scope")
         if isinstance(value.get("confidence"), bool):
             raise TaskContractError("task model returned invalid memory confidence")
         try:
@@ -564,7 +563,7 @@ def _parse_memory(
             raise TaskContractError("task model returned invalid memory confidence") from exc
         if not 0 <= confidence <= 1:
             raise TaskContractError("task model returned out-of-range memory confidence")
-        candidates.append(MemoryCandidate(content, scope, confidence))
+        candidates.append(MemoryCandidate(content, confidence))
         if len(candidates) >= limit:
             break
     return MemoryExtractionTaskOutput(tuple(candidates))
