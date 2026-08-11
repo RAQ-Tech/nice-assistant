@@ -32,9 +32,12 @@ class Credentials(StrictModel):
 class SettingsUpdate(StrictModel):
     global_default_model: str | None = None
     default_memory_mode: str = Field(default="saved", pattern="^(off|saved)$")
-    stt_provider: str = "disabled"
-    tts_provider: str = "disabled"
-    tts_format: str = "wav"
+    # "local" stays accepted for STT so an account migrated from the legacy
+    # setting can still save. It is not implemented, and transcription answers
+    # 501 with that stated plainly rather than pretending the save took effect.
+    stt_provider: str = Field(default="disabled", pattern="^(disabled|openai|local)$")
+    tts_provider: str = Field(default="disabled", pattern="^(disabled|openai|local)$")
+    tts_format: str = Field(default="wav", pattern="^(mp3|opus|aac|flac|wav|pcm)$")
     openai_api_key: str | None = None
     onboarding_done: bool = False
     preferences: dict = Field(default_factory=dict)
