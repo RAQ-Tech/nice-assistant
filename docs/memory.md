@@ -49,6 +49,14 @@ seed phrase, private key, API/client secret, or access/refresh/bearer token. The
 same check runs again at the transaction boundary. The content-free extraction
 job result reports only how many sensitive candidates were filtered.
 
+The extraction model proposes content and confidence only; it does not choose
+where a memory is visible. The platform assigns an automatically learned
+candidate to the persona that was selected for the source turn, and falls back to
+the narrower chat scope when no persona was selected or the scope fails
+validation. A `scope` field from an older contract is accepted and discarded
+rather than failing the job, because the value no longer carries authority.
+Broadening access remains a deliberate user action through the memory APIs.
+
 Candidates never enter context automatically. Exact normalized duplicates of a
 pending or active memory in the same scope are skipped. The candidate limit is
 configured with `MEMORY_CANDIDATE_LIMIT`, clamped from one to ten.

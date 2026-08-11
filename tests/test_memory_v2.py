@@ -145,6 +145,61 @@ class MemoryV2Tests(unittest.TestCase):
                 any(event["undone_at"] for event in history.json()["events"] if event["action"] == "forgotten")
             )
 
+    def test_extraction_model_cannot_choose_the_memory_access_scope(self):
+        """The platform owns this boundary; a model asking for 'global' is ignored."""
+        provider = FakeChatProvider(
+            ["Conversation complete."],
+            memory_candidates=[
+                {"content": "The user keeps bees.", "scope": "global", "confidence": 0.93},
+            ],
+        )
+        with tempfile.TemporaryDirectory() as tmp, TestApp(Path(tmp), chat_provider=provider) as running:
+            running.create_and_login()
+            workspace = running.client.post("/api/v1/workspaces", json={"name": "Home"}).json()
+            persona = running.client.post(
+                "/api/v1/personas",
+                json={"workspace_id": workspace["id"], "name": "Companion"},
+            ).json()
+            chat = running.client.post(
+                "/api/v1/chats",
+                json={"title": "Scope", "workspace_id": workspace["id"], "persona_id": persona["id"]},
+            ).json()
+            started = running.client.post(
+                f"/api/v1/chats/{chat['id']}/turns",
+                json={"text": "I keep bees.", "memory_mode": "saved"},
+            ).json()
+            completed = running.wait_job(started["job"]["id"])
+            extraction = running.wait_job(completed["result"]["memory_extraction_job_id"])
+            self.assertEqual(extraction["status"], "completed")
+
+            pending = running.client.get("/api/v1/memories?status=pending").json()["items"]
+            candidate = next(item for item in pending if "bees" in item["content"])
+            self.assertEqual(candidate["scope"], "persona")
+            self.assertEqual(candidate["scope_id"], persona["id"])
+
+    def test_extraction_without_a_persona_falls_back_to_the_narrower_chat_scope(self):
+        provider = FakeChatProvider(
+            ["Conversation complete."],
+            memory_candidates=[
+                {"content": "The user prefers tea.", "scope": "global", "confidence": 0.9},
+            ],
+        )
+        with tempfile.TemporaryDirectory() as tmp, TestApp(Path(tmp), chat_provider=provider) as running:
+            running.create_and_login()
+            chat = running.client.post("/api/v1/chats", json={"title": "No persona"}).json()
+            started = running.client.post(
+                f"/api/v1/chats/{chat['id']}/turns",
+                json={"text": "I prefer tea.", "memory_mode": "saved"},
+            ).json()
+            completed = running.wait_job(started["job"]["id"])
+            extraction = running.wait_job(completed["result"]["memory_extraction_job_id"])
+            self.assertEqual(extraction["status"], "completed")
+
+            pending = running.client.get("/api/v1/memories?status=pending").json()["items"]
+            candidate = next(item for item in pending if "tea" in item["content"])
+            self.assertEqual(candidate["scope"], "chat")
+            self.assertEqual(candidate["scope_id"], chat["id"])
+
     def test_post_turn_candidates_are_nonblocking_pending_and_owner_scoped(self):
         gate = threading.Event()
         provider = FakeChatProvider(
