@@ -44,6 +44,7 @@ class Persona(Base):
     card_personality: Mapped[str | None] = mapped_column(Text)
     card_style: Mapped[str | None] = mapped_column(Text)
     card_behavior: Mapped[str | None] = mapped_column(Text)
+    card_example_dialogue: Mapped[str | None] = mapped_column(Text)
     card_token_estimate: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     default_model: Mapped[str | None] = mapped_column(Text)
     allow_image_sends: Mapped[int] = mapped_column(Integer, default=1, nullable=False)

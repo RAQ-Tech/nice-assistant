@@ -62,10 +62,15 @@ export interface Persona {
   card_personality?: string | null;
   card_style?: string | null;
   card_behavior?: string | null;
+  card_example_dialogue?: string | null;
   card_token_estimate?: number;
   card_cap_tokens?: number;
   card_prompt_budget_tokens?: number;
   card_context_window_tokens?: number;
+  example_block_count?: number;
+  example_blocks_included?: number;
+  example_token_estimate?: number;
+  example_budget_tokens?: number;
   traits: Partial<PersonaTraits>;
   default_model: string | null;
   preferred_voice: string | null;

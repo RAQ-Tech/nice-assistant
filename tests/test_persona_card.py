@@ -7,12 +7,17 @@ from alembic.config import Config
 
 from app import database
 from app.chat import persona_instruction_block
-from app.context_policy import ContextPolicy
+from app.context_policy import ContextPolicy, TokenEstimator
+from app.context_service import ContextService
 from app.persona_card import (
     CARD_FIELDS,
     card_budget,
     card_token_estimate,
+    example_dialogue_blocks,
+    example_dialogue_fit,
     render_card_block,
+    render_example_block,
+    select_example_dialogue,
 )
 from tests.support import TestApp
 
@@ -89,6 +94,50 @@ class PersonaCardBudgetTests(unittest.TestCase):
     def test_unusable_window_settings_fall_back_to_the_supported_minimum(self):
         budget = card_budget({"models_context_window_tokens": 64}, ContextPolicy())
         self.assertEqual(budget.context_window_tokens, 2048)
+
+
+class ExampleDialogueTests(unittest.TestCase):
+    RAW = (
+        "<START>\n"
+        "{{user}}: You up?\n"
+        "{{char}}: Barely. Three episodes into something I don't even like.\n"
+        "<START>\n"
+        "{{user}}: I got the job.\n"
+        "{{char}}: Shut up. Okay, start from the beginning.\n"
+    )
+
+    def test_blocks_split_on_the_delimiter_and_ignore_empty_sections(self):
+        blocks = example_dialogue_blocks("<START>\n\n<START>\nfirst\n<START>\n   \n<START>\nsecond")
+        self.assertEqual(blocks, ["first", "second"])
+
+    def test_placeholders_substitute_at_render(self):
+        rendered = render_example_block("{{user}}: hi\n{{char}}: hello", "Ada")
+        self.assertEqual(rendered, "User: hi\nAda: hello")
+
+    def test_an_unnamed_persona_still_renders_a_usable_speaker(self):
+        self.assertEqual(render_example_block("{{char}}: hello", ""), "Assistant: hello")
+
+    def test_whole_exchanges_are_included_and_later_ones_drop_first(self):
+        estimator = TokenEstimator()
+        everything = select_example_dialogue(self.RAW, "Ada", 1000, estimator)
+        self.assertIn("You up?", everything)
+        self.assertIn("I got the job.", everything)
+
+        first_only = select_example_dialogue(self.RAW, "Ada", 40, estimator)
+        self.assertIn("You up?", first_only)
+        self.assertNotIn("I got the job.", first_only)
+        self.assertNotIn("{{char}}", first_only)
+
+    def test_a_single_oversized_exchange_is_omitted_rather_than_truncated(self):
+        raw = "<START>\n{{user}}: hi\n{{char}}: " + ("word " * 400)
+        self.assertEqual(select_example_dialogue(raw, "Ada", 40, TokenEstimator()), "")
+
+    def test_fit_reports_authored_and_included_counts(self):
+        budget = card_budget({}, ContextPolicy())
+        authored, included, cost = example_dialogue_fit(self.RAW, "Ada", budget)
+        self.assertEqual((authored, included), (2, 2))
+        self.assertGreater(cost, 0)
+        self.assertEqual(example_dialogue_fit(None, "Ada", budget), (0, 0, 0))
 
 
 class PersonaCardMigrationTests(unittest.TestCase):
@@ -218,6 +267,125 @@ class PersonaCardApiTests(unittest.TestCase):
         blocked = self.client.put(f"/api/v1/personas/{self.persona['id']}/card", json=SHARED_CARD_FIXTURE)
         self.assertEqual(blocked.status_code, 404, blocked.text)
         self.assertEqual(self.client.get(f"/api/v1/personas/{self.persona['id']}").status_code, 404)
+
+
+class HistoryFloorTests(unittest.TestCase):
+    """The floor is what makes optional prompt material safe to add at any window size."""
+
+    def setUp(self):
+        self.service = ContextService(None, None, ContextPolicy(), None)
+        self.current = {"role": "user", "content": "Say hello"}
+
+    def _sections(self, size: int):
+        return [
+            ("example_dialogue", "example " * size),
+            ("memory", "memory " * size),
+            ("summary", "summary " * size),
+        ]
+
+    def test_nothing_is_dropped_when_the_conversation_already_fits(self):
+        sections, dropped, remaining = self.service._protect_history_floor(
+            [], self._sections(5), self.current, 3328, has_history=True
+        )
+        self.assertEqual(dropped, ())
+        self.assertEqual(len(sections), 3)
+        self.assertGreaterEqual(remaining, int(3328 * 0.25))
+
+    def test_sections_yield_in_reverse_authority_until_history_clears_the_floor(self):
+        sections, dropped, remaining = self.service._protect_history_floor(
+            [], self._sections(400), self.current, 3328, has_history=True
+        )
+        self.assertEqual(dropped[0], "summary")
+        self.assertGreaterEqual(remaining, int(3328 * 0.25))
+        self.assertNotIn("summary", {name for name, _text in sections})
+
+    def test_example_dialogue_is_the_last_optional_section_to_go(self):
+        _sections, dropped, _remaining = self.service._protect_history_floor(
+            [], self._sections(4000), self.current, 3328, has_history=True
+        )
+        self.assertEqual(dropped, ("summary", "memory", "example_dialogue"))
+
+    def test_a_first_turn_with_no_history_keeps_its_context(self):
+        _sections, dropped, _remaining = self.service._protect_history_floor(
+            [], self._sections(400), self.current, 3328, has_history=False
+        )
+        self.assertEqual(dropped, ())
+
+    def test_only_as_many_sections_yield_as_the_floor_requires(self):
+        protected = ["[Persona instructions]\n" + ("card " * 300)]
+        sections, dropped, remaining = self.service._protect_history_floor(
+            protected, self._sections(400), self.current, 3328, has_history=True
+        )
+        self.assertEqual(dropped, ("summary", "memory"))
+        self.assertEqual([name for name, _text in sections], ["example_dialogue"])
+        self.assertGreaterEqual(remaining, int(3328 * 0.25))
+
+    def test_the_protected_card_is_never_dropped_to_make_room(self):
+        protected = ["[Persona instructions]\n" + ("card " * 300)]
+        sections, dropped, _remaining = self.service._protect_history_floor(
+            protected, self._sections(4000), self.current, 3328, has_history=True
+        )
+        self.assertEqual(sections, [])
+        self.assertEqual(dropped, ("summary", "memory", "example_dialogue"))
+        # The protected list is returned to the caller untouched; only the card's own
+        # save-time cap bounds it.
+        self.assertEqual(len(protected), 1)
+
+
+class PersonaExampleDialogueTurnTests(unittest.TestCase):
+    def test_example_dialogue_reaches_the_provider_with_placeholders_substituted(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            with TestApp(Path(tmp)) as running:
+                client = running.client
+                running.create_and_login()
+                workspace = client.post("/api/v1/workspaces", json={"name": "Home"}).json()
+                persona = client.post("/api/v1/personas", json={"workspace_id": workspace["id"], "name": "Ada"}).json()
+                saved = client.put(
+                    f"/api/v1/personas/{persona['id']}/card",
+                    json={
+                        "card_definition": "Runs a bakery.",
+                        "card_example_dialogue": "<START>\n{{user}}: You up?\n{{char}}: Barely.\n",
+                    },
+                )
+                self.assertEqual(saved.status_code, 200, saved.text)
+                self.assertEqual(saved.json()["example_block_count"], 1)
+                self.assertEqual(saved.json()["example_blocks_included"], 1)
+
+                chat = client.post(
+                    "/api/v1/chats",
+                    json={"workspace_id": workspace["id"], "persona_id": persona["id"], "title": "New chat"},
+                ).json()
+                started = client.post(f"/api/v1/chats/{chat['id']}/turns", json={"text": "Say hello"})
+                self.assertEqual(started.status_code, 202, started.text)
+                self.assertEqual(running.wait_job(started.json()["job"]["id"])["status"], "completed")
+
+                system = running.chat_provider.requests[0].messages[0]["content"]
+                self.assertIn("[Persona voice examples:", system)
+                self.assertIn("User: You up?", system)
+                self.assertIn("Ada: Barely.", system)
+                self.assertNotIn("{{char}}", system)
+                # Authored voice examples are not conversation, so they must not be mistaken for
+                # transcript by the platform roles that read one.
+                for request in running.chat_provider.task_requests:
+                    self.assertNotIn("You up?", str(request.messages))
+
+    def test_a_persona_without_example_dialogue_sends_no_example_section(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            with TestApp(Path(tmp)) as running:
+                client = running.client
+                running.create_and_login()
+                workspace = client.post("/api/v1/workspaces", json={"name": "Home"}).json()
+                persona = client.post("/api/v1/personas", json={"workspace_id": workspace["id"], "name": "Ada"}).json()
+                chat = client.post(
+                    "/api/v1/chats",
+                    json={"workspace_id": workspace["id"], "persona_id": persona["id"], "title": "New chat"},
+                ).json()
+                started = client.post(f"/api/v1/chats/{chat['id']}/turns", json={"text": "Say hello"})
+                running.wait_job(started.json()["job"]["id"])
+                self.assertNotIn(
+                    "[Persona voice examples:",
+                    running.chat_provider.requests[0].messages[0]["content"],
+                )
 
 
 class PersonaCardTurnTests(unittest.TestCase):

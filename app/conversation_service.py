@@ -310,6 +310,8 @@ class ConversationService:
                 workspace_id=workspace_id,
                 persona_id=requested_persona_id,
                 persona_instructions=persona_instructions,
+                persona_name=persona.name if persona else "",
+                example_dialogue=getattr(persona, "card_example_dialogue", "") if persona else "",
                 memory_mode=memory_mode,
                 preferences=preferences,
                 application_instructions=application_instructions,

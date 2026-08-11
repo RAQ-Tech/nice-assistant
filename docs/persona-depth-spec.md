@@ -1,7 +1,10 @@
 # Spec: character cards and lorebooks
 
-Status: phase 1 (character card) delivered under ADR 0026. Phases 2 and 3 remain
-proposals; the 8k context question in section 4 gates them.
+Status: phase 1 (character card) delivered under ADR 0026. Phase 2 (example
+dialogue) delivered under ADR 0027, together with the conversation history floor
+that section 8 asked for — that floor is what makes the section 4 recommendation
+to defer unnecessary, because optional material now yields before the
+conversation does. Phase 3 (lorebooks) remains a proposal.
 Targets: persona backstory, voice consistency, and "interesting" — not memory recall
 
 ## Goal

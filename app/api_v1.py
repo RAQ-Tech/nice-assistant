@@ -70,6 +70,7 @@ class PersonaCardWrite(StrictModel):
     card_personality: str | None = None
     card_style: str | None = None
     card_behavior: str | None = None
+    card_example_dialogue: str | None = None
 
 
 class MemoryCreate(StrictModel):
