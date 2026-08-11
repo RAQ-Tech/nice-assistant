@@ -1,3 +1,4 @@
+import type { PersonaCardValues } from './persona_card';
 import type {
   BackupItem,
   BackupVerification,
@@ -201,6 +202,13 @@ export class ApiClient {
 
   updatePersona(id: string, input: PersonaInput): Promise<Persona> {
     return this.request(`/personas/${encodeURIComponent(id)}`, { method: 'PUT', body: JSON.stringify(input) });
+  }
+
+  updatePersonaCard(id: string, card: PersonaCardValues): Promise<Persona> {
+    return this.request(`/personas/${encodeURIComponent(id)}/card`, {
+      method: 'PUT',
+      body: JSON.stringify(card),
+    });
   }
 
   deletePersona(id: string): Promise<{ ok: boolean }> {

@@ -6,6 +6,7 @@ import json
 import math
 
 from app.capability_contracts import CapabilityRegistry, capability_tool_result
+from app.context_policy import ContextPolicy, TokenEstimator
 from app.memory_service import memory_search_query, normalize_memory_content
 from app.persona_output import safe_persona_output_text, sanitize_persona_output
 from app.provider_contracts import CancellationToken, ProviderError
@@ -15,36 +16,6 @@ from app.task_contracts import CONVERSATION_SUMMARY, SummaryTaskInput
 
 SUMMARY_PROMPT_VERSION = "conversation-summary-task-v2"
 SCOPE_PRIORITY = {"global": 0, "workspace": 1, "persona": 2, "chat": 3}
-
-
-class TokenEstimator:
-    """Conservative provider-neutral estimate used before providers report usage."""
-
-    @staticmethod
-    def text(text: str) -> int:
-        return max(1, math.ceil(len((text or "").encode("utf-8")) / 3))
-
-    def message(self, message: dict) -> int:
-        structured = ""
-        if message.get("tool_calls"):
-            structured += json.dumps(message["tool_calls"], separators=(",", ":"), ensure_ascii=False)
-        if message.get("tool_name"):
-            structured += str(message["tool_name"])
-        return 6 + self.text((message.get("content") or "") + structured)
-
-    def messages(self, messages: list[dict]) -> int:
-        return 3 + sum(self.message(message) for message in messages)
-
-
-@dataclass(frozen=True)
-class ContextPolicy:
-    default_context_window_tokens: int = 4096
-    summary_trigger_ratio: float = 0.75
-    max_compaction_passes: int = 2
-    output_tokens_default: int = 512
-    memory_ratio: float = 0.15
-    summary_ratio: float = 0.20
-    recent_messages_to_preserve: int = 8
 
 
 @dataclass(frozen=True)

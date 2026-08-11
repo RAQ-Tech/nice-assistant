@@ -13,6 +13,7 @@ from app.capability_service import attachment_response
 from app.job_service import JobExecution, JobService, turn_response
 from app.context_service import ContextService
 from app.memory_service import MemoryService
+from app.persona_card import CARD_FIELDS
 from app.models import AsyncJob
 from app.persona_output import (
     PERSONA_OUTPUT_REMOVED_FALLBACK,
@@ -45,6 +46,7 @@ def _persona_mapping(persona):
         "traits_json": persona.traits_json,
         "personality_details": persona.personality_details,
         "system_prompt": persona.system_prompt,
+        **{field: getattr(persona, field, None) for field in CARD_FIELDS},
     }
 
 

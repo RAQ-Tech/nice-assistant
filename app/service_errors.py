@@ -31,6 +31,14 @@ class RequestError(ServiceError):
         super().__init__(status_code, message, "invalid_request")
 
 
+class PersonaCardTooLargeError(RequestError):
+    """A saved card must always fit; rejecting the save keeps turns from failing later."""
+
+    def __init__(self, message: str):
+        super().__init__(message)
+        self.code = "persona_card_too_large"
+
+
 class RateLimitError(ServiceError):
     def __init__(self, retry_after: int):
         super().__init__(429, "Too many login attempts. Try again later.", "rate_limited")

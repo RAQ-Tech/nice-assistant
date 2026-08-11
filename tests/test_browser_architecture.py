@@ -21,6 +21,8 @@ class BrowserArchitectureTests(unittest.TestCase):
             "identity_settings_view.ts",
             "model_settings_view.ts",
             "operations_settings_view.ts",
+            "persona_card.ts",
+            "persona_card_view.ts",
             "playback.ts",
             "recording.ts",
             "routing.ts",
@@ -40,6 +42,7 @@ class BrowserArchitectureTests(unittest.TestCase):
         self.assertLess((SOURCE / "settings_view.ts").read_text(encoding="utf-8").count("\n"), 800)
         self.assertLess((SOURCE / "task_model_settings_view.ts").read_text(encoding="utf-8").count("\n"), 350)
         self.assertLess((SOURCE / "media_catalog_settings_view.ts").read_text(encoding="utf-8").count("\n"), 600)
+        self.assertLess((SOURCE / "persona_card_view.ts").read_text(encoding="utf-8").count("\n"), 150)
         self.assertLess((SOURCE / "operations_settings_view.ts").read_text(encoding="utf-8").count("\n"), 450)
         self.assertIn("strict", (ROOT / "tsconfig.json").read_text(encoding="utf-8"))
         self.assertIn('src="/app.js"', (ROOT / "web" / "index.html").read_text(encoding="utf-8"))

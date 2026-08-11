@@ -44,6 +44,7 @@ from app.models import (
     Workspace,
     IdentityValidationSetting,
 )
+from app.persona_card import CARD_FIELDS
 from app.secret_store import SecretStore
 from app.task_contracts import TASK_DEFINITIONS, TASK_ROLES
 from app.typed_settings import value_type
@@ -680,6 +681,16 @@ class ApplicationRepository:
         self.session.execute(delete(PersonaWorkspaceLink).where(PersonaWorkspaceLink.persona_id == row.id))
         for workspace_id in workspace_ids:
             self.session.add(PersonaWorkspaceLink(persona_id=row.id, workspace_id=workspace_id))
+        self.session.flush()
+        return row
+
+    def save_persona_card(self, user_id: str, persona_id: str, values: dict, token_estimate: int) -> Persona:
+        row = self.persona(user_id, persona_id)
+        if not row:
+            raise LookupError("persona not found")
+        for field in CARD_FIELDS:
+            setattr(row, field, values.get(field) or None)
+        row.card_token_estimate = int(token_estimate)
         self.session.flush()
         return row
 

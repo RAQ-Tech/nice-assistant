@@ -65,6 +65,13 @@ class PersonaWrite(StrictModel):
     preferred_tts_speed_local: str | None = None
 
 
+class PersonaCardWrite(StrictModel):
+    card_definition: str | None = None
+    card_personality: str | None = None
+    card_style: str | None = None
+    card_behavior: str | None = None
+
+
 class MemoryCreate(StrictModel):
     scope: str = Field(pattern="^(global|workspace|persona|chat)$")
     scope_id: str | None = None
@@ -872,6 +879,16 @@ def update_persona(
     values = body.model_dump(exclude_none=True)
     values["workspace_ids"] = body.workspace_ids or [body.workspace_id]
     return services(request).resources.save_persona(context.user_id, values, persona_id)
+
+
+@router.put("/personas/{persona_id}/card", tags=["personas"])
+def update_persona_card(
+    persona_id: str,
+    body: PersonaCardWrite,
+    request: Request,
+    context: AuthContext = Depends(current_user),
+):
+    return services(request).resources.save_persona_card(context.user_id, persona_id, body.model_dump())
 
 
 @router.delete("/personas/{persona_id}", tags=["personas"])

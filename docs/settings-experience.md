@@ -58,6 +58,11 @@ and Workspaces now use the same approachable structure:
 - Memory distinguishes pending, forget, and permanent delete, including atomic
   bulk actions. Persona editors remain collapsed until selected, and workspaces
   explain their organizational scope.
+- Each persona has a closed Character card editor with definition, personality,
+  style, and behavior fields. Every field shows its own token cost as it is
+  typed, and a budget meter reports the total against the limit and what is left
+  for conversation history. Going over the limit warns before saving rather than
+  after, and the card saves through its own action, separate from Save persona.
 - Local image connection choices remain readily available while sampling,
   authentication, and raw JSON controls live under advanced disclosure.
 - Enabling an image provider seeds a starter Media Catalog model only when no
