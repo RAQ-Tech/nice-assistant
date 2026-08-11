@@ -85,6 +85,38 @@ export interface Persona {
   created_at: number;
 }
 
+export interface PersonaLoreEntry {
+  id: Id;
+  persona_id: Id;
+  title: string;
+  keys: string[];
+  secondary_keys: string[];
+  content: string;
+  always_on: boolean;
+  case_sensitive: boolean;
+  priority: number;
+  enabled: boolean;
+  token_estimate: number;
+  budget_tokens: number;
+  created_at: number;
+  updated_at: number;
+}
+
+export interface PersonaLoreMatch {
+  id: Id;
+  title: string;
+  always_on: boolean;
+  priority: number;
+  token_estimate: number;
+  included: boolean;
+}
+
+export interface PersonaLorePreview {
+  budget_tokens: number;
+  used_tokens: number;
+  items: PersonaLoreMatch[];
+}
+
 export interface IdentityValidationSettings {
   provider: 'disabled' | 'compreface';
   base_url: string;

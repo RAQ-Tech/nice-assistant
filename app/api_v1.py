@@ -76,6 +76,21 @@ class PersonaCardWrite(StrictModel):
     card_example_dialogue: str | None = None
 
 
+class PersonaLoreWrite(StrictModel):
+    title: str = Field(min_length=1, max_length=160)
+    content: str = Field(min_length=1, max_length=8000)
+    keys: list[str] = Field(default_factory=list)
+    secondary_keys: list[str] = Field(default_factory=list)
+    always_on: bool = False
+    case_sensitive: bool = False
+    priority: int = Field(default=50, ge=0, le=100)
+    enabled: bool = True
+
+
+class PersonaLorePreview(StrictModel):
+    text: str = Field(min_length=1, max_length=8000)
+
+
 class MemoryCreate(StrictModel):
     scope: str = Field(pattern="^(global|workspace|persona|chat)$")
     scope_id: str | None = None
@@ -893,6 +908,53 @@ def update_persona_card(
     context: AuthContext = Depends(current_user),
 ):
     return services(request).resources.save_persona_card(context.user_id, persona_id, body.model_dump())
+
+
+@router.get("/personas/{persona_id}/lore", tags=["personas"])
+def list_persona_lore(persona_id: str, request: Request, context: AuthContext = Depends(current_user)):
+    return {"items": services(request).resources.list_persona_lore(context.user_id, persona_id)}
+
+
+@router.post("/personas/{persona_id}/lore", tags=["personas"])
+def create_persona_lore(
+    persona_id: str,
+    body: PersonaLoreWrite,
+    request: Request,
+    context: AuthContext = Depends(current_user),
+):
+    return services(request).resources.save_persona_lore(context.user_id, persona_id, body.model_dump())
+
+
+@router.put("/personas/{persona_id}/lore/{entry_id}", tags=["personas"])
+def update_persona_lore(
+    persona_id: str,
+    entry_id: str,
+    body: PersonaLoreWrite,
+    request: Request,
+    context: AuthContext = Depends(current_user),
+):
+    return services(request).resources.save_persona_lore(context.user_id, persona_id, body.model_dump(), entry_id)
+
+
+@router.delete("/personas/{persona_id}/lore/{entry_id}", tags=["personas"])
+def delete_persona_lore(
+    persona_id: str,
+    entry_id: str,
+    request: Request,
+    context: AuthContext = Depends(current_user),
+):
+    services(request).resources.delete_persona_lore(context.user_id, persona_id, entry_id)
+    return {"ok": True}
+
+
+@router.post("/personas/{persona_id}/lore/preview", tags=["personas"])
+def preview_persona_lore(
+    persona_id: str,
+    body: PersonaLorePreview,
+    request: Request,
+    context: AuthContext = Depends(current_user),
+):
+    return services(request).resources.preview_persona_lore(context.user_id, persona_id, body.text)
 
 
 @router.delete("/personas/{persona_id}", tags=["personas"])

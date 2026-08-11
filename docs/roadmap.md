@@ -197,6 +197,16 @@ additional catalog breadth does not take priority over them.
     summary, memory, or capability roles. It deliberately does not add lorebooks.
     See ADR 0027.
 
+27. **Persona lorebooks — delivered.** Background detail is injected only when the
+    current message or the last three transcript messages mention one of an entry's
+    literal keywords. Matching is platform-owned and deterministic; keys are never
+    treated as patterns, injected lore is never rescanned, and fired entries are
+    included whole in priority order under a 12 percent allowance that yields ahead
+    of example dialogue. An owner-scoped preview route reports which entries a
+    pasted message fires and which of them fit. This completes
+    `docs/persona-depth-spec.md`. It deliberately does not add semantic retrieval
+    or workspace-shared entries. See ADR 0028.
+
 Steps are delivered and reviewed independently. Step 11 cannot select providers
 until a future listening decision is approved. Any future deployment acceptance
 must use the intended LAN hardware and service topology.

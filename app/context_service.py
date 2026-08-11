@@ -9,6 +9,7 @@ from app.capability_contracts import CapabilityRegistry, capability_tool_result
 from app.context_policy import ContextPolicy, TokenEstimator
 from app.memory_service import memory_search_query, normalize_memory_content
 from app.persona_card import EXAMPLE_DIALOGUE_LABEL, select_example_dialogue
+from app.persona_lore import lore_section, select_lore
 from app.persona_output import safe_persona_output_text, sanitize_persona_output
 from app.provider_contracts import CancellationToken, ProviderError
 from app.repositories import UnitOfWork
@@ -21,7 +22,7 @@ SCOPE_PRIORITY = {"global": 0, "workspace": 1, "persona": 2, "chat": 3}
 # Droppable sections yield in reverse authority order so the conversation itself keeps a
 # floor. The summary goes first because it is history at lower fidelity: trading it for
 # verbatim recent turns loses the least.
-DROPPABLE_SECTION_ORDER = ("summary", "memory", "example_dialogue")
+DROPPABLE_SECTION_ORDER = ("summary", "memory", "lore", "example_dialogue")
 
 
 @dataclass(frozen=True)
@@ -88,6 +89,7 @@ class ContextService:
         persona_instructions: str,
         persona_name: str = "",
         example_dialogue: str = "",
+        lore_entries: list | None = None,
         memory_mode: str,
         preferences: dict,
         application_instructions: list[str],
@@ -179,9 +181,20 @@ class ContextService:
             max(1, int(prompt_budget * self.policy.example_ratio)),
             self.estimator,
         )
+        lore_section_text = lore_section(
+            select_lore(
+                lore_entries or [],
+                current["text"],
+                [item["text"] for item in history],
+                max(1, int(prompt_budget * self.policy.lore_ratio)),
+                self.estimator,
+            )
+        )
         data_sections = []
         if example_text:
             data_sections.append(("example_dialogue", EXAMPLE_DIALOGUE_LABEL + "\n" + example_text))
+        if lore_section_text:
+            data_sections.append(("lore", lore_section_text))
         if selected_memories:
             rendered = "\n".join(f"- {item['content']}" for item in selected_memories)
             data_sections.append(

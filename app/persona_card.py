@@ -86,6 +86,7 @@ class CardBudget:
     prompt_budget_tokens: int
     cap_tokens: int
     example_tokens: int
+    lore_tokens: int
     history_floor_tokens: int
 
 
@@ -163,6 +164,7 @@ def card_budget(preferences: dict | None = None, policy: ContextPolicy | None = 
         prompt_budget_tokens=prompt_budget,
         cap_tokens=max(1, int(prompt_budget * policy.card_max_ratio)),
         example_tokens=max(1, int(prompt_budget * policy.example_ratio)),
+        lore_tokens=max(1, int(prompt_budget * policy.lore_ratio)),
         history_floor_tokens=max(0, int(prompt_budget * policy.history_floor_ratio)),
     )
 

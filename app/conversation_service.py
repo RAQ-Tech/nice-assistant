@@ -14,6 +14,7 @@ from app.job_service import JobExecution, JobService, turn_response
 from app.context_service import ContextService
 from app.memory_service import MemoryService
 from app.persona_card import CARD_FIELDS
+from app.persona_lore import entry_from_row
 from app.models import AsyncJob
 from app.persona_output import (
     PERSONA_OUTPUT_REMOVED_FALLBACK,
@@ -235,6 +236,11 @@ class ConversationService:
             )
             memory_mode = self._memory_mode(values.get("memory_mode") or chat.memory_mode or "saved")
             persona_instructions = persona_instruction_block(_persona_mapping(persona))
+            lore_entries = (
+                [entry_from_row(row) for row in repo.persona_lore_entries(user_id, persona.id, enabled_only=True)]
+                if persona
+                else []
+            )
             stamp = now_ts()
             user_message = repo.add_message(chat_id, "user", text, created_at=stamp)
             should_generate_title = chat_title_needs_autogeneration(chat.title)
@@ -312,6 +318,7 @@ class ConversationService:
                 persona_instructions=persona_instructions,
                 persona_name=persona.name if persona else "",
                 example_dialogue=getattr(persona, "card_example_dialogue", "") if persona else "",
+                lore_entries=lore_entries,
                 memory_mode=memory_mode,
                 preferences=preferences,
                 application_instructions=application_instructions,
