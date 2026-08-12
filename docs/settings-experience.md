@@ -64,6 +64,10 @@ and Workspaces now use the same approachable structure:
   image resources exist, so conversational planning becomes available without
   overwriting an operator-curated catalog. Legacy local-provider aliases are
   shown and saved in their canonical `local` plus backend form.
+- Media choices the deployment cannot honor are refused when they are saved,
+  naming the accepted values, instead of being stored and then quietly replaced
+  with a default during generation. An account holding an unusable value from
+  before that check keeps it and can still save its other settings.
 - Image Generation exposes the same persisted blur preference available in chat
   controls. Its readiness summary separates provider reachability, basic
   generation, and optional identity enhancement so missing identity setup never

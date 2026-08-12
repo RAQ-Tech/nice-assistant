@@ -126,6 +126,12 @@ installed-browser acceptance.
   target rejection, correlation/security headers, readiness/admin isolation,
   queue/storage metrics, configured retention, atomic disk-full writes, empty
   artifacts, and corrupt/valid backup restore drills.
+- Media preference tests prove every value the settings endpoint accepts survives
+  the runtime normalizer unchanged, that an unusable provider, backend, size,
+  quality, video model, video size, or duration is refused with a message naming
+  the accepted values, that a refused save changes nothing, that legacy provider
+  aliases still save in canonical form, and that an unchanged stored value does
+  not block saving unrelated settings.
 - API tests use isolated temporary databases and deterministic fake providers.
 - Migration tests upgrade pre-0004/0005/0007/0008/0009/0010/0011/0012/0013/0014/0015/0016/0017 databases and prove
   chats, messages, jobs, media, memories, turn ordering, stored artifact links,
