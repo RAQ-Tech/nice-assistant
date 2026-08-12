@@ -5,7 +5,7 @@ from pathlib import Path
 
 from app.auth import hash_password, is_masked_secret, mask_secret, verify_password
 from app.repositories import UnitOfWork, now_ts
-from app.settings import normalize_media_preferences
+from app.settings import normalize_media_preferences, validate_media_preferences
 from app.service_errors import (
     AuthenticationError,
     AuthorizationError,
@@ -182,6 +182,7 @@ class ResourceService:
         with self._uow() as uow:
             current = uow.repo.settings(user_id) or {}
             previous_preferences = normalize_media_preferences(current.get("preferences") or {})
+            validate_media_preferences(preferences, previous_preferences)
             submitted = values.get("openai_api_key")
             preserve = submitted is None or submitted == "" or is_masked_secret(submitted)
             if preserve:
