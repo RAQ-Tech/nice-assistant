@@ -132,6 +132,10 @@ installed-browser acceptance.
   the accepted values, that a refused save changes nothing, that legacy provider
   aliases still save in canonical form, and that an unchanged stored value does
   not block saving unrelated settings.
+- Documented-claim tests assert absences that would otherwise regress silently:
+  resource audit rows carry no endpoint URL, credential, or generated content, and
+  persona card, example dialogue, and lore reach the persona prompt without reaching
+  the summary, memory-extraction, or capability roles or the durable transcript.
 - API tests use isolated temporary databases and deterministic fake providers.
 - Migration tests upgrade pre-0004/0005/0007/0008/0009/0010/0011/0012/0013/0014/0015/0016/0017/0019/0021 databases and prove
   chats, messages, jobs, media, memories, turn ordering, stored artifact links,
