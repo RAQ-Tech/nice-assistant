@@ -11,40 +11,33 @@ Decisions taken without sign-off go in `docs/autonomous-decision-log.md`.
 
 Ordered by value. Nothing here needs the operator.
 
-1. **Show context degradation in the conversation.** A turn already records
-   `context_degraded_reason` and the API returns it, but no browser code reads it.
-   When the history floor drops the summary or saved memory to protect the
-   conversation, the person talking has no way to know their assistant is running
-   with less context than usual. `docs/conversation-context.md` claims turn
-   diagnostics are exposed to the owner; today that is true only of the API.
-
-2. **Tune memory extraction for precision.** The original complaint was noisy
+1. **Tune memory extraction for precision.** The original complaint was noisy
    pending memories, not forgotten ones. The scope fix removed the worst of it,
    but extraction still proposes freely. Raise the confidence floor, tighten the
    extraction contract toward durable facts, and extend the developer evaluation
    cases that screen inclusion against exclusion. Precision over recall is the
    stated preference; the code does not yet express it.
 
-3. **Add a small always-present owner profile block.** A short authored block
+2. **Add a small always-present owner profile block.** A short authored block
    about the account holder, pinned in context the way the character card is.
    This is what the major assistants converged on, and it does more for felt
    continuity than a larger retrieved corpus. It is affordable now that the
    history floor exists, and it should be capped the same way the card is.
 
-4. **Give lore entries alias lists.** Keyword matching misses paraphrases. Aliases
+3. **Give lore entries alias lists.** Keyword matching misses paraphrases. Aliases
    stay literal strings — no embeddings, no new service — and close the common
    case where one entry needs `sister`, `sibling`, and a name. Cheaper and more
    debuggable than semantic retrieval.
 
-5. **Decide an expiry policy for rejected and forgotten memories.** Retention is
+4. **Decide an expiry policy for rejected and forgotten memories.** Retention is
    durable and unbounded, with no automatic expiry. Users can delete explicitly,
    but a private deployment accumulating rejected candidates forever is a
    sensitive-data question, not just a storage one.
 
-6. **Make turn event replay durable.** Replay is bounded and process-local, so a
+5. **Make turn event replay durable.** Replay is bounded and process-local, so a
    restart mid-turn loses the event stream even though the turn itself survives.
 
-7. **Second Task Model adapter.** Ollama is the only adapter. A second one proves
+6. **Second Task Model adapter.** Ollama is the only adapter. A second one proves
    the structured-output contract is genuinely provider-neutral rather than
    Ollama-shaped.
 

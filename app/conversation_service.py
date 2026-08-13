@@ -113,6 +113,13 @@ class ConversationService:
             attachments = {}
             for row in uow.repo.chat_attachments(user_id, chat_id):
                 attachments.setdefault(row.assistant_message_id, []).append(attachment_response(row))
+            # A reply produced with reduced context stays explainable after a reload, so the
+            # reason travels with the message it produced rather than only with the live turn.
+            degraded = {
+                turn.assistant_message_id: turn.context_degraded_reason
+                for turn in uow.repo.turns_for_chat(user_id, chat_id)
+                if turn.assistant_message_id and turn.context_degraded_reason
+            }
             messages = [
                 {
                     "id": row.id,
@@ -120,6 +127,7 @@ class ConversationService:
                     "text": safe_persona_output_text(row.text) if row.role == "assistant" else row.text,
                     "created_at": row.created_at,
                     "attachments": attachments.get(row.id, []),
+                    "degraded_reason": degraded.get(row.id),
                 }
                 for row in uow.repo.messages(chat_id)
             ]
