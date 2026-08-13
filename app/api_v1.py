@@ -32,9 +32,12 @@ class Credentials(StrictModel):
 class SettingsUpdate(StrictModel):
     global_default_model: str | None = None
     default_memory_mode: str = Field(default="saved", pattern="^(off|saved)$")
-    stt_provider: str = "disabled"
-    tts_provider: str = "disabled"
-    tts_format: str = "wav"
+    # "local" stays accepted for STT so an account migrated from the legacy
+    # setting can still save. It is not implemented, and transcription answers
+    # 501 with that stated plainly rather than pretending the save took effect.
+    stt_provider: str = Field(default="disabled", pattern="^(disabled|openai|local)$")
+    tts_provider: str = Field(default="disabled", pattern="^(disabled|openai|local)$")
+    tts_format: str = Field(default="wav", pattern="^(mp3|opus|aac|flac|wav|pcm)$")
     openai_api_key: str | None = None
     onboarding_done: bool = False
     preferences: dict = Field(default_factory=dict)
@@ -63,6 +66,29 @@ class PersonaWrite(StrictModel):
     preferred_voice_local: str | None = None
     preferred_tts_model_local: str | None = None
     preferred_tts_speed_local: str | None = None
+
+
+class PersonaCardWrite(StrictModel):
+    card_definition: str | None = None
+    card_personality: str | None = None
+    card_style: str | None = None
+    card_behavior: str | None = None
+    card_example_dialogue: str | None = None
+
+
+class PersonaLoreWrite(StrictModel):
+    title: str = Field(min_length=1, max_length=160)
+    content: str = Field(min_length=1, max_length=8000)
+    keys: list[str] = Field(default_factory=list)
+    secondary_keys: list[str] = Field(default_factory=list)
+    always_on: bool = False
+    case_sensitive: bool = False
+    priority: int = Field(default=50, ge=0, le=100)
+    enabled: bool = True
+
+
+class PersonaLorePreview(StrictModel):
+    text: str = Field(min_length=1, max_length=8000)
 
 
 class MemoryCreate(StrictModel):
@@ -872,6 +898,63 @@ def update_persona(
     values = body.model_dump(exclude_none=True)
     values["workspace_ids"] = body.workspace_ids or [body.workspace_id]
     return services(request).resources.save_persona(context.user_id, values, persona_id)
+
+
+@router.put("/personas/{persona_id}/card", tags=["personas"])
+def update_persona_card(
+    persona_id: str,
+    body: PersonaCardWrite,
+    request: Request,
+    context: AuthContext = Depends(current_user),
+):
+    return services(request).resources.save_persona_card(context.user_id, persona_id, body.model_dump())
+
+
+@router.get("/personas/{persona_id}/lore", tags=["personas"])
+def list_persona_lore(persona_id: str, request: Request, context: AuthContext = Depends(current_user)):
+    return {"items": services(request).resources.list_persona_lore(context.user_id, persona_id)}
+
+
+@router.post("/personas/{persona_id}/lore", tags=["personas"])
+def create_persona_lore(
+    persona_id: str,
+    body: PersonaLoreWrite,
+    request: Request,
+    context: AuthContext = Depends(current_user),
+):
+    return services(request).resources.save_persona_lore(context.user_id, persona_id, body.model_dump())
+
+
+@router.put("/personas/{persona_id}/lore/{entry_id}", tags=["personas"])
+def update_persona_lore(
+    persona_id: str,
+    entry_id: str,
+    body: PersonaLoreWrite,
+    request: Request,
+    context: AuthContext = Depends(current_user),
+):
+    return services(request).resources.save_persona_lore(context.user_id, persona_id, body.model_dump(), entry_id)
+
+
+@router.delete("/personas/{persona_id}/lore/{entry_id}", tags=["personas"])
+def delete_persona_lore(
+    persona_id: str,
+    entry_id: str,
+    request: Request,
+    context: AuthContext = Depends(current_user),
+):
+    services(request).resources.delete_persona_lore(context.user_id, persona_id, entry_id)
+    return {"ok": True}
+
+
+@router.post("/personas/{persona_id}/lore/preview", tags=["personas"])
+def preview_persona_lore(
+    persona_id: str,
+    body: PersonaLorePreview,
+    request: Request,
+    context: AuthContext = Depends(current_user),
+):
+    return services(request).resources.preview_persona_lore(context.user_id, persona_id, body.text)
 
 
 @router.delete("/personas/{persona_id}", tags=["personas"])

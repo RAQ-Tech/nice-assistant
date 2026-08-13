@@ -58,12 +58,29 @@ and Workspaces now use the same approachable structure:
 - Memory distinguishes pending, forget, and permanent delete, including atomic
   bulk actions. Persona editors remain collapsed until selected, and workspaces
   explain their organizational scope.
+- Each persona has a closed Character card editor with definition, personality,
+  style, and behavior fields. Every field shows its own token cost as it is
+  typed, and a budget meter reports the total against the limit and what is left
+  for conversation history. Going over the limit warns before saving rather than
+  after, and the card saves through its own action, separate from Save persona.
+- Card and lorebook authoring guidance, including a complete worked
+  example, is in `docs/persona-authoring.md`.
+- Each persona also has a closed Lorebook. Entries are collapsed by name — the
+  same convention Media Catalog and Task Models use — and each summarizes what it
+  fires on, whether it is always included, and whether it is switched off. A
+  preview box takes a pasted message and reports which entries fire, which fit the
+  allowance, and which were left out, so keyword tuning is observed rather than
+  guessed. Entries load only when the section is opened.
 - Local image connection choices remain readily available while sampling,
   authentication, and raw JSON controls live under advanced disclosure.
 - Enabling an image provider seeds a starter Media Catalog model only when no
   image resources exist, so conversational planning becomes available without
   overwriting an operator-curated catalog. Legacy local-provider aliases are
   shown and saved in their canonical `local` plus backend form.
+- Media choices the deployment cannot honor are refused when they are saved,
+  naming the accepted values, instead of being stored and then quietly replaced
+  with a default during generation. An account holding an unusable value from
+  before that check keeps it and can still save its other settings.
 - Image Generation exposes the same persisted blur preference available in chat
   controls. Its readiness summary separates provider reachability, basic
   generation, and optional identity enhancement so missing identity setup never

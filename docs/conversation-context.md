@@ -53,6 +53,26 @@ truncated. An oversized protected request fails safely. Memories are selected or
 omitted as whole entries. Recent history keeps complete newest turns first; an
 individually oversized prior turn may use a labeled head-and-tail excerpt.
 
+Conversation history keeps a floor of 25 percent of the prompt budget. When the
+assembled prompt would leave less, droppable sections yield in reverse authority
+order — summary, then saved memory, then persona lore, then persona example
+dialogue — until the floor is clear. Nothing yields on a turn with no history, protected sections
+never yield, and a turn that dropped sections is marked degraded and reports the
+dropped material as omitted rather than included.
+
+A persona character card is protected material capped when it is saved. Persona
+example dialogue is droppable data under a 10 percent allowance, rendered above
+saved memory, labeled as voice examples rather than transcript, and included as
+whole exchanges or not at all. It is assembled into the persona prompt only and
+never reaches the summary, memory-extraction, or capability roles.
+
+Persona lore is droppable data under a 12 percent allowance, rendered between
+example dialogue and saved memory. Entries are selected by deterministic literal
+keyword matching over the current message and the last three transcript messages;
+no model chooses which fire, keys are never treated as patterns, and injected
+lore is not rescanned, so activation cannot cascade. Fired entries sort by
+priority, then recency, then identifier, and are included whole or skipped.
+
 ## Memory and deduplication
 
 `saved` uses active memories and enables post-turn candidate extraction; `off`

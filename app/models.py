@@ -40,6 +40,12 @@ class Persona(Base):
     system_prompt: Mapped[str | None] = mapped_column(Text)
     personality_details: Mapped[str | None] = mapped_column(Text)
     traits_json: Mapped[str] = mapped_column(Text, default="{}")
+    card_definition: Mapped[str | None] = mapped_column(Text)
+    card_personality: Mapped[str | None] = mapped_column(Text)
+    card_style: Mapped[str | None] = mapped_column(Text)
+    card_behavior: Mapped[str | None] = mapped_column(Text)
+    card_example_dialogue: Mapped[str | None] = mapped_column(Text)
+    card_token_estimate: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     default_model: Mapped[str | None] = mapped_column(Text)
     allow_image_sends: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
     preferred_voice: Mapped[str | None] = mapped_column(Text)
@@ -52,6 +58,31 @@ class Persona(Base):
     preferred_tts_model_local: Mapped[str | None] = mapped_column(Text)
     preferred_tts_speed_local: Mapped[str | None] = mapped_column(Text)
     created_at: Mapped[int] = mapped_column(Integer, nullable=False)
+
+
+class PersonaLoreEntry(Base):
+    __tablename__ = "persona_lore_entries"
+    __table_args__ = (
+        CheckConstraint("always_on IN (0,1)", name="ck_persona_lore_always_on"),
+        CheckConstraint("case_sensitive IN (0,1)", name="ck_persona_lore_case_sensitive"),
+        CheckConstraint("enabled IN (0,1)", name="ck_persona_lore_enabled"),
+        CheckConstraint("priority >= 0 AND priority <= 100", name="ck_persona_lore_priority"),
+        Index("idx_persona_lore_owner_persona_enabled", "user_id", "persona_id", "enabled"),
+    )
+    id: Mapped[str] = mapped_column(Text, primary_key=True)
+    user_id: Mapped[str] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    persona_id: Mapped[str] = mapped_column(ForeignKey("personas.id", ondelete="CASCADE"), nullable=False)
+    title: Mapped[str] = mapped_column(Text, nullable=False)
+    keys_json: Mapped[str] = mapped_column(Text, nullable=False, default="[]")
+    secondary_keys_json: Mapped[str] = mapped_column(Text, nullable=False, default="[]")
+    content: Mapped[str] = mapped_column(Text, nullable=False)
+    always_on: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    case_sensitive: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    priority: Mapped[int] = mapped_column(Integer, nullable=False, default=50)
+    enabled: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    token_estimate: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    created_at: Mapped[int] = mapped_column(Integer, nullable=False)
+    updated_at: Mapped[int] = mapped_column(Integer, nullable=False)
 
 
 class PersonaWorkspaceLink(Base):

@@ -58,6 +58,19 @@ export interface Persona {
   allow_image_sends?: boolean;
   system_prompt: string | null;
   personality_details: string | null;
+  card_definition?: string | null;
+  card_personality?: string | null;
+  card_style?: string | null;
+  card_behavior?: string | null;
+  card_example_dialogue?: string | null;
+  card_token_estimate?: number;
+  card_cap_tokens?: number;
+  card_prompt_budget_tokens?: number;
+  card_context_window_tokens?: number;
+  example_block_count?: number;
+  example_blocks_included?: number;
+  example_token_estimate?: number;
+  example_budget_tokens?: number;
   traits: Partial<PersonaTraits>;
   default_model: string | null;
   preferred_voice: string | null;
@@ -70,6 +83,38 @@ export interface Persona {
   preferred_tts_model_local: string | null;
   preferred_tts_speed_local: string | null;
   created_at: number;
+}
+
+export interface PersonaLoreEntry {
+  id: Id;
+  persona_id: Id;
+  title: string;
+  keys: string[];
+  secondary_keys: string[];
+  content: string;
+  always_on: boolean;
+  case_sensitive: boolean;
+  priority: number;
+  enabled: boolean;
+  token_estimate: number;
+  budget_tokens: number;
+  created_at: number;
+  updated_at: number;
+}
+
+export interface PersonaLoreMatch {
+  id: Id;
+  title: string;
+  always_on: boolean;
+  priority: number;
+  token_estimate: number;
+  included: boolean;
+}
+
+export interface PersonaLorePreview {
+  budget_tokens: number;
+  used_tokens: number;
+  items: PersonaLoreMatch[];
 }
 
 export interface IdentityValidationSettings {

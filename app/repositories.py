@@ -31,6 +31,7 @@ from app.models import (
     PersonaIdentityEvent,
     PersonaIdentityReference,
     PersonaIdentityValidation,
+    PersonaLoreEntry,
     PersonaVisualIdentity,
     PersonaWorkspaceLink,
     ResourceControlAuthorization,
@@ -44,6 +45,7 @@ from app.models import (
     Workspace,
     IdentityValidationSetting,
 )
+from app.persona_card import CARD_STORED_FIELDS
 from app.secret_store import SecretStore
 from app.task_contracts import TASK_DEFINITIONS, TASK_ROLES
 from app.typed_settings import value_type
@@ -680,6 +682,76 @@ class ApplicationRepository:
         self.session.execute(delete(PersonaWorkspaceLink).where(PersonaWorkspaceLink.persona_id == row.id))
         for workspace_id in workspace_ids:
             self.session.add(PersonaWorkspaceLink(persona_id=row.id, workspace_id=workspace_id))
+        self.session.flush()
+        return row
+
+    def persona_lore_entries(self, user_id: str, persona_id: str, *, enabled_only: bool = False):
+        query = select(PersonaLoreEntry).where(
+            PersonaLoreEntry.user_id == user_id,
+            PersonaLoreEntry.persona_id == persona_id,
+        )
+        if enabled_only:
+            query = query.where(PersonaLoreEntry.enabled == 1)
+        return list(self.session.scalars(query.order_by(PersonaLoreEntry.created_at, PersonaLoreEntry.id)).all())
+
+    def persona_lore_entry(self, user_id: str, entry_id: str):
+        return self.session.scalar(
+            select(PersonaLoreEntry).where(
+                PersonaLoreEntry.id == entry_id,
+                PersonaLoreEntry.user_id == user_id,
+            )
+        )
+
+    def save_persona_lore_entry(
+        self,
+        user_id: str,
+        persona_id: str,
+        values: dict,
+        token_estimate: int,
+        entry_id: str | None = None,
+    ) -> PersonaLoreEntry:
+        if not self.persona(user_id, persona_id):
+            raise LookupError("persona not found")
+        stamp = now_ts()
+        row = self.persona_lore_entry(user_id, entry_id) if entry_id else None
+        if entry_id and (not row or row.persona_id != persona_id):
+            raise LookupError("lore entry not found")
+        if not row:
+            row = PersonaLoreEntry(
+                id=secrets.token_hex(8),
+                user_id=user_id,
+                persona_id=persona_id,
+                created_at=stamp,
+            )
+            self.session.add(row)
+        row.title = values["title"]
+        row.keys_json = json.dumps(values["keys"], separators=(",", ":"), ensure_ascii=False)
+        row.secondary_keys_json = json.dumps(values["secondary_keys"], separators=(",", ":"), ensure_ascii=False)
+        row.content = values["content"]
+        row.always_on = int(bool(values["always_on"]))
+        row.case_sensitive = int(bool(values["case_sensitive"]))
+        row.priority = int(values["priority"])
+        row.enabled = int(bool(values["enabled"]))
+        row.token_estimate = int(token_estimate)
+        row.updated_at = stamp
+        self.session.flush()
+        return row
+
+    def delete_persona_lore_entry(self, user_id: str, entry_id: str) -> bool:
+        row = self.persona_lore_entry(user_id, entry_id)
+        if not row:
+            return False
+        self.session.delete(row)
+        self.session.flush()
+        return True
+
+    def save_persona_card(self, user_id: str, persona_id: str, values: dict, token_estimate: int) -> Persona:
+        row = self.persona(user_id, persona_id)
+        if not row:
+            raise LookupError("persona not found")
+        for field in CARD_STORED_FIELDS:
+            setattr(row, field, values.get(field) or None)
+        row.card_token_estimate = int(token_estimate)
         self.session.flush()
         return row
 

@@ -976,6 +976,20 @@ input[type='file']::file-selector-button {
   line-height: 1.45;
 }
 
+.character-card-field {
+  display: grid;
+  gap: .2rem;
+  justify-items: end;
+}
+
+.character-card-field > .setting-row {
+  width: 100%;
+}
+
+.character-card-meter {
+  margin-top: .35rem;
+}
+
 .identity-profile-stack {
   display: grid;
   gap: 14px;

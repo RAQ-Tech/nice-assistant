@@ -52,6 +52,18 @@ change that alters them.
   expose targeted setup/recheck actions when strict planning blocks. Identity
   extension/model installation remains deployment-owned; guided graph import,
   provider-schema inspection, and exact binding are delivered in the product.
+- Authored persona character cards in the protected prompt section, capped when
+  saved rather than when a turn is planned, with the cap taken against the
+  narrowest configured context window and a live cost meter in the editor.
+- A conversation history floor. Optional prompt sections yield in reverse
+  authority order before the conversation is starved, nothing yields when there
+  is no history to protect, and a turn that dropped sections is marked degraded
+  and reports the material as omitted. Persona example dialogue rides on that
+  floor as whole `<START>`-delimited exchanges.
+- Persona lorebooks with deterministic platform-owned keyword matching, literal
+  keys, a bounded scan window, no recursive activation, priority-ordered whole
+  entries, and an owner-scoped preview route that reports what fires and what
+  fits.
 - Consent-bound persona visual identity profiles, normalized protected
   references, explicit review/deletion, stateless LAN comparison, durable
   validation history, and truthful verified/rejected/unverified media state.
@@ -147,6 +159,13 @@ change that alters them.
 - Local STT; the setting is retained for migration compatibility but disabled in
   the UI until an adapter exists.
 - Realtime turn detection, partial transcripts, barge-in, and speech fallback.
+- Lorebook matching is literal keywords over a three-message window, so it will
+  miss a paraphrase that shares no key. This is a deliberate trade for predictable,
+  debuggable behavior with no embedding model or extra service; the preview route
+  exists to make the resulting authoring work tractable. Semantic matching remains
+  an optional future interface rather than implied functionality.
+- Lore is persona-scoped. Sharing an entry across several personas in a workspace
+  means authoring it more than once until a sharing model is designed.
 - Multi-reference fusion and automatic mask creation. Identity-stage latency and
   capacity are unaccepted until the real verifier, consented references, and a
   compatible ComfyUI identity workflow are deployed; the completed Step 20 base

@@ -71,6 +71,18 @@ identity conditioning. See ADR 0017.
 `MediaCatalogService`: a starter model is created only when that catalog kind is
 empty. Existing operator resources remain authoritative and are never synced
 from direct-action settings. See ADR 0016.
+`persona_card.py` owns the persona character card: which fields exist, how they
+render into the persona instruction block, and the save-time cap that keeps them
+inside the protected prompt section. `context_policy.py` holds `TokenEstimator`
+and `ContextPolicy` so prompt assembly and `ContextService` share one estimator
+without a circular import. `ResourceService` enforces the cap on
+`PUT /api/v1/personas/{id}/card`; card fields are not writable through the general
+persona route, so the limit has one enforcement point. See ADR 0026.
+`persona_lore.py` owns lorebook matching and selection: literal keyword matching
+over a bounded scan window, no recursive activation, and priority-ordered
+whole-entry inclusion. Matching is platform code, not a model decision, for the
+same reason task models cannot select media resources or set memory scope.
+`ResourceService` owns owner-scoped lore CRUD and the preview route. See ADR 0028.
 `IdentityService` owns consent-bound persona identity profiles, normalized
 reference storage, review/deletion audit, queued comparisons, and truthful media
 claim state. `IdentityVerificationProvider` is a separate stateless LAN-service
