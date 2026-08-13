@@ -7,6 +7,8 @@ section 4 recommendation to defer unnecessary: optional material now yields
 before the conversation does, at any window size. Open question 2 is answered as
 proposed — lore is persona-scoped, and workspace sharing is a later addition.
 Targets: persona backstory, voice consistency, and "interesting" — not memory recall
+Authoring guidance and a complete worked example live in
+`docs/persona-authoring.md`.
 
 ## Goal
 
