@@ -65,6 +65,11 @@ change that alters them.
 - Explicit ComfyUI image-to-image, inpaint, and outpaint jobs with exact
   owner-scoped source/mask bindings; durable attempt provenance; automatic
   identity comparison; bounded correction/rerun; and failure-policy enforcement.
+- Conversational editing of an image already in the chat, using opaque
+  platform-published attachment references that the model may select but never
+  invent, re-resolved from the same owner-scoped query before execution, offered
+  only when a ready editing operation and a resolvable image both exist, and
+  always confirmed by the owner before it runs.
 - SQLite backup snapshots, archive retention, provider readiness checks,
   process/container smoke foundations, and an administrator restore-drill
   action that reports database integrity and migration compatibility.
@@ -112,16 +117,22 @@ change that alters them.
 - The automatic image boundary now has a conservative deterministic action gate
   and curated negative tests. Natural-language coverage is intentionally biased
   toward false negatives; expanding accepted phrasing requires evaluation rather
-  than weakening the story/discussion guard.
+  than weakening the story/discussion guard. Editing uses a separate gate with
+  its own curated negatives so the auto-run creation boundary is unchanged; an
+  edit is only ever proposed for confirmation, never run unattended.
 - Media VRAM/load values remain operator estimates of demand. Provider telemetry
   now measures available capacity but cannot infer a pending model's demand.
   Direct media buttons still use legacy provider settings through a disclosed
   manual plan and have unknown demand, so they bypass measured-capacity
   admission. They do participate in the shared-resource lease and authorized
   managed post-job media reclamation.
-- ComfyUI editing is explicit-only. The Task Model cannot yet resolve protected
-  chat attachments into source/mask media IDs and therefore advertises only
-  generation. Automatic1111 remains generation-only.
+- ComfyUI editing is now reachable from conversation through platform-published
+  attachment references under ADR 0026, but only for images in the current chat
+  and only with owner confirmation. The task model never receives or supplies a
+  media ID. Automatic1111 remains generation-only, mask creation is still
+  manual, and the edit action gate is deliberately biased toward false
+  negatives, so accepted phrasing expands by evaluation rather than by widening
+  the pattern.
 - CompreFace verification is stateless and replaceable, but connection-attempt
   cancellation remains bounded by its timeout. The global provider policy now
   restricts its configured base URL; the separately operated service remains a

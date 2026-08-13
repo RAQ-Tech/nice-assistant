@@ -3,11 +3,63 @@ import unittest
 from app.task_contracts import (
     guard_premature_media_completion_claim,
     is_high_confidence_image_action_request,
+    is_high_confidence_image_edit_request,
     is_high_confidence_media_action_request,
 )
 
 
 class TaskContractTests(unittest.TestCase):
+    def test_edit_predicate_accepts_explicit_changes_to_an_existing_image(self):
+        for request in (
+            "Edit that picture to make the jacket blue.",
+            "Change the jacket in that image to blue.",
+            "Remove the streetlight from that picture.",
+            "Can you edit the image you just sent to remove the car?",
+            "Please crop that photo a little tighter.",
+            "In that picture, replace the sky with a sunset.",
+            "Brighten the photo you just sent.",
+            "Blur the background in that portrait.",
+        ):
+            with self.subTest(request=request):
+                self.assertTrue(is_high_confidence_image_edit_request(request))
+
+    def test_edit_predicate_rejects_discussion_creation_and_library_management(self):
+        for request in (
+            # Creation, not editing. The creation gate owns these.
+            "Make me a picture of a harbour at dusk.",
+            "Draw a moonlit cabin.",
+            # Discussion, explanation, and hypotheticals.
+            "Tell me a story where someone edits a photo of a harbour.",
+            "Explain how to remove the background from an image.",
+            "How would you change that picture?",
+            "What do you think of that image?",
+            "What settings did you change for that image?",
+            # Text about an image is not an edit of one.
+            "Describe that picture for me.",
+            "Write the caption for that image.",
+            # Quoted and literal-response requests.
+            "Reply with exactly: edit that picture.",
+            '"Remove the streetlight from that picture."',
+            # Filing or deleting an artifact is not editing it.
+            "Delete that picture from my library.",
+            "Remove that photo from this chat.",
+            # No existing image is referenced.
+            "Change my display name.",
+            "Remove the second item from my list.",
+        ):
+            with self.subTest(request=request):
+                self.assertFalse(is_high_confidence_image_edit_request(request))
+
+    def test_edit_and_creation_gates_stay_independent(self):
+        edit = "Change the jacket in that image to blue."
+        creation = "Make me a picture of a harbour at dusk."
+        # An edit must never reach the auto-running creation path, and a
+        # creation request must never be treated as an edit of something.
+        self.assertFalse(is_high_confidence_media_action_request(edit))
+        self.assertFalse(is_high_confidence_image_edit_request(creation))
+        self.assertTrue(is_high_confidence_image_edit_request(edit))
+        self.assertTrue(is_high_confidence_media_action_request(creation))
+
     def test_explicit_image_predicate_accepts_direct_requests(self):
         for request in (
             "Generate an image of a blue mug.",

@@ -378,6 +378,100 @@ class MediaCatalogTests(unittest.TestCase):
                 409,
             )
 
+    def test_conversation_edit_resolves_only_this_chats_offered_attachment(self):
+        planned = {
+            "capability_key": "media.generate_image",
+            "prompt": "a harbour at dusk",
+            "operation": "generate",
+            "domains": [],
+            "content_tags": [],
+            "required_features": [],
+            "persona_subject": False,
+        }
+        provider = FakeChatProvider(
+            ["Here you go.", "I can change that.", "I can change that.", "I can change that."],
+            task_outputs={CAPABILITY_PLANNING: {"requests": [planned]}},
+        )
+        image_provider = ValidImageProvider()
+        with tempfile.TemporaryDirectory() as tmp, TestApp(Path(tmp), chat_provider=provider) as running:
+            running.create_and_login()
+            running.services.providers.media_providers["local-image"] = image_provider
+            running.client.put("/api/v1/settings", json={"preferences": {"image_provider": "local/comfyui"}})
+            model = running.client.post(
+                "/api/v1/media-catalog/resources",
+                json=model_payload(
+                    "Comfy editor",
+                    "editor.safetensors",
+                    backend="comfyui",
+                    operations=["generate", "image_to_image"],
+                    priority=90,
+                ),
+            ).json()
+            workflow = addon_payload("workflow", "Image editor", "edit-v1", model["id"], operations=["image_to_image"])
+            workflow["default_settings"] = {
+                "workflow_patch": {"100": {"class_type": "LoadImage", "inputs": {"image": "source.png"}}},
+                "source_image_bindings": [{"node_id": "100", "input_name": "image"}],
+            }
+            self.assertEqual(running.client.post("/api/v1/media-catalog/resources", json=workflow).status_code, 201)
+            chat = running.client.post("/api/v1/chats", json={"title": "Harbour", "memory_mode": "off"}).json()
+
+            first = running.client.post(
+                f"/api/v1/chats/{chat['id']}/turns",
+                json={"text": "Make me a picture of a harbour at dusk", "memory_mode": "off"},
+            ).json()
+            running.wait_job(first["job"]["id"])
+            generated = running.client.get("/api/v1/capability-requests", params={"chat_id": chat["id"]}).json()[
+                "items"
+            ][0]
+            if generated["job_id"]:
+                running.wait_job(generated["job_id"])
+            source_media_id = running.client.get(f"/api/v1/capability-requests/{generated['id']}").json()["result"][
+                "mediaId"
+            ]
+
+            planned.update(
+                {
+                    "capability_key": "media.edit_image",
+                    "prompt": "replace the sky with a sunset",
+                    "operation": "image_to_image",
+                    "source_attachment": "conversation_image_1",
+                }
+            )
+            second = running.client.post(
+                f"/api/v1/chats/{chat['id']}/turns",
+                json={"text": "Change the sky in that picture to a sunset", "memory_mode": "off"},
+            ).json()
+            running.wait_job(second["job"]["id"])
+            edit = next(
+                item
+                for item in running.client.get("/api/v1/capability-requests", params={"chat_id": chat["id"]}).json()[
+                    "items"
+                ]
+                if item["capability_key"] == "media.edit_image"
+            )
+            # The model named a label; the platform resolved the artifact.
+            self.assertEqual(edit["arguments"]["source_media_id"], source_media_id)
+            self.assertEqual(edit["media_plan"]["status"], "ready")
+            # A planned edit is proposed, never run unattended.
+            self.assertEqual(edit["status"], "pending_confirmation")
+
+            # A label the platform never offered resolves to nothing, so the
+            # request is dropped rather than editing some other image.
+            planned["source_attachment"] = "conversation_image_9"
+            third = running.client.post(
+                f"/api/v1/chats/{chat['id']}/turns",
+                json={"text": "Change the sky in that picture to a storm", "memory_mode": "off"},
+            ).json()
+            running.wait_job(third["job"]["id"])
+            edits = [
+                item
+                for item in running.client.get("/api/v1/capability-requests", params={"chat_id": chat["id"]}).json()[
+                    "items"
+                ]
+                if item["capability_key"] == "media.edit_image"
+            ]
+            self.assertEqual(len(edits), 1)
+
     def test_catalog_crud_requires_explicit_same_owner_compatibility(self):
         with tempfile.TemporaryDirectory() as tmp, TestApp(Path(tmp)) as running:
             running.create_and_login()

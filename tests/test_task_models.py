@@ -8,6 +8,7 @@ from app.task_contracts import (
     CAPABILITY_PLANNING,
     MEMORY_EXTRACTION,
     TITLE_GENERATION,
+    AvailableAttachment,
     AvailableCapability,
     CapabilityPlanningTaskInput,
     TaskContractError,
@@ -291,6 +292,79 @@ class TaskModelTests(unittest.TestCase):
         ).requests[0]
         self.assertFalse(wrongly_personalized.persona_subject)
         self.assertEqual(wrongly_personalized.required_features, ("text_to_image",))
+
+    def test_planned_edits_accept_only_offered_attachment_references(self):
+        definition = task_definition(CAPABILITY_PLANNING)
+        capabilities = (
+            AvailableCapability("media.generate_image", "Generate image", "Create an image."),
+            AvailableCapability("media.edit_image", "Edit image", "Change an image in this conversation."),
+        )
+        task_input = CapabilityPlanningTaskInput(
+            user_text="Remove the streetlight from that photo.",
+            available_capabilities=capabilities,
+            available_operations=("generate", "image_to_image", "inpaint"),
+            available_attachments=(
+                AvailableAttachment("conversation_image_1", "The most recent image: a quiet street"),
+                AvailableAttachment("conversation_image_2", "The second image: a harbour at dusk"),
+            ),
+        )
+
+        item_schema = definition.response_schema(task_input)["properties"]["requests"]["items"]
+        self.assertEqual(
+            item_schema["properties"]["source_attachment"]["enum"],
+            ["", "conversation_image_1", "conversation_image_2"],
+        )
+        # Optional, so an ordinary generation request keeps its original shape.
+        self.assertNotIn("source_attachment", item_schema["required"])
+        self.assertIn("available_attachments", json.loads(definition.messages(task_input)[1]["content"]))
+
+        def parse(body: str):
+            return definition.parse_output(f'{{"requests":[{body}]}}', task_input, 384)
+
+        base = (
+            '"capability_key":"media.edit_image","prompt":"remove the streetlight",'
+            '"domains":[],"content_tags":[],"required_features":[],"persona_subject":false'
+        )
+        planned = parse(f'{{{base},"operation":"image_to_image","source_attachment":"conversation_image_1"}}').requests[
+            0
+        ]
+        self.assertEqual(planned.source_attachment, "conversation_image_1")
+        self.assertEqual(planned.mask_attachment, "")
+
+        # A reference the platform never offered is refused even though it is
+        # well formed, so the model cannot name an arbitrary artifact.
+        for body in (
+            f'{{{base},"operation":"image_to_image","source_attachment":"conversation_image_9"}}',
+            f'{{{base},"operation":"image_to_image","source_attachment":"media_0001"}}',
+            f'{{{base},"operation":"image_to_image","source_attachment":""}}',
+            f'{{{base},"operation":"inpaint","source_attachment":"conversation_image_1"}}',
+            f'{{{base},"operation":"inpaint","source_attachment":"conversation_image_1",'
+            '"mask_attachment":"conversation_image_1"}',
+            f'{{{base},"operation":"image_to_image","source_attachment":"conversation_image_1",'
+            '"mask_attachment":"conversation_image_2"}',
+            '{"capability_key":"media.generate_image","prompt":"a harbour","operation":"generate","domains":[],'
+            '"content_tags":[],"required_features":[],"persona_subject":false,'
+            '"source_attachment":"conversation_image_1"}',
+        ):
+            with self.assertRaises(TaskContractError):
+                parse(body)
+
+    def test_attachment_fields_are_absent_when_no_image_is_offered(self):
+        definition = task_definition(CAPABILITY_PLANNING)
+        task_input = CapabilityPlanningTaskInput(
+            user_text="Edit the photo.",
+            available_capabilities=(AvailableCapability("media.generate_image", "Generate image", "Create an image."),),
+        )
+        item_schema = definition.response_schema(task_input)["properties"]["requests"]["items"]
+        self.assertNotIn("source_attachment", item_schema["properties"])
+        with self.assertRaises(TaskContractError):
+            definition.parse_output(
+                '{"requests":[{"capability_key":"media.generate_image","prompt":"a street","operation":"generate",'
+                '"domains":[],"content_tags":[],"required_features":[],"persona_subject":false,'
+                '"source_attachment":"conversation_image_1"}]}',
+                task_input,
+                384,
+            )
 
     def test_explicit_persona_exclusion_guard_is_narrow(self):
         self.assertTrue(explicitly_excludes_persona("It doesn't need to include you."))

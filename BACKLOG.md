@@ -44,14 +44,7 @@ Last full verifier run: passed, 2026-08-13.
 
 Real engineering work with no external dependency.
 
-1. **Resolve protected chat attachments into typed media inputs.** The Task
-   Model cannot turn a protected chat attachment into a source or mask media
-   ID, so ComfyUI editing stays explicit-only and the task model advertises
-   generation alone. A typed protected-attachment input is the prerequisite for
-   conversational edit requests. Source: `docs/debt-register.md`,
-   `docs/roadmap.md` step 18C.
-
-2. **Bring direct media actions under measured-capacity admission.** The direct
+1. **Bring direct media actions under measured-capacity admission.** The direct
    image buttons still use legacy provider settings through a disclosed manual
    plan, so their demand is unknown and they bypass catalog-estimate admission.
    They do take the shared-resource lease, but two different paths to the same
@@ -59,23 +52,23 @@ Real engineering work with no external dependency.
    generation. Source: `docs/debt-register.md`;
    `docs/human-experience-realignment-plan.md` baseline gap 8.
 
-3. **Move provider helper internals off legacy low-level inputs.** Routes use
+2. **Move provider helper internals off legacy low-level inputs.** Routes use
    SQLAlchemy repositories and unit-of-work boundaries, but some provider
    helpers still take HTTP/SQLite-shaped arguments. This is the remaining
    inconsistency in the persistence boundary. Source: `docs/debt-register.md`.
 
-4. **Lift provider-specific settings out of persona and UI records.** Provider
+3. **Lift provider-specific settings out of persona and UI records.** Provider
    details are embedded directly in those records, which couples persona data
    to whichever provider happened to be configured. Source:
    `docs/debt-register.md`.
 
-5. **Decide whether turn event replay needs a durable log.** Replay is bounded
+4. **Decide whether turn event replay needs a durable log.** Replay is bounded
    and process-local today. That is honest and sufficient for a single-process
    private-LAN deployment; it is listed so the limitation stays visible rather
    than being discovered during a future multi-process change. Source:
    `docs/debt-register.md`.
 
-6. **Second Task Model adapter.** The structured-output contract has exactly
+5. **Second Task Model adapter.** The structured-output contract has exactly
    one implementation (Ollama). A second adapter is what proves the contract is
    a real boundary rather than a description of one client. No additional
    provider may be advertised until it implements the same contract. Source:
@@ -85,13 +78,13 @@ Real engineering work with no external dependency.
 
 Implementable once an owner policy choice is recorded.
 
-7. **Automatic expiry for rejected and forgotten memory.** Retention is durable
+6. **Automatic expiry for rejected and forgotten memory.** Retention is durable
    and users can permanently delete individual or bulk records, but there is no
    administrator-approved automatic expiry policy. The code change is small;
    the retention period and its defaults are the decision. Source:
    `docs/debt-register.md`, `docs/memory.md`.
 
-8. **Semantic memory retrieval.** Retrieval is lexical full-text search plus
+7. **Semantic memory retrieval.** Retrieval is lexical full-text search plus
    recency. Semantic retrieval remains an optional future interface and is
    deliberately not implied anywhere in the product. Adding it is a scope
    decision, not a blocked task. Source: `docs/debt-register.md`.
@@ -103,29 +96,29 @@ decision. These are the five open voice-core items, and they are the highest
 product priority once unblocked: the roadmap states that additional catalog
 breadth does not take priority over them.
 
-An important distinction, because it changes what can start early: items 9-11
+An important distinction, because it changes what can start early: items 8-10
 are provider-neutral infrastructure and could be built against the existing
-Kokoro path behind a flag. Only items 12-13 genuinely require the approved
+Kokoro path behind a flag. Only items 11-12 genuinely require the approved
 listening decision. Step 11 cannot select a provider until that decision
 exists, and no unverified provider support may be advertised in the meantime.
 
-9. **Streaming TTS.** Begin playback before a complete response file exists.
+8. **Streaming TTS.** Begin playback before a complete response file exists.
    Today synthesis must finish before audio starts.
 
-10. **Automatic end-of-turn detection.** Detect that the user has stopped
-    speaking, with push-to-talk retained as a dependable fallback rather than
-    replaced.
+9. **Automatic end-of-turn detection.** Detect that the user has stopped
+   speaking, with push-to-talk retained as a dependable fallback rather than
+   replaced.
 
-11. **True barge-in.** Interrupting playback must also stop the superseded
+10. **True barge-in.** Interrupting playback must also stop the superseded
     provider work, not just mute the output.
 
-12. **Approved quality-first and local fallback chains for TTS and STT**, with
+11. **Approved quality-first and local fallback chains for TTS and STT**, with
     compact user-facing degradation notices. Requires the approved provider
-    chain from item 13.
+    chain from item 12.
 
-13. **Repeatable provider evaluation** on latency, reliability, and blind
+12. **Repeatable provider evaluation** on latency, reliability, and blind
     listening criteria - not configuration readiness alone. This is the
-    evaluation that unblocks item 12 and deferred roadmap steps 10-13.
+    evaluation that unblocks item 11 and deferred roadmap steps 10-13.
 
 Also blocked here: **final task-model selection**, which needs live latency and
 quality evaluation on the deployment GPU rather than the developer screening
@@ -137,28 +130,34 @@ Requires the installed private-LAN deployment and, where noted, a supervised
 session. Implementation is published for all of these; what remains is
 acceptance.
 
-14. **Deployment guard migration.** Complete the one-time supervised migration
+13. **Deployment guard migration.** Complete the one-time supervised migration
     from the legacy direct guard, then prove remote guard update, guard
     rollback and re-update, one-container deployment, and the final installed
     browser image journeys. Source: `docs/roadmap.md` step 24, ADR 0025,
     `docs/human-experience-realignment-plan.md`.
 
-15. **Installed acceptance for picture-message delivery.** Roadmap step 22 is
+14. **Installed acceptance for picture-message delivery.** Roadmap step 22 is
     published but not accepted on the real topology. Source: `docs/roadmap.md`,
     ADRs 0019-0020.
 
-16. **Installed acceptance for conversation cleanup.** Roadmap step 23, same
+15. **Installed acceptance for conversation cleanup.** Roadmap step 23, same
     situation. Source: `docs/roadmap.md`, ADR 0021.
 
-17. **Identity-stage latency and capacity acceptance.** Unaccepted until the
+16. **Identity-stage latency and capacity acceptance.** Unaccepted until the
     real verifier, consented references, and a compatible ComfyUI identity
     workflow are deployed together. The completed step 20 base media checks are
     explicitly not substitute evidence. Source: `docs/debt-register.md`,
     `docs/deployment-acceptance.md`.
 
-18. **Live capacity tuning for the deployment GPU.** Timing and capacity
+17. **Live capacity tuning for the deployment GPU.** Timing and capacity
     behavior under real memory limits remains deployment acceptance work.
     Source: `docs/roadmap.md` step 18C.
+
+18. **Installed acceptance for conversational image editing.** Delivered under
+    ADR 0026 and covered by contract, API, and gate tests, but no installed
+    browser journey has confirmed the confirmation card, the reference the
+    planner chose, or a real ComfyUI edit workflow on the deployment. Until then
+    the feature is published, not accepted. Source: ADR 0026.
 
 ## 5. Not advertised
 

@@ -1513,6 +1513,27 @@ class ApplicationRepository:
             .order_by(ChatAttachment.created_at, ChatAttachment.id)
         ).all()
 
+    def editable_chat_attachments(self, user_id: str, chat_id: str, *, limit: int = 5):
+        """Completed owner-scoped image attachments in one chat, newest first.
+
+        These are the only attachments a planned edit may reference. Ownership,
+        chat scope, and durable media linkage are enforced here so a resolved
+        reference can never reach another user's or another chat's artifact.
+        """
+
+        return self.session.scalars(
+            select(ChatAttachment)
+            .where(
+                ChatAttachment.user_id == user_id,
+                ChatAttachment.chat_id == chat_id,
+                ChatAttachment.kind == "image",
+                ChatAttachment.status == "completed",
+                ChatAttachment.media_id.is_not(None),
+            )
+            .order_by(ChatAttachment.created_at.desc(), ChatAttachment.id.desc())
+            .limit(max(1, int(limit)))
+        ).all()
+
     # Protected artifacts
     def media(self, user_id: str, media_id: str):
         return self.session.scalar(select(MediaFile).where(MediaFile.id == media_id, MediaFile.user_id == user_id))
