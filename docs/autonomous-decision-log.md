@@ -28,6 +28,25 @@ blank page.
 
 ## Delivery decisions
 
+### A10 — Voice core assessed as blocked rather than started
+
+Roadmap steps 10 to 13 were the next planned capability. Step 10 is a *blind
+listening evaluation and provider decision*: choosing a voice by ear. That is not
+a decision that can be made and logged for later review, because the artifact
+being judged is sound. The roadmap additionally gates the whole block on the
+current work being accepted in production, which has not happened yet, and states
+that step 11 cannot select providers until the listening decision is approved.
+
+Building streaming or fallback scaffolding ahead of that would mean advertising a
+capability the deployment cannot honor, which `AGENTS.md` forbids and the debt
+register already commits against: no streaming TTS endpoint is advertised until
+step 11 implements it.
+
+*Alternative:* build the provider-neutral streaming transport now and choose a
+voice later. Rejected because fallback and streaming both imply provider
+selection, and a half-built voice path is worse than an honest deferral.
+*Reverse:* nothing to reverse; no code was written.
+
 ### A9 — Dependabot configuration added
 
 Alerts were enabled but no `.github/dependabot.yml` existed, so nothing opened
