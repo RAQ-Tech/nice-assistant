@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import dataclass
 import json
 import secrets
 
@@ -13,7 +14,16 @@ from app.job_service import JobExecution, JobService
 from app.identity_conditioning import IDENTITY_CONTROL_FEATURE
 from app.repositories import UnitOfWork, now_ts
 from app.service_errors import ConflictError, NotFoundError, RequestError
-from app.task_contracts import AvailableCapability, PlannedCapability, is_high_confidence_media_action_request
+from app.task_contracts import (
+    ATTACHMENT_REFERENCE_PREFIX,
+    EDIT_OPERATIONS,
+    MASK_OPERATIONS,
+    AvailableAttachment,
+    AvailableCapability,
+    PlannedCapability,
+    is_high_confidence_image_edit_request,
+    is_high_confidence_media_action_request,
+)
 
 
 def _json_object(value: str | None) -> dict:
@@ -86,6 +96,19 @@ def _sync_attachment(repo, request, state: str, *, message: str | None = None, r
 
 class InvalidCapabilityTransition(RuntimeError):
     pass
+
+
+@dataclass(frozen=True)
+class OfferedAttachments:
+    """What the planner was shown, and what those labels stand for.
+
+    ``bindings`` never leaves the platform. Carrying it from planning to
+    preparation keeps a reference pointing at the image the planner actually
+    saw, even if another image completes in the meantime.
+    """
+
+    available: tuple[AvailableAttachment, ...]
+    bindings: dict
 
 
 def transition_capability(
@@ -164,26 +187,94 @@ class CapabilityService:
             enabled.add("media.edit_image")
         return enabled
 
+    def _editable_operations(self, user_id: str) -> tuple[str, ...]:
+        return tuple(
+            operation
+            for operation in EDIT_OPERATIONS
+            if self.media_catalog.has_ready_operation(user_id, "image", operation)
+        )
+
+    def planning_attachments(self, user_id: str, chat_id: str | None) -> OfferedAttachments:
+        """Publish this chat's editable images as opaque references.
+
+        The task model receives labels and short descriptions only. Media
+        identity stays on the platform side, and the caller carries the returned
+        bindings through to preparation so a reference always resolves to the
+        image the planner was actually shown.
+        """
+
+        if not chat_id:
+            return OfferedAttachments((), {})
+        with self._uow() as uow:
+            bindings = self._attachment_bindings(uow.repo, user_id, chat_id)
+        return OfferedAttachments(
+            tuple(offered for offered, _ in bindings),
+            {offered.reference: media_id for offered, media_id in bindings},
+        )
+
+    def _attachment_bindings(self, repo, user_id: str, chat_id: str) -> list[tuple[AvailableAttachment, str]]:
+        bindings = []
+        for index, row in enumerate(repo.editable_chat_attachments(user_id, chat_id), start=1):
+            request = repo.capability_request(user_id, row.capability_request_id)
+            prompt = str(_json_object(request.arguments_json).get("prompt") or "").strip() if request else ""
+            summary = " ".join(prompt.split())[:120] or "an image in this conversation"
+            position = "most recent image" if index == 1 else f"image {index} counting back from the most recent"
+            bindings.append(
+                (
+                    AvailableAttachment(f"{ATTACHMENT_REFERENCE_PREFIX}{index}", f"The {position}: {summary}"),
+                    str(row.media_id),
+                )
+            )
+        return bindings
+
+    @staticmethod
+    def _resolve_attachments(request: PlannedCapability, attachments: dict) -> tuple[str, str]:
+        """Turn offered references into owner-scoped media identifiers."""
+
+        editing = request.operation in EDIT_OPERATIONS
+        if not editing:
+            if request.source_attachment or request.mask_attachment:
+                raise RequestError("attachments are only valid for image editing", 400)
+            return "", ""
+        source = attachments.get(request.source_attachment or "")
+        if not source:
+            raise RequestError("the referenced source image is no longer available", 409)
+        if request.operation not in MASK_OPERATIONS:
+            if request.mask_attachment:
+                raise RequestError("this operation does not accept a mask", 400)
+            return source, ""
+        mask = attachments.get(request.mask_attachment or "")
+        if not mask:
+            raise RequestError("the referenced mask image is no longer available", 409)
+        if mask == source:
+            raise RequestError("the mask must differ from the source image", 400)
+        return source, mask
+
     def planning_definitions(
         self,
         user_id: str,
         *,
         allow_images: bool = True,
+        allow_edits: bool = False,
     ) -> tuple[AvailableCapability, ...]:
         enabled = self._enabled_keys(user_id)
         return tuple(
             AvailableCapability(item.key, item.title, item.description)
             for item in self.registry.definitions()
             if item.key in enabled
-            and item.key != "media.edit_image"
+            and (allow_edits or item.key != "media.edit_image")
             and (allow_images or item.key != "media.generate_image")
         )
 
-    def planning_vocabulary(self, user_id: str) -> dict:
+    def planning_vocabulary(self, user_id: str, *, allow_edits: bool = False) -> dict:
         vocabulary = self.media_catalog.vocabulary(user_id)
-        if "media.generate_image" in self._enabled_keys(user_id):
+        enabled = self._enabled_keys(user_id)
+        if "media.generate_image" in enabled:
             vocabulary["features"] = sorted(set(vocabulary.get("features") or ()) | {IDENTITY_CONTROL_FEATURE})
-        vocabulary["operations"] = ["generate"]
+        operations = ["generate"]
+        if allow_edits and "media.edit_image" in enabled:
+            operations.extend(self._editable_operations(user_id))
+        vocabulary["operations"] = operations
         return vocabulary
 
     def definitions(self, user_id: str) -> list[dict]:
@@ -386,6 +477,7 @@ class CapabilityService:
         originating_persona_id: str | None,
         planned: list[PlannedCapability],
         source: str = "task_model",
+        offered_attachments: dict | None = None,
     ) -> list[dict]:
         chat = repo.chat(user_id, chat_id)
         if not chat:
@@ -393,14 +485,31 @@ class CapabilityService:
         turn = repo.turn_by_id(turn_id)
         if not turn or not turn.assistant_message_id:
             raise ConflictError("The assistant reply must be durable before media can be attached.")
+        # Resolve against what the planner was shown, so a newly completed image
+        # cannot silently shift what a reference means, then confirm the result
+        # is still an editable attachment of this chat.
+        current = {media_id for _, media_id in self._attachment_bindings(repo, user_id, chat_id)}
+        offered = dict(offered_attachments) if offered_attachments is not None else {}
+        attachments = {reference: media_id for reference, media_id in offered.items() if media_id in current}
         prepared = []
         for index, request in enumerate(planned):
             definition = self.registry.by_key(request.capability_key)
-            if not is_high_confidence_media_action_request(user_text):
+            editing = request.operation in EDIT_OPERATIONS
+            # Editing uses its own narrower gate. A proposed edit still needs
+            # confirmation, so this decides what may be offered, not what runs.
+            gate = is_high_confidence_image_edit_request if editing else is_high_confidence_media_action_request
+            if not gate(user_text):
                 continue
-            auto_execute = definition.kind == "image"
+            try:
+                source_media_id, mask_media_id = self._resolve_attachments(request, attachments)
+            except RequestError:
+                # A reference that no longer resolves means the conversation
+                # changed under the plan. Drop the request instead of silently
+                # editing a different image or degrading into a generation.
+                continue
+            auto_execute = definition.permission_mode == "auto"
             status = "queued" if auto_execute else "pending_confirmation"
-            permission_mode = "auto" if auto_execute else "confirm"
+            permission_mode = definition.permission_mode
             requirements = self.registry.requirements(definition, {"prompt": request.prompt})
             requirements = requirements.__class__(
                 kind=requirements.kind,
@@ -409,6 +518,8 @@ class CapabilityService:
                 domains=request.domains,
                 content_tags=request.content_tags,
                 required_features=request.required_features,
+                source_media_id=source_media_id,
+                mask_media_id=mask_media_id,
             )
             row, created = repo.add_capability_request(
                 user_id=user_id,
@@ -422,20 +533,26 @@ class CapabilityService:
             )
             job = repo.job_for_capability(row.id)
             if created:
-                plan = self.media_catalog.create_coordinator_plan(
-                    repo,
-                    user_id,
-                    row.id,
-                    {
-                        "kind": requirements.kind,
-                        "operation": requirements.operation,
-                        "domains": requirements.domains,
-                        "content_tags": requirements.content_tags,
-                        "required_features": requirements.required_features,
-                    },
-                    persona_id=originating_persona_id,
-                    ready_backends=self._ready_media_backends(repo, user_id, definition.kind),
-                )
+                requirement_values = {
+                    "kind": requirements.kind,
+                    "operation": requirements.operation,
+                    "domains": requirements.domains,
+                    "content_tags": requirements.content_tags,
+                    "required_features": requirements.required_features,
+                }
+                if requirements.operation in EDIT_OPERATIONS:
+                    # Editing selects a workflow with real source and mask
+                    # bindings; the coordinator plan cannot express those.
+                    plan = self.media_catalog.create_edit_plan(repo, user_id, row.id, requirement_values)
+                else:
+                    plan = self.media_catalog.create_coordinator_plan(
+                        repo,
+                        user_id,
+                        row.id,
+                        requirement_values,
+                        persona_id=originating_persona_id,
+                        ready_backends=self._ready_media_backends(repo, user_id, definition.kind),
+                    )
                 repo.add_capability_event(
                     row,
                     "requested",

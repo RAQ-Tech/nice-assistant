@@ -281,9 +281,12 @@ class ConversationService:
 
         def execute(token):
             provider = self.providers.chat(provider_name)
+            # Edits are included here so the media-claim guard and the planning
+            # follow-up are both scheduled when editing is the only capability.
             planning_definitions = self.capabilities.planning_definitions(
                 user_id,
                 allow_images=allow_persona_image_sends,
+                allow_edits=True,
             )
             application_instructions = []
             if planning_definitions:
@@ -411,9 +414,14 @@ class ConversationService:
             return output
 
         def execute_capability_followup(token):
+            # Editing is offered only when this conversation still holds an
+            # image the platform can resolve for the user.
+            offered_attachments = self.capabilities.planning_attachments(user_id, chat_id)
+            allow_edits = bool(offered_attachments.available)
             planning_definitions = self.capabilities.planning_definitions(
                 user_id,
                 allow_images=allow_persona_image_sends,
+                allow_edits=allow_edits,
             )
             if is_explicit_text_only_request(text):
                 return {"planned_capabilities": [], "task_run_id": None}
@@ -423,7 +431,7 @@ class ConversationService:
                     "task_run_id": None,
                     "planning_source": "deterministic_explicit_image",
                 }
-            planning_vocabulary = self.capabilities.planning_vocabulary(user_id)
+            planning_vocabulary = self.capabilities.planning_vocabulary(user_id, allow_edits=allow_edits)
             try:
                 outcome = self.task_models.run(
                     user_id,
@@ -436,6 +444,7 @@ class ConversationService:
                         available_domains=tuple(planning_vocabulary.get("domains") or ()),
                         available_content_tags=tuple(planning_vocabulary.get("content_tags") or ()),
                         available_features=tuple(planning_vocabulary.get("features") or ()),
+                        available_attachments=offered_attachments.available,
                     ),
                     token,
                     chat_id=chat_id,
@@ -452,6 +461,9 @@ class ConversationService:
                     "planned_capabilities": planned_capabilities,
                     "task_run_id": outcome.run_id,
                     "planning_source": planning_source,
+                    # Carried, not persisted, so a reference resolves to the
+                    # image this plan was actually offered.
+                    "offered_attachments": offered_attachments.bindings,
                 }
             except ProviderError as exc:
                 if exc.code == "cancelled" or token.cancelled:
@@ -466,6 +478,7 @@ class ConversationService:
             output = dict(result or {})
             planned_capabilities = list(output.pop("planned_capabilities", []))
             planning_source = str(output.pop("planning_source", "task_model"))
+            offered = output.pop("offered_attachments", None)
             if planned_capabilities:
                 capability_requests = self.capabilities.prepare_planned_requests(
                     repo,
@@ -476,6 +489,7 @@ class ConversationService:
                     originating_persona_id=requested_persona_id,
                     planned=planned_capabilities,
                     source=planning_source,
+                    offered_attachments=offered,
                 )
                 output["auto_capability_request_ids"] = [
                     item["id"] for item in capability_requests if item.pop("auto_submit", False)

@@ -16,6 +16,13 @@ media resources, or privileged settings.
 All model outputs must match the role's strict JSON Schema and parser. Extra
 fields are rejected. Capability output may add only an operation, domains,
 content tags, and required features from server-advertised vocabularies.
+When the current chat holds an editable image, the platform also advertises that
+chat's completed attachments as opaque references, and the output may select one
+as a source or mask. Those references are the only way a plan can name an
+existing image: media identifiers are never sent to the model, an unadvertised
+reference is rejected, and the platform re-resolves the reference from its own
+owner-scoped query before the edit is prepared. A planned edit always requires
+owner confirmation. See ADR 0026.
 Image requests also include a typed `persona_subject` decision based on the user
 request. The platform removes `identity_control` from unrelated images and adds
 it for persona subjects; assistant reply prose cannot expand the subject. See

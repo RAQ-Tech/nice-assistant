@@ -141,6 +141,28 @@ _IMAGE_DISCUSSION_OR_EDIT_REQUEST = re.compile(
     rf")",
     re.IGNORECASE,
 )
+_IMAGE_EDIT_VERB = (
+    r"(?:edit|change|adjust|modify|alter|remove|erase|replace|swap|recolor|recolour|retouch|"
+    r"crop|extend|outpaint|inpaint|brighten|darken|blur|sharpen|touch\s+up|clean\s+up)"
+)
+# An image the conversation already contains, never a described one.
+_EXISTING_IMAGE_REFERENCE = (
+    rf"(?:(?:that|this|the|your)\s+(?:last\s+|latest\s+|previous\s+|first\s+|second\s+|recent\s+|new\s+)?"
+    rf"{_IMAGE_NOUN}|{_IMAGE_NOUN}\s+you\s+(?:just\s+)?(?:sent|made|created|generated|shared))"
+)
+_EXPLICIT_IMAGE_EDIT_ACTION = re.compile(
+    rf"(?:"
+    rf"{_IMAGE_EDIT_VERB}\b{_REQUEST_TEXT}{{0,80}}\b{_EXISTING_IMAGE_REFERENCE}|"
+    rf"\b{_EXISTING_IMAGE_REFERENCE}{_REQUEST_TEXT}{{0,80}}\b{_IMAGE_EDIT_VERB}\b"
+    rf")",
+    re.IGNORECASE,
+)
+# Deleting or filing an artifact is not an edit, even though it names one.
+_MEDIA_LIBRARY_MANAGEMENT = re.compile(
+    r"\b(?:remove|delete|erase|clear|hide|archive)\b[^.!?\n]{0,40}\b"
+    r"from\s+(?:my\s+|the\s+|this\s+)?(?:library|gallery|media|chat|conversation|history|album|folder)\b",
+    re.IGNORECASE,
+)
 _IMAGE_TEXT_ARTIFACT_REQUEST = re.compile(
     rf"(?:"
     rf"\b{_IMAGE_NOUN}\b(?:-generation)?\s+"
@@ -207,6 +229,27 @@ def is_high_confidence_media_action_request(user_text: str) -> bool:
     if not text or is_explicit_text_only_request(text) or _NON_ACTION_MEDIA_CONTEXT.match(text):
         return False
     return is_high_confidence_image_action_request(text) or bool(_EXPLICIT_VIDEO_ACTION.search(text))
+
+
+def is_high_confidence_image_edit_request(user_text: str) -> bool:
+    """Return true only for an explicit request to change an existing image.
+
+    This is deliberately separate from the creation gate. A planned edit always
+    requires confirmation before it runs, so this decides whether an edit may be
+    *proposed*, never whether one may run unattended. Like the creation gate it
+    is biased toward false negatives: quoted, hypothetical, explanatory, and
+    text-about-an-image requests are all refused, and the request must name both
+    a change and an image that already exists.
+    """
+
+    text = str(user_text or "").strip()
+    if not text or is_explicit_text_only_request(text) or _NON_ACTION_MEDIA_CONTEXT.match(text):
+        return False
+    if _IMAGE_DISCUSSION_OR_EDIT_REQUEST.search(text) or _IMAGE_TEXT_ARTIFACT_REQUEST.search(text):
+        return False
+    if _MEDIA_LIBRARY_MANAGEMENT.search(text):
+        return False
+    return bool(_EXPLICIT_IMAGE_EDIT_ACTION.search(text))
 
 
 def is_high_confidence_image_action_request(user_text: str) -> bool:
@@ -320,6 +363,27 @@ class AvailableCapability:
 
 
 @dataclass(frozen=True)
+class AvailableAttachment:
+    """One editable image already visible in the current chat.
+
+    ``reference`` is an opaque per-request label, never a media identifier. The
+    task model may only select a label the platform offered, and the caller
+    resolves that label back to an owner-scoped artifact. Resource identity is
+    deliberately excluded for the same reason it is excluded from
+    ``MediaTaskRequirements``.
+    """
+
+    reference: str
+    description: str
+
+
+EDIT_OPERATIONS = ("image_to_image", "inpaint", "outpaint")
+MASK_OPERATIONS = ("inpaint", "outpaint")
+NO_ATTACHMENT = ""
+ATTACHMENT_REFERENCE_PREFIX = "conversation_image_"
+
+
+@dataclass(frozen=True)
 class PlannedCapability:
     capability_key: str
     prompt: str
@@ -328,6 +392,8 @@ class PlannedCapability:
     content_tags: tuple[str, ...] = ()
     required_features: tuple[str, ...] = ()
     persona_subject: bool = False
+    source_attachment: str = NO_ATTACHMENT
+    mask_attachment: str = NO_ATTACHMENT
 
 
 @dataclass(frozen=True)
@@ -339,6 +405,7 @@ class CapabilityPlanningTaskInput:
     available_domains: tuple[str, ...] = ()
     available_content_tags: tuple[str, ...] = ()
     available_features: tuple[str, ...] = ()
+    available_attachments: tuple[AvailableAttachment, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -435,6 +502,11 @@ def _system_prompt(role: str) -> str:
             "that persona's established appearance. Base this decision strictly on user_text: never expand the requested "
             "subject from persona context or merely because persona_selected is true. The platform derives identity_control "
             "from persona_subject; do not use identity_control for unrelated subjects. "
+            "Choose an editing operation only when the user explicitly asks to change an image that is already in this "
+            "conversation, and only when available_attachments offers one. Set source_attachment to the reference of the "
+            "image the user means, and set mask_attachment only for inpaint or outpaint. Use the empty string when no "
+            "attachment applies. Never invent a reference, and prefer a new generation when the user wants a different "
+            "picture rather than a change to an existing one. "
             "Never select or name a provider, model, LoRA, workflow, resource ID, or privileged setting. "
             "Return no requests when ordinary text is sufficient or the intent is ambiguous."
         )
@@ -462,6 +534,17 @@ def _strict_mapping(value: Any, allowed: set[str], *, label: str) -> dict:
     if not isinstance(value, dict):
         raise TaskContractError(f"task model returned an invalid {label}")
     if set(value) != allowed:
+        raise TaskContractError(f"task model returned unexpected {label} fields")
+    return value
+
+
+def _optional_mapping(value: Any, required: set[str], optional: set[str], *, label: str) -> dict:
+    """Require an exact core field set while allowing known optional fields."""
+
+    if not isinstance(value, dict):
+        raise TaskContractError(f"task model returned an invalid {label}")
+    present = set(value)
+    if not required <= present <= (required | optional):
         raise TaskContractError(f"task model returned unexpected {label} fields")
     return value
 
@@ -584,6 +667,36 @@ def _capability_schema(task_input: CapabilityPlanningTaskInput) -> dict:
             schema["items"]["enum"] = list(values)
         return schema
 
+    required = [
+        "capability_key",
+        "prompt",
+        "operation",
+        "domains",
+        "content_tags",
+        "required_features",
+        "persona_subject",
+    ]
+    properties = {
+        "capability_key": {"type": "string", "enum": keys},
+        # Keep this bound compatible with Ollama's llama.cpp grammar
+        # compiler. Very large string bounds can make an otherwise
+        # valid nested schema fail before inference starts.
+        "prompt": {"type": "string", "minLength": 1, "maxLength": 1000},
+        "operation": {"type": "string", "enum": list(task_input.available_operations)},
+        "domains": vocabulary_array(task_input.available_domains),
+        "content_tags": vocabulary_array(task_input.available_content_tags),
+        "required_features": vocabulary_array(task_input.available_features),
+        "persona_subject": {"type": "boolean"},
+    }
+    if task_input.available_attachments:
+        # Offer only labels the platform published, plus an explicit "none"
+        # sentinel. The model can therefore never name an arbitrary artifact.
+        # These stay optional so a plain generation request keeps the exact
+        # object shape it had before editing was offered.
+        references = [NO_ATTACHMENT, *(item.reference for item in task_input.available_attachments)]
+        properties["source_attachment"] = {"type": "string", "enum": references}
+        properties["mask_attachment"] = {"type": "string", "enum": references}
+
     return {
         "type": "object",
         "additionalProperties": False,
@@ -595,27 +708,8 @@ def _capability_schema(task_input: CapabilityPlanningTaskInput) -> dict:
                 "items": {
                     "type": "object",
                     "additionalProperties": False,
-                    "required": [
-                        "capability_key",
-                        "prompt",
-                        "operation",
-                        "domains",
-                        "content_tags",
-                        "required_features",
-                        "persona_subject",
-                    ],
-                    "properties": {
-                        "capability_key": {"type": "string", "enum": keys},
-                        # Keep this bound compatible with Ollama's llama.cpp grammar
-                        # compiler. Very large string bounds can make an otherwise
-                        # valid nested schema fail before inference starts.
-                        "prompt": {"type": "string", "minLength": 1, "maxLength": 1000},
-                        "operation": {"type": "string", "enum": list(task_input.available_operations)},
-                        "domains": vocabulary_array(task_input.available_domains),
-                        "content_tags": vocabulary_array(task_input.available_content_tags),
-                        "required_features": vocabulary_array(task_input.available_features),
-                        "persona_subject": {"type": "boolean"},
-                    },
+                    "required": required,
+                    "properties": properties,
                 },
             }
         },
@@ -638,6 +732,17 @@ def _semantic_values(value: Any, available: tuple[str, ...], label: str) -> tupl
     return tuple(result)
 
 
+def _attachment_reference(value: Any, available: set[str], *, label: str) -> str:
+    """Accept only a label the platform published, or the explicit none sentinel."""
+
+    reference = str(value or "").strip()
+    if not reference:
+        return NO_ATTACHMENT
+    if reference not in available:
+        raise TaskContractError(f"task model requested an unavailable {label}")
+    return reference
+
+
 def _parse_capabilities(
     raw: str,
     task_input: CapabilityPlanningTaskInput,
@@ -649,22 +754,23 @@ def _parse_capabilities(
     available = {item.key for item in task_input.available_capabilities}
     if len(values) > len(available):
         raise TaskContractError("task model returned too many capability requests")
+    attachment_references = {item.reference for item in task_input.available_attachments}
+    required_fields = {
+        "capability_key",
+        "prompt",
+        "operation",
+        "domains",
+        "content_tags",
+        "required_features",
+        "persona_subject",
+    }
+    # Attachment fields are optional, so a generation request keeps its original
+    # shape. Unknown fields are still rejected.
+    optional_fields = {"source_attachment", "mask_attachment"} if attachment_references else set()
     requests = []
     seen = set()
     for value in values:
-        value = _strict_mapping(
-            value,
-            {
-                "capability_key",
-                "prompt",
-                "operation",
-                "domains",
-                "content_tags",
-                "required_features",
-                "persona_subject",
-            },
-            label="capability request",
-        )
+        value = _optional_mapping(value, required_fields, optional_fields, label="capability request")
         key = str(value.get("capability_key") or "").strip()
         if key not in available:
             raise TaskContractError("task model requested an unavailable capability")
@@ -691,7 +797,26 @@ def _parse_capabilities(
             if IDENTITY_CONTROL_FEATURE not in task_input.available_features:
                 raise TaskContractError("persona image planning is unavailable")
             required_features = (*required_features, IDENTITY_CONTROL_FEATURE)
-        identity = (key, prompt.casefold())
+        source_attachment = _attachment_reference(
+            value.get("source_attachment"), attachment_references, label="source attachment"
+        )
+        mask_attachment = _attachment_reference(
+            value.get("mask_attachment"), attachment_references, label="mask attachment"
+        )
+        if operation in EDIT_OPERATIONS:
+            # An edit without a resolvable source would otherwise reach the
+            # provider as a silent generate.
+            if not source_attachment:
+                raise TaskContractError("task model requested an edit without a source attachment")
+            if operation in MASK_OPERATIONS and not mask_attachment:
+                raise TaskContractError("task model requested a masked edit without a mask attachment")
+            if operation not in MASK_OPERATIONS and mask_attachment:
+                raise TaskContractError("task model supplied a mask for an unmasked operation")
+            if mask_attachment and mask_attachment == source_attachment:
+                raise TaskContractError("task model reused one attachment as both source and mask")
+        elif source_attachment or mask_attachment:
+            raise TaskContractError("task model attached an image to a non-edit operation")
+        identity = (key, prompt.casefold(), source_attachment, mask_attachment)
         if identity in seen:
             continue
         seen.add(identity)
@@ -704,6 +829,8 @@ def _parse_capabilities(
                 content_tags,
                 required_features,
                 persona_subject,
+                source_attachment,
+                mask_attachment,
             )
         )
         if len(requests) >= len(available):
@@ -737,6 +864,9 @@ def _capability_payload(task_input: CapabilityPlanningTaskInput) -> dict:
             "content_tags": list(task_input.available_content_tags),
             "features": list(task_input.available_features),
         },
+        "available_attachments": [
+            {"reference": item.reference, "description": item.description} for item in task_input.available_attachments
+        ],
     }
 
 

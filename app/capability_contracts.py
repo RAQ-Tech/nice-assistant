@@ -31,15 +31,24 @@ class MediaTaskRequirements:
     domains: tuple[str, ...] = ()
     content_tags: tuple[str, ...] = ()
     required_features: tuple[str, ...] = ()
+    # Resolved by the platform from an offered attachment reference, never by the
+    # task model. Absent for generation so its argument shape is unchanged.
+    source_media_id: str = ""
+    mask_media_id: str = ""
 
     def as_arguments(self) -> dict:
-        return {
+        arguments = {
             "prompt": self.prompt,
             "operation": self.operation,
             "domains": list(self.domains),
             "content_tags": list(self.content_tags),
             "required_features": list(self.required_features),
         }
+        if self.source_media_id:
+            arguments["source_media_id"] = self.source_media_id
+        if self.mask_media_id:
+            arguments["mask_media_id"] = self.mask_media_id
+        return arguments
 
 
 @dataclass(frozen=True)
@@ -113,11 +122,12 @@ class CapabilityRegistry:
                 tool_name="edit_image",
                 title="Edit image",
                 description=(
-                    "Edit an owner-selected image with a configured ComfyUI workflow. This capability is explicit-only "
-                    "until the task model can resolve protected media attachments safely."
+                    "Edit an image already present in this conversation with a configured ComfyUI workflow. The user "
+                    "selects the image, or the platform offers the conversation's own attachments as opaque references; "
+                    "resource identity is never supplied by the model. The user confirms before an edit runs."
                 ),
                 kind="image",
-                permission_mode="explicit",
+                permission_mode="confirm",
             ),
         ]
         self._by_key = {item.key: item for item in definitions}

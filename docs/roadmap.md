@@ -89,10 +89,14 @@ image-to-image, inpaint, and outpaint jobs; durable per-plan attempt records;
 inline post-generation identity comparison; bounded retries; optional
 image-to-image correction graphs; and truthful verified, rejected, or
 unverified results. Sequential stages use the maximum planned stage estimate
-for admission rather than pretending their VRAM demand is simultaneous. The
-task model remains generation-only until protected attachment resolution is a
-real typed input, and live 12 GB timing/capacity tuning remains deployment
-acceptance work.
+for admission rather than pretending their VRAM demand is simultaneous. Live
+12 GB timing/capacity tuning remains deployment acceptance work.
+
+Protected attachment resolution is now a real typed input. Under ADR 0026 the
+platform publishes the current chat's completed images to the planner as opaque
+references, resolves them back to owner-scoped artifacts itself, and confirms
+with the owner before an edit runs. The task model still never receives or
+supplies resource identity, and Automatic1111 remains generation-only.
 
 Step 19 added the state-changing request header and origin boundary, strict and
 HTTPS-secure cookie policy, bounded login lockout, private/Tailscale/explicit
