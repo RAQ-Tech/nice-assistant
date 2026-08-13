@@ -347,6 +347,7 @@ class MessageRepresentation(BaseModel):
     text: str
     created_at: int
     attachments: list[ChatAttachmentRepresentation] = Field(default_factory=list)
+    degraded_reason: str | None = None
 
 
 class ChatListResponse(BaseModel):

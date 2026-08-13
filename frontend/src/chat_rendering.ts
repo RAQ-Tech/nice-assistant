@@ -1,5 +1,6 @@
 import { api, type ApiClient } from './api';
 import { DEFAULT_PERSONA_AVATAR } from './constants';
+import { degradationSuggestsMoreContext, describeContextDegradation } from './context_notice';
 import { copyText, downloadUrl, el, markdown } from './dom';
 import { extractImageUrl, extractVideoUrl, imagePromptFromMessage, speechText, stripVideoLinks } from './media';
 import { state } from './state';
@@ -37,6 +38,9 @@ export class ChatRenderer {
       )?.status !== 'pending_confirmation')
       .map((attachment) => this.attachmentNode(attachment));
     const mediaRoot = el('div', { class: 'chat-attachments' }, attachmentNodes);
+    const degradation = message.role === 'assistant'
+      ? describeContextDegradation(message.degraded_reason)
+      : null;
     this.bindImagePreviews(body);
     this.bindImagePreviews(mediaRoot);
     const audioUrl = this.appState.messageAudioById[message.id];
@@ -78,6 +82,16 @@ export class ChatRenderer {
           : null,
         message.isTyping && !message.text ? null : body,
         attachmentNodes.length ? mediaRoot : null,
+        degradation
+          ? el('p', {
+              class: 'msg-context-notice',
+              'data-testid': `context-notice-${message.id}`,
+              title: degradationSuggestsMoreContext(message.degraded_reason)
+                ? 'Raise the model context allocation in Settings to fit more.'
+                : undefined,
+              textContent: degradation,
+            })
+          : null,
         audioError ? el('p', { class: 'message-audio-error', textContent: audioError }) : null,
         videoUrl
           ? el('button', { class: 'msg-video-preview', onclick: () => { this.appState.chatVideoPreview = videoUrl; this.renderApp(); } }, [

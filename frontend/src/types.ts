@@ -226,6 +226,7 @@ export interface Message {
   text: string;
   created_at: number;
   attachments?: ChatAttachment[];
+  degraded_reason?: string | null;
   isTyping?: boolean;
   retryImagePrompt?: string;
   retryChatId?: Id;

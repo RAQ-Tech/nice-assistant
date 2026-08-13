@@ -1975,3 +1975,12 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
     margin-left: .5rem;
   }
 }
+
+.msg-context-notice {
+  margin: .4rem 0 0;
+  font-size: .82rem;
+  line-height: 1.45;
+  color: var(--text-dim);
+  border-left: 2px solid color-mix(in srgb, #ffc76a 55%, var(--border));
+  padding: .1rem 0 .1rem .55rem;
+}

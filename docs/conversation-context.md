@@ -102,4 +102,6 @@ deterministic history truncation; the turn is marked degraded rather than failed
 Summary text is never emitted as assistant streaming output.
 
 Turn diagnostics expose token/count accounting and the referenced summary to the
-owner. Prompt text is not copied into logs or diagnostic metadata.
+owner. A turn that ran with reduced context also reports its reason on the
+assistant message it produced, so the conversation itself says so after a reload
+rather than only the diagnostics API. Prompt text is not copied into logs or diagnostic metadata.
