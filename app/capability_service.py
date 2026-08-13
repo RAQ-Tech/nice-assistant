@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import dataclass
 import json
 import secrets
 
@@ -97,6 +98,19 @@ class InvalidCapabilityTransition(RuntimeError):
     pass
 
 
+@dataclass(frozen=True)
+class OfferedAttachments:
+    """What the planner was shown, and what those labels stand for.
+
+    ``bindings`` never leaves the platform. Carrying it from planning to
+    preparation keeps a reference pointing at the image the planner actually
+    saw, even if another image completes in the meantime.
+    """
+
+    available: tuple[AvailableAttachment, ...]
+    bindings: dict
+
+
 def transition_capability(
     repo,
     request,
@@ -180,18 +194,23 @@ class CapabilityService:
             if self.media_catalog.has_ready_operation(user_id, "image", operation)
         )
 
-    def planning_attachments(self, user_id: str, chat_id: str | None) -> tuple[AvailableAttachment, ...]:
+    def planning_attachments(self, user_id: str, chat_id: str | None) -> OfferedAttachments:
         """Publish this chat's editable images as opaque references.
 
         The task model receives labels and short descriptions only. Media
-        identity stays on the platform side and is re-resolved from the same
-        owner-scoped query when a planned request is prepared.
+        identity stays on the platform side, and the caller carries the returned
+        bindings through to preparation so a reference always resolves to the
+        image the planner was actually shown.
         """
 
         if not chat_id:
-            return ()
+            return OfferedAttachments((), {})
         with self._uow() as uow:
-            return tuple(item for item, _ in self._attachment_bindings(uow.repo, user_id, chat_id))
+            bindings = self._attachment_bindings(uow.repo, user_id, chat_id)
+        return OfferedAttachments(
+            tuple(offered for offered, _ in bindings),
+            {offered.reference: media_id for offered, media_id in bindings},
+        )
 
     def _attachment_bindings(self, repo, user_id: str, chat_id: str) -> list[tuple[AvailableAttachment, str]]:
         bindings = []
@@ -458,6 +477,7 @@ class CapabilityService:
         originating_persona_id: str | None,
         planned: list[PlannedCapability],
         source: str = "task_model",
+        offered_attachments: dict | None = None,
     ) -> list[dict]:
         chat = repo.chat(user_id, chat_id)
         if not chat:
@@ -465,11 +485,12 @@ class CapabilityService:
         turn = repo.turn_by_id(turn_id)
         if not turn or not turn.assistant_message_id:
             raise ConflictError("The assistant reply must be durable before media can be attached.")
-        # Re-resolve references from the owner-scoped query rather than trusting
-        # anything carried back from the model.
-        attachments = {
-            offered.reference: media_id for offered, media_id in self._attachment_bindings(repo, user_id, chat_id)
-        }
+        # Resolve against what the planner was shown, so a newly completed image
+        # cannot silently shift what a reference means, then confirm the result
+        # is still an editable attachment of this chat.
+        current = {media_id for _, media_id in self._attachment_bindings(repo, user_id, chat_id)}
+        offered = dict(offered_attachments) if offered_attachments is not None else {}
+        attachments = {reference: media_id for reference, media_id in offered.items() if media_id in current}
         prepared = []
         for index, request in enumerate(planned):
             definition = self.registry.by_key(request.capability_key)

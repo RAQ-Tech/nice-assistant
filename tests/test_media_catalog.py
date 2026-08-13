@@ -10,7 +10,7 @@ from PIL import Image
 from app.identity_contracts import IdentityVerificationResult
 from app.provider_contracts import MediaArtifact, ProviderHealth, ProviderStatus
 from app.repositories import UnitOfWork
-from app.task_contracts import CAPABILITY_PLANNING
+from app.task_contracts import CAPABILITY_PLANNING, PlannedCapability
 from tests.support import FakeChatProvider, TestApp
 
 
@@ -394,7 +394,7 @@ class MediaCatalogTests(unittest.TestCase):
         )
         image_provider = ValidImageProvider()
         with tempfile.TemporaryDirectory() as tmp, TestApp(Path(tmp), chat_provider=provider) as running:
-            running.create_and_login()
+            user_id = running.create_and_login()
             running.services.providers.media_providers["local-image"] = image_provider
             running.client.put("/api/v1/settings", json={"preferences": {"image_provider": "local/comfyui"}})
             model = running.client.post(
@@ -471,6 +471,64 @@ class MediaCatalogTests(unittest.TestCase):
                 if item["capability_key"] == "media.edit_image"
             ]
             self.assertEqual(len(edits), 1)
+
+            # A second image arriving after a plan was made must not silently
+            # take over the reference that plan was offered.
+            planned.clear()
+            planned.update(
+                {
+                    "capability_key": "media.generate_image",
+                    "prompt": "a second harbour",
+                    "operation": "generate",
+                    "domains": [],
+                    "content_tags": [],
+                    "required_features": [],
+                    "persona_subject": False,
+                }
+            )
+            fourth = running.client.post(
+                f"/api/v1/chats/{chat['id']}/turns",
+                json={"text": "Make me a picture of a second harbour", "memory_mode": "off"},
+            ).json()
+            running.wait_job(fourth["job"]["id"])
+            newest = next(
+                item
+                for item in running.client.get("/api/v1/capability-requests", params={"chat_id": chat["id"]}).json()[
+                    "items"
+                ]
+                if item["arguments"]["prompt"] == "a second harbour"
+            )
+            if newest["job_id"]:
+                running.wait_job(newest["job_id"])
+            newest_media_id = running.client.get(f"/api/v1/capability-requests/{newest['id']}").json()["result"][
+                "mediaId"
+            ]
+            self.assertNotEqual(newest_media_id, source_media_id)
+
+            with UnitOfWork(
+                running.services.runtime.session_factory,
+                running.services.runtime.secret_store,
+            ) as uow:
+                prepared = running.services.capabilities.prepare_planned_requests(
+                    uow.repo,
+                    user_id=user_id,
+                    chat_id=chat["id"],
+                    turn_id=newest["turn_id"],
+                    user_text="Change the sky in that picture to a storm",
+                    originating_persona_id=None,
+                    planned=[
+                        PlannedCapability(
+                            "media.edit_image",
+                            "replace the sky with a storm",
+                            "image_to_image",
+                            source_attachment="conversation_image_1",
+                        )
+                    ],
+                    # The snapshot taken while the first image was newest.
+                    offered_attachments={"conversation_image_1": source_media_id},
+                )
+            self.assertEqual(len(prepared), 1)
+            self.assertEqual(prepared[0]["arguments"]["source_media_id"], source_media_id)
 
     def test_catalog_crud_requires_explicit_same_owner_compatibility(self):
         with tempfile.TemporaryDirectory() as tmp, TestApp(Path(tmp)) as running:

@@ -30,10 +30,15 @@ exists.
   a planned capability request. Their enums contain only labels the platform
   published in that same request, plus an explicit empty sentinel. A generation
   request keeps its previous object shape exactly.
-- References are resolved back to artifacts by the platform, from the same
-  owner-scoped and chat-scoped query that produced them, when the planned
-  request is prepared. A reference that no longer resolves drops the request
-  rather than editing a different image or degrading into a generation.
+- References are resolved back to artifacts by the platform when the planned
+  request is prepared. Resolution uses the exact bindings that were offered to
+  the planner, carried through the follow-up result and never persisted, so a
+  picture that completes between planning and preparation cannot silently take
+  over a label. The resolved artifact is then re-checked against the chat's
+  current editable attachments, which keeps the ownership and chat-scope
+  boundary live rather than trusting the snapshot. A reference that fails either
+  check drops the request rather than editing a different image or degrading
+  into a generation.
 - Editing is offered only when the catalog has a ready editing operation *and*
   this conversation holds at least one resolvable image. The available
   operations vocabulary is derived from the ready operations rather than
@@ -87,6 +92,10 @@ is an evaluation task, not a regex change, exactly as for the creation gate.
 - An API test proves a planned edit resolves to the artifact the platform
   offered, builds a ready edit plan, and stops at `pending_confirmation`; and
   that a reference the platform never offered creates no request at all.
+- The same test proves label stability: with a newer image present, a plan made
+  against the earlier snapshot still edits the image it was offered. Removing
+  the snapshot makes that assertion fail, so the guarantee is covered rather
+  than incidental.
 - Curated gate tests prove the edit predicate accepts explicit changes and
   refuses creation, discussion, captions, quotes, and library management, and
   that the creation and edit gates stay independent.
