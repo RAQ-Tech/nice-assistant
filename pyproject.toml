@@ -36,7 +36,14 @@ target-version = "py311"
 line-length = 120
 
 [tool.ruff.lint]
-select = ["E9", "F63", "F7", "F82"]
+select = ["E9", "F63", "F7", "F82", "C901"]
+
+[tool.ruff.lint.mccabe]
+# Cyclomatic complexity ceiling. The 13 functions already above this line carry an
+# explicit `# noqa: C901`, so `ruff check` stays clean — this is a ratchet against new
+# tangle, not a demand to refactor on the spot. Those noqa comments are the debt list;
+# the worst is create_turn in app/conversation_service.py at 49.
+max-complexity = 15
 
 [tool.coverage.run]
 branch = true

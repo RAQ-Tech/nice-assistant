@@ -94,7 +94,7 @@ def load_local_private_values(path: Path) -> list[str]:
     return values
 
 
-def audit_text(path: str, text: str, private_values: list[str] | None = None) -> list[Finding]:
+def audit_text(path: str, text: str, private_values: list[str] | None = None) -> list[Finding]:  # noqa: C901
     findings: set[Finding] = set()
     private_values = private_values or []
     folded = text.casefold()

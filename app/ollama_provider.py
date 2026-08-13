@@ -94,7 +94,7 @@ class OllamaChatProvider:
                 chunks.append(delta.text)
         return "".join(chunks)
 
-    def stream(self, request: ChatRequest, cancellation: CancellationToken):
+    def stream(self, request: ChatRequest, cancellation: CancellationToken):  # noqa: C901
         started = time.monotonic()
         outcome = "failed"
         cancellation.raise_if_cancelled()

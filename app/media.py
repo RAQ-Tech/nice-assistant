@@ -213,7 +213,7 @@ def _extract_http_error_detail(exc):
             return ""
 
 
-def user_safe_image_error(exc, provider="openai"):
+def user_safe_image_error(exc, provider="openai"):  # noqa: C901
     provider = (provider or "openai").strip().lower()
     detail = _extract_http_error_detail(exc)
     req_match = re.search(r"(req_[a-zA-Z0-9]+)", detail or "")

@@ -77,7 +77,7 @@ class ContextService:
     def _uow(self):
         return UnitOfWork(self.session_factory, self.secret_store)
 
-    def plan(
+    def plan(  # noqa: C901
         self,
         *,
         turn_id: str,

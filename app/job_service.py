@@ -178,7 +178,7 @@ class JobService:
                     self.resource_coordinator.bind_queue_wake(self.queue.wake)
             self._accepting_submissions = True
 
-    def stop(self) -> None:
+    def stop(self) -> None:  # noqa: C901
         with self._lifecycle_cv:
             if self._stopping:
                 while self._stopping:

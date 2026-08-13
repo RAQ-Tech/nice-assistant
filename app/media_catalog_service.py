@@ -872,7 +872,7 @@ class MediaCatalogService:
             )
         return values
 
-    def _normalize_resource(self, values: dict) -> tuple[dict, list[str]]:
+    def _normalize_resource(self, values: dict) -> tuple[dict, list[str]]:  # noqa: C901
         resource_type = str(values.get("resource_type") or "").strip().lower()
         kind = str(values.get("kind") or "").strip().lower()
         provider_key = str(values.get("provider_key") or "").strip().lower()
@@ -953,7 +953,7 @@ class MediaCatalogService:
         return normalized, list(dict.fromkeys(compatible_ids))
 
     @staticmethod
-    def _normalize_default_settings(
+    def _normalize_default_settings(  # noqa: C901
         resource_type: str,
         provider_key: str,
         backend: str,
