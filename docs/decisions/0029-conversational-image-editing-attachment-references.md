@@ -1,4 +1,4 @@
-# ADR 0026: Conversational image editing through attachment references
+# ADR 0029: Conversational image editing through attachment references
 
 - Status: accepted
 - Date: 2026-08-13

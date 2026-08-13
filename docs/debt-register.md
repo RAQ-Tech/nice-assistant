@@ -139,7 +139,7 @@ change that alters them.
   admission. They do participate in the shared-resource lease and authorized
   managed post-job media reclamation.
 - ComfyUI editing is now reachable from conversation through platform-published
-  attachment references under ADR 0026, but only for images in the current chat
+  attachment references under ADR 0029, but only for images in the current chat
   and only with owner confirmation. The task model never receives or supplies a
   media ID. Automatic1111 remains generation-only, mask creation is still
   manual, and the edit action gate is deliberately biased toward false

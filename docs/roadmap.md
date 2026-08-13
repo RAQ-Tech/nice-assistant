@@ -92,7 +92,7 @@ unverified results. Sequential stages use the maximum planned stage estimate
 for admission rather than pretending their VRAM demand is simultaneous. Live
 12 GB timing/capacity tuning remains deployment acceptance work.
 
-Protected attachment resolution is now a real typed input. Under ADR 0026 the
+Protected attachment resolution is now a real typed input. Under ADR 0029 the
 platform publishes the current chat's completed images to the planner as opaque
 references, resolves them back to owner-scoped artifacts itself, and confirms
 with the owner before an edit runs. The task model still never receives or

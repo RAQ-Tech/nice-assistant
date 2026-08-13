@@ -22,7 +22,7 @@ as a source or mask. Those references are the only way a plan can name an
 existing image: media identifiers are never sent to the model, an unadvertised
 reference is rejected, and the platform re-resolves the reference from its own
 owner-scoped query before the edit is prepared. A planned edit always requires
-owner confirmation. See ADR 0026.
+owner confirmation. See ADR 0029.
 Image requests also include a typed `persona_subject` decision based on the user
 request. The platform removes `identity_control` from unrelated images and adds
 it for persona subjects; assistant reply prose cannot expand the subject. See

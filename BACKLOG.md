@@ -154,10 +154,10 @@ acceptance.
     Source: `docs/roadmap.md` step 18C.
 
 18. **Installed acceptance for conversational image editing.** Delivered under
-    ADR 0026 and covered by contract, API, and gate tests, but no installed
+    ADR 0029 and covered by contract, API, and gate tests, but no installed
     browser journey has confirmed the confirmation card, the reference the
     planner chose, or a real ComfyUI edit workflow on the deployment. Until then
-    the feature is published, not accepted. Source: ADR 0026.
+    the feature is published, not accepted. Source: ADR 0029.
 
 ## 5. Not advertised
 
@@ -188,7 +188,7 @@ done:
 - Update the product, architecture, security, testing, operations, roadmap, and
   debt documents in the same change as the behavior they describe.
 - Record durable architectural choices as ADRs in `docs/decisions/`. The next
-  free number is 0026.
+  free number is 0030.
 - Run `python scripts/audit_public_repo.py` before every public commit. This
   file must never contain deployment addresses, hostnames, user-specific paths,
   hardware inventories, or account identifiers.
