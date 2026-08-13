@@ -63,6 +63,8 @@ and Workspaces now use the same approachable structure:
   typed, and a budget meter reports the total against the limit and what is left
   for conversation history. Going over the limit warns before saving rather than
   after, and the card saves through its own action, separate from Save persona.
+- Card and lorebook authoring guidance, including a complete worked
+  example, is in `docs/persona-authoring.md`.
 - Each persona also has a closed Lorebook. Entries are collapsed by name — the
   same convention Media Catalog and Task Models use — and each summarizes what it
   fires on, whether it is always included, and whether it is switched off. A
