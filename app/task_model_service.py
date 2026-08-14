@@ -44,9 +44,9 @@ class TaskModelService:
         normalized = self._normalize_profile(values)
         provider = normalized.get("provider")
         fallback_provider = normalized.get("fallback_provider")
-        if provider and provider not in self.providers.chat_providers:
+        if provider and provider not in self.providers.task_providers:
             raise RequestError("task model provider is not configured", 400)
-        if fallback_provider and fallback_provider not in self.providers.chat_providers:
+        if fallback_provider and fallback_provider not in self.providers.task_providers:
             raise RequestError("task model fallback provider is not configured", 400)
         if normalized.get("fallback_policy") == "deterministic" and role != "title_generation":
             raise RequestError("deterministic fallback is available only for chat titles", 400)
@@ -189,7 +189,7 @@ class TaskModelService:
             attempt_started = time.monotonic()
             try:
                 cancellation.raise_if_cancelled()
-                provider = self.providers.chat(provider_name)
+                provider = self.providers.task(provider_name)
                 request = ChatRequest(
                     model=model,
                     messages=messages,
@@ -200,6 +200,9 @@ class TaskModelService:
                         ),
                         "num_predict": profile_data["max_output_tokens"],
                         "temperature": profile_data["temperature"],
+                        # Ollama ignores this; a hosted adapter needs the account key,
+                        # which is per-user rather than per-deployment.
+                        "api_key": self._account_api_key(user_id),
                     },
                     response_format=definition.response_schema(task_input),
                     timeout_seconds=profile_data["timeout_seconds"],
@@ -328,6 +331,11 @@ class TaskModelService:
         )
         return TaskExecutionResult(definition.role, output, run_id, None, None, True)
 
+    def _account_api_key(self, user_id: str) -> str:
+        with self._uow() as uow:
+            settings = uow.repo.settings(user_id) or {}
+        return str(settings.get("openai_api_key") or "")
+
     def _resolved_attempts(self, profile: dict) -> list[tuple[str, str]]:
         attempts = []
         primary_model = self._resolve_model(profile["provider"], profile.get("model"))
@@ -347,14 +355,14 @@ class TaskModelService:
         if configured_model:
             return configured_model
         try:
-            models = self.providers.chat(provider_name).list_models()
+            models = self.providers.task(provider_name).list_models()
         except Exception:
             return None
         return models[0] if models else None
 
     def _attempt_readiness(self, provider_name: str, configured_model: str | None) -> dict:
         try:
-            provider = self.providers.chat(provider_name)
+            provider = self.providers.task(provider_name)
         except LookupError:
             return {"ready": False, "message": "The configured provider adapter is unavailable."}
         health = provider.health()

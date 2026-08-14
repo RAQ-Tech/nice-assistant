@@ -58,7 +58,13 @@ explicit-image admission, video approval/denial, idempotency, audit events,
 linked job submission, and terminal results.
 `TaskModelService` owns separately configured title, summary, memory-extraction,
 and capability-planning roles, strict structured outputs, budgets, readiness,
-fallback, and content-free run audit records.
+fallback, and content-free run audit records. Task providers are registered
+separately from chat providers: a role emits structured data under an enforced
+schema, while where persona conversation is generated is a different product
+decision, so adding a task adapter does not change what conversation offers.
+`openai_task_provider.py` is the second implementation of that contract and exists
+to keep it provider-neutral rather than quietly Ollama-shaped; the account key is
+passed per request because it is per-user rather than per-deployment.
 `MediaCatalogService` owns resource metadata, compatibility, deterministic plan
 construction, immutable reviewed snapshots, retry replanning, and
 pre-submission resource revalidation; the pure selection

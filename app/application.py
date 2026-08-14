@@ -15,6 +15,7 @@ from app.media_adapters import LocalImageProvider, OpenAIImageProvider, OpenAIVi
 from app.media_catalog_service import MediaCatalogService
 from app.media_service import MediaService
 from app.ollama_provider import OllamaChatProvider
+from app.openai_task_provider import OpenAITaskModelProvider
 from app.operations_service import OperationsService
 from app.provider_registry import ProviderRegistry
 from app.provider_service import ProviderService
@@ -101,6 +102,15 @@ def build_services(
             "openai-image": OpenAIImageProvider(),
             "local-image": LocalImageProvider(),
             "openai-video": OpenAIVideoProvider(),
+        },
+        task_providers={
+            "ollama": OllamaChatProvider(
+                config.ollama_base_url,
+                timeout_seconds=config.generation_timeout_seconds,
+                health_timeout_seconds=config.provider_timeout_seconds,
+                metrics=runtime.metrics,
+            ),
+            "openai": OpenAITaskModelProvider(),
         },
     )
     broker = TurnEventBroker()
