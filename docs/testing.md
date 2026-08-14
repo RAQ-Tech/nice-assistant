@@ -20,7 +20,10 @@ Playwright browser journeys. It then runs the deterministic human-experience
 scenario subset. Run that subset directly with
 `python scripts/evaluate_human_experience.py` or `npm run evaluate:human`.
 Branch coverage is enforced at a minimum of 70 percent across `app`; no legacy
-server exclusion remains.
+server exclusion remains. Static analysis also enforces a cyclomatic complexity
+ceiling of 15. Thirteen functions predate the rule and carry an explicit
+`# noqa: C901`; those markers are the debt list, and new code is expected to stay
+under the ceiling rather than add to it.
 
 Verification also runs `scripts/audit_public_repo.py`. On an operator
 workstation, maintain `.local/public-repo-private-values.txt` with one private

@@ -11,19 +11,8 @@ Decisions taken without sign-off go in `docs/autonomous-decision-log.md`.
 
 Ordered by value. Nothing here needs the operator.
 
-1. **Land the remaining dependency update pull requests.** Dependabot now opens
-   them weekly, so this is recurring maintenance rather than a one-off. The
-   GitHub Actions bumps are merged. What remains needs real verification because
-   it reaches the build and the runtime: `jsdom` 29 to 30 (#78) changes the test
-   DOM, the browser routine group (#77) moves the toolchain, and the Python
-   routine group (#79) and `setuptools` (#80) touch what ships. Run the full
-   verifier against each before merging; a green check on the pull request only
-   proves it passed against the main it branched from.
-
-2. **Decide on measuring function complexity (#70).** An earlier session opened a
-   pull request adding ruff `C901` with a ceiling of 15, reporting thirteen
-   functions past it. Either land it and accept the ceiling as a standard, or
-   close it and record why the existing parse-only selection is deliberate.
+_Empty. Dependabot refills this weekly; the next batch appears as pull requests
+rather than as items here until one needs a decision._
 
 ## Blocked
 
