@@ -27,6 +27,8 @@ class _TurnStream:
         self.next_sequence = 1
         self.terminal_at: float | None = None
         self.accumulated_text = ""
+        # Sequence of the last delta already folded into accumulated_text.
+        self.text_sequence = 0
 
     def publish(self, event: str, data: dict) -> TurnEvent:
         with self.condition:
@@ -35,6 +37,7 @@ class _TurnStream:
             self.events.append(item)
             if event == "assistant.delta":
                 self.accumulated_text += str(data.get("text") or "")
+                self.text_sequence = item.sequence
             self.bytes += len(json.dumps(data, separators=(",", ":"), default=str).encode("utf-8"))
             while len(self.events) > self.max_events or self.bytes > self.max_bytes:
                 removed = self.events.popleft()
@@ -67,20 +70,29 @@ class TurnEventBroker:
     def subscribe(self, turn_id: str, snapshot: dict, last_event_id: int | None = None):
         stream = self._stream(turn_id)
         cursor = max(0, int(last_event_id or 0))
+        # A subscriber applies the snapshot's accumulated_text as authoritative, so any
+        # delta already folded into it would be rendered a second time if replayed. State
+        # events carry no text and are still delivered, and this also covers deltas that
+        # bounded retention has already evicted.
+        text_cursor = max(0, int(snapshot.get("event_cursor") or 0))
+
+        def covered(event: TurnEvent) -> bool:
+            return event.event == "assistant.delta" and event.sequence <= text_cursor
+
         yield TurnEvent(0, "turn.snapshot", snapshot)
         with stream.condition:
-            replay_available = any(event.sequence > cursor for event in stream.events)
+            replay_available = any(event.sequence > cursor and not covered(event) for event in stream.events)
         if snapshot.get("status") in {"completed", "failed", "cancelled"} and not replay_available:
             return
         while not self._stopped:
             heartbeat = False
             with stream.condition:
-                available = [event for event in stream.events if event.sequence > cursor]
+                available = [event for event in stream.events if event.sequence > cursor and not covered(event)]
                 if not available:
                     if stream.terminal_at is not None:
                         return
                     stream.condition.wait(timeout=15)
-                    available = [event for event in stream.events if event.sequence > cursor]
+                    available = [event for event in stream.events if event.sequence > cursor and not covered(event)]
                     if not available:
                         heartbeat = True
             if heartbeat:
@@ -104,6 +116,17 @@ class TurnEventBroker:
         stream = self._stream(turn_id)
         with stream.condition:
             return stream.accumulated_text
+
+    def snapshot_state(self, turn_id: str) -> tuple[str, int]:
+        """Accumulated text and the sequence it covers, read together.
+
+        Taken under one lock so the cursor can never describe less text than was returned;
+        a delta landing between two separate reads would otherwise be applied twice.
+        """
+
+        stream = self._stream(turn_id)
+        with stream.condition:
+            return stream.accumulated_text, stream.text_sequence
 
     def replace_accumulated_text(self, turn_id: str, text: str) -> None:
         stream = self._stream(turn_id)

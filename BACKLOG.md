@@ -11,10 +11,7 @@ Decisions taken without sign-off go in `docs/autonomous-decision-log.md`.
 
 Ordered by value. Nothing here needs the operator.
 
-1. **Make turn event replay durable.** Replay is bounded and process-local, so a
-   restart mid-turn loses the event stream even though the turn itself survives.
-
-2. **Second Task Model adapter.** Ollama is the only adapter. A second one proves
+1. **Second Task Model adapter.** Ollama is the only adapter. A second one proves
    the structured-output contract is genuinely provider-neutral rather than
    Ollama-shaped.
 
