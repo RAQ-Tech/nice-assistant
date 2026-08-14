@@ -14,6 +14,7 @@ from app.job_service import JobExecution, JobService, turn_response
 from app.context_service import ContextService
 from app.memory_service import MemoryService
 from app.persona_card import CARD_FIELDS
+from app.owner_profile import render_owner_profile
 from app.persona_lore import entry_from_row
 from app.models import AsyncJob
 from app.persona_output import (
@@ -327,6 +328,7 @@ class ConversationService:
                 persona_name=persona.name if persona else "",
                 example_dialogue=getattr(persona, "card_example_dialogue", "") if persona else "",
                 lore_entries=lore_entries,
+                owner_profile=render_owner_profile(preferences),
                 memory_mode=memory_mode,
                 preferences=preferences,
                 application_instructions=application_instructions,

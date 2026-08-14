@@ -483,6 +483,14 @@ export class EverydaySettingsView {
           true,
           'The friendly name Nice Assistant may use for this account.',
         ),
+        textareaField(
+          'About you',
+          settings.user_profile,
+          (value) => this.change('user_profile', value),
+          true,
+          'A few durable facts about you, sent with every message. Keep it short: it is always '
+            + 'present, so it competes with the conversation itself.',
+        ),
         inputField(
           'Timezone',
           settings.user_timezone,
