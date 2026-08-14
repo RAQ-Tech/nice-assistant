@@ -20,7 +20,7 @@ def _json(value: str | None, fallback):
     return parsed
 
 
-def build_media_plan(repo, user_id: str, requirements: dict, providers, ready_backends=None) -> dict:
+def build_media_plan(repo, user_id: str, requirements: dict, providers, ready_backends=None) -> dict:  # noqa: C901
     """Select an explainable plan from explicit metadata; never inspect resource names."""
     resources = repo.media_catalog_resources(user_id, enabled=True)
     setting = repo.media_catalog_setting(user_id)

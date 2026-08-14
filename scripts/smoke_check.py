@@ -211,7 +211,7 @@ def wait_for_job_status(
     raise TimeoutError(f"job did not reach {sorted(accepted)}: {last_job}")
 
 
-def run_smoke_check() -> dict:
+def run_smoke_check() -> dict:  # noqa: C901
     repo_root = Path(__file__).resolve().parents[1]
     port = free_port()
     base_url = f"http://127.0.0.1:{port}"

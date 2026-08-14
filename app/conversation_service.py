@@ -207,7 +207,7 @@ class ConversationService:
             raise RequestError("At least one item must be selected.", 400)
         return ids
 
-    def create_turn(self, user_id: str, chat_id: str, values: dict) -> tuple[dict, dict]:
+    def create_turn(self, user_id: str, chat_id: str, values: dict) -> tuple[dict, dict]:  # noqa: C901
         text = str(values.get("text") or "").strip()
         if not text:
             raise RequestError("text required", 400)

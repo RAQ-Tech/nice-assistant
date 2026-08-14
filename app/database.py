@@ -125,7 +125,7 @@ def _valid_generated_media(
     return row
 
 
-def _inflight_media_candidate(conn, data_dir: Path, row):
+def _inflight_media_candidate(conn, data_dir: Path, row):  # noqa: C901
     result = _json_object(row["result_json"])
     conditioning = _json_object(row["identity_conditioning_json"])
     allow_incomplete_identity = (

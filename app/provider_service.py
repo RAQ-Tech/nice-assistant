@@ -192,7 +192,7 @@ def _bounded_warnings(messages: list[str], limit: int = 20) -> list[str]:
     return [*unique[:limit], f"{len(unique) - limit} additional workflow structure issue(s) were omitted."]
 
 
-def _inspect_comfyui_object_info(nodes: dict[str, dict], object_info: dict) -> dict:
+def _inspect_comfyui_object_info(nodes: dict[str, dict], object_info: dict) -> dict:  # noqa: C901
     detected_node_types = sorted({node["class_type"] for node in nodes.values()})
     missing_node_types = sorted(node_type for node_type in detected_node_types if node_type not in object_info)
     raw_candidates = []

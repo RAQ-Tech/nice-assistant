@@ -91,6 +91,11 @@ change that alters them.
 
 ## Scaffold
 
+- Thirteen functions exceed the cyclomatic complexity ceiling of 15 and are
+  grandfathered with `# noqa: C901`. `create_turn` at 49 is the worst and sits in
+  one of the highest-churn files. The markers are the list; the ceiling stops it
+  growing.
+
 - Some provider helper internals still use low-level HTTP/SQLite-shaped legacy
   inputs, but routes use SQLAlchemy repositories and unit-of-work boundaries.
 - Provider-specific settings embedded directly in persona and UI records.
