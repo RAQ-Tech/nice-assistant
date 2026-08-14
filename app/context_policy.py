@@ -39,6 +39,7 @@ class ContextPolicy:
     memory_ratio: float = 0.15
     summary_ratio: float = 0.20
     card_max_ratio: float = 0.30
+    owner_profile_max_ratio: float = 0.10
     example_ratio: float = 0.10
     lore_ratio: float = 0.12
     history_floor_ratio: float = 0.25

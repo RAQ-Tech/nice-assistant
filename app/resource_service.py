@@ -5,6 +5,7 @@ from pathlib import Path
 
 from app.auth import hash_password, is_masked_secret, mask_secret, verify_password
 from app.context_policy import ContextPolicy, TokenEstimator
+from app.owner_profile import owner_profile_tokens, profile_budget, profile_too_large_message
 from app.persona_lore import (
     entry_from_row,
     matching_entries,
@@ -235,6 +236,11 @@ class ResourceService:
             current = uow.repo.settings(user_id) or {}
             previous_preferences = normalize_media_preferences(current.get("preferences") or {})
             validate_media_preferences(preferences, previous_preferences)
+            # Protected material fails a turn rather than degrading, so it is bounded here.
+            estimate = owner_profile_tokens(preferences)
+            budget = profile_budget(preferences, self.context_policy)
+            if estimate > budget.cap_tokens:
+                raise RequestError(profile_too_large_message(estimate, budget), 422)
             submitted = values.get("openai_api_key")
             preserve = submitted is None or submitted == "" or is_masked_secret(submitted)
             if preserve:

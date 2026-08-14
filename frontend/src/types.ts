@@ -631,6 +631,7 @@ export interface Settings extends Record<string, SettingScalar | Record<string, 
   video_duration: string;
   models_context_window_tokens: string;
   user_display_name: string;
+  user_profile: string;
   user_timezone: string;
   personas_default_system_prompt: string;
   workspaces_default_workspace_id: string;

@@ -89,6 +89,7 @@ class ContextService:
         persona_instructions: str,
         persona_name: str = "",
         example_dialogue: str = "",
+        owner_profile: str = "",
         lore_entries: list | None = None,
         memory_mode: str,
         preferences: dict,
@@ -152,6 +153,10 @@ class ContextService:
             protected_sections.append(f"[Application policy]\n{app_text}")
         if persona_instructions:
             protected_sections.append(f"[Persona instructions]\n{persona_instructions.strip()}")
+        # Authored, always present, and never dropped: who the assistant is talking to is
+        # not something to discover from whatever history survived the budget.
+        if owner_profile.strip():
+            protected_sections.append(owner_profile.strip())
         current_message = {"role": "user", "content": current["text"]}
         protected_system = "\n\n".join(protected_sections)
         protected_messages = ([{"role": "system", "content": protected_system}] if protected_system else []) + [

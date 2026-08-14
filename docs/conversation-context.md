@@ -60,6 +60,13 @@ dialogue — until the floor is clear. Nothing yields on a turn with no history,
 never yield, and a turn that dropped sections is marked degraded and reports the
 dropped material as omitted rather than included.
 
+An authored owner profile is protected material sent with every turn, rendered
+after persona instructions and labeled as factual context rather than
+instructions. It carries the account display name when one is set. Because
+protected material fails a turn instead of degrading, it is capped at 10 percent
+of the prompt budget when it is saved rather than clipped when a turn is planned,
+and it never reaches the summary, memory-extraction, or capability roles.
+
 A persona character card is protected material capped when it is saved. Persona
 example dialogue is droppable data under a 10 percent allowance, rendered above
 saved memory, labeled as voice examples rather than transcript, and included as
