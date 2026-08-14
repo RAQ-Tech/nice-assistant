@@ -11,15 +11,10 @@ Decisions taken without sign-off go in `docs/autonomous-decision-log.md`.
 
 Ordered by value. Nothing here needs the operator.
 
-1. **Decide an expiry policy for rejected and forgotten memories.** Retention is
-   durable and unbounded, with no automatic expiry. Users can delete explicitly,
-   but a private deployment accumulating rejected candidates forever is a
-   sensitive-data question, not just a storage one.
-
-2. **Make turn event replay durable.** Replay is bounded and process-local, so a
+1. **Make turn event replay durable.** Replay is bounded and process-local, so a
    restart mid-turn loses the event stream even though the turn itself survives.
 
-3. **Second Task Model adapter.** Ollama is the only adapter. A second one proves
+2. **Second Task Model adapter.** Ollama is the only adapter. A second one proves
    the structured-output contract is genuinely provider-neutral rather than
    Ollama-shaped.
 

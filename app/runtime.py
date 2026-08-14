@@ -40,6 +40,7 @@ class AppConfig:
     context_max_compaction_passes: int = 2
     memory_candidate_limit: int = 5
     memory_candidate_min_confidence: float = 0.6
+    memory_discard_retention_days: int = 0
     secure_cookies: bool = False
     trust_proxy_headers: bool = False
     allowed_origins: tuple[str, ...] = ()
@@ -93,6 +94,7 @@ class AppConfig:
             memory_candidate_min_confidence=min(
                 1.0, max(0.0, float(os.getenv("MEMORY_CANDIDATE_MIN_CONFIDENCE", "0.6")))
             ),
+            memory_discard_retention_days=max(0, int(os.getenv("MEMORY_DISCARD_RETENTION_DAYS", "0"))),
             secure_cookies=_env_bool("NICE_ASSISTANT_SECURE_COOKIES", False),
             trust_proxy_headers=_env_bool("NICE_ASSISTANT_TRUST_PROXY_HEADERS", False),
             allowed_origins=_env_csv("NICE_ASSISTANT_ALLOWED_ORIGINS"),

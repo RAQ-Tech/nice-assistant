@@ -140,6 +140,10 @@ installed-browser acceptance.
   prompt, the labelled section, the cap at 4096 and 8192, refusal of an oversized
   profile leaving nothing stored, a raised allocation accepting a previously refused
   profile, and the profile never reaching platform task roles.
+- Memory retention tests prove expiry is off unless configured, that rejected and
+  forgotten rows past the window are removed, that active, pending, superseded, and
+  recently discarded rows are never touched, and that the configured window is
+  reported.
 - API tests use isolated temporary databases and deterministic fake providers.
 - Migration tests upgrade pre-0004/0005/0007/0008/0009/0010/0011/0012/0013/0014/0015/0016/0017/0019/0021 databases and prove
   chats, messages, jobs, media, memories, turn ordering, stored artifact links,
