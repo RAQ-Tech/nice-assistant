@@ -11,9 +11,8 @@ Decisions taken without sign-off go in `docs/autonomous-decision-log.md`.
 
 Ordered by value. Nothing here needs the operator.
 
-1. **Second Task Model adapter.** Ollama is the only adapter. A second one proves
-   the structured-output contract is genuinely provider-neutral rather than
-   Ollama-shaped.
+_Empty. Everything that could be started without the operator is done; the
+Blocked table below says what each remaining item is waiting on._
 
 ## Blocked
 

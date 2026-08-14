@@ -108,9 +108,10 @@ change that alters them.
   operator may set `MEMORY_DISCARD_RETENTION_DAYS` to expire them automatically;
   it stays off unless configured so an upgrade never deletes content a user only
   hid. Explicit individual and atomic bulk deletion remain available.
-- The first Task Model adapter is Ollama only. Cloud or additional LAN task
-  providers must implement the same structured-output contract before being
-  advertised.
+- Task adapters are Ollama and OpenAI. The second one exists to keep the
+  structured-output contract provider-neutral; further providers must implement the
+  same contract before being advertised. The OpenAI adapter serves task roles only
+  and is deliberately not offered for persona conversation.
 - Developer screening checks typed and semantic task behavior, but final model
   selection still requires live latency/quality evaluation on the Unraid GPU.
 - Deterministic human-experience scenarios cover critical contracts, but emotional

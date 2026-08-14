@@ -147,6 +147,12 @@ installed-browser acceptance.
 - Turn reconnect tests prove a mid-reply reconnect renders the reply exactly once,
   that deltas produced after the snapshot still arrive, that a cursor pointing into
   evicted events leaves no hole, and that a fresh subscriber sees the reply once.
+- Second task adapter tests prove only schema-capable models are advertised, that
+  health makes no untested reachability claim, that a missing account key fails
+  before any request, that the role schema is sent as a strict structured-output
+  envelope, that its output satisfies the same parser Ollama output does, that a
+  refusal is terminal rather than malformed, that an unexpected body is not leaked,
+  and that the adapter is not offered for conversation.
 - API tests use isolated temporary databases and deterministic fake providers.
 - Migration tests upgrade pre-0004/0005/0007/0008/0009/0010/0011/0012/0013/0014/0015/0016/0017/0019/0021 databases and prove
   chats, messages, jobs, media, memories, turn ordering, stored artifact links,
