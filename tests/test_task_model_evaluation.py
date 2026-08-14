@@ -11,6 +11,14 @@ VALID_OUTPUTS = {
         '{"candidates":[{"content":"The user lives in Portland, Maine.","scope":"global","confidence":0.95}]}'
     ),
     "memory_excludes_credentials": '{"candidates":[]}',
+    "memory_ignores_a_transient_request": '{"candidates":[]}',
+    "memory_ignores_an_inference": '{"candidates":[]}',
+    "memory_rates_a_hedged_statement_below_the_floor": (
+        '{"candidates":[{"content":"The user may learn Portuguese.","confidence":0.25}]}'
+    ),
+    "memory_keeps_an_explicit_durable_fact_confident": (
+        '{"candidates":[{"content":"The user is allergic to shellfish.","confidence":0.97}]}'
+    ),
     "capability_skips_ordinary_text": '{"requests":[]}',
     "capability_skips_literal_reply_contract": '{"requests":[]}',
     "capability_skips_literal_outage_reply": '{"requests":[]}',
@@ -28,7 +36,7 @@ VALID_OUTPUTS = {
 class TaskModelEvaluationTests(unittest.TestCase):
     def test_curated_contract_cases_have_deterministic_acceptance_checks(self):
         cases = evaluation_cases()
-        self.assertEqual(len(cases), 12)
+        self.assertEqual(len(cases), 16)
         for case in cases:
             with self.subTest(case=case.name):
                 definition = task_definition(case.role)

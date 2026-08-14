@@ -378,3 +378,81 @@ class MemoryV2Tests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class MemoryExtractionPrecisionTests(unittest.TestCase):
+    """A wrong memory is reviewed once and then treated as true; a missed one costs a
+    restatement. The floor makes that preference explicit instead of implied."""
+
+    def _extract(self, candidates):
+        provider = FakeChatProvider(["Conversation complete."], memory_candidates=candidates)
+        with tempfile.TemporaryDirectory() as tmp, TestApp(Path(tmp), chat_provider=provider) as running:
+            running.create_and_login()
+            chat = running.client.post("/api/v1/chats", json={"title": "Precision"}).json()
+            started = running.client.post(
+                f"/api/v1/chats/{chat['id']}/turns",
+                json={"text": "I keep bees and I might move next year.", "memory_mode": "saved"},
+            ).json()
+            completed = running.wait_job(started["job"]["id"])
+            extraction = running.wait_job(completed["result"]["memory_extraction_job_id"])
+            self.assertEqual(extraction["status"], "completed")
+            pending = running.client.get("/api/v1/memories?status=pending").json()["items"]
+            return extraction["result"], [item["content"] for item in pending]
+
+    def test_a_low_confidence_guess_never_becomes_a_review_item(self):
+        result, contents = self._extract(
+            [
+                {"content": "The user keeps bees.", "confidence": 0.93},
+                {"content": "The user is probably moving cities.", "confidence": 0.2},
+            ]
+        )
+        self.assertEqual(contents, ["The user keeps bees."])
+        self.assertEqual(result["filtered_low_confidence_count"], 1)
+        self.assertEqual(result["candidate_count"], 1)
+
+    def test_a_quiet_extraction_explains_itself_rather_than_looking_broken(self):
+        result, contents = self._extract(
+            [
+                {"content": "The user may prefer mornings.", "confidence": 0.3},
+                {"content": "The user might like jazz.", "confidence": 0.1},
+            ]
+        )
+        self.assertEqual(contents, [])
+        self.assertEqual(result["candidate_count"], 0)
+        self.assertEqual(result["filtered_low_confidence_count"], 2)
+        self.assertEqual(result["minimum_confidence"], 0.6)
+
+    def test_confidence_exactly_at_the_floor_is_kept(self):
+        _result, contents = self._extract([{"content": "The user keeps bees.", "confidence": 0.6}])
+        self.assertEqual(contents, ["The user keeps bees."])
+
+    def test_the_sensitive_screen_and_the_floor_are_counted_separately(self):
+        result, contents = self._extract(
+            [
+                {"content": "The user's API key is sk-not-a-real-evaluation-secret.", "confidence": 0.99},
+                {"content": "The user might enjoy hiking.", "confidence": 0.15},
+                {"content": "The user keeps bees.", "confidence": 0.91},
+            ]
+        )
+        self.assertEqual(contents, ["The user keeps bees."])
+        self.assertEqual(result["filtered_sensitive_count"], 1)
+        self.assertEqual(result["filtered_low_confidence_count"], 1)
+
+    def test_a_schema_compliant_candidate_without_scope_is_accepted(self):
+        """The response schema forbids `scope`, so a compliant model never sends it.
+        Requiring it made extraction fail for exactly the models that follow the contract."""
+        _result, contents = self._extract([{"content": "The user keeps bees.", "confidence": 0.93}])
+        self.assertEqual(contents, ["The user keeps bees."])
+
+    def test_a_legacy_candidate_still_carrying_scope_is_accepted_and_the_scope_ignored(self):
+        _result, contents = self._extract([{"content": "The user keeps bees.", "confidence": 0.93, "scope": "global"}])
+        self.assertEqual(contents, ["The user keeps bees."])
+
+    def test_an_unknown_candidate_field_is_still_rejected(self):
+        from app.task_contracts import MemoryExtractionTaskInput, TaskContractError, task_definition
+        from app.task_contracts import MEMORY_EXTRACTION
+
+        definition = task_definition(MEMORY_EXTRACTION)
+        raw = '{"candidates":[{"content":"x","confidence":0.9,"tier":"global"}]}'
+        with self.assertRaises(TaskContractError):
+            definition.parse_output(raw, MemoryExtractionTaskInput(user_text="x"), 384)

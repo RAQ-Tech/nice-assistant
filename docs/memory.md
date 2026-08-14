@@ -57,6 +57,15 @@ validation. A `scope` field from an older contract is accepted and discarded
 rather than failing the job, because the value no longer carries authority.
 Broadening access remains a deliberate user action through the memory APIs.
 
+An extracted candidate is discarded unless its stated confidence reaches
+`MEMORY_CANDIDATE_MIN_CONFIDENCE`, default 0.6. The floor is applied when the job
+runs and again at the transaction boundary, alongside the sensitive-content screen.
+The content-free job result reports how many candidates were dropped for low
+confidence and the floor in force, so a quiet extraction is explainable rather than
+indistinguishable from a broken one. Precision is preferred deliberately: a wrong
+memory is reviewed once and then treated as true, while a missed one costs a
+restatement.
+
 Candidates never enter context automatically. Exact normalized duplicates of a
 pending or active memory in the same scope are skipped. The candidate limit is
 configured with `MEMORY_CANDIDATE_LIMIT`, clamped from one to ten.
