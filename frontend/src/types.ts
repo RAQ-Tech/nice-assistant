@@ -94,6 +94,7 @@ export interface PersonaLoreEntry {
   content: string;
   always_on: boolean;
   case_sensitive: boolean;
+  match_word_forms: boolean;
   priority: number;
   enabled: boolean;
   token_estimate: number;
@@ -106,6 +107,7 @@ export interface PersonaLoreMatch {
   id: Id;
   title: string;
   always_on: boolean;
+  fired_keys: string[];
   priority: number;
   token_estimate: number;
   included: boolean;

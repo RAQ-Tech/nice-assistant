@@ -148,8 +148,8 @@ change that alters them.
 - Local STT; the setting is retained for migration compatibility but disabled in
   the UI until an adapter exists.
 - Realtime turn detection, partial transcripts, barge-in, and speech fallback.
-- Lorebook matching is literal keywords over a three-message window, so it will
-  miss a paraphrase that shares no key. This is a deliberate trade for predictable,
+- Lorebook matching is literal keywords plus common English plurals over a
+  three-message window, so it will still miss a paraphrase that shares no key. This is a deliberate trade for predictable,
   debuggable behavior with no embedding model or extra service; the preview route
   exists to make the resulting authoring work tractable. Semantic matching remains
   an optional future interface rather than implied functionality.

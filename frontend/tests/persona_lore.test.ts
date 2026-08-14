@@ -39,6 +39,7 @@ function loreEntry(overrides: Partial<PersonaLoreEntry> = {}): PersonaLoreEntry 
     content: 'Her sister Nell is a nurse.',
     always_on: false,
     case_sensitive: false,
+    match_word_forms: true,
     priority: 50,
     enabled: true,
     token_estimate: 12,
@@ -123,8 +124,8 @@ describe('lorebook editor', () => {
       budget_tokens: 399,
       used_tokens: 15,
       items: [
-        { id: 'sister', title: 'Sister', always_on: false, priority: 50, token_estimate: 12, included: true },
-        { id: 'bakery', title: 'Bakery', always_on: false, priority: 10, token_estimate: 900, included: false },
+        { id: 'sister', title: 'Sister', always_on: false, fired_keys: ['sister'], priority: 50, token_estimate: 12, included: true },
+        { id: 'bakery', title: 'Bakery', always_on: false, fired_keys: ['bakery'], priority: 10, token_estimate: 900, included: false },
       ],
     });
     const { node, view, current } = await opened({

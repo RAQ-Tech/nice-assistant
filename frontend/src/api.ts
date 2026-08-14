@@ -91,6 +91,7 @@ export interface PersonaLoreInput {
   secondary_keys: string[];
   always_on: boolean;
   case_sensitive: boolean;
+  match_word_forms: boolean;
   priority: number;
   enabled: boolean;
 }

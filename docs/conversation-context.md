@@ -77,7 +77,10 @@ Persona lore is droppable data under a 12 percent allowance, rendered between
 example dialogue and saved memory. Entries are selected by deterministic literal
 keyword matching over the current message and the last three transcript messages;
 no model chooses which fire, keys are never treated as patterns, and injected
-lore is not rescanned, so activation cannot cascade. Fired entries sort by
+lore is not rescanned, so activation cannot cascade. A key also matches its common
+English plural unless the entry turns that off; forms are generated from the authored
+key and never stripped from the message, so matching only widens where the operator
+already pointed it. Fired entries sort by
 priority, then recency, then identifier, and are included whole or skipped.
 
 ## Memory and deduplication

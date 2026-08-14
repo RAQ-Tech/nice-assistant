@@ -32,6 +32,7 @@ class LoreEntry:
     content: str
     always_on: bool
     case_sensitive: bool
+    match_word_forms: bool
     priority: int
     updated_at: int
 
@@ -64,6 +65,7 @@ def entry_from_row(row) -> LoreEntry:
         content=row.content,
         always_on=bool(row.always_on),
         case_sensitive=bool(row.case_sensitive),
+        match_word_forms=bool(getattr(row, "match_word_forms", 1)),
         priority=int(row.priority or 0),
         updated_at=int(row.updated_at or 0),
     )
@@ -74,11 +76,38 @@ def scan_window(current_text: str, history_texts: list[str], limit: int = LORE_S
     return "\n".join([*recent, current_text or ""])
 
 
-def _key_present(key: str, window: str, case_sensitive: bool) -> bool:
+def word_forms(key: str) -> tuple[str, ...]:
+    """Common English forms of one literal key.
+
+    Deliberately not a stemmer. An operator writes "sister" and is surprised when
+    "sisters" never fires; this closes that case without becoming unpredictable. Forms are
+    generated from the authored key and never stripped from the message, so matching only
+    widens in the direction the operator already asked for.
+    """
+
+    candidate = key.strip()
+    if not candidate or " " in candidate:
+        # Pluralizing a phrase is guesswork; multi-word keys stay literal.
+        return (key,)
+    forms = [key]
+    if candidate.endswith("y") and len(candidate) > 2 and candidate[-2].lower() not in "aeiou":
+        forms.append(candidate[:-1] + "ies")
+    elif candidate.endswith(("s", "x", "z", "ch", "sh")):
+        forms.append(candidate + "es")
+    else:
+        forms.append(candidate + "s")
+    return tuple(dict.fromkeys(forms))
+
+
+def _key_present(key: str, window: str, case_sensitive: bool, match_word_forms: bool = False) -> bool:
     # Lookarounds rather than \b so a key that starts or ends with punctuation still
     # matches the way an operator would expect.
-    pattern = re.compile(r"(?<!\w)" + re.escape(key) + r"(?!\w)", 0 if case_sensitive else re.IGNORECASE)
-    return bool(pattern.search(window))
+    candidates = word_forms(key) if match_word_forms else (key,)
+    flags = 0 if case_sensitive else re.IGNORECASE
+    for candidate in candidates:
+        if re.compile(r"(?<!\w)" + re.escape(candidate) + r"(?!\w)", flags).search(window):
+            return True
+    return False
 
 
 def entry_fires(entry: LoreEntry, window: str) -> bool:
@@ -86,11 +115,22 @@ def entry_fires(entry: LoreEntry, window: str) -> bool:
         return True
     if not entry.keys:
         return False
-    if not any(_key_present(key, window, entry.case_sensitive) for key in entry.keys):
+    if not any(_key_present(key, window, entry.case_sensitive, entry.match_word_forms) for key in entry.keys):
         return False
     if entry.secondary_keys:
-        return any(_key_present(key, window, entry.case_sensitive) for key in entry.secondary_keys)
+        return any(
+            _key_present(key, window, entry.case_sensitive, entry.match_word_forms) for key in entry.secondary_keys
+        )
     return True
+
+
+def fired_keys(entry: LoreEntry, window: str) -> tuple[str, ...]:
+    """Which authored keys actually matched. Without it a preview says an entry fires but
+    not why, and keyword tuning stays guesswork."""
+
+    if entry.always_on:
+        return ()
+    return tuple(key for key in entry.keys if _key_present(key, window, entry.case_sensitive, entry.match_word_forms))
 
 
 def entry_sort_key(entry: LoreEntry):
