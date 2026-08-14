@@ -202,6 +202,7 @@ def build_services(
         jobs,
         runtime.logger,
         config.memory_candidate_limit,
+        config.memory_candidate_min_confidence,
     )
     conversations = ConversationService(
         runtime.session_factory,

@@ -420,7 +420,13 @@ def _system_prompt(role: str) -> str:
         return shared + (
             "Extract only stable facts, preferences, identity details, relationships, or ongoing commitments "
             "explicitly stated by the user. Exclude secrets, credentials, transient requests, guesses, medical or "
-            "legal inferences, and assistant claims."
+            "legal inferences, and assistant claims. "
+            "Returning nothing is the correct and common answer: most turns state no durable fact. A wrong "
+            "memory is worse than a missed one, because it is reviewed once and then treated as true. "
+            "Exclude anything true only today, anything about the current task or request, and anything you "
+            "inferred rather than read. Set confidence to your actual certainty that the user stated this as a "
+            "lasting fact about themselves; use a low value when unsure rather than omitting the field, and "
+            "expect low-confidence candidates to be discarded."
         )
     if role == CAPABILITY_PLANNING:
         return shared + (
@@ -457,10 +463,13 @@ def _strict_object(raw: str, allowed: set[str]) -> dict:
     return value
 
 
-def _strict_mapping(value: Any, allowed: set[str], *, label: str) -> dict:
+def _strict_mapping(value: Any, allowed: set[str], *, label: str, optional: set[str] | None = None) -> dict:
     if not isinstance(value, dict):
         raise TaskContractError(f"task model returned an invalid {label}")
-    if set(value) != allowed:
+    present = set(value)
+    if present - allowed - (optional or set()):
+        raise TaskContractError(f"task model returned unexpected {label} fields")
+    if allowed - present:
         raise TaskContractError(f"task model returned unexpected {label} fields")
     return value
 
@@ -549,7 +558,15 @@ def _parse_memory(
         # model still emitting it is following an older contract rather than
         # misbehaving; failing extraction would silently stop memory learning. The
         # platform now assigns the access scope, so the value carries no authority.
-        value = _strict_mapping(value, {"content", "confidence", "scope"}, label="memory candidate")
+        # The response schema advertises content and confidence only, so a compliant model
+        # sends exactly those. "scope" is tolerated because it was required by an older
+        # contract; it is discarded either way, since the platform owns that boundary.
+        value = _strict_mapping(
+            value,
+            {"content", "confidence"},
+            label="memory candidate",
+            optional={"scope"},
+        )
         content = _bounded_text(value.get("content"), label="memory content", max_chars=500)
         normalized = content.casefold()
         if normalized in seen:

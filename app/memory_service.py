@@ -110,6 +110,7 @@ class MemoryService:
         jobs: JobService,
         logger,
         candidate_limit: int = 5,
+        candidate_min_confidence: float = 0.6,
     ):
         self.session_factory = session_factory
         self.secret_store = secret_store
@@ -117,6 +118,8 @@ class MemoryService:
         self.jobs = jobs
         self.logger = logger
         self.candidate_limit = min(10, max(1, int(candidate_limit)))
+        # A low-confidence guess costs more to review than a missed fact costs to restate.
+        self.candidate_min_confidence = min(1.0, max(0.0, float(candidate_min_confidence)))
 
     def _uow(self):
         return UnitOfWork(self.session_factory, self.secret_store)
@@ -497,15 +500,22 @@ class MemoryService:
                 for candidate in outcome.output.candidates
                 if not memory_candidate_is_sensitive(candidate.content)
             ]
+            # A guess the extractor is unsure of costs a review every time it appears and is
+            # wrong often enough to be worse than the fact it might have caught.
+            confident_candidates = [
+                candidate for candidate in safe_candidates if candidate.confidence >= self.candidate_min_confidence
+            ]
             return {
                 "candidates": [
                     {
                         "content": candidate.content,
                         "confidence": candidate.confidence,
                     }
-                    for candidate in safe_candidates
+                    for candidate in confident_candidates
                 ],
                 "filtered_sensitive_count": len(outcome.output.candidates) - len(safe_candidates),
+                "filtered_low_confidence_count": len(safe_candidates) - len(confident_candidates),
+                "minimum_confidence": self.candidate_min_confidence,
                 "task_run_id": outcome.run_id,
                 "task_provider": outcome.provider,
                 "task_model": outcome.model,
@@ -515,6 +525,9 @@ class MemoryService:
             created = []
             for candidate in (result or {}).get("candidates") or []:
                 if memory_candidate_is_sensitive(candidate.get("content")):
+                    continue
+                # Re-checked at the transaction boundary, like the sensitive-content screen.
+                if float(candidate.get("confidence") or 0) < self.candidate_min_confidence:
                     continue
                 # The platform, not the extraction model, owns this access boundary.
                 # An automatically learned fact stays with the persona that heard it,
@@ -553,6 +566,8 @@ class MemoryService:
                 "candidate_count": len(created),
                 "candidate_ids": created,
                 "filtered_sensitive_count": (result or {}).get("filtered_sensitive_count", 0),
+                "filtered_low_confidence_count": (result or {}).get("filtered_low_confidence_count", 0),
+                "minimum_confidence": (result or {}).get("minimum_confidence"),
                 "task_run_id": (result or {}).get("task_run_id"),
             }
 
