@@ -124,6 +124,24 @@ class MemoryService:
     def _uow(self):
         return UnitOfWork(self.session_factory, self.secret_store)
 
+    def prune_discarded(self, retention_days: int) -> int:
+        """Permanently remove rejected and forgotten memories older than the window.
+
+        Off unless configured. ADR 0015 separates reversible forget from permanent
+        deletion deliberately, so an upgrade must not start destroying content the user
+        only hid. When enabled, this is the same permanent deletion the explicit action
+        performs, including its history.
+        """
+
+        if retention_days <= 0:
+            return 0
+        cutoff = now_ts() - retention_days * 86400
+        with self._uow() as uow:
+            rows = uow.repo.discarded_memories_before(cutoff)
+            for row in rows:
+                uow.repo.delete_memory(row)
+            return len(rows)
+
     def list(self, user_id: str, scope=None, scope_id=None, status=None) -> list[dict]:
         statuses = None
         if status:

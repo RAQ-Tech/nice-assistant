@@ -101,10 +101,10 @@ change that alters them.
   finish work whose result is then discarded.
 - Memory retrieval is lexical FTS plus recency; semantic retrieval remains an
   optional future interface rather than implied functionality.
-- Rejected/forgotten memory retention is durable but does not yet have an
-  administrator-approved automatic expiry policy. Users can permanently delete
-  selected records, including their history, through explicit individual or
-  atomic bulk actions.
+- Rejected/forgotten memory retention is durable and unbounded by default. An
+  operator may set `MEMORY_DISCARD_RETENTION_DAYS` to expire them automatically;
+  it stays off unless configured so an upgrade never deletes content a user only
+  hid. Explicit individual and atomic bulk deletion remain available.
 - The first Task Model adapter is Ollama only. Cloud or additional LAN task
   providers must implement the same structured-output contract before being
   advertised.

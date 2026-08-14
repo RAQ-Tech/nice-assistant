@@ -224,7 +224,7 @@ def build_services(
         provider_url_policy=provider_url_policy,
         metrics=runtime.metrics,
     )
-    operations = OperationsService(config, runtime.logger)
+    operations = OperationsService(config, runtime.logger, memory_maintenance=memory.prune_discarded)
     return ApplicationServices(
         runtime=runtime,
         providers=registry,

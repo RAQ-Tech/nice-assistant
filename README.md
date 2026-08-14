@@ -79,6 +79,8 @@ supervised server session and never grants a general remote shell.
 - `MINIMUM_FREE_STORAGE_BYTES=134217728`
 - `AUDIO_ARCHIVE_RETENTION_DAYS=30`, `STT_RECORDING_RETENTION_DAYS=30`, `LOG_ARCHIVE_RETENTION_DAYS=30`
 - `DAILY_DATABASE_BACKUP_LIMIT=14`
+- `MEMORY_DISCARD_RETENTION_DAYS=0` (0 keeps rejected and forgotten memories
+  indefinitely; a positive value permanently deletes them once they are that old)
 - `MAINTENANCE_INTERVAL_SECONDS=21600` (how often retention and the dated backup
   repeat while the process runs; they also run once at startup)
 

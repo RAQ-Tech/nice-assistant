@@ -949,6 +949,22 @@ class ApplicationRepository:
     def delete_memory(self, row: Memory) -> None:
         self.session.delete(row)
 
+    def discarded_memories_before(self, cutoff: int) -> list[Memory]:
+        """Rejected and forgotten rows only.
+
+        Active and pending memories are live content, and a superseded row is one link in a
+        revision chain that explains an edit, so none of them age out.
+        """
+
+        return list(
+            self.session.scalars(
+                select(Memory).where(
+                    Memory.status.in_(("rejected", "forgotten")),
+                    Memory.updated_at < cutoff,
+                )
+            ).all()
+        )
+
     def validate_memory_scope(self, user_id: str, scope: str, scope_id: str | None):
         if scope == "global":
             return None
