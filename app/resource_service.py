@@ -8,6 +8,7 @@ from app.context_policy import ContextPolicy, TokenEstimator
 from app.owner_profile import owner_profile_tokens, profile_budget, profile_too_large_message
 from app.persona_lore import (
     entry_from_row,
+    fired_keys,
     matching_entries,
     parse_keys,
     scan_window,
@@ -106,6 +107,7 @@ def lore_entry_response(row, budget: CardBudget) -> dict:
         "content": row.content,
         "always_on": bool(row.always_on),
         "case_sensitive": bool(row.case_sensitive),
+        "match_word_forms": bool(getattr(row, "match_word_forms", 1)),
         "priority": int(row.priority),
         "enabled": bool(row.enabled),
         "token_estimate": int(row.token_estimate or 0),
@@ -374,6 +376,7 @@ class ResourceService:
                         "id": entry.id,
                         "title": entry.title,
                         "always_on": entry.always_on,
+                        "fired_keys": list(fired_keys(entry, scan_window(text, []))),
                         "priority": entry.priority,
                         "token_estimate": TokenEstimator.text(entry.content),
                         "included": entry.id in included_ids,
@@ -408,6 +411,9 @@ class ResourceService:
             "secondary_keys": list(parse_keys(values.get("secondary_keys"))),
             "always_on": always_on,
             "case_sensitive": bool(values.get("case_sensitive")),
+            "match_word_forms": True
+            if values.get("match_word_forms") is None
+            else bool(values.get("match_word_forms")),
             "priority": priority,
             "enabled": True if values.get("enabled") is None else bool(values.get("enabled")),
         }

@@ -154,7 +154,9 @@ installed-browser acceptance.
   rejection message surfacing. Both suites price one shared card, so a change to
   either side's labels or estimator fails a test instead of showing the operator
   a number the platform will not honour.
-- Lorebook tests cover word-boundary matching, case sensitivity, literal handling
+- Lorebook tests cover generated plural forms and the vowel-before-y and phrase
+  exceptions, per-entry opt-out, which authored keys a preview reports as fired,
+  word-boundary matching, case sensitivity, literal handling
   of pattern-looking keys, punctuation keys, secondary keys as an additional
   requirement, `always_on` without keys, the bounded scan window, an entry falling
   out of it, injected lore not triggering further entries, priority and recency

@@ -11,20 +11,15 @@ Decisions taken without sign-off go in `docs/autonomous-decision-log.md`.
 
 Ordered by value. Nothing here needs the operator.
 
-1. **Give lore entries alias lists.** Keyword matching misses paraphrases. Aliases
-   stay literal strings — no embeddings, no new service — and close the common
-   case where one entry needs `sister`, `sibling`, and a name. Cheaper and more
-   debuggable than semantic retrieval.
-
-2. **Decide an expiry policy for rejected and forgotten memories.** Retention is
+1. **Decide an expiry policy for rejected and forgotten memories.** Retention is
    durable and unbounded, with no automatic expiry. Users can delete explicitly,
    but a private deployment accumulating rejected candidates forever is a
    sensitive-data question, not just a storage one.
 
-3. **Make turn event replay durable.** Replay is bounded and process-local, so a
+2. **Make turn event replay durable.** Replay is bounded and process-local, so a
    restart mid-turn loses the event stream even though the turn itself survives.
 
-4. **Second Task Model adapter.** Ollama is the only adapter. A second one proves
+3. **Second Task Model adapter.** Ollama is the only adapter. A second one proves
    the structured-output contract is genuinely provider-neutral rather than
    Ollama-shaped.
 

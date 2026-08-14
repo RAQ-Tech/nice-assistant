@@ -730,6 +730,7 @@ class ApplicationRepository:
         row.content = values["content"]
         row.always_on = int(bool(values["always_on"]))
         row.case_sensitive = int(bool(values["case_sensitive"]))
+        row.match_word_forms = int(bool(values["match_word_forms"]))
         row.priority = int(values["priority"])
         row.enabled = int(bool(values["enabled"]))
         row.token_estimate = int(token_estimate)
