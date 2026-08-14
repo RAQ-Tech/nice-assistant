@@ -144,6 +144,9 @@ installed-browser acceptance.
   forgotten rows past the window are removed, that active, pending, superseded, and
   recently discarded rows are never touched, and that the configured window is
   reported.
+- Turn reconnect tests prove a mid-reply reconnect renders the reply exactly once,
+  that deltas produced after the snapshot still arrive, that a cursor pointing into
+  evicted events leaves no hole, and that a fresh subscriber sees the reply once.
 - API tests use isolated temporary databases and deterministic fake providers.
 - Migration tests upgrade pre-0004/0005/0007/0008/0009/0010/0011/0012/0013/0014/0015/0016/0017/0019/0021 databases and prove
   chats, messages, jobs, media, memories, turn ordering, stored artifact links,

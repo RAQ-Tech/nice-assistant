@@ -244,6 +244,13 @@ provider service talks to `/object_info`.
 
 ## Turn events and cancellation
 
+A turn snapshot carries the accumulated assistant text and the event sequence that text
+already covers, read together under one lock. A reconnecting subscriber replays from the
+later of its own `Last-Event-ID` and that cursor, because the snapshot is applied as
+authoritative text and replaying older deltas on top of it would render them twice. The
+same rule closes the gap when bounded retention has already evicted the events a cursor
+points at: the snapshot covers them, so nothing is silently missing.
+
 `GET /api/v1/turns/{turn_id}/events` sends a current `turn.snapshot` before live
 events. Event IDs support `Last-Event-ID` replay from a bounded in-process buffer.
 The event sequence is `turn.queued`, `turn.started`, zero or more

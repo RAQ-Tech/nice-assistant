@@ -633,11 +633,8 @@ class ConversationService:
             if not turn:
                 return None
             job = uow.session.scalar(select(AsyncJob).where(AsyncJob.turn_id == turn_id))
-            return turn_response(
-                turn,
-                job.id if job else None,
-                self.broker.accumulated_text(turn_id),
-            )
+            accumulated_text, event_cursor = self.broker.snapshot_state(turn_id)
+            return turn_response(turn, job.id if job else None, accumulated_text, event_cursor)
 
     def context_detail(self, user_id: str, chat_id: str) -> dict | None:
         return self.context.chat_context(user_id, chat_id)

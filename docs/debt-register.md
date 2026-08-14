@@ -94,7 +94,10 @@ change that alters them.
 - Some provider helper internals still use low-level HTTP/SQLite-shaped legacy
   inputs, but routes use SQLAlchemy repositories and unit-of-work boundaries.
 - Provider-specific settings embedded directly in persona and UI records.
-- Turn event replay is bounded and process-local, not a durable event log.
+- Turn event replay is bounded and process-local, not a durable event log. Reconnects
+  are correct regardless: the snapshot carries the sequence its text covers, so a
+  subscriber neither replays deltas twice nor silently misses evicted ones. A restart
+  still ends an unfinished turn rather than resuming its stream.
 - Context token counts are conservative estimates before generation; actual
   Ollama prompt counts are captured when the provider returns them.
 - Provider cancellation is cooperative; providers without interrupt support may
