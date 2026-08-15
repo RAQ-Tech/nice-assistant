@@ -8,6 +8,10 @@ carries which mechanism applies - reference-adapter conditioning, or an identity
 pass in a multi-pass preset - alongside its approved reference set and canonical
 appearance text. That is the Identity Spec, and it is the control.
 
+Presets declare which mechanisms they implement, and a persona image plans only
+against one that can honor the spec. A preset without the right wiring is
+rejected by name rather than quietly producing an unconditioned result.
+
 A comparison afterwards is advisory measurement. It scores a finished candidate
 and labels it; nothing about scoring a result makes the next result better. The
 comparison-driven retry loop from ADR 0013 still exists and is still bounded,

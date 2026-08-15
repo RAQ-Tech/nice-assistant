@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import re
 
+from app.identity_conditioning import CONDITIONING_MECHANISMS
 from app.prompt_dialect import normalize_dialect
 from app.service_errors import RequestError
 
@@ -35,6 +36,7 @@ DEFINITION_KEYS = (
     "fixed_loras",
     "lora_slots",
     "workflow_slot",
+    "identity_mechanisms",
     "stages",
 )
 
@@ -229,6 +231,28 @@ def _workflow_slot(values) -> dict:
     return {"enabled": enabled}
 
 
+def _identity_mechanisms(values) -> list[str]:
+    """Which ways of producing resemblance this recipe can actually apply.
+
+    Declared, never inferred: a graph either has the wiring for a mechanism or
+    it does not, and guessing would let a persona image run against a preset
+    that cannot honor its Identity Spec.
+    """
+
+    if values is None:
+        return []
+    if not isinstance(values, list) or len(values) > len(CONDITIONING_MECHANISMS):
+        raise RequestError("preset identity mechanisms must be a list", 400)
+    result = []
+    for value in values:
+        text = str(value or "").strip()
+        if text not in CONDITIONING_MECHANISMS:
+            raise RequestError(f"preset identity mechanism must be one of {', '.join(CONDITIONING_MECHANISMS)}", 400)
+        if text not in result:
+            result.append(text)
+    return result
+
+
 def normalize_definition(values) -> dict:
     """Validate a preset body's shape. Reference checks belong to the service."""
 
@@ -247,6 +271,7 @@ def normalize_definition(values) -> dict:
         "fixed_loras": _fixed_loras(values.get("fixed_loras")),
         "lora_slots": _lora_slots(values.get("lora_slots")),
         "workflow_slot": _workflow_slot(values.get("workflow_slot")),
+        "identity_mechanisms": _identity_mechanisms(values.get("identity_mechanisms")),
         "stages": _stages(values.get("stages"), workflow_resource_id),
     }
 

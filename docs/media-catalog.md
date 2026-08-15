@@ -60,6 +60,19 @@ slot names the one axis the operator is willing to let vary and how far, and the
 existing explicit compatibility edges still gate what can fill it. Everything
 else about a preset is a fixed, tested choice.
 
+A preset declares which identity mechanisms it implements. A persona image is
+planned only against a preset whose declared mechanism the persona's Identity
+Spec requires, and a preset that cannot honor the spec is rejected with a reason
+naming the mechanism rather than silently producing an unconditioned picture.
+Nothing is inferred: a graph either has the wiring or it does not. Presets
+derived from an existing catalog model declare `reference_adapter`, because
+attaching a reference-conditioned workflow is what the coordinator already did.
+
+The existing ADR 0018 fallback is unchanged. When conditioning cannot be
+completed and the saved policy allows it, the request falls back to an
+explicitly unconditioned picture, and the mechanism requirement is dropped with
+the feature it belonged to.
+
 A preset may also declare an open workflow slot. That lets it reach a
 feature-capable graph it does not name itself, which is how identity
 conditioning is applied today. It is off by default, because a preset is meant

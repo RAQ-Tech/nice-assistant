@@ -54,6 +54,7 @@ def build_media_plan(repo, user_id: str, requirements: dict, providers, ready_ba
     required_content = set(requirements["content_tags"])
     required_features = set(requirements["required_features"])
     preferred_preset_id = str(requirements.get("preferred_preset_id") or "")
+    required_mechanism = str(requirements.get("required_identity_mechanism") or "")
 
     presets = repo.media_presets(user_id, kind=kind, enabled=True)
     resources = {row.id: row for row in repo.media_catalog_resources(user_id, enabled=True)}
@@ -76,6 +77,7 @@ def build_media_plan(repo, user_id: str, requirements: dict, providers, ready_ba
             desired_domains=desired_domains,
             required_content=required_content,
             required_features=required_features,
+            required_mechanism=required_mechanism,
         )
         if evaluated["reasons"]:
             rejected.append({"resource_id": preset.id, "name": preset.name, "reasons": evaluated["reasons"]})
@@ -197,6 +199,7 @@ def _evaluate_preset(
     desired_domains: set[str],
     required_content: set[str],
     required_features: set[str],
+    required_mechanism: str = "",
 ) -> dict:
     reasons = []
     base = resources.get(definition.get("base_model_resource_id") or "")
@@ -274,6 +277,10 @@ def _evaluate_preset(
     missing_features = sorted(required_features - coverage_features)
     if missing_features:
         reasons.append("missing required features: " + ", ".join(missing_features))
+    if required_mechanism and required_mechanism not in (definition.get("identity_mechanisms") or []):
+        # Named, because "this preset cannot do reference_adapter" tells the
+        # operator what to fix; a generic rejection does not.
+        reasons.append(f"does not implement the '{required_mechanism}' identity mechanism this persona requires")
     runtime_ops = RUNTIME_OPERATIONS.get((base.provider_key, base.backend), set())
     if operation not in runtime_ops:
         reasons.append(f"the {base.backend} adapter does not yet execute '{operation}' workflows")

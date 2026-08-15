@@ -215,6 +215,12 @@ installed-browser acceptance.
   refused, that an operator can switch the bounded retry on deliberately, that a
   persona image generates and completes with no verifier configured, and that no
   code path polls the verifier on a timer.
+- Identity mechanism tests prove a preset may declare the mechanisms it
+  implements, that declaring nothing means it implements nothing, that an
+  unknown mechanism is refused by name, that a preset derived from an existing
+  model still declares reference conditioning, and that planning rejects a
+  preset which cannot honor the persona's spec with a reason naming the
+  mechanism.
 - API tests use isolated temporary databases and deterministic fake providers.
 - Migration tests upgrade pre-0004/0005/0007/0008/0009/0010/0011/0012/0013/0014/0015/0016/0017/0019/0021/0022 databases and prove
   chats, messages, jobs, media, memories, turn ordering, stored artifact links,

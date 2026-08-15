@@ -285,6 +285,7 @@ class MediaCatalogService:
                     # Likewise for attaching a feature-capable workflow, which
                     # is how identity conditioning is reached today.
                     "workflow_slot": {"enabled": True},
+                    "identity_mechanisms": ["reference_adapter"],
                 }
             )
             repo.add_media_preset(
@@ -731,6 +732,7 @@ class MediaCatalogService:
         # Every planning entry point comes through here, so this is the one
         # place that has to guarantee an owner has presets to choose from.
         self._ensure_presets(repo, user_id)
+        requirements = self._with_identity_mechanism(repo, user_id, requirements, persona_id)
         built = build_media_plan(repo, user_id, requirements, self.providers, ready_backends)
         identity_required = IDENTITY_CONTROL_FEATURE in requirements["required_features"]
         built["identity_conditioning"] = (
@@ -755,6 +757,21 @@ class MediaCatalogService:
         return self._build_unconditioned_fallback(repo, user_id, persona_id, requirements, built)
 
     @staticmethod
+    def _with_identity_mechanism(repo, user_id: str, requirements: dict, persona_id: str | None) -> dict:
+        """Require the mechanism this persona's Identity Spec declares.
+
+        Only for a genuine persona image. An unrelated picture in a persona chat
+        has no identity requirement to honor, per ADR 0017.
+        """
+
+        if IDENTITY_CONTROL_FEATURE not in requirements["required_features"] or not persona_id:
+            return requirements
+        identity = repo.visual_identity(user_id, persona_id)
+        if not identity:
+            return requirements
+        return {**requirements, "required_identity_mechanism": identity.conditioning_mechanism}
+
+    @staticmethod
     def _identity_configuration_missing(built: dict) -> bool:
         return any(
             "missing required features: identity_control" in reason
@@ -774,6 +791,9 @@ class MediaCatalogService:
         if fallback_policy != "allow_unconditioned":
             return blocked
         relaxed = dict(requirements)
+        # The fallback is explicitly unconditioned, so the mechanism requirement
+        # goes with the feature it belonged to.
+        relaxed.pop("required_identity_mechanism", None)
         relaxed["required_features"] = [
             feature for feature in requirements["required_features"] if feature != IDENTITY_CONTROL_FEATURE
         ]
@@ -1460,6 +1480,7 @@ class MediaCatalogService:
             "domains": _tags(values.get("domains") or [], label="domains"),
             "content_tags": _tags(values.get("content_tags") or [], label="content tags"),
             "required_features": _tags(values.get("required_features") or [], label="required features"),
+            "required_identity_mechanism": str(values.get("required_identity_mechanism") or "").strip()[:64],
             # A preference the model expressed from an offered shortlist. The
             # hard filter still decides whether it is legal.
             "preferred_preset_id": str(values.get("preferred_preset_id") or "").strip()[:64],

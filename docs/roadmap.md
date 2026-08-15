@@ -209,6 +209,13 @@ requires a real passed comparison. Migration `0024_identity_spec` adds the spec
 columns and switches the retry loop off for existing profiles without touching
 references, consent, validations, or completed plans. See ADR 0031.
 
+Presets now declare which identity mechanisms they implement, and a persona
+image is planned only against a preset whose mechanism the persona's Identity
+Spec requires. A preset that cannot honor the spec is rejected with a reason
+naming the mechanism instead of silently producing an unconditioned picture. The
+ADR 0018 unconditioned fallback is unchanged and drops the mechanism requirement
+along with the feature it belonged to. See ADR 0031.
+
 ## Deferred voice core
 
 10. Blind TTS evaluation and provider decision.
