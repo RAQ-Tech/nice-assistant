@@ -580,6 +580,33 @@ class MediaCatalogResourceRepresentation(MediaCatalogResourceWrite):
     needs_binding_review: bool = False
 
 
+class SceneBacklogRepresentation(BaseModel):
+    id: str
+    persona_id: str
+    scene: dict
+    summary: str
+    state: Literal["proposed", "approved", "generating", "done", "retired"]
+    source: Literal["operator", "persona_card", "lorebook", "conversation"]
+    source_detail: str
+    media_id: str | None = None
+    created_at: int
+    updated_at: int
+
+
+class SceneBacklogListResponse(BaseModel):
+    items: list[SceneBacklogRepresentation]
+
+
+class SceneBacklogCreate(StrictModel):
+    persona_id: str = Field(min_length=1, max_length=64)
+    scene: dict = Field(default_factory=dict)
+    source_detail: str = Field(default="", max_length=500)
+
+
+class SceneBacklogStateUpdate(StrictModel):
+    state: Literal["proposed", "approved", "retired"]
+
+
 class LibraryEntryRepresentation(BaseModel):
     id: str
     persona_id: str | None = None
@@ -1876,6 +1903,48 @@ def media_library(
 def media_file(media_id: str, request: Request, context: AuthContext = Depends(current_user)):
     path = services(request).resources.media_path(context.user_id, media_id)
     return FileResponse(path, media_type=mimetypes.guess_type(path.name)[0] or "application/octet-stream")
+
+
+@router.get("/scene-backlog", response_model=SceneBacklogListResponse, tags=["media"])
+def scene_backlog(
+    request: Request,
+    persona_id: str | None = Query(default=None),
+    state: str | None = Query(default=None),
+    context: AuthContext = Depends(current_user),
+):
+    return {"items": services(request).scene_backlog.entries(context.user_id, persona_id=persona_id, state=state)}
+
+
+@router.post("/scene-backlog", response_model=SceneBacklogRepresentation, status_code=201, tags=["media"])
+def propose_scene(body: SceneBacklogCreate, request: Request, context: AuthContext = Depends(current_user)):
+    return services(request).scene_backlog.propose(
+        context.user_id,
+        persona_id=body.persona_id,
+        scene=body.scene,
+        source="operator",
+        source_detail=body.source_detail,
+    )
+
+
+@router.put(
+    "/scene-backlog/{entry_id}/state",
+    response_model=SceneBacklogRepresentation,
+    tags=["media"],
+)
+def update_scene_state(
+    entry_id: str,
+    body: SceneBacklogStateUpdate,
+    request: Request,
+    context: AuthContext = Depends(current_user),
+):
+    return services(request).scene_backlog.set_state(context.user_id, entry_id, body.state)
+
+
+@router.delete("/scene-backlog/{entry_id}", status_code=204, tags=["media"])
+def delete_scene(entry_id: str, request: Request, context: AuthContext = Depends(current_user)):
+    if not services(request).scene_backlog.remove(context.user_id, entry_id):
+        raise NotFoundError("backlog entry not found")
+    return Response(status_code=204)
 
 
 @router.get("/media-library", response_model=LibraryEntryListResponse, tags=["media"])

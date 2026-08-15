@@ -198,6 +198,31 @@ guesswork - there is no way to see whether the sentence you wrote makes the
 preset you meant win. It is expected to be removed once routing is demonstrably
 stable.
 
+## The scene backlog
+
+Pictures that have been proposed for a persona but not made. It is kept separate
+from the retained library because "we could make this" and "we have this" are
+different facts, and one record holding both would make a plan look like an
+achievement.
+
+Every entry carries where the idea came from. A proposal nobody can trace back
+to what suggested it can only be accepted or deleted on instinct, which is not a
+review.
+
+An operator moves an entry between proposed, approved, and retired. `generating`
+and `done` describe work rather than intent, so they are not offered as
+something to click - a state that claims progress nobody made is the kind of
+modelled state `AGENTS.md` rules out. A retired entry can be reconsidered, which
+returns it to proposed rather than jumping to approved.
+
+Nothing generates from the backlog yet. Producing these, and proposing them
+automatically from a persona's card, lorebook, and conversation themes, are
+separate items in `BACKLOG.md`. Recording proposals first means the ideas can be
+reviewed before any GPU time is spent on them.
+
+The API is `/api/v1/scene-backlog`, `/api/v1/scene-backlog/{id}/state`, and
+`/api/v1/scene-backlog/{id}`.
+
 ## The retained picture library
 
 A generated picture is kept with the scene that produced it. When a later

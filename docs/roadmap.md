@@ -243,6 +243,13 @@ preference is skipped rather than blocking. The plan explanation names which of
 the three chose. Migration `0026_persona_preset_preferences` adds the column
 empty, because an existing persona expresses no preference. See ADR 0030.
 
+A persona has a durable scene backlog: pictures proposed but not made, each
+carrying where the idea came from. Operators move entries between proposed,
+approved, and retired; states describing work are not offered as something to
+click. Nothing generates from it yet, and the automatic proposal of scenes from
+a persona's card, lorebook, and conversation themes is separate work. See
+ADR 0030.
+
 ## Deferred voice core
 
 10. Blind TTS evaluation and provider decision.

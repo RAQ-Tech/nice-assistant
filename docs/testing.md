@@ -247,6 +247,12 @@ installed-browser acceptance.
   rather than blocking, and that the list is bounded. Browser tests cover adding,
   reordering, and removing a preference, and that removal does not claim to
   touch the preset.
+- Scene backlog tests prove a proposal records what it is and where it came
+  from with nothing made from it, that a proposal needs a description and a
+  persona the owner has, that an operator can approve and retire but cannot set
+  a state that claims work, that a retired scene returns to proposed rather than
+  jumping to approved, that entries filter by persona and state, that they are
+  owner-scoped, and that one can be deleted outright.
 - API tests use isolated temporary databases and deterministic fake providers.
 - Migration tests upgrade pre-0004/0005/0007/0008/0009/0010/0011/0012/0013/0014/0015/0016/0017/0019/0021/0022 databases and prove
   chats, messages, jobs, media, memories, turn ordering, stored artifact links,

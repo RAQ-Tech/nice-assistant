@@ -56,8 +56,8 @@ bindings, per-model prompt dialects, and conversation context for planning. The
 generation preset record, its backfill, preset-directed planning, the scene
 contract, shortlist routing, the routing tester, starter presets,
 multi-pass stages, structural persona identity, the retained picture library,
-a preset-first Media Catalog, the merged Persona Pictures surface, and
-per-persona preset preferences are delivered too. See
+a preset-first Media Catalog, the merged Persona Pictures surface, per-persona
+preset preferences, and the scene backlog are delivered too. See
 `docs/media-catalog.md`. Every item below adds its own stages to the journal
 rather than replacing it, so each one is reviewable from the picture it
 produced.
@@ -69,11 +69,19 @@ This program does not displace the voice-core items in section 3. Those remain
 the highest product priority and are blocked on an operator decision that has
 not been made; this work is what can actually progress in the meantime.
 
-1. **Scene backlog and idea generation.** Propose scenes for a persona from
-    its card, lorebook, and recent conversation themes. Source: ADR 0030.
+1. **Propose scenes automatically from what a persona already is.** The scene
+    backlog exists and records provenance, but only an operator can put anything
+    in it. The ideas should come from the persona's card, its lorebook, and the
+    themes of recent conversation. Source: ADR 0030.
 
-    Done when a persona has a durable backlog of proposed scenes with states,
-    each traceable to what suggested it, and nothing generates from it yet.
+    Done when:
+    - A task-model role proposes scenes for a persona from its card, lorebook,
+      and recent conversation themes.
+    - Each proposal records which of those suggested it, in the provenance the
+      backlog already carries.
+    - Proposals arrive as `proposed` and are never auto-approved, so nothing
+      reaches generation without a person agreeing to it.
+
 
 2. **Idle scheduler.** Produce backlog scenes on the background lane during
     quiet hours. Source: ADR 0030.

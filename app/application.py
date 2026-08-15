@@ -15,6 +15,7 @@ from app.media_adapters import LocalImageProvider, OpenAIImageProvider, OpenAIVi
 from app.media_catalog_service import MediaCatalogService
 from app.media_journal_service import MediaJournalService
 from app.media_library_service import MediaLibraryService
+from app.scene_backlog_service import SceneBacklogService
 from app.media_service import MediaService
 from app.ollama_provider import OllamaChatProvider
 from app.operations_service import OperationsService
@@ -44,6 +45,7 @@ class ApplicationServices:
     media_catalog: MediaCatalogService
     media_journal: MediaJournalService
     media_library: MediaLibraryService
+    scene_backlog: SceneBacklogService
     identity: IdentityService
     capabilities: CapabilityService
     task_models: TaskModelService
@@ -145,6 +147,11 @@ def build_services(
         runtime.secret_store,
         runtime.logger,
         entry_limit=config.media_library_entry_limit,
+    )
+    scene_backlog = SceneBacklogService(
+        runtime.session_factory,
+        runtime.secret_store,
+        runtime.logger,
     )
     media = MediaService(
         runtime.session_factory,
@@ -256,6 +263,7 @@ def build_services(
         media_catalog=media_catalog,
         media_journal=media_journal,
         media_library=media_library,
+        scene_backlog=scene_backlog,
         identity=identity,
         capabilities=capabilities,
         task_models=task_models,

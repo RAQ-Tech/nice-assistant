@@ -732,6 +732,37 @@ class MediaGenerationAttempt(Base):
     completed_at: Mapped[int | None] = mapped_column(Integer)
 
 
+class PersonaSceneBacklogEntry(Base):
+    """A picture that has been proposed for a persona, but not made.
+
+    Provenance is required: a proposed scene nobody can trace back to what
+    suggested it cannot be judged, only accepted or deleted on vibes.
+    """
+
+    __tablename__ = "persona_scene_backlog"
+    __table_args__ = (
+        CheckConstraint(
+            "state IN ('proposed','approved','generating','done','retired')",
+            name="ck_scene_backlog_state",
+        ),
+        CheckConstraint(
+            "source IN ('operator','persona_card','lorebook','conversation')",
+            name="ck_scene_backlog_source",
+        ),
+        Index("idx_scene_backlog_owner_persona_state", "user_id", "persona_id", "state"),
+    )
+    id: Mapped[str] = mapped_column(Text, primary_key=True)
+    user_id: Mapped[str] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    persona_id: Mapped[str] = mapped_column(ForeignKey("personas.id", ondelete="CASCADE"), nullable=False)
+    scene_json: Mapped[str] = mapped_column(Text, nullable=False, default="{}")
+    state: Mapped[str] = mapped_column(Text, nullable=False, default="proposed")
+    source: Mapped[str] = mapped_column(Text, nullable=False, default="operator")
+    source_detail: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    media_id: Mapped[str | None] = mapped_column(ForeignKey("media_files.id", ondelete="SET NULL"))
+    created_at: Mapped[int] = mapped_column(Integer, nullable=False)
+    updated_at: Mapped[int] = mapped_column(Integer, nullable=False)
+
+
 class PersonaImageLibraryEntry(Base):
     """A retained picture, kept with the scene that produced it.
 

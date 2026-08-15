@@ -32,6 +32,7 @@ from app.models import (
     Message,
     Persona,
     PersonaImageLibraryEntry,
+    PersonaSceneBacklogEntry,
     PersonaIdentityEvent,
     PersonaIdentityReference,
     PersonaIdentityValidation,
@@ -1783,6 +1784,63 @@ class ApplicationRepository:
 
     def delete_media_preset(self, row) -> None:
         self.session.delete(row)
+
+    def persona_for_user(self, user_id: str, persona_id: str):
+        return self.session.scalar(
+            select(Persona)
+            .join(Workspace, Workspace.id == Persona.workspace_id)
+            .where(Persona.id == persona_id, Workspace.user_id == user_id)
+        )
+
+    def scene_backlog_entries(self, user_id: str, *, persona_id: str | None = None, state: str | None = None):
+        query = select(PersonaSceneBacklogEntry).where(PersonaSceneBacklogEntry.user_id == user_id)
+        if persona_id:
+            query = query.where(PersonaSceneBacklogEntry.persona_id == persona_id)
+        if state:
+            query = query.where(PersonaSceneBacklogEntry.state == state)
+        return self.session.scalars(
+            query.order_by(PersonaSceneBacklogEntry.created_at.desc(), PersonaSceneBacklogEntry.id)
+        ).all()
+
+    def scene_backlog_entry(self, user_id: str, entry_id: str):
+        return self.session.scalar(
+            select(PersonaSceneBacklogEntry).where(
+                PersonaSceneBacklogEntry.user_id == user_id,
+                PersonaSceneBacklogEntry.id == entry_id,
+            )
+        )
+
+    def scene_backlog_count(self, user_id: str) -> int:
+        return int(
+            self.session.scalar(
+                select(func.count())
+                .select_from(PersonaSceneBacklogEntry)
+                .where(
+                    PersonaSceneBacklogEntry.user_id == user_id,
+                    PersonaSceneBacklogEntry.state != "retired",
+                )
+            )
+            or 0
+        )
+
+    def add_scene_backlog_entry(
+        self, *, user_id: str, persona_id: str, scene_json: str, source: str, source_detail: str
+    ):
+        stamp = now_ts()
+        row = PersonaSceneBacklogEntry(
+            id=secrets.token_hex(12),
+            user_id=user_id,
+            persona_id=persona_id,
+            scene_json=scene_json,
+            state="proposed",
+            source=source,
+            source_detail=source_detail,
+            created_at=stamp,
+            updated_at=stamp,
+        )
+        self.session.add(row)
+        self.session.flush()
+        return row
 
     def add_library_entry(
         self, *, user_id: str, persona_id: str | None, media_id: str, scene_json: str, origin_chat_id=None
