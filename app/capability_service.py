@@ -560,6 +560,7 @@ class CapabilityService:
                 source_media_id=source_media_id,
                 mask_media_id=mask_media_id,
                 planning_context=planning_context,
+                scene=tuple(sorted((request.scene or {}).items())),
             )
             row, created = repo.add_capability_request(
                 user_id=user_id,

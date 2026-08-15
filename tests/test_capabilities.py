@@ -147,7 +147,16 @@ class CapabilityTests(unittest.TestCase):
                     "requests": [
                         {
                             "capability_key": "media.generate_video",
-                            "prompt": "a moonlit garden video",
+                            "scene": {
+                                "subject": "a moonlit garden video",
+                                "action": "",
+                                "setting": "",
+                                "wardrobe": "",
+                                "framing": "",
+                                "lighting": "",
+                                "camera": "",
+                                "mood": "",
+                            },
                             "operation": "generate",
                             "domains": [],
                             "content_tags": [],
@@ -252,7 +261,16 @@ class CapabilityTests(unittest.TestCase):
     def test_explicit_image_request_runs_automatically_as_a_reload_safe_attachment(self):
         planned = {
             "capability_key": "media.generate_image",
-            "prompt": "a moonlit garden",
+            "scene": {
+                "subject": "a moonlit garden",
+                "action": "",
+                "setting": "",
+                "wardrobe": "",
+                "framing": "",
+                "lighting": "",
+                "camera": "",
+                "mood": "",
+            },
             "operation": "generate",
             "domains": [],
             "content_tags": [],
@@ -315,7 +333,16 @@ class CapabilityTests(unittest.TestCase):
     def test_disabled_persona_blocks_only_task_planned_images(self):
         planned = {
             "capability_key": "media.generate_image",
-            "prompt": "a moonlit garden",
+            "scene": {
+                "subject": "a moonlit garden",
+                "action": "",
+                "setting": "",
+                "wardrobe": "",
+                "framing": "",
+                "lighting": "",
+                "camera": "",
+                "mood": "",
+            },
             "operation": "generate",
             "domains": [],
             "content_tags": [],
@@ -383,7 +410,16 @@ class CapabilityTests(unittest.TestCase):
         planning_gate = threading.Event()
         planned = {
             "capability_key": "media.generate_image",
-            "prompt": "a candid portrait of the selected persona",
+            "scene": {
+                "subject": "a candid portrait of the selected persona",
+                "action": "",
+                "setting": "",
+                "wardrobe": "",
+                "framing": "",
+                "lighting": "",
+                "camera": "",
+                "mood": "",
+            },
             "operation": "generate",
             "domains": [],
             "content_tags": [],
@@ -504,7 +540,16 @@ class CapabilityTests(unittest.TestCase):
     def test_persona_subject_flag_prevents_unrelated_images_from_inheriting_identity_control(self):
         planned = {
             "capability_key": "media.generate_image",
-            "prompt": "an empty greenhouse at sunrise",
+            "scene": {
+                "subject": "an empty greenhouse at sunrise",
+                "action": "",
+                "setting": "",
+                "wardrobe": "",
+                "framing": "",
+                "lighting": "",
+                "camera": "",
+                "mood": "",
+            },
             "operation": "generate",
             "domains": [],
             "content_tags": [],
@@ -547,7 +592,7 @@ class CapabilityTests(unittest.TestCase):
             self.assertEqual(general["media_plan"]["status"], "ready")
             self.assertEqual(general["media_plan"]["requirements"]["required_features"], [])
 
-            planned["prompt"] = "a selfie of the selected persona"
+            planned["scene"] = {**planned["scene"], "subject": "a selfie of the selected persona"}
             planned["required_features"] = []
             planned["persona_subject"] = True
             second = running.client.post(
@@ -577,7 +622,16 @@ class CapabilityTests(unittest.TestCase):
                     "requests": [
                         {
                             "capability_key": "media.generate_image",
-                            "prompt": "a moonlit garden",
+                            "scene": {
+                                "subject": "a moonlit garden",
+                                "action": "",
+                                "setting": "",
+                                "wardrobe": "",
+                                "framing": "",
+                                "lighting": "",
+                                "camera": "",
+                                "mood": "",
+                            },
                             "operation": "generate",
                             "domains": [],
                             "content_tags": [],

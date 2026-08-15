@@ -161,6 +161,14 @@ retryable failure instead of a silent substitution. A preset may declare an open
 workflow slot to reach a feature-capable graph such as identity conditioning.
 See ADR 0030 and `docs/media-catalog.md`.
 
+Capability planning returns a typed scene instead of prompt text. Subject,
+action, setting, wardrobe, framing, lighting, camera, and mood are rendered into
+the selected preset's dialect by the deterministic compiler, so prompt syntax
+stays a property of the checkpoint rather than something a small local model has
+to get right. The model still cannot name a provider, model, LoRA, workflow, or
+generation setting. Direct requests keep the user's own words. The scene and the
+compiled text are both recorded in the journal. See ADR 0030.
+
 ## Deferred voice core
 
 10. Blind TTS evaluation and provider decision.

@@ -172,6 +172,14 @@ installed-browser acceptance.
   the plan explanation, that automatic LoRA selection fills a declared open slot
   and adds nothing to a preset without one, and that editing a preset after
   planning produces a retryable conflict rather than a substitution.
+- Scene contract tests prove every field is present, trimmed, and bounded; that
+  rendering follows the declared field order and leaves no stray separators; that
+  the summary stays a short human line; that the schema asks for a scene and not
+  for prompt text; that an entirely empty scene is refused; that an injected
+  model, workflow, or setting field is still rejected; that a scene is rendered
+  into the dialect rather than the summary while a direct request keeps the
+  user's own words; and that the scene which produced a picture is recorded with
+  it.
 - API tests use isolated temporary databases and deterministic fake providers.
 - Migration tests upgrade pre-0004/0005/0007/0008/0009/0010/0011/0012/0013/0014/0015/0016/0017/0019/0021/0022 databases and prove
   chats, messages, jobs, media, memories, turn ordering, stored artifact links,

@@ -38,6 +38,9 @@ class MediaTaskRequirements:
     # The conversation window planning actually saw, carried so the generation
     # journal can show what informed the request. Platform-set, never modeled.
     planning_context: tuple[str, ...] = ()
+    # Typed scene from planning. Absent for a direct request, where the user
+    # supplied their own words and there is nothing to render.
+    scene: tuple[tuple[str, str], ...] = ()
 
     def as_arguments(self) -> dict:
         arguments = {
@@ -53,6 +56,8 @@ class MediaTaskRequirements:
             arguments["mask_media_id"] = self.mask_media_id
         if self.planning_context:
             arguments["planning_context"] = list(self.planning_context)
+        if self.scene:
+            arguments["scene"] = dict(self.scene)
         return arguments
 
 

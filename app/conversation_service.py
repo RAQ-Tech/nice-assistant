@@ -25,6 +25,7 @@ from app.provider_contracts import ChatRequest, ProviderError
 from app.provider_registry import ProviderRegistry
 from app.repositories import UnitOfWork, now_ts
 from app.service_errors import ConflictError, NotFoundError, RequestError
+from app.media_scene import EMPTY_SCENE
 from app.task_contracts import (
     CAPABILITY_PLANNING,
     TITLE_GENERATION,
@@ -281,10 +282,13 @@ class ConversationService:
         explicit_image_request = bool(allow_persona_image_sends and is_high_confidence_image_action_request(text))
 
         def deterministic_image_plan() -> PlannedCapability:
+            # The user asked in their own words, so those words are the
+            # subject. Nothing is invented to fill the other scene fields.
             return PlannedCapability(
                 capability_key="media.generate_image",
                 prompt=text[:1000],
                 operation="generate",
+                scene={**EMPTY_SCENE, "subject": text[:200]},
             )
 
         def execute(token):

@@ -146,7 +146,16 @@ class MediaCatalogTests(unittest.TestCase):
                     "requests": [
                         {
                             "capability_key": "media.generate_image",
-                            "prompt": "a lighthouse in a storm",
+                            "scene": {
+                                "subject": "a lighthouse in a storm",
+                                "action": "",
+                                "setting": "",
+                                "wardrobe": "",
+                                "framing": "",
+                                "lighting": "",
+                                "camera": "",
+                                "mood": "",
+                            },
                             "operation": "generate",
                             "domains": [],
                             "content_tags": [],
@@ -237,7 +246,16 @@ class MediaCatalogTests(unittest.TestCase):
                     "requests": [
                         {
                             "capability_key": "media.generate_image",
-                            "prompt": "a convention portrait",
+                            "scene": {
+                                "subject": "a convention portrait",
+                                "action": "",
+                                "setting": "",
+                                "wardrobe": "",
+                                "framing": "",
+                                "lighting": "",
+                                "camera": "",
+                                "mood": "",
+                            },
                             "operation": "generate",
                             "domains": [],
                             "content_tags": [],
@@ -391,7 +409,16 @@ class MediaCatalogTests(unittest.TestCase):
     def test_conversation_edit_resolves_only_this_chats_offered_attachment(self):
         planned = {
             "capability_key": "media.generate_image",
-            "prompt": "a harbour at dusk",
+            "scene": {
+                "subject": "a harbour at dusk",
+                "action": "",
+                "setting": "",
+                "wardrobe": "",
+                "framing": "",
+                "lighting": "",
+                "camera": "",
+                "mood": "",
+            },
             "operation": "generate",
             "domains": [],
             "content_tags": [],
@@ -446,7 +473,10 @@ class MediaCatalogTests(unittest.TestCase):
             planned.update(
                 {
                     "capability_key": "media.edit_image",
-                    "prompt": "replace the sky with a sunset",
+                    "scene": {
+                        **planned["scene"],
+                        "subject": "replace the sky with a sunset",
+                    },
                     "operation": "image_to_image",
                     "source_attachment": "conversation_image_1",
                 }
@@ -492,7 +522,16 @@ class MediaCatalogTests(unittest.TestCase):
             planned.update(
                 {
                     "capability_key": "media.generate_image",
-                    "prompt": "a second harbour",
+                    "scene": {
+                        "subject": "a second harbour",
+                        "action": "",
+                        "setting": "",
+                        "wardrobe": "",
+                        "framing": "",
+                        "lighting": "",
+                        "camera": "",
+                        "mood": "",
+                    },
                     "operation": "generate",
                     "domains": [],
                     "content_tags": [],
@@ -751,7 +790,16 @@ class MediaCatalogTests(unittest.TestCase):
                     "requests": [
                         {
                             "capability_key": "media.generate_image",
-                            "prompt": "a candid convention portrait",
+                            "scene": {
+                                "subject": "a candid convention portrait",
+                                "action": "",
+                                "setting": "",
+                                "wardrobe": "",
+                                "framing": "",
+                                "lighting": "",
+                                "camera": "",
+                                "mood": "",
+                            },
                             "operation": "generate",
                             "domains": ["fantasy"],
                             "content_tags": [],
@@ -870,7 +918,16 @@ class MediaCatalogTests(unittest.TestCase):
     def test_missing_identity_workflow_uses_explicit_unconditioned_fallback_and_labels_results_truthfully(self):
         planned = {
             "capability_key": "media.generate_image",
-            "prompt": "a casual selfie of the selected persona",
+            "scene": {
+                "subject": "a casual selfie of the selected persona",
+                "action": "",
+                "setting": "",
+                "wardrobe": "",
+                "framing": "",
+                "lighting": "",
+                "camera": "",
+                "mood": "",
+            },
             "operation": "generate",
             "domains": [],
             "content_tags": [],
@@ -947,14 +1004,14 @@ class MediaCatalogTests(unittest.TestCase):
                 },
             )
             self.assertEqual(required.status_code, 200, required.text)
-            planned["prompt"] = "a strict selfie of the selected persona"
+            planned["scene"] = {**planned["scene"], "subject": "a strict selfie of the selected persona"}
             second_turn = running.client.post(
                 f"/api/v1/chats/{chat['id']}/turns",
                 json={"text": "Try another selfie", "memory_mode": "off"},
             ).json()
             running.wait_job(second_turn["job"]["id"])
             requests = running.client.get("/api/v1/capability-requests", params={"chat_id": chat["id"]}).json()["items"]
-            strict = next(item for item in requests if item["arguments"]["prompt"] == planned["prompt"])
+            strict = next(item for item in requests if item["arguments"]["prompt"] == planned["scene"]["subject"])
             self.assertEqual(strict["status"], "failed")
             self.assertEqual(strict["permission_mode"], "auto")
             self.assertEqual(strict["media_plan"]["status"], "blocked")
@@ -986,7 +1043,16 @@ class MediaCatalogTests(unittest.TestCase):
     def test_unconditioned_fallback_needs_no_saved_profile_consent_or_reference(self):
         planned = {
             "capability_key": "media.generate_image",
-            "prompt": "a candid portrait of the selected persona",
+            "scene": {
+                "subject": "a candid portrait of the selected persona",
+                "action": "",
+                "setting": "",
+                "wardrobe": "",
+                "framing": "",
+                "lighting": "",
+                "camera": "",
+                "mood": "",
+            },
             "operation": "generate",
             "domains": [],
             "content_tags": [],
@@ -1049,14 +1115,14 @@ class MediaCatalogTests(unittest.TestCase):
             self.assertEqual(saved["status"], "draft")
             self.assertEqual(saved["consent_status"], "not_granted")
             self.assertEqual(saved["approved_reference_count"], 0)
-            planned["prompt"] = "another candid portrait of the selected persona"
+            planned["scene"] = {**planned["scene"], "subject": "another candid portrait of the selected persona"}
             second_turn = running.client.post(
                 f"/api/v1/chats/{chat['id']}/turns",
                 json={"text": "Send another candid portrait", "memory_mode": "off"},
             ).json()
             running.wait_job(second_turn["job"]["id"])
             requests = running.client.get("/api/v1/capability-requests", params={"chat_id": chat["id"]}).json()["items"]
-            second = next(item for item in requests if item["arguments"]["prompt"] == planned["prompt"])
+            second = next(item for item in requests if item["arguments"]["prompt"] == planned["scene"]["subject"])
             self.assertEqual(second["media_plan"]["status"], "ready")
             self.assertEqual(second["media_plan"]["identity_conditioning"]["status"], "unconditioned")
             self.assertEqual(second["media_plan"]["identity_conditioning"]["profile_id"], saved["id"])
@@ -1117,7 +1183,16 @@ class MediaCatalogTests(unittest.TestCase):
                     "requests": [
                         {
                             "capability_key": "media.generate_image",
-                            "prompt": "persona portrait",
+                            "scene": {
+                                "subject": "persona portrait",
+                                "action": "",
+                                "setting": "",
+                                "wardrobe": "",
+                                "framing": "",
+                                "lighting": "",
+                                "camera": "",
+                                "mood": "",
+                            },
                             "operation": "generate",
                             "domains": [],
                             "content_tags": [],
@@ -1210,7 +1285,16 @@ class MediaCatalogTests(unittest.TestCase):
                     "requests": [
                         {
                             "capability_key": "media.generate_image",
-                            "prompt": "a fantasy portrait",
+                            "scene": {
+                                "subject": "a fantasy portrait",
+                                "action": "",
+                                "setting": "",
+                                "wardrobe": "",
+                                "framing": "",
+                                "lighting": "",
+                                "camera": "",
+                                "mood": "",
+                            },
                             "operation": "generate",
                             "domains": ["fantasy"],
                             "content_tags": ["pose.special"],
@@ -1287,7 +1371,16 @@ class MediaCatalogTests(unittest.TestCase):
                     "requests": [
                         {
                             "capability_key": "media.generate_image",
-                            "prompt": "edit the portrait",
+                            "scene": {
+                                "subject": "edit the portrait",
+                                "action": "",
+                                "setting": "",
+                                "wardrobe": "",
+                                "framing": "",
+                                "lighting": "",
+                                "camera": "",
+                                "mood": "",
+                            },
                             "operation": "inpaint",
                             "domains": [],
                             "content_tags": [],

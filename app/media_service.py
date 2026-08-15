@@ -363,6 +363,7 @@ class MediaService:
                     values.get("prompt_dialect"),
                     loras=values.get("loras") or [],
                     allow_nsfw=allow_nsfw_value,
+                    scene=values.get("scene"),
                 )
                 recorder.record(
                     "prompt_compiled",
@@ -376,6 +377,8 @@ class MediaService:
                         "safety_negative_applied": compiled["safety_negative_applied"],
                         "truncated": compiled["truncated"],
                         "dialect_configured": bool(values.get("prompt_dialect")),
+                        "from_scene": compiled["from_scene"],
+                        "scene": values.get("scene") or {},
                     },
                 )
                 options = {

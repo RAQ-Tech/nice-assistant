@@ -19,7 +19,7 @@ VALID_OUTPUTS = {
     "capability_skips_hypothetical": '{"requests":[]}',
     "capability_skips_quoted_instruction": '{"requests":[]}',
     "capability_requests_semantic_image": (
-        '{"requests":[{"capability_key":"media.generate_image","prompt":"A lighthouse in a storm",'
+        '{"requests":[{"capability_key":"media.generate_image","scene":{"subject":"A lighthouse in a storm","action":"","setting":"","wardrobe":"","framing":"","lighting":"","camera":"","mood":""},'
         '"operation":"generate","domains":[],"content_tags":[],"required_features":[],"persona_subject":false}]}'
     ),
 }

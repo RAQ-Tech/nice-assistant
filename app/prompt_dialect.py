@@ -14,6 +14,7 @@ an operator can read what was sent and reproduce it exactly.
 from __future__ import annotations
 
 from app.media import clean_user_image_prompt
+from app.media_scene import render_scene, scene_is_empty
 from app.service_errors import RequestError
 
 
@@ -119,7 +120,7 @@ def _truncate(text: str, target_length: int) -> str:
     return (clipped[:boundary] if boundary > 0 else clipped).strip().strip(",")
 
 
-def compile_prompt(intent: str, dialect=None, *, loras=(), allow_nsfw: bool = True) -> dict:
+def compile_prompt(intent: str, dialect=None, *, loras=(), allow_nsfw: bool = True, scene=None) -> dict:
     """Render a request into one model's dialect.
 
     Returns the exact positive and negative text to submit, plus the decisions
@@ -129,7 +130,10 @@ def compile_prompt(intent: str, dialect=None, *, loras=(), allow_nsfw: bool = Tr
 
     resolved = dialect if isinstance(dialect, dict) and dialect else dict(DEFAULT_DIALECT)
     style = resolved.get("style") or "natural_language"
-    text = clean_user_image_prompt(intent)
+    # A planned request carries a typed scene; a direct request carries the
+    # user's own words, which are already what they asked for.
+    from_scene = not scene_is_empty(scene)
+    text = render_scene(scene, style) if from_scene else clean_user_image_prompt(intent)
     triggers = _trigger_words(loras)
     placement = resolved.get("trigger_placement") or "suffix"
     parts = [resolved.get("prefix") or ""]
@@ -157,6 +161,7 @@ def compile_prompt(intent: str, dialect=None, *, loras=(), allow_nsfw: bool = Tr
         "negative": negative,
         "style": style,
         "trigger_words": triggers,
+        "from_scene": from_scene,
         "truncated": truncated,
         "supports_negative": supports_negative,
         # Stated because a model that takes no negative prompt cannot carry the

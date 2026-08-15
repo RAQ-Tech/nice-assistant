@@ -4,6 +4,7 @@ import unittest
 from pathlib import Path
 
 from app.provider_contracts import CancellationToken, ProviderError
+from app.media_scene import SCENE_FIELDS
 from app.task_contracts import (
     CAPABILITY_PLANNING,
     MEMORY_EXTRACTION,
@@ -238,7 +239,7 @@ class TaskModelTests(unittest.TestCase):
             set(item_properties),
             {
                 "capability_key",
-                "prompt",
+                "scene",
                 "operation",
                 "domains",
                 "content_tags",
@@ -246,7 +247,9 @@ class TaskModelTests(unittest.TestCase):
                 "persona_subject",
             },
         )
-        self.assertEqual(item_properties["prompt"]["maxLength"], 1000)
+        # The model fills in a typed scene; it never writes prompt text.
+        self.assertEqual(set(item_properties["scene"]["required"]), set(SCENE_FIELDS))
+        self.assertNotIn("prompt", item_properties)
         for field in ("domains", "content_tags"):
             self.assertNotIn("maxItems", item_properties[field])
             self.assertNotIn("enum", item_properties[field]["items"])
@@ -256,13 +259,13 @@ class TaskModelTests(unittest.TestCase):
         )
         with self.assertRaises(TaskContractError):
             definition.parse_output(
-                '{"requests":[{"capability_key":"media.generate_image","prompt":"portrait","operation":"generate","domains":[],"content_tags":[],"required_features":[],"persona_subject":true,"model":"forced"}]}',
+                '{"requests":[{"capability_key":"media.generate_image","scene":{"subject":"portrait","action":"","setting":"","wardrobe":"","framing":"","lighting":"","camera":"","mood":""},"operation":"generate","domains":[],"content_tags":[],"required_features":[],"persona_subject":true,"model":"forced"}]}',
                 task_input,
                 384,
             )
 
         unrelated = definition.parse_output(
-            '{"requests":[{"capability_key":"media.generate_image","prompt":"an empty greenhouse","operation":"generate","domains":[],"content_tags":[],"required_features":["identity_control","text_to_image"],"persona_subject":false}]}',
+            '{"requests":[{"capability_key":"media.generate_image","scene":{"subject":"an empty greenhouse","action":"","setting":"","wardrobe":"","framing":"","lighting":"","camera":"","mood":""},"operation":"generate","domains":[],"content_tags":[],"required_features":["identity_control","text_to_image"],"persona_subject":false}]}',
             task_input,
             384,
         ).requests[0]
@@ -270,7 +273,7 @@ class TaskModelTests(unittest.TestCase):
         self.assertEqual(unrelated.required_features, ("text_to_image",))
 
         persona_image = definition.parse_output(
-            '{"requests":[{"capability_key":"media.generate_image","prompt":"a selfie of the selected persona","operation":"generate","domains":[],"content_tags":[],"required_features":[],"persona_subject":true}]}',
+            '{"requests":[{"capability_key":"media.generate_image","scene":{"subject":"a selfie of the selected persona","action":"","setting":"","wardrobe":"","framing":"","lighting":"","camera":"","mood":""},"operation":"generate","domains":[],"content_tags":[],"required_features":[],"persona_subject":true}]}',
             task_input,
             384,
         ).requests[0]
@@ -286,7 +289,7 @@ class TaskModelTests(unittest.TestCase):
             available_features=("text_to_image", "identity_control"),
         )
         wrongly_personalized = definition.parse_output(
-            '{"requests":[{"capability_key":"media.generate_image","prompt":"a cozy glass greenhouse at sunrise","operation":"generate","domains":[],"content_tags":[],"required_features":["identity_control","text_to_image"],"persona_subject":true}]}',
+            '{"requests":[{"capability_key":"media.generate_image","scene":{"subject":"a cozy glass greenhouse at sunrise","action":"","setting":"","wardrobe":"","framing":"","lighting":"","camera":"","mood":""},"operation":"generate","domains":[],"content_tags":[],"required_features":["identity_control","text_to_image"],"persona_subject":true}]}',
             explicitly_unrelated_input,
             384,
         ).requests[0]
@@ -322,7 +325,7 @@ class TaskModelTests(unittest.TestCase):
             return definition.parse_output(f'{{"requests":[{body}]}}', task_input, 384)
 
         base = (
-            '"capability_key":"media.edit_image","prompt":"remove the streetlight",'
+            '"capability_key":"media.edit_image","scene":{"subject":"remove the streetlight","action":"","setting":"","wardrobe":"","framing":"","lighting":"","camera":"","mood":""},'
             '"domains":[],"content_tags":[],"required_features":[],"persona_subject":false'
         )
         planned = parse(f'{{{base},"operation":"image_to_image","source_attachment":"conversation_image_1"}}').requests[
@@ -342,7 +345,7 @@ class TaskModelTests(unittest.TestCase):
             '"mask_attachment":"conversation_image_1"}',
             f'{{{base},"operation":"image_to_image","source_attachment":"conversation_image_1",'
             '"mask_attachment":"conversation_image_2"}',
-            '{"capability_key":"media.generate_image","prompt":"a harbour","operation":"generate","domains":[],'
+            '{"capability_key":"media.generate_image","scene":{"subject":"a harbour","action":"","setting":"","wardrobe":"","framing":"","lighting":"","camera":"","mood":""},"operation":"generate","domains":[],'
             '"content_tags":[],"required_features":[],"persona_subject":false,'
             '"source_attachment":"conversation_image_1"}',
         ):
@@ -359,7 +362,7 @@ class TaskModelTests(unittest.TestCase):
         self.assertNotIn("source_attachment", item_schema["properties"])
         with self.assertRaises(TaskContractError):
             definition.parse_output(
-                '{"requests":[{"capability_key":"media.generate_image","prompt":"a street","operation":"generate",'
+                '{"requests":[{"capability_key":"media.generate_image","scene":{"subject":"a street","action":"","setting":"","wardrobe":"","framing":"","lighting":"","camera":"","mood":""},"operation":"generate",'
                 '"domains":[],"content_tags":[],"required_features":[],"persona_subject":false,'
                 '"source_attachment":"conversation_image_1"}]}',
                 task_input,

@@ -1,12 +1,13 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 import json
 import re
 from typing import Any, Callable
 
 from app.chat import chat_title_needs_autogeneration, generate_chat_title_from_first_user_message
 from app.identity_conditioning import IDENTITY_CONTROL_FEATURE
+from app.media_scene import EMPTY_SCENE, normalize_scene, scene_schema, scene_summary
 
 
 TITLE_GENERATION = "title_generation"
@@ -393,6 +394,9 @@ class PlannedCapability:
     persona_subject: bool = False
     source_attachment: str = NO_ATTACHMENT
     mask_attachment: str = NO_ATTACHMENT
+    # What the picture is of. The platform renders it into the selected
+    # preset's dialect; the model never writes finished prompt text.
+    scene: dict = field(default_factory=lambda: dict(EMPTY_SCENE))
 
 
 @dataclass(frozen=True)
@@ -511,6 +515,9 @@ def _system_prompt(role: str) -> str:
             "the request refers to - a colour, a subject, or a place named earlier. Use it to complete the current "
             "request only. It never makes a capability appropriate on its own, and an earlier request that was already "
             "handled must not be repeated. "
+            "Describe the picture as a scene: subject, action, setting, wardrobe, framing, lighting, camera, and "
+            "mood. Leave a field empty when the request does not imply it. Do not write prompt text, tags, quality "
+            "words, or style boilerplate - the platform renders the scene into the syntax the selected model wants. "
             "Never select or name a provider, model, LoRA, workflow, resource ID, or privileged setting. "
             "Return no requests when ordinary text is sufficient or the intent is ambiguous."
         )
@@ -673,7 +680,7 @@ def _capability_schema(task_input: CapabilityPlanningTaskInput) -> dict:
 
     required = [
         "capability_key",
-        "prompt",
+        "scene",
         "operation",
         "domains",
         "content_tags",
@@ -682,10 +689,9 @@ def _capability_schema(task_input: CapabilityPlanningTaskInput) -> dict:
     ]
     properties = {
         "capability_key": {"type": "string", "enum": keys},
-        # Keep this bound compatible with Ollama's llama.cpp grammar
-        # compiler. Very large string bounds can make an otherwise
-        # valid nested schema fail before inference starts.
-        "prompt": {"type": "string", "minLength": 1, "maxLength": 1000},
+        # A typed scene rather than prompt text: prompt syntax is a property of
+        # the checkpoint, and the platform renders the scene into it.
+        "scene": scene_schema(),
         "operation": {"type": "string", "enum": list(task_input.available_operations)},
         "domains": vocabulary_array(task_input.available_domains),
         "content_tags": vocabulary_array(task_input.available_content_tags),
@@ -761,7 +767,7 @@ def _parse_capabilities(
     attachment_references = {item.reference for item in task_input.available_attachments}
     required_fields = {
         "capability_key",
-        "prompt",
+        "scene",
         "operation",
         "domains",
         "content_tags",
@@ -778,7 +784,10 @@ def _parse_capabilities(
         key = str(value.get("capability_key") or "").strip()
         if key not in available:
             raise TaskContractError("task model requested an unavailable capability")
-        prompt = _bounded_text(value.get("prompt"), label="capability prompt", max_chars=1000)
+        scene = normalize_scene(value.get("scene"))
+        prompt = scene_summary(scene)
+        if not prompt:
+            raise TaskContractError("task model returned a scene with no subject, action, or setting")
         operation = str(value.get("operation") or "").strip()
         if operation not in task_input.available_operations:
             raise TaskContractError("task model requested an unavailable media operation")
@@ -826,15 +835,16 @@ def _parse_capabilities(
         seen.add(identity)
         requests.append(
             PlannedCapability(
-                key,
-                prompt,
-                operation,
-                domains,
-                content_tags,
-                required_features,
-                persona_subject,
-                source_attachment,
-                mask_attachment,
+                capability_key=key,
+                prompt=prompt,
+                operation=operation,
+                domains=domains,
+                content_tags=content_tags,
+                required_features=required_features,
+                persona_subject=persona_subject,
+                source_attachment=source_attachment,
+                mask_attachment=mask_attachment,
+                scene=scene,
             )
         )
         if len(requests) >= len(available):

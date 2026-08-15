@@ -502,7 +502,16 @@ class AsyncJobTests(unittest.TestCase):
                     "requests": [
                         {
                             "capability_key": "media.generate_image",
-                            "prompt": "a small cat",
+                            "scene": {
+                                "subject": "a small cat",
+                                "action": "",
+                                "setting": "",
+                                "wardrobe": "",
+                                "framing": "",
+                                "lighting": "",
+                                "camera": "",
+                                "mood": "",
+                            },
                             "operation": "generate",
                             "domains": [],
                             "content_tags": [],
@@ -552,6 +561,18 @@ class AsyncJobTests(unittest.TestCase):
                     # The conversation window planning saw, so what informed a
                     # request stays inspectable alongside the request itself.
                     "planning_context": ["Generate an image of a small cat"],
+                    # The typed scene the model returned, rendered into prompt
+                    # text only at generation time.
+                    "scene": {
+                        "subject": "a small cat",
+                        "action": "",
+                        "setting": "",
+                        "wardrobe": "",
+                        "framing": "",
+                        "lighting": "",
+                        "camera": "",
+                        "mood": "",
+                    },
                 },
             )
             self.assertIsNotNone(requests[0]["job_id"])
@@ -583,7 +604,16 @@ class AsyncJobTests(unittest.TestCase):
                     "requests": [
                         {
                             "capability_key": "media.generate_image",
-                            "prompt": "managed reclamation passed",
+                            "scene": {
+                                "subject": "managed reclamation passed",
+                                "action": "",
+                                "setting": "",
+                                "wardrobe": "",
+                                "framing": "",
+                                "lighting": "",
+                                "camera": "",
+                                "mood": "",
+                            },
                             "operation": "generate",
                             "domains": [],
                             "content_tags": [],

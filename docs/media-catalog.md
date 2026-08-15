@@ -96,6 +96,26 @@ remains authoritative: earlier messages may complete a request but never make a
 capability appropriate on their own. The window that informed a picture is
 recorded in that picture's journal and in its capability request.
 
+## The scene contract
+
+A Task Model returns a typed scene - subject, action, setting, wardrobe,
+framing, lighting, camera, mood - rather than finished prompt text. Prompt
+syntax belongs to the checkpoint, so writing it is a decision the model has no
+basis for and cannot make consistently across dialects. The platform renders the
+scene into whichever dialect the selected preset declares.
+
+Empty fields are normal: the model fills in what the request implies and leaves
+the rest alone. A scene with nothing in it at all is refused, because there is
+no picture to make. The platform derives the short summary shown on the
+capability request from the subject, action, and setting; the full scene is what
+the compiler reads, and both appear in the journal.
+
+The model still cannot name a provider, model, LoRA, workflow, resource ID, or
+generation setting, and the schema rejects any field it was not offered.
+
+A direct image request has no scene: those are the user's own words, and they
+are compiled as written.
+
 ## Prompt dialect
 
 Prompt syntax is a property of the checkpoint, not of the request. A model
@@ -161,8 +181,9 @@ the graph remains responsible for converting the mask image into the node type
 its custom nodes require.
 
 The current semantic vocabulary is controlled by the server. Task Models may
-request generation domains, content tags, or features from that vocabulary, but
-cannot name a provider, model, LoRA, workflow, URL, or generation setting.
+request generation domains, content tags, or features from that vocabulary, and
+describe the picture as a typed scene, but cannot name a provider, model, LoRA,
+workflow, URL, or generation setting.
 Unknown semantic values are rejected. Editing remains explicit-only because the
 Task Model does not yet have a typed resolver for protected chat attachments.
 
