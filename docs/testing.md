@@ -253,6 +253,13 @@ installed-browser acceptance.
   a state that claims work, that a retired scene returns to proposed rather than
   jumping to approved, that entries filter by persona and state, that they are
   owner-scoped, and that one can be deleted outright.
+- Scene proposal tests prove the model is asked for a scene and its provenance,
+  that the prompt forbids naming resources and supplies what was already
+  proposed, that an empty scene or unknown source is refused, that duplicate
+  ideas collapse and the limit holds, that proposals land in the backlog as
+  `proposed` with their provenance, that the persona card and existing ideas
+  reach the model, that a model which did not answer is reported rather than
+  looking like no ideas, and that a persona the owner does not have is refused.
 - API tests use isolated temporary databases and deterministic fake providers.
 - Migration tests upgrade pre-0004/0005/0007/0008/0009/0010/0011/0012/0013/0014/0015/0016/0017/0019/0021/0022 databases and prove
   chats, messages, jobs, media, memories, turn ordering, stored artifact links,

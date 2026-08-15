@@ -93,7 +93,13 @@ class TaskModelTests(unittest.TestCase):
             self.assertEqual(profiles.status_code, 200)
             self.assertEqual(
                 {item["role"] for item in profiles.json()["items"]},
-                {"title_generation", "conversation_summary", "memory_extraction", "capability_planning"},
+                {
+                    "title_generation",
+                    "conversation_summary",
+                    "memory_extraction",
+                    "capability_planning",
+                    "scene_proposal",
+                },
             )
             saved = updated_profile(
                 running.client,

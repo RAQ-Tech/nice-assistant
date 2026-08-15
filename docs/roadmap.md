@@ -250,6 +250,13 @@ click. Nothing generates from it yet, and the automatic proposal of scenes from
 a persona's card, lorebook, and conversation themes is separate work. See
 ADR 0030.
 
+Scenes can now be proposed automatically from a persona's card, lorebook, and
+recent conversation themes by a dedicated Task Model role. Each proposal records
+which source suggested it and the detail it drew on, arrives as `proposed`, and
+is never auto-approved. The response says whether the model actually answered.
+Migration `0028_scene_proposal_role` widens the role vocabulary by rebuilding the
+profile and run tables, copying existing rows verbatim. See ADR 0030.
+
 ## Deferred voice core
 
 10. Blind TTS evaluation and provider decision.

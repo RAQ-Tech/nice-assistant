@@ -1792,6 +1792,22 @@ class ApplicationRepository:
             .where(Persona.id == persona_id, Workspace.user_id == user_id)
         )
 
+    def recent_persona_themes(self, user_id: str, persona_id: str, *, limit: int = 10) -> list[str]:
+        """What this persona's recent conversations were about.
+
+        Chat titles are used because they are already a short, generated summary
+        of a conversation. Re-summarising message bodies here would put private
+        conversation content into a second place for no extra signal.
+        """
+
+        rows = self.session.scalars(
+            select(Chat)
+            .where(Chat.user_id == user_id, Chat.persona_id == persona_id, Chat.title.is_not(None))
+            .order_by(Chat.updated_at.desc())
+            .limit(max(1, min(int(limit), 50)))
+        ).all()
+        return [str(row.title).strip() for row in rows if str(row.title or "").strip()]
+
     def scene_backlog_entries(self, user_id: str, *, persona_id: str | None = None, state: str | None = None):
         query = select(PersonaSceneBacklogEntry).where(PersonaSceneBacklogEntry.user_id == user_id)
         if persona_id:

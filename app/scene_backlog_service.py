@@ -15,8 +15,11 @@ from __future__ import annotations
 import json
 
 from app.media_scene import normalize_scene, scene_is_empty, scene_summary
+from app.persona_card import CARD_STORED_FIELDS
+from app.provider_contracts import CancellationToken, ProviderError
 from app.repositories import UnitOfWork, now_ts
-from app.service_errors import NotFoundError, RequestError
+from app.service_errors import NotFoundError, RequestError, ServiceError
+from app.task_contracts import SCENE_PROPOSAL, SceneProposalTaskInput, TaskContractError
 
 
 BACKLOG_STATES = ("proposed", "approved", "generating", "done", "retired")
@@ -34,10 +37,11 @@ MAX_BACKLOG_ENTRIES = 500
 
 
 class SceneBacklogService:
-    def __init__(self, session_factory, secret_store, logger):
+    def __init__(self, session_factory, secret_store, logger, task_models=None):
         self.session_factory = session_factory
         self.secret_store = secret_store
         self.logger = logger
+        self.task_models = task_models
 
     def _uow(self):
         return UnitOfWork(self.session_factory, self.secret_store)
@@ -79,6 +83,71 @@ class SceneBacklogService:
                 source_detail=str(source_detail or "")[:500],
             )
             return self._public(row)
+
+    def propose_from_persona(self, user_id: str, persona_id: str, *, limit: int = 5) -> dict:
+        """Ask the task model for pictures this persona could plausibly send.
+
+        Everything it draws on is already the persona's: its card, its lorebook
+        titles, and what the conversation has been about. Proposals arrive as
+        `proposed` and are never approved automatically, so nothing reaches
+        generation without a person agreeing to it.
+        """
+
+        if not self.task_models:
+            raise RequestError("scene proposals are unavailable", 503)
+        limit = max(1, min(int(limit or 5), 10))
+        with self._uow() as uow:
+            persona = uow.repo.persona_for_user(user_id, persona_id)
+            if not persona:
+                raise NotFoundError("persona not found")
+            card = " ".join(str(getattr(persona, field, "") or "").strip() for field in CARD_STORED_FIELDS).strip()
+            lore = [row.title for row in uow.repo.persona_lore_entries(user_id, persona_id, enabled_only=True)]
+            existing = [
+                scene_summary(json.loads(row.scene_json or "{}"))
+                for row in uow.repo.scene_backlog_entries(user_id, persona_id=persona_id)
+            ]
+            themes = uow.repo.recent_persona_themes(user_id, persona_id)
+            name = persona.name
+        try:
+            outcome = self.task_models.run(
+                user_id,
+                SCENE_PROPOSAL,
+                SceneProposalTaskInput(
+                    persona_name=name,
+                    card=card[:4000],
+                    lore_titles=tuple(lore[:20]),
+                    recent_themes=tuple(themes),
+                    existing_summaries=tuple(item for item in existing if item)[:40],
+                    limit=limit,
+                ),
+                CancellationToken(),
+            )
+        except (ProviderError, TaskContractError, ServiceError) as exc:
+            raise RequestError(
+                getattr(exc, "user_message", None) or "The task model could not propose scenes.", 502
+            ) from exc
+        proposed = []
+        for proposal in outcome.output.proposals:
+            try:
+                proposed.append(
+                    self.propose(
+                        user_id,
+                        persona_id=persona_id,
+                        scene=proposal.scene,
+                        source=proposal.source,
+                        source_detail=proposal.source_detail,
+                    )
+                )
+            except RequestError:
+                # One unusable proposal should not discard the rest.
+                continue
+        # A fallback and "no ideas" both come back empty, and they need
+        # different fixes, so the difference is reported rather than lost.
+        return {
+            "proposed": proposed,
+            "requested": limit,
+            "model_answered": not outcome.fallback_used,
+        }
 
     def set_state(self, user_id: str, entry_id: str, state: str) -> dict:
         if state not in BACKLOG_STATES:

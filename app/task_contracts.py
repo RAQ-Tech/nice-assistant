@@ -14,11 +14,13 @@ TITLE_GENERATION = "title_generation"
 CONVERSATION_SUMMARY = "conversation_summary"
 MEMORY_EXTRACTION = "memory_extraction"
 CAPABILITY_PLANNING = "capability_planning"
+SCENE_PROPOSAL = "scene_proposal"
 TASK_ROLES = (
     TITLE_GENERATION,
     CONVERSATION_SUMMARY,
     MEMORY_EXTRACTION,
     CAPABILITY_PLANNING,
+    SCENE_PROPOSAL,
 )
 
 
@@ -435,6 +437,33 @@ class CapabilityPlanningTaskInput:
     recent_user_messages: tuple[str, ...] = ()
 
 
+SCENE_SOURCES = ("persona_card", "lorebook", "conversation")
+
+
+@dataclass(frozen=True)
+class ProposedScene:
+    """One picture idea, and which part of the persona suggested it."""
+
+    scene: dict
+    source: str
+    source_detail: str
+
+
+@dataclass(frozen=True)
+class SceneProposalTaskInput:
+    persona_name: str
+    card: str = ""
+    lore_titles: tuple[str, ...] = ()
+    recent_themes: tuple[str, ...] = ()
+    existing_summaries: tuple[str, ...] = ()
+    limit: int = 5
+
+
+@dataclass(frozen=True)
+class SceneProposalTaskOutput:
+    proposals: tuple[ProposedScene, ...]
+
+
 @dataclass(frozen=True)
 class CapabilityPlanningTaskOutput:
     requests: tuple[PlannedCapability, ...]
@@ -516,6 +545,17 @@ def _system_prompt(role: str) -> str:
             "Extract only stable facts, preferences, identity details, relationships, or ongoing commitments "
             "explicitly stated by the user. Exclude secrets, credentials, transient requests, guesses, medical or "
             "legal inferences, and assistant claims."
+        )
+    if role == SCENE_PROPOSAL:
+        return shared + (
+            "Propose pictures this persona could plausibly send, drawn from who the persona already is. Use the "
+            "persona card, its lorebook titles, and recent conversation themes; propose nothing that none of those "
+            "support. Set source to whichever of persona_card, lorebook, or conversation suggested it, and put the "
+            "specific detail you drew on in source_detail, so a person can judge the idea rather than guess at it. "
+            "Describe each picture as a scene: subject, action, setting, wardrobe, framing, lighting, camera, and "
+            "mood, leaving a field empty when nothing implies it. Do not repeat anything in "
+            "already_proposed_or_made. Do not write prompt text, tags, or style words, and never name a provider, "
+            "model, LoRA, workflow, or generation setting."
         )
     if role == CAPABILITY_PLANNING:
         return shared + (
@@ -688,6 +728,72 @@ def _parse_memory(
         if len(candidates) >= limit:
             break
     return MemoryExtractionTaskOutput(tuple(candidates))
+
+
+def _scene_proposal_schema(task_input) -> dict:
+    return {
+        "type": "object",
+        "additionalProperties": False,
+        "required": ["proposals"],
+        "properties": {
+            "proposals": {
+                "type": "array",
+                "maxItems": max(1, min(int(task_input.limit or 1), 10)),
+                "items": {
+                    "type": "object",
+                    "additionalProperties": False,
+                    "required": ["scene", "source", "source_detail"],
+                    "properties": {
+                        "scene": scene_schema(),
+                        "source": {"type": "string", "enum": list(SCENE_SOURCES)},
+                        "source_detail": {"type": "string", "maxLength": 200},
+                    },
+                },
+            }
+        },
+    }
+
+
+def _scene_proposal_payload(task_input) -> dict:
+    return {
+        "persona_name": task_input.persona_name,
+        "persona_card": task_input.card,
+        "lorebook_titles": list(task_input.lore_titles),
+        "recent_conversation_themes": list(task_input.recent_themes),
+        # So the model proposes something new rather than restating the library.
+        "already_proposed_or_made": list(task_input.existing_summaries),
+        "how_many": task_input.limit,
+    }
+
+
+def _parse_scene_proposals(raw: str, task_input, _max_output_tokens: int) -> SceneProposalTaskOutput:
+    values = _strict_object(raw, {"proposals"})["proposals"]
+    if not isinstance(values, list):
+        raise TaskContractError("task model omitted scene proposals")
+    limit = max(1, min(int(task_input.limit or 1), 10))
+    proposals = []
+    seen = set()
+    for value in values[:limit]:
+        value = _optional_mapping(value, {"scene", "source", "source_detail"}, set(), label="scene proposal")
+        scene = normalize_scene(value.get("scene"))
+        summary = scene_summary(scene)
+        if not summary:
+            raise TaskContractError("task model proposed a scene with nothing in it")
+        source = str(value.get("source") or "").strip()
+        if source not in SCENE_SOURCES:
+            raise TaskContractError("task model proposed a scene from an unknown source")
+        key = summary.casefold()
+        if key in seen:
+            continue
+        seen.add(key)
+        proposals.append(
+            ProposedScene(
+                scene=scene,
+                source=source,
+                source_detail=_bounded_text(value.get("source_detail"), label="scene source detail", max_chars=200),
+            )
+        )
+    return SceneProposalTaskOutput(tuple(proposals))
 
 
 def _capability_schema(task_input: CapabilityPlanningTaskInput) -> dict:
@@ -989,6 +1095,21 @@ TASK_DEFINITIONS = {
         _capability_payload,
         _parse_capabilities,
         lambda _value: CapabilityPlanningTaskOutput(tuple()),
+    ),
+    SCENE_PROPOSAL: TaskDefinition(
+        SCENE_PROPOSAL,
+        "Scene proposals",
+        "Proposes pictures a persona could plausibly send, from what that persona already is.",
+        SceneProposalTaskInput,
+        4096,
+        768,
+        90.0,
+        0.7,
+        "skip",
+        _scene_proposal_schema,
+        _scene_proposal_payload,
+        _parse_scene_proposals,
+        lambda _value: SceneProposalTaskOutput(tuple()),
     ),
 }
 

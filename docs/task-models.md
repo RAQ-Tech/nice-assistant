@@ -107,3 +107,19 @@ quality. Final selection should also be timed on the Unraid deployment and
 observed through normal long-chat, memory-review, and media-request behavior.
 The active deployment record and selected model belong in
 `docs/deployment-acceptance.md`, not in product defaults.
+
+## Scene proposals
+
+A fifth role proposes pictures a persona could plausibly send, from the
+persona's own card, its lorebook titles, and what recent conversations were
+about. It returns typed scenes with provenance: which of those sources suggested
+each idea, and the specific detail it drew on.
+
+It never names a provider, model, LoRA, workflow, or generation setting, and it
+does not write prompt text - the same boundary every other role has. Its output
+lands in the persona's scene backlog as `proposed`; approval is a person's
+decision.
+
+Migration `0028_scene_proposal_role` widens the role vocabulary. The profile and
+run tables constrain it with a CHECK, and SQLite cannot alter one in place, so
+both are rebuilt with existing rows copied verbatim.

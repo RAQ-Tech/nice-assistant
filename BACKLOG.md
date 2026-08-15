@@ -57,7 +57,8 @@ generation preset record, its backfill, preset-directed planning, the scene
 contract, shortlist routing, the routing tester, starter presets,
 multi-pass stages, structural persona identity, the retained picture library,
 a preset-first Media Catalog, the merged Persona Pictures surface, per-persona
-preset preferences, and the scene backlog are delivered too. See
+preset preferences, and the scene backlog with automatic proposals are
+delivered too. See
 `docs/media-catalog.md`. Every item below adds its own stages to the journal
 rather than replacing it, so each one is reviewable from the picture it
 produced.
@@ -69,41 +70,27 @@ This program does not displace the voice-core items in section 3. Those remain
 the highest product priority and are blocked on an operator decision that has
 not been made; this work is what can actually progress in the meantime.
 
-1. **Propose scenes automatically from what a persona already is.** The scene
-    backlog exists and records provenance, but only an operator can put anything
-    in it. The ideas should come from the persona's card, its lorebook, and the
-    themes of recent conversation. Source: ADR 0030.
-
-    Done when:
-    - A task-model role proposes scenes for a persona from its card, lorebook,
-      and recent conversation themes.
-    - Each proposal records which of those suggested it, in the provenance the
-      backlog already carries.
-    - Proposals arrive as `proposed` and are never auto-approved, so nothing
-      reaches generation without a person agreeing to it.
-
-
-2. **Idle scheduler.** Produce backlog scenes on the background lane during
+1. **Idle scheduler.** Produce backlog scenes on the background lane during
     quiet hours. Source: ADR 0030.
 
     Done when production runs only inside an operator-configured window and
     behind the existing capacity coordinator, a live turn preempts it, and a
     test proves an interactive job is never delayed behind batch work.
 
-3. **Photo sets.** One idea, several frames sharing wardrobe, room, lighting,
+2. **Photo sets.** One idea, several frames sharing wardrobe, room, lighting,
     and seed family, varying pose and angle. Source: ADR 0030.
 
     Done when a set generates as a unit and serving can send several frames
     from the same set into one conversation.
 
-4. **Preference weighting.** Deliberately simple and inspectable.
+3. **Preference weighting.** Deliberately simple and inspectable.
     Source: ADR 0030.
 
     Done when only explicit signals are recorded, the weights are visible and
     resettable in settings, and nothing in the product describes this as
     learning beyond what it measurably does.
 
-5. **Preset export and import.** Source: ADR 0030.
+4. **Preset export and import.** Source: ADR 0030.
 
     Done when export scrubs machine-specific values and previews exactly what
     will leave, import remaps referenced checkpoints and LoRAs against the local
@@ -113,7 +100,7 @@ not been made; this work is what can actually progress in the meantime.
 
 ### 1B. Other ready work
 
-6. **Bring direct media actions under measured-capacity admission.** The direct
+5. **Bring direct media actions under measured-capacity admission.** The direct
     image buttons still use legacy provider settings through a disclosed manual
     plan, so their demand is unknown and they bypass catalog-estimate admission.
     They do take the shared-resource lease, but two different paths to the same
@@ -121,23 +108,23 @@ not been made; this work is what can actually progress in the meantime.
     generation. Source: `docs/debt-register.md`;
     `docs/human-experience-realignment-plan.md` baseline gap 8.
 
-7. **Move provider helper internals off legacy low-level inputs.** Routes use
+6. **Move provider helper internals off legacy low-level inputs.** Routes use
     SQLAlchemy repositories and unit-of-work boundaries, but some provider
     helpers still take HTTP/SQLite-shaped arguments. This is the remaining
     inconsistency in the persistence boundary. Source: `docs/debt-register.md`.
 
-8. **Lift provider-specific settings out of persona and UI records.** Provider
+7. **Lift provider-specific settings out of persona and UI records.** Provider
     details are embedded directly in those records, which couples persona data
     to whichever provider happened to be configured. Source:
     `docs/debt-register.md`.
 
-9. **Decide whether turn event replay needs a durable log.** Replay is bounded
+8. **Decide whether turn event replay needs a durable log.** Replay is bounded
     and process-local today. That is honest and sufficient for a single-process
     private-LAN deployment; it is listed so the limitation stays visible rather
     than being discovered during a future multi-process change. Source:
     `docs/debt-register.md`.
 
-10. **Second Task Model adapter.** The structured-output contract has exactly
+9. **Second Task Model adapter.** The structured-output contract has exactly
     one implementation (Ollama). A second adapter is what proves the contract is
     a real boundary rather than a description of one client. No additional
     provider may be advertised until it implements the same contract. Source:
@@ -172,13 +159,13 @@ Recorded rather than guessed because it trades product feel against reply
 latency, and because the third option adds a task role that should not appear
 without intent. Source: ADR 0030, ADR 0021.
 
-11. **Automatic expiry for rejected and forgotten memory.** Retention is durable
+10. **Automatic expiry for rejected and forgotten memory.** Retention is durable
     and users can permanently delete individual or bulk records, but there is no
     administrator-approved automatic expiry policy. The code change is small;
     the retention period and its defaults are the decision. Source:
     `docs/debt-register.md`, `docs/memory.md`.
 
-12. **Semantic memory retrieval.** Retrieval is lexical full-text search plus
+11. **Semantic memory retrieval.** Retrieval is lexical full-text search plus
     recency. Semantic retrieval remains an optional future interface and is
     deliberately not implied anywhere in the product. Adding it is a scope
     decision, not a blocked task. Source: `docs/debt-register.md`.
@@ -190,29 +177,29 @@ decision. These are the five open voice-core items, and they are the highest
 product priority once unblocked: the roadmap states that additional catalog
 breadth does not take priority over them.
 
-An important distinction, because it changes what can start early: items 13-15
+An important distinction, because it changes what can start early: items 12-14
 are provider-neutral infrastructure and could be built against the existing
-Kokoro path behind a flag. Only items 16-17 genuinely require the approved
-listening decision. Step 16 cannot select a provider until that decision
+Kokoro path behind a flag. Only items 15-16 genuinely require the approved
+listening decision. Step 15 cannot select a provider until that decision
 exists, and no unverified provider support may be advertised in the meantime.
 
-13. **Streaming TTS.** Begin playback before a complete response file exists.
+12. **Streaming TTS.** Begin playback before a complete response file exists.
     Today synthesis must finish before audio starts.
 
-14. **Automatic end-of-turn detection.** Detect that the user has stopped
+13. **Automatic end-of-turn detection.** Detect that the user has stopped
     speaking, with push-to-talk retained as a dependable fallback rather than
     replaced.
 
-15. **True barge-in.** Interrupting playback must also stop the superseded
+14. **True barge-in.** Interrupting playback must also stop the superseded
     provider work, not just mute the output.
 
-16. **Approved quality-first and local fallback chains for TTS and STT**, with
+15. **Approved quality-first and local fallback chains for TTS and STT**, with
     compact user-facing degradation notices. Requires the approved provider
-    chain from item 17.
+    chain from item 16.
 
-17. **Repeatable provider evaluation** on latency, reliability, and blind
+16. **Repeatable provider evaluation** on latency, reliability, and blind
     listening criteria - not configuration readiness alone. This is the
-    evaluation that unblocks item 16 and deferred roadmap steps 10-13.
+    evaluation that unblocks item 15 and deferred roadmap steps 10-13.
 
 Also blocked here: **final task-model selection**, which needs live latency and
 quality evaluation on the deployment GPU rather than the developer screening
@@ -224,30 +211,30 @@ Requires the installed private-LAN deployment and, where noted, a supervised
 session. Implementation is published for all of these; what remains is
 acceptance.
 
-18. **Deployment guard migration.** Complete the one-time supervised migration
+17. **Deployment guard migration.** Complete the one-time supervised migration
     from the legacy direct guard, then prove remote guard update, guard
     rollback and re-update, one-container deployment, and the final installed
     browser image journeys. Source: `docs/roadmap.md` step 24, ADR 0025,
     `docs/human-experience-realignment-plan.md`.
 
-19. **Installed acceptance for picture-message delivery.** Roadmap step 22 is
+18. **Installed acceptance for picture-message delivery.** Roadmap step 22 is
     published but not accepted on the real topology. Source: `docs/roadmap.md`,
     ADRs 0019-0020.
 
-20. **Installed acceptance for conversation cleanup.** Roadmap step 23, same
+19. **Installed acceptance for conversation cleanup.** Roadmap step 23, same
     situation. Source: `docs/roadmap.md`, ADR 0021.
 
-21. **Identity-stage latency and capacity acceptance.** Unaccepted until the
+20. **Identity-stage latency and capacity acceptance.** Unaccepted until the
     real verifier, consented references, and a compatible ComfyUI identity
     workflow are deployed together. The completed step 20 base media checks are
     explicitly not substitute evidence. Source: `docs/debt-register.md`,
     `docs/deployment-acceptance.md`.
 
-22. **Live capacity tuning for the deployment GPU.** Timing and capacity
+21. **Live capacity tuning for the deployment GPU.** Timing and capacity
     behavior under real memory limits remains deployment acceptance work.
     Source: `docs/roadmap.md` step 18C.
 
-23. **Installed acceptance for conversational image editing.** Delivered under
+22. **Installed acceptance for conversational image editing.** Delivered under
     ADR 0029 and covered by contract, API, and gate tests, but no installed
     browser journey has confirmed the confirmation card, the reference the
     planner chose, or a real ComfyUI edit workflow on the deployment. Until then
@@ -268,12 +255,12 @@ surface.
 Deliberately absent. Listed so none of it is mistaken for a regression, and so
 no stub is ever shipped in its place. See `docs/debt-register.md`.
 
-- Realtime and streaming TTS - no endpoint is advertised until step 16 lands.
+- Realtime and streaming TTS - no endpoint is advertised until step 15 lands.
 - Local speech-to-text - the setting is retained for migration compatibility
   but is disabled in the UI until a real adapter exists.
 - Realtime turn detection, partial transcripts, barge-in, and speech fallback.
 - Multi-reference identity fusion and automatic mask creation.
-- Preset discovery, ratings, or a shared registry. Item 5 delivers a file an
+- Preset discovery, ratings, or a shared registry. Item 4 delivers a file an
   operator can move deliberately; it is not a distribution channel.
 - Identity resemblance produced by resampling until a comparison passes. See
   ADR 0031: comparison is advisory measurement, never the mechanism.

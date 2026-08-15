@@ -603,6 +603,19 @@ class SceneBacklogCreate(StrictModel):
     source_detail: str = Field(default="", max_length=500)
 
 
+class SceneProposalRequest(StrictModel):
+    persona_id: str = Field(min_length=1, max_length=64)
+    limit: int = Field(default=5, ge=1, le=10)
+
+
+class SceneProposalResponse(BaseModel):
+    requested: int
+    # False when the task model did not answer and its fallback was used, so an
+    # empty result is not mistaken for "no ideas".
+    model_answered: bool = True
+    proposed: list[SceneBacklogRepresentation]
+
+
 class SceneBacklogStateUpdate(StrictModel):
     state: Literal["proposed", "approved", "retired"]
 
@@ -1924,6 +1937,17 @@ def propose_scene(body: SceneBacklogCreate, request: Request, context: AuthConte
         source="operator",
         source_detail=body.source_detail,
     )
+
+
+@router.post("/scene-backlog/proposals", response_model=SceneProposalResponse, tags=["media"])
+def propose_scenes_for_persona(
+    body: SceneProposalRequest,
+    request: Request,
+    context: AuthContext = Depends(current_user),
+):
+    """Propose pictures from what the persona already is. Nothing is approved."""
+
+    return services(request).scene_backlog.propose_from_persona(context.user_id, body.persona_id, limit=body.limit)
 
 
 @router.put(

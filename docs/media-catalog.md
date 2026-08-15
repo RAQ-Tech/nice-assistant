@@ -215,13 +215,28 @@ something to click - a state that claims progress nobody made is the kind of
 modelled state `AGENTS.md` rules out. A retired entry can be reconsidered, which
 returns it to proposed rather than jumping to approved.
 
-Nothing generates from the backlog yet. Producing these, and proposing them
-automatically from a persona's card, lorebook, and conversation themes, are
-separate items in `BACKLOG.md`. Recording proposals first means the ideas can be
-reviewed before any GPU time is spent on them.
+Scenes can be proposed automatically from what a persona already is: its card,
+its lorebook titles, and what its recent conversations were about. A dedicated
+Task Model role does this. Every proposal must say which of those suggested it
+and quote the detail it drew on, so a person can judge the idea rather than
+guess at it, and the model is given what has already been proposed so it does
+not restate the backlog.
 
-The API is `/api/v1/scene-backlog`, `/api/v1/scene-backlog/{id}/state`, and
-`/api/v1/scene-backlog/{id}`.
+Chat titles are used as the conversation signal because they are already a
+short, generated summary. Re-summarising message bodies for this would put
+private conversation content in a second place for no extra signal.
+
+Proposals arrive as `proposed` and are never approved automatically, so nothing
+reaches generation without a person agreeing to it. A response says whether the
+model answered, because a fallback and "no ideas" both come back empty and need
+different fixes.
+
+Nothing generates from the backlog yet. Producing the pictures is a separate
+item in `BACKLOG.md`. Recording proposals first means the ideas can be reviewed
+before any GPU time is spent on them.
+
+The API is `/api/v1/scene-backlog`, `/api/v1/scene-backlog/proposals`,
+`/api/v1/scene-backlog/{id}/state`, and `/api/v1/scene-backlog/{id}`.
 
 ## The retained picture library
 

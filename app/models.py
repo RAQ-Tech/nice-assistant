@@ -276,7 +276,7 @@ class TaskModelProfile(Base):
     __tablename__ = "task_model_profiles"
     __table_args__ = (
         CheckConstraint(
-            "role IN ('title_generation','conversation_summary','memory_extraction','capability_planning')",
+            "role IN ('title_generation','conversation_summary','memory_extraction','capability_planning','scene_proposal')",
             name="ck_task_model_profiles_role",
         ),
         CheckConstraint("enabled IN (0,1)", name="ck_task_model_profiles_enabled"),
@@ -312,7 +312,10 @@ class TaskModelRun(Base):
     __tablename__ = "task_model_runs"
     __table_args__ = (
         CheckConstraint(
-            "role IN ('title_generation','conversation_summary','memory_extraction','capability_planning')",
+            "role IN ("
+            "'title_generation','conversation_summary','memory_extraction',"
+            "'capability_planning','scene_proposal'"
+            ")",
             name="ck_task_model_runs_role",
         ),
         CheckConstraint(

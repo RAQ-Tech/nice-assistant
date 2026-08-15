@@ -148,11 +148,6 @@ def build_services(
         runtime.logger,
         entry_limit=config.media_library_entry_limit,
     )
-    scene_backlog = SceneBacklogService(
-        runtime.session_factory,
-        runtime.secret_store,
-        runtime.logger,
-    )
     media = MediaService(
         runtime.session_factory,
         runtime.secret_store,
@@ -201,6 +196,12 @@ def build_services(
         runtime.secret_store,
         registry,
         runtime.logger,
+    )
+    scene_backlog = SceneBacklogService(
+        runtime.session_factory,
+        runtime.secret_store,
+        runtime.logger,
+        task_models=task_models,
     )
     capabilities = CapabilityService(
         runtime.session_factory,
