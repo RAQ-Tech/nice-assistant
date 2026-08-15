@@ -18,6 +18,7 @@ from app.media import (
     user_safe_video_error,
 )
 from app.media_journal_service import NULL_JOURNAL as _NULL_JOURNAL
+from app.prompt_dialect import compile_prompt
 from app.provider_contracts import CancellationToken, MediaRequest, ProviderError
 from app.repositories import UnitOfWork, now_ts
 from app.service_errors import RequestError
@@ -351,17 +352,38 @@ class MediaService:
                     if isinstance(workflow_patch, dict)
                     else preferences.get("image_local_additional_parameters")
                 )
+                allow_nsfw_value = bool(
+                    values.get("allow_nsfw")
+                    if values.get("allow_nsfw") is not None
+                    else preferences.get("image_local_allow_nsfw", False)
+                )
+                compiled = compile_prompt(
+                    prompt,
+                    values.get("prompt_dialect"),
+                    loras=values.get("loras") or [],
+                    allow_nsfw=allow_nsfw_value,
+                )
+                recorder.record(
+                    "prompt_compiled",
+                    summary=f"{compiled['style']} dialect",
+                    detail={
+                        "style": compiled["style"],
+                        "positive": compiled["positive"],
+                        "negative": compiled["negative"],
+                        "trigger_words": compiled["trigger_words"],
+                        "supports_negative": compiled["supports_negative"],
+                        "safety_negative_applied": compiled["safety_negative_applied"],
+                        "truncated": compiled["truncated"],
+                        "dialect_configured": bool(values.get("prompt_dialect")),
+                    },
+                )
                 options = {
                     "operation": values.get("_operation") or "generate",
                     "backend": backend,
                     "base_url": base_url,
                     "size": values.get("size") or preferences.get("image_size") or size,
                     "quality": quality,
-                    "allow_nsfw": bool(
-                        values.get("allow_nsfw")
-                        if values.get("allow_nsfw") is not None
-                        else preferences.get("image_local_allow_nsfw", False)
-                    ),
+                    "allow_nsfw": allow_nsfw_value,
                     "local_settings": {
                         "steps": values.get("steps") or preferences.get("image_local_steps"),
                         "cfg_scale": values.get("cfg_scale") or preferences.get("image_local_cfg_scale"),
@@ -387,6 +409,8 @@ class MediaService:
                         "seed_bindings": values.get("seed_bindings") or [],
                         "width_bindings": values.get("width_bindings") or [],
                         "height_bindings": values.get("height_bindings") or [],
+                        "compiled_prompt": compiled["positive"],
+                        "compiled_negative": compiled["negative"],
                     },
                 }
             else:

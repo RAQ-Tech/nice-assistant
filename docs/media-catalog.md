@@ -41,6 +41,33 @@ editor remains available for deliberate manual changes. An enabled workflow must
 have a non-empty patch; an enabled
 `identity_control` workflow must also have at least one valid binding.
 
+## Prompt dialect
+
+Prompt syntax is a property of the checkpoint, not of the request. A model
+resource carries a `prompt_dialect` in its default settings declaring style
+(`natural_language`, `booru`, or `hybrid`), prefix and suffix templates, its own
+negative prompt, whether it supports a negative prompt at all, where LoRA
+trigger words belong, and an optional target length.
+
+A deterministic compiler renders the request into that dialect before
+submission: the same request and dialect always produce the same text, which is
+what makes the compiled prompt worth recording. Both the positive and negative
+text appear in the generation journal along with the decisions taken, so an
+operator can see exactly why the submitted text differs from what was asked for.
+
+The platform safety negative applied when NSFW output is disabled is kept
+separate from the model's own negative, so editing one never silently weakens
+the other. A dialect declaring no negative support sends none - and the journal
+records that the safety negative could not be carried, rather than implying it
+was.
+
+A model with no configured dialect uses a default that reproduces the previous
+behavior exactly, so nothing changes until an operator edits it. That default is
+a starting point, not a recommendation: the quality boilerplate it carries suits
+older Stable Diffusion checkpoints and actively harms several current families.
+Dialects are edited today through the advanced default-settings editor; a
+purpose-built editor arrives with presets.
+
 ## Declared request inputs
 
 A workflow must say where the request goes. `prompt_bindings`,

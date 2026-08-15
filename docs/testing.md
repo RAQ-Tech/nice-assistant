@@ -148,6 +148,14 @@ installed-browser acceptance.
   before bindings existed keeps its previous behavior; that an enabled workflow
   without a prompt binding is refused; and that inspection lists text, seed, and
   dimension candidates while never offering an input driven by another node.
+- Prompt dialect tests prove two dialects render the same request differently,
+  that a dialect declaring no negative support sends none and does not imply the
+  safety negative was carried, that the platform safety negative stays separate
+  from the model's own, that compilation is pure, that trigger words land where
+  the dialect says, that a target length truncates on a tag boundary, that an
+  unstated dialect reproduces the previous behavior, that invalid dialect fields
+  are refused by name, that the client sends compiled text without restyling it,
+  and that the compiled positive and negative reach the journal.
 - API tests use isolated temporary databases and deterministic fake providers.
 - Migration tests upgrade pre-0004/0005/0007/0008/0009/0010/0011/0012/0013/0014/0015/0016/0017/0019/0021/0022 databases and prove
   chats, messages, jobs, media, memories, turn ordering, stored artifact links,

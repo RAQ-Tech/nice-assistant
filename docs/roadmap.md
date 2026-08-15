@@ -128,6 +128,16 @@ driven by another node. Workflows saved before bindings existed keep their
 previous behavior and are reported as needing binding review. See ADR 0030 and
 `docs/media-catalog.md`.
 
+Prompt construction is now per model. A `prompt_dialect` on a model resource
+declares style, prefix and suffix, its own negative prompt, whether a negative
+is supported at all, trigger-word placement, and a target length; a
+deterministic compiler renders the request into it before submission and records
+the result in the journal. The platform safety negative stays separate from the
+model's negative, and a model that takes no negative prompt never implies it
+carried one. Models with no configured dialect keep the previous behavior
+through an explicit default rather than compiled-in text. See ADR 0030 and
+`docs/media-catalog.md`.
+
 ## Deferred voice core
 
 10. Blind TTS evaluation and provider decision.

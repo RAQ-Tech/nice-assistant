@@ -54,10 +54,10 @@ def _normalized_loras(values) -> list[dict]:
     return result
 
 
-def _prompt_with_loras(prompt: str, values, *, syntax: bool = True) -> str:
+def _prompt_with_loras(prompt: str, values, *, syntax: bool = True, triggers: bool = True) -> str:
     loras = _normalized_loras(values)
-    triggers = [word for item in loras for word in item["trigger_words"]]
-    parts = [prompt, *triggers]
+    trigger_words = [word for item in loras for word in item["trigger_words"]] if triggers else []
+    parts = [prompt, *trigger_words]
     if syntax:
         parts.extend(f"<lora:{item['name']}:{item['weight']:g}>" for item in loras)
     return ", ".join(part for part in parts if part)
@@ -223,9 +223,19 @@ def openai_video(prompt, size, seconds, api_key, model="sora-2", input_reference
 def automatic1111_image(prompt, size, quality, allow_nsfw, base_url, local_settings=None):
     settings = local_settings or {}
     width, height = parse_image_size(size, allow_custom=True)
+    compiled = settings.get("compiled_prompt")
+    positive = (
+        _prompt_with_loras(str(compiled), settings.get("loras"), triggers=False)
+        if compiled is not None
+        else _prompt_with_loras(adjust_prompt_for_local_sd(prompt, allow_nsfw, quality), settings.get("loras"))
+    )
     payload = {
-        "prompt": _prompt_with_loras(adjust_prompt_for_local_sd(prompt, allow_nsfw, quality), settings.get("loras")),
-        "negative_prompt": local_negative_prompt(allow_nsfw, quality),
+        "prompt": positive,
+        "negative_prompt": (
+            str(settings.get("compiled_negative") or "")
+            if compiled is not None
+            else local_negative_prompt(allow_nsfw, quality)
+        ),
         "width": width,
         "height": height,
         "steps": max(1, int(_coerce_number(settings.get("steps"), local_steps_from_quality(quality), int))),
@@ -386,8 +396,15 @@ def comfyui_image(prompt, size, quality, allow_nsfw, base_url, local_settings=No
     settings = local_settings or {}
     width, height = parse_image_size(size, allow_custom=True)
     loras = _normalized_loras(settings.get("loras"))
-    tuned = _prompt_with_loras(adjust_prompt_for_local_sd(prompt, allow_nsfw, quality), loras, syntax=False)
-    negative = local_negative_prompt(allow_nsfw, quality)
+    compiled = settings.get("compiled_prompt")
+    if compiled is not None:
+        # The platform compiled this against the model's declared dialect, so
+        # the client must not re-apply any style of its own.
+        tuned = str(compiled)
+        negative = str(settings.get("compiled_negative") or "")
+    else:
+        tuned = _prompt_with_loras(adjust_prompt_for_local_sd(prompt, allow_nsfw, quality), loras, syntax=False)
+        negative = local_negative_prompt(allow_nsfw, quality)
     steps = max(1, int(_coerce_number(settings.get("steps"), local_steps_from_quality(quality), int)))
     cfg = max(1.0, _coerce_number(settings.get("cfg_scale"), 7.0, float))
     seed = local_seed_for_backend(settings.get("seed"), "comfyui")

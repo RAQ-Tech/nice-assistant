@@ -14,6 +14,7 @@ from app.identity_conditioning import (
 )
 from app.identity_images import MAX_REFERENCE_BYTES, read_identity_image_file
 from app.media_planner import PROVIDER_DEFAULT, build_media_plan
+from app.prompt_dialect import normalize_dialect
 from app.repositories import UnitOfWork
 from app.service_errors import ConflictError, NotFoundError, RequestError
 
@@ -1007,7 +1008,16 @@ class MediaCatalogService:
         elif resource_type == "model" and provider_key == "openai-video":
             allowed = {"size", "seconds"}
         elif resource_type == "model":
-            allowed = {"size", "quality", "steps", "cfg_scale", "sampler_name", "scheduler", "allow_nsfw"}
+            allowed = {
+                "size",
+                "quality",
+                "steps",
+                "cfg_scale",
+                "sampler_name",
+                "scheduler",
+                "allow_nsfw",
+                "prompt_dialect",
+            }
         elif resource_type == "lora":
             allowed = {"weight", "trigger_words"}
         else:
@@ -1047,6 +1057,8 @@ class MediaCatalogService:
             for key, label in WORKFLOW_REQUEST_BINDINGS:
                 result[key] = MediaCatalogService._normalize_comfy_bindings(patch, result.get(key) or [], label)
         if resource_type == "model":
+            if "prompt_dialect" in result:
+                result["prompt_dialect"] = normalize_dialect(result["prompt_dialect"])
             result = {key: value for key, value in result.items() if value not in (None, "")}
             try:
                 if "steps" in result:
