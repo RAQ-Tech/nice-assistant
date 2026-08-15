@@ -225,6 +225,7 @@ class MediaCatalogTests(unittest.TestCase):
                 "appearance_description": "short copper hair and green eyes",
                 "acceptance_threshold": 0.78,
                 "max_generation_attempts": 2,
+                "comparison_retry_enabled": True,
                 "failure_policy": "block_claim",
             },
         )
@@ -825,6 +826,7 @@ class MediaCatalogTests(unittest.TestCase):
                     "appearance_description": "short copper hair, green eyes, a small cheek scar",
                     "acceptance_threshold": 0.78,
                     "max_generation_attempts": 2,
+                    "comparison_retry_enabled": True,
                     "failure_policy": "block_claim",
                 },
             )
@@ -999,6 +1001,7 @@ class MediaCatalogTests(unittest.TestCase):
                     "appearance_description": "short copper hair and green eyes",
                     "acceptance_threshold": 0.78,
                     "max_generation_attempts": 2,
+                    "comparison_retry_enabled": True,
                     "failure_policy": "block_claim",
                     "conditioning_fallback": "require_conditioning",
                 },
@@ -1026,6 +1029,7 @@ class MediaCatalogTests(unittest.TestCase):
                     "appearance_description": "short copper hair and green eyes",
                     "acceptance_threshold": 0.78,
                     "max_generation_attempts": 2,
+                    "comparison_retry_enabled": True,
                     "failure_policy": "block_claim",
                     "conditioning_fallback": "allow_unconditioned",
                 },
@@ -1108,6 +1112,7 @@ class MediaCatalogTests(unittest.TestCase):
                     "appearance_description": "private draft appearance text",
                     "acceptance_threshold": 0.78,
                     "max_generation_attempts": 2,
+                    "comparison_retry_enabled": True,
                     "failure_policy": "block_claim",
                     "conditioning_fallback": "allow_unconditioned",
                 },
@@ -1220,6 +1225,7 @@ class MediaCatalogTests(unittest.TestCase):
                     "appearance_description": "green eyes",
                     "acceptance_threshold": 0.78,
                     "max_generation_attempts": 2,
+                    "comparison_retry_enabled": True,
                     "failure_policy": "block_claim",
                 },
             )
@@ -1268,6 +1274,7 @@ class MediaCatalogTests(unittest.TestCase):
                     "appearance_description": "green eyes and silver hair",
                     "acceptance_threshold": 0.78,
                     "max_generation_attempts": 2,
+                    "comparison_retry_enabled": True,
                     "failure_policy": "block_claim",
                 },
             )

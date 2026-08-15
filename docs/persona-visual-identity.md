@@ -1,5 +1,32 @@
 # Persona visual identity
 
+## How resemblance is produced
+
+Resemblance comes from a declared conditioning mechanism recorded on the
+persona, not from generating candidates until a comparison passes. A profile
+carries which mechanism applies - reference-adapter conditioning, or an identity
+pass in a multi-pass preset - alongside its approved reference set and canonical
+appearance text. That is the Identity Spec, and it is the control.
+
+A comparison afterwards is advisory measurement. It scores a finished candidate
+and labels it; nothing about scoring a result makes the next result better. The
+comparison-driven retry loop from ADR 0013 still exists and is still bounded,
+but it is off unless an operator deliberately switches it on, because resampling
+until a check passes is a check standing in for a control.
+
+Nothing requires a verifier to be running. Readiness is answered on demand and
+never polled on a timer, so an optional comparison service imposes no standing
+cost. A persona image generates, is labeled `unverified`, and attempts no
+comparison when none is configured - a normal state, not a degraded one. The one
+unchanged exception is a profile whose saved policy is `require_conditioning`,
+which still blocks, because that policy is about conditioning rather than
+measurement.
+
+`verified` still means what it meant. It requires a real passed comparison, per
+ADR 0010 and ADR 0012. Turning comparison off does not turn unverified results
+into verified ones; it means results are labeled unverified, which is the
+truthful description of an unmeasured image. See ADR 0031.
+
 ## Trust boundary
 
 Nice Assistant is the source of truth for persona identity profiles, explicit

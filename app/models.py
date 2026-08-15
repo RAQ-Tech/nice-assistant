@@ -549,6 +549,10 @@ class PersonaVisualIdentity(Base):
             "conditioning_fallback IN ('allow_unconditioned','require_conditioning')",
             name="ck_visual_identity_conditioning_fallback",
         ),
+        CheckConstraint(
+            "conditioning_mechanism IN ('reference_adapter','identity_pass')",
+            name="ck_visual_identity_mechanism",
+        ),
         UniqueConstraint("user_id", "persona_id", name="uq_visual_identity_owner_persona"),
         Index("idx_visual_identity_owner_status", "user_id", "status"),
     )
@@ -562,6 +566,11 @@ class PersonaVisualIdentity(Base):
     max_generation_attempts: Mapped[int] = mapped_column(Integer, nullable=False, default=2)
     failure_policy: Mapped[str] = mapped_column(Text, nullable=False, default="show_unverified")
     conditioning_fallback: Mapped[str] = mapped_column(Text, nullable=False, default="allow_unconditioned")
+    # How resemblance is produced. ADR 0031: this is the control; comparison is
+    # advisory measurement that happens afterwards.
+    conditioning_mechanism: Mapped[str] = mapped_column(Text, nullable=False, default="reference_adapter")
+    conditioning_parameters_json: Mapped[str] = mapped_column(Text, nullable=False, default="{}")
+    comparison_retry_enabled: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     revision: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
     last_validation_sequence: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     last_event_sequence: Mapped[int] = mapped_column(Integer, nullable=False, default=0)

@@ -2,6 +2,9 @@ from __future__ import annotations
 
 
 IDENTITY_CONTROL_FEATURE = "identity_control"
+# How a picture is made to resemble the persona. ADR 0031: the mechanism is
+# the control; a comparison afterwards is measurement, not a means.
+CONDITIONING_MECHANISMS = ("reference_adapter", "identity_pass")
 IDENTITY_CONDITIONING_MODE = "approved_reference_workflow"
 IDENTITY_UNCONDITIONED_MODE = "appearance_guidance_only"
 
@@ -29,6 +32,8 @@ def public_identity_conditioning(
         "correction_workflow_resource_id": snapshot.get("correction_workflow_resource_id"),
         "acceptance_threshold": snapshot.get("acceptance_threshold"),
         "max_generation_attempts": snapshot.get("max_generation_attempts"),
+        "conditioning_mechanism": snapshot.get("conditioning_mechanism"),
+        "comparison_retry_enabled": snapshot.get("comparison_retry_enabled"),
         "failure_policy": snapshot.get("failure_policy"),
         "conditioning_fallback": snapshot.get("conditioning_fallback"),
         "appearance_description_included": bool(snapshot.get("appearance_description")),

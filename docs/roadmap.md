@@ -199,6 +199,16 @@ otherwise, each stage journals separately, intermediates never reach the
 library, and sequential stages are admitted as the largest rather than the sum,
 per ADR 0013. See ADR 0030.
 
+Persona resemblance is now structural. A profile records the conditioning
+mechanism that produces it alongside its reviewed references and appearance
+text, and the comparison-driven retry loop is off unless an operator switches it
+on. Comparison is advisory measurement: nothing requires a verifier to be
+running, readiness is answered on demand rather than polled, and a persona image
+generates and is labeled `unverified` when none is configured. `verified` still
+requires a real passed comparison. Migration `0024_identity_spec` adds the spec
+columns and switches the retry loop off for existing profiles without touching
+references, consent, validations, or completed plans. See ADR 0031.
+
 ## Deferred voice core
 
 10. Blind TTS evaluation and provider decision.

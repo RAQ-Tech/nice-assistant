@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Cookie, Depends, File, Form, Query, Request, Response, UploadFile
 from fastapi.responses import FileResponse
+from typing import Literal
+
 from pydantic import BaseModel, ConfigDict, Field
 
 from app.application import ApplicationServices
@@ -28,6 +30,9 @@ class VisualIdentityWrite(StrictModel):
     appearance_description: str = Field(default="", max_length=8000)
     acceptance_threshold: float = Field(default=0.78, ge=0, le=1)
     max_generation_attempts: int = Field(default=2, ge=1, le=10)
+    conditioning_mechanism: Literal["reference_adapter", "identity_pass"] = "reference_adapter"
+    # ADR 0031: off unless an operator deliberately switches it on.
+    comparison_retry_enabled: bool = False
     failure_policy: str = Field(default="show_unverified", pattern="^(block_claim|show_unverified)$")
     conditioning_fallback: str = Field(
         default="allow_unconditioned",

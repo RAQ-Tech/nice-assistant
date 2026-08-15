@@ -55,7 +55,7 @@ Phase 1 is delivered: the per-generation journal, declared workflow request
 bindings, per-model prompt dialects, and conversation context for planning. The
 generation preset record, its backfill, preset-directed planning, the scene
 contract, shortlist routing, the routing tester, starter presets,
-and multi-pass stages are delivered too. See
+multi-pass stages, and the persona Identity Spec are delivered too. See
 `docs/media-catalog.md`. Every item below adds its own stages to the journal
 rather than replacing it, so each one is reviewable from the picture it
 produced.
@@ -67,23 +67,19 @@ This program does not displace the voice-core items in section 3. Those remain
 the highest product priority and are blocked on an operator decision that has
 not been made; this work is what can actually progress in the meantime.
 
-1. **Persona Identity Spec, and comparison demoted to advisory.**
-    Source: ADR 0031.
+1. **Presets declare which identity mechanisms they implement.** The persona
+   Identity Spec records the mechanism that produces resemblance, and the
+   comparison retry loop is demoted, but a preset does not yet declare which
+   mechanisms it can apply. Until it does, a persona image can still be planned
+   against a preset whose graph cannot honor the spec. Source: ADR 0031.
 
-    Done when:
-    - A persona carries a durable Identity Spec: approved reference set,
-      canonical appearance text, the required conditioning mechanism, and the
-      parameters tested for that persona.
-    - Presets declare which identity mechanisms they implement, and a persona
-      image plans only against a preset whose mechanism the spec supports,
-      subject to the existing ADR 0018 fallback policy.
-    - The comparison-driven retry loop is off by default and stays bounded when
-      enabled.
-    - A persona image generates with no verifier configured, is labeled
-      `unverified`, and attempts no comparison.
-    - No code path polls the verifier on a timer; readiness is on demand only.
-    - `docs/persona-visual-identity.md` and `docs/media-catalog.md` describe
-      comparison as optional post-hoc measurement throughout.
+   Done when:
+   - A preset declares the identity mechanisms it implements.
+   - A persona image plans only against a preset whose declared mechanism the
+     Identity Spec supports, subject to the existing ADR 0018 fallback policy.
+   - A preset that cannot honor the spec is rejected with a reason naming the
+     mechanism, not silently downgraded.
+
 
 2. **Image library and ready-image serving.** The serving half of
     pre-generation, valuable against a hand-filled library. Source: ADR 0030.

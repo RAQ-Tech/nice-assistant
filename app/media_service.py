@@ -169,11 +169,17 @@ class MediaService:
                 "policy": (identity or {}).get("policy"),
                 "reason": (identity or {}).get("reason"),
                 "max_generation_attempts": (conditioned_identity or {}).get("max_generation_attempts"),
+                "conditioning_mechanism": (conditioned_identity or {}).get("conditioning_mechanism"),
+                "comparison_retry_enabled": bool((conditioned_identity or {}).get("comparison_retry_enabled")),
                 "acceptance_threshold": (conditioned_identity or {}).get("acceptance_threshold"),
                 "workflow_resource_id": (conditioned_identity or {}).get("workflow_resource_id"),
             },
         )
-        max_attempts = int((conditioned_identity or {}).get("max_generation_attempts") or 1)
+        # ADR 0031: resemblance comes from the declared mechanism. Resampling
+        # until a comparison passes is a check standing in for a control, so
+        # it runs only when an operator deliberately switched it on.
+        retry_enabled = bool((conditioned_identity or {}).get("comparison_retry_enabled"))
+        max_attempts = int((conditioned_identity or {}).get("max_generation_attempts") or 1) if retry_enabled else 1
         candidates = []
         attempt_values = dict(values)
         for attempt_number in range(1, max_attempts + 1):

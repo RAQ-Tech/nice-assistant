@@ -330,8 +330,10 @@ adapters remain generation-only. Explicit edits use
 `POST /api/v1/media/image-edit-jobs`; inpaint and outpaint require both an
 owner-scoped source media ID and mask media ID.
 
-When a real identity comparison falls below threshold, the attempt policy reruns
-up to the snapshotted limit. A compatible identity-control image-to-image
+A comparison is advisory measurement, not the means by which a persona keeps a
+consistent face; that is the persona's declared conditioning mechanism. When an
+operator has deliberately enabled the retry loop and a real comparison falls
+below threshold, the attempt policy reruns up to the snapshotted limit. A compatible identity-control image-to-image
 workflow receives the previous candidate through its source binding; otherwise
 the original graph reruns. Sequential stages reserve the maximum stage estimate,
 including compatible LoRAs, rather than summing stages that never coexist.

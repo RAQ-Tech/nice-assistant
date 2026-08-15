@@ -7,7 +7,7 @@ import secrets
 
 from app.auth import redact_sensitive_text
 from app.compreface_identity_provider import normalize_compreface_base_url
-from app.identity_conditioning import public_identity_conditioning
+from app.identity_conditioning import CONDITIONING_MECHANISMS, public_identity_conditioning
 from app.identity_contracts import IdentityVerificationRequest
 from app.identity_images import (
     MAX_CANDIDATE_BYTES,
@@ -138,6 +138,9 @@ class IdentityService:
     def save_profile(self, user_id: str, persona_id: str, values: dict) -> dict:
         threshold = float(values.get("acceptance_threshold", 0.78))
         attempts = int(values.get("max_generation_attempts", 2))
+        mechanism = str(values.get("conditioning_mechanism") or "reference_adapter").strip()
+        if mechanism not in CONDITIONING_MECHANISMS:
+            raise RequestError("unsupported identity conditioning mechanism", 400)
         policy = str(values.get("failure_policy") or "show_unverified")
         conditioning_fallback = str(values.get("conditioning_fallback") or "allow_unconditioned")
         if threshold < 0 or threshold > 1:
@@ -154,6 +157,8 @@ class IdentityService:
             identity.appearance_description = description or None
             identity.acceptance_threshold = threshold
             identity.max_generation_attempts = attempts
+            identity.conditioning_mechanism = mechanism
+            identity.comparison_retry_enabled = int(bool(values.get("comparison_retry_enabled", False)))
             identity.failure_policy = policy
             identity.conditioning_fallback = conditioning_fallback
             identity.revision += 1
@@ -774,6 +779,8 @@ class IdentityService:
             "appearance_description": identity.appearance_description or "",
             "acceptance_threshold": identity.acceptance_threshold,
             "max_generation_attempts": identity.max_generation_attempts,
+            "conditioning_mechanism": identity.conditioning_mechanism,
+            "comparison_retry_enabled": bool(identity.comparison_retry_enabled),
             "failure_policy": identity.failure_policy,
             "conditioning_fallback": identity.conditioning_fallback,
             "revision": identity.revision,
@@ -836,6 +843,8 @@ class IdentityService:
             "appearance_description": "",
             "acceptance_threshold": 0.78,
             "max_generation_attempts": 2,
+            "conditioning_mechanism": "reference_adapter",
+            "comparison_retry_enabled": False,
             "failure_policy": "show_unverified",
             "conditioning_fallback": "allow_unconditioned",
             "revision": 0,

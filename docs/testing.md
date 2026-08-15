@@ -210,6 +210,11 @@ installed-browser acceptance.
   and no scratch file is left behind, that a later stage without a source image
   binding is refused when the preset is saved, and that sequential stages are
   costed as the largest rather than the sum.
+- Identity spec tests prove a new profile records its conditioning mechanism and
+  leaves the comparison retry loop off, that an unimplemented mechanism is
+  refused, that an operator can switch the bounded retry on deliberately, that a
+  persona image generates and completes with no verifier configured, and that no
+  code path polls the verifier on a timer.
 - API tests use isolated temporary databases and deterministic fake providers.
 - Migration tests upgrade pre-0004/0005/0007/0008/0009/0010/0011/0012/0013/0014/0015/0016/0017/0019/0021/0022 databases and prove
   chats, messages, jobs, media, memories, turn ordering, stored artifact links,
