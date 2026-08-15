@@ -87,6 +87,7 @@ def main() -> int:
                 "app/media_service.py",
                 "app/prompt_dialect.py",
                 "app/media_planner.py",
+                "app/media_preset.py",
                 "app/memory_service.py",
                 "app/models.py",
                 "app/ollama_provider.py",

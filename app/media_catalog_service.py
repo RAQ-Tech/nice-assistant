@@ -14,6 +14,7 @@ from app.identity_conditioning import (
 )
 from app.identity_images import MAX_REFERENCE_BYTES, read_identity_image_file
 from app.media_planner import PROVIDER_DEFAULT, build_media_plan
+from app.media_preset import normalize_definition
 from app.prompt_dialect import normalize_dialect
 from app.repositories import UnitOfWork
 from app.service_errors import ConflictError, NotFoundError, RequestError
@@ -126,6 +127,181 @@ class MediaCatalogService:
                 "resources": [self._resource_response(uow.repo, row) for row in resources],
                 "vocabulary": self._vocabulary(resources),
             }
+
+    # -- generation presets -------------------------------------------------
+
+    def presets(self, user_id: str, *, kind: str | None = None) -> list[dict]:
+        with self._uow() as uow:
+            self._ensure_imported(uow.repo, user_id)
+            self._ensure_presets(uow.repo, user_id)
+            return [self._preset_response(row) for row in uow.repo.media_presets(user_id, kind=kind)]
+
+    def preset(self, user_id: str, preset_id: str) -> dict:
+        with self._uow() as uow:
+            row = uow.repo.media_preset(user_id, preset_id)
+            if not row:
+                raise NotFoundError("generation preset not found")
+            return self._preset_response(row)
+
+    def create_preset(self, user_id: str, values: dict) -> dict:
+        with self._uow() as uow:
+            self._ensure_imported(uow.repo, user_id)
+            row = uow.repo.add_media_preset(user_id=user_id, values=self._preset_values(uow.repo, user_id, values))
+            return self._preset_response(row)
+
+    def update_preset(self, user_id: str, preset_id: str, values: dict) -> dict:
+        with self._uow() as uow:
+            row = uow.repo.media_preset(user_id, preset_id)
+            if not row:
+                raise NotFoundError("generation preset not found")
+            updated = uow.repo.update_media_preset(row, self._preset_values(uow.repo, user_id, values))
+            return self._preset_response(updated)
+
+    def delete_preset(self, user_id: str, preset_id: str) -> bool:
+        with self._uow() as uow:
+            row = uow.repo.media_preset(user_id, preset_id)
+            if not row:
+                return False
+            uow.repo.delete_media_preset(row)
+            return True
+
+    def _ensure_presets(self, repo, user_id: str) -> None:
+        """Give every enabled base model a preset, once.
+
+        Lazy per owner rather than a migration backfill, the same way the
+        catalog already imports legacy provider settings. An account configured
+        after the migration gets the same treatment without a second migration.
+        """
+
+        existing = repo.media_presets(user_id)
+        covered = {_json(row.definition_json, {}).get("base_model_resource_id") for row in existing}
+        taken = {row.name for row in existing}
+        setting = repo.media_catalog_setting(user_id)
+        for model in repo.media_catalog_resources(user_id, enabled=True):
+            if model.resource_type != "model" or model.id in covered:
+                continue
+            name = model.name
+            suffix = 2
+            while name in taken:
+                name = f"{model.name} ({suffix})"
+                suffix += 1
+            taken.add(name)
+            settings = _json(model.default_settings_json, {})
+            sampler = {
+                key: settings[key] for key in ("steps", "cfg_scale", "sampler_name", "scheduler") if key in settings
+            }
+            definition = normalize_definition(
+                {
+                    "base_model_resource_id": model.id,
+                    "prompt_dialect": settings.get("prompt_dialect"),
+                    "sampler": sampler,
+                    "dimensions": [settings["size"]] if settings.get("size") else [],
+                    # One open slot reproduces today's automatic LoRA selection,
+                    # still gated by the explicit compatibility edges.
+                    "lora_slots": [{"name": "auto", "max": max(1, int(setting.max_loras or 1))}],
+                }
+            )
+            repo.add_media_preset(
+                user_id=user_id,
+                values={
+                    "name": name,
+                    "kind": model.kind,
+                    "enabled": 1,
+                    "priority": model.priority,
+                    "routing_card": "",
+                    "operations_json": model.operations_json,
+                    "domains_json": model.domains_json,
+                    "content_tags_json": model.content_tags_json,
+                    "features_json": model.features_json,
+                    "definition_json": _wire_json(definition),
+                    "estimated_vram_mb": model.estimated_vram_mb,
+                    "notes": None,
+                },
+            )
+
+    def _preset_values(self, repo, user_id: str, values: dict) -> dict:
+        if not isinstance(values, dict):
+            raise RequestError("preset must be an object", 400)
+        name = str(values.get("name") or "").strip()
+        if not name or len(name) > 120:
+            raise RequestError("preset name is required and must be at most 120 characters", 400)
+        kind = str(values.get("kind") or "image").strip()
+        if kind not in MEDIA_KINDS:
+            raise RequestError("preset kind must be image or video", 400)
+        operations = _tags(values.get("operations") or ["generate"], label="operations")
+        if not operations or not set(operations) <= MEDIA_OPERATIONS:
+            raise RequestError("preset operations are invalid", 400)
+        priority = int(values.get("priority", 50))
+        if not 0 <= priority <= 100:
+            raise RequestError("preset priority must be between 0 and 100", 400)
+        definition = normalize_definition(values.get("definition") or {})
+        self._check_preset_references(repo, user_id, kind, definition)
+        return {
+            "name": name,
+            "kind": kind,
+            "enabled": int(bool(values.get("enabled", True))),
+            "priority": priority,
+            "routing_card": str(values.get("routing_card") or "").strip()[:2000],
+            "operations_json": _wire_json(operations),
+            "domains_json": _wire_json(_tags(values.get("domains") or [], label="domains")),
+            "content_tags_json": _wire_json(_tags(values.get("content_tags") or [], label="content tags")),
+            "features_json": _wire_json(_tags(values.get("features") or [], label="features")),
+            "definition_json": _wire_json(definition),
+            "estimated_vram_mb": max(0, int(values.get("estimated_vram_mb", 0))),
+            "notes": str(values.get("notes") or "").strip()[:4000] or None,
+        }
+
+    @staticmethod
+    def _check_preset_references(repo, user_id: str, kind: str, definition: dict) -> None:
+        """Every resource a preset names must exist, match its kind, and be paired.
+
+        A preset is meant to be a combination someone has run. Letting it point
+        at a LoRA the catalog never paired with its checkpoint would recreate
+        exactly the untested-combination problem presets exist to remove.
+        """
+
+        resources = {row.id: row for row in repo.media_catalog_resources(user_id)}
+        base = resources.get(definition["base_model_resource_id"])
+        if not base or base.resource_type != "model" or base.kind != kind:
+            raise RequestError("preset base model must be a catalog model of the same kind", 400)
+        compatibility = repo.media_compatibility_map(user_id)
+        workflow_roles = [("workflow", definition["workflow_resource_id"])]
+        workflow_roles.extend(("stage workflow", stage["workflow_resource_id"]) for stage in definition["stages"])
+        for role, resource_id in workflow_roles:
+            if not resource_id:
+                continue
+            row = resources.get(resource_id)
+            if not row or row.resource_type != "workflow" or row.kind != kind:
+                raise RequestError(f"preset {role} must be a catalog workflow of the same kind", 400)
+            if base.id not in compatibility.get(row.id, set()):
+                raise RequestError(f"preset {role} is not marked compatible with the base model", 400)
+        for item in definition["fixed_loras"]:
+            row = resources.get(item["resource_id"])
+            if not row or row.resource_type != "lora" or row.kind != kind:
+                raise RequestError("preset LoRAs must be catalog LoRAs of the same kind", 400)
+            if base.id not in compatibility.get(row.id, set()):
+                raise RequestError(f"preset LoRA '{row.name}' is not marked compatible with the base model", 400)
+
+    @staticmethod
+    def _preset_response(row) -> dict:
+        return {
+            "id": row.id,
+            "name": row.name,
+            "kind": row.kind,
+            "enabled": bool(row.enabled),
+            "priority": row.priority,
+            "routing_card": row.routing_card or "",
+            "operations": _json(row.operations_json, []),
+            "domains": _json(row.domains_json, []),
+            "content_tags": _json(row.content_tags_json, []),
+            "features": _json(row.features_json, []),
+            "definition": _json(row.definition_json, {}),
+            "estimated_vram_mb": row.estimated_vram_mb,
+            "notes": row.notes or "",
+            "created_at": row.created_at,
+            "updated_at": row.updated_at,
+            "revision": row.revision,
+        }
 
     def update_settings(self, user_id: str, values: dict) -> dict:
         with self._uow() as uow:

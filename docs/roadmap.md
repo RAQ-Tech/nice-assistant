@@ -144,6 +144,16 @@ correctly. Persona reply prose remains excluded exactly as ADR 0017 requires,
 the window is bounded in count and characters, and the window that informed a
 picture is recorded in its journal. ADR 0017 is amended in place.
 
+Generation presets are now a durable record. A preset holds its base checkpoint,
+optional workflow graph, LoRAs at tested weights, sampler settings, permitted
+dimensions, prompt dialect, declared stages, and an operator-written routing
+card. Every resource it names must already be marked compatible with its base
+model, so a preset cannot describe a combination the catalog never paired.
+Automatic LoRA selection survives only inside declared open slots. Enabled base
+models are backfilled into presets lazily per owner, reproducing what the
+coordinator does today. Planning still selects resources the previous way; that
+move is the next step. See ADR 0030 and `docs/media-catalog.md`.
+
 ## Deferred voice core
 
 10. Blind TTS evaluation and provider decision.

@@ -161,6 +161,14 @@ installed-browser acceptance.
   payload, that the window is bounded in count and characters with the newest
   messages retained, that a first message plans with a one-entry window, and that
   the window which informed a picture is recorded in its journal.
+- Generation preset tests prove a definition needs a base model and refuses
+  unsupported fields, malformed dimensions, duplicate LoRAs, and bad slot names;
+  that a preset with no declared stages is single-pass; that every enabled model
+  is backfilled once into a preset reproducing its dialect, sampler, size, and a
+  single open LoRA slot; that create, update, and delete round-trip with a
+  revision bump; that a preset cannot name a LoRA the catalog never paired with
+  its base model; that names are unique per owner; and that presets are
+  owner-scoped.
 - API tests use isolated temporary databases and deterministic fake providers.
 - Migration tests upgrade pre-0004/0005/0007/0008/0009/0010/0011/0012/0013/0014/0015/0016/0017/0019/0021/0022 databases and prove
   chats, messages, jobs, media, memories, turn ordering, stored artifact links,

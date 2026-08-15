@@ -25,6 +25,7 @@ from app.models import (
     MediaGenerationAttempt,
     MediaGenerationJournal,
     MediaGenerationJournalStage,
+    MediaGenerationPreset,
     MediaResourceCompatibility,
     Memory,
     MemoryEvent,
@@ -48,6 +49,7 @@ from app.models import (
     IdentityValidationSetting,
 )
 from app.persona_card import CARD_STORED_FIELDS
+from app.service_errors import ConflictError
 from app.secret_store import SecretStore
 from app.task_contracts import TASK_DEFINITIONS, TASK_ROLES
 from app.typed_settings import value_type
@@ -1719,6 +1721,67 @@ class ApplicationRepository:
             )
             .order_by(MediaGenerationAttempt.attempt_number)
         ).all()
+
+    def media_presets(self, user_id: str, *, kind: str | None = None, enabled: bool | None = None):
+        query = select(MediaGenerationPreset).where(MediaGenerationPreset.user_id == user_id)
+        if kind:
+            query = query.where(MediaGenerationPreset.kind == kind)
+        if enabled is not None:
+            query = query.where(MediaGenerationPreset.enabled == (1 if enabled else 0))
+        return self.session.scalars(
+            query.order_by(
+                MediaGenerationPreset.priority.desc(),
+                MediaGenerationPreset.name,
+                MediaGenerationPreset.id,
+            )
+        ).all()
+
+    def media_preset(self, user_id: str, preset_id: str):
+        return self.session.scalar(
+            select(MediaGenerationPreset).where(
+                MediaGenerationPreset.user_id == user_id,
+                MediaGenerationPreset.id == preset_id,
+            )
+        )
+
+    def media_preset_by_name(self, user_id: str, name: str):
+        return self.session.scalar(
+            select(MediaGenerationPreset).where(
+                MediaGenerationPreset.user_id == user_id,
+                MediaGenerationPreset.name == name,
+            )
+        )
+
+    def add_media_preset(self, *, user_id: str, values: dict):
+        stamp = now_ts()
+        row = MediaGenerationPreset(
+            id=secrets.token_hex(12),
+            user_id=user_id,
+            created_at=stamp,
+            updated_at=stamp,
+            revision=1,
+            **values,
+        )
+        self.session.add(row)
+        try:
+            self.session.flush()
+        except IntegrityError as exc:
+            raise ConflictError("a preset with that name already exists") from exc
+        return row
+
+    def update_media_preset(self, row, values: dict):
+        for key, value in values.items():
+            setattr(row, key, value)
+        row.updated_at = now_ts()
+        row.revision += 1
+        try:
+            self.session.flush()
+        except IntegrityError as exc:
+            raise ConflictError("a preset with that name already exists") from exc
+        return row
+
+    def delete_media_preset(self, row) -> None:
+        self.session.delete(row)
 
     def add_media_generation_journal(
         self,

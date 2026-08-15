@@ -422,6 +422,36 @@ class MediaResourceCompatibility(Base):
     )
 
 
+class MediaGenerationPreset(Base):
+    """A tested recipe: the unit planning selects, rather than assembles."""
+
+    __tablename__ = "media_generation_presets"
+    __table_args__ = (
+        CheckConstraint("kind IN ('image','video')", name="ck_media_preset_kind"),
+        CheckConstraint("priority BETWEEN 0 AND 100", name="ck_media_preset_priority"),
+        UniqueConstraint("user_id", "name", name="uq_media_preset_owner_name"),
+        Index("idx_media_preset_owner_kind_enabled", "user_id", "kind", "enabled"),
+    )
+    id: Mapped[str] = mapped_column(Text, primary_key=True)
+    user_id: Mapped[str] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    name: Mapped[str] = mapped_column(Text, nullable=False)
+    kind: Mapped[str] = mapped_column(Text, nullable=False)
+    enabled: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    priority: Mapped[int] = mapped_column(Integer, nullable=False, default=50)
+    # Written by the operator in plain language: when should this be chosen?
+    routing_card: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    operations_json: Mapped[str] = mapped_column(Text, nullable=False, default="[]")
+    domains_json: Mapped[str] = mapped_column(Text, nullable=False, default="[]")
+    content_tags_json: Mapped[str] = mapped_column(Text, nullable=False, default="[]")
+    features_json: Mapped[str] = mapped_column(Text, nullable=False, default="[]")
+    definition_json: Mapped[str] = mapped_column(Text, nullable=False, default="{}")
+    estimated_vram_mb: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    notes: Mapped[str | None] = mapped_column(Text)
+    created_at: Mapped[int] = mapped_column(Integer, nullable=False)
+    updated_at: Mapped[int] = mapped_column(Integer, nullable=False)
+    revision: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+
+
 class MediaExecutionPlan(Base):
     __tablename__ = "media_execution_plans"
     __table_args__ = (

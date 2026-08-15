@@ -580,6 +580,35 @@ class MediaCatalogResourceRepresentation(MediaCatalogResourceWrite):
     needs_binding_review: bool = False
 
 
+class MediaPresetWrite(StrictModel):
+    name: str = Field(min_length=1, max_length=120)
+    kind: Literal["image", "video"] = "image"
+    enabled: bool = True
+    priority: int = Field(default=50, ge=0, le=100)
+    # Plain language, written by the operator: when should this be chosen?
+    routing_card: str = Field(default="", max_length=2000)
+    operations: list[str] = Field(default_factory=lambda: ["generate"], max_length=8)
+    domains: list[str] = Field(default_factory=list, max_length=64)
+    content_tags: list[str] = Field(default_factory=list, max_length=64)
+    features: list[str] = Field(default_factory=list, max_length=64)
+    # Validated by the service against the owner's catalog, which is the only
+    # place that can answer whether a referenced resource is real and paired.
+    definition: dict = Field(default_factory=dict)
+    estimated_vram_mb: int = Field(default=0, ge=0, le=1_048_576)
+    notes: str = Field(default="", max_length=4000)
+
+
+class MediaPresetRepresentation(MediaPresetWrite):
+    id: str
+    revision: int
+    created_at: int
+    updated_at: int
+
+
+class MediaPresetListResponse(BaseModel):
+    items: list[MediaPresetRepresentation]
+
+
 class MediaPlanningVocabularyRepresentation(BaseModel):
     operations: list[str]
     domains: list[str]
@@ -1435,6 +1464,59 @@ def preview_media_plan(
     context: AuthContext = Depends(current_user),
 ):
     return services(request).media_catalog.preview(context.user_id, body.model_dump())
+
+
+@router.get(
+    "/media-catalog/presets",
+    response_model=MediaPresetListResponse,
+    tags=["media-catalog"],
+)
+def media_presets(
+    request: Request,
+    kind: Literal["image", "video"] | None = Query(default=None),
+    context: AuthContext = Depends(current_user),
+):
+    return {"items": services(request).media_catalog.presets(context.user_id, kind=kind)}
+
+
+@router.post(
+    "/media-catalog/presets",
+    response_model=MediaPresetRepresentation,
+    status_code=201,
+    tags=["media-catalog"],
+)
+def create_media_preset(body: MediaPresetWrite, request: Request, context: AuthContext = Depends(current_user)):
+    return services(request).media_catalog.create_preset(context.user_id, body.model_dump())
+
+
+@router.get(
+    "/media-catalog/presets/{preset_id}",
+    response_model=MediaPresetRepresentation,
+    tags=["media-catalog"],
+)
+def media_preset(preset_id: str, request: Request, context: AuthContext = Depends(current_user)):
+    return services(request).media_catalog.preset(context.user_id, preset_id)
+
+
+@router.put(
+    "/media-catalog/presets/{preset_id}",
+    response_model=MediaPresetRepresentation,
+    tags=["media-catalog"],
+)
+def update_media_preset(
+    preset_id: str,
+    body: MediaPresetWrite,
+    request: Request,
+    context: AuthContext = Depends(current_user),
+):
+    return services(request).media_catalog.update_preset(context.user_id, preset_id, body.model_dump())
+
+
+@router.delete("/media-catalog/presets/{preset_id}", status_code=204, tags=["media-catalog"])
+def delete_media_preset(preset_id: str, request: Request, context: AuthContext = Depends(current_user)):
+    if not services(request).media_catalog.delete_preset(context.user_id, preset_id):
+        raise NotFoundError("generation preset not found")
+    return Response(status_code=204)
 
 
 @router.get(

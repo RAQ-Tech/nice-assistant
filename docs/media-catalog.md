@@ -41,6 +41,41 @@ editor remains available for deliberate manual changes. An enabled workflow must
 have a non-empty patch; an enabled
 `identity_control` workflow must also have at least one valid binding.
 
+## Generation presets
+
+A preset is the tested recipe: which checkpoint, which workflow graph, which
+LoRAs at which weights, the sampler settings, the permitted dimensions, and the
+prompt dialect that combination was tuned with. It also carries a routing card -
+plain language written by the operator saying when the preset should be chosen -
+and the semantic metadata the platform hard-filters on.
+
+Every resource a preset names must exist, match its kind, and already be marked
+compatible with its base model. A preset is meant to describe a combination
+someone has run; letting it point at a LoRA the catalog never paired with its
+checkpoint would recreate exactly the untested-combination problem presets exist
+to remove.
+
+Automatic LoRA selection survives only where a preset declares an open slot. A
+slot names the one axis the operator is willing to let vary and how far, and the
+existing explicit compatibility edges still gate what can fill it. Everything
+else about a preset is a fixed, tested choice.
+
+Presets are single-pass unless they declare stages. Declared stages are what
+multi-pass work - an identity pass, a detail pass - will build on.
+
+Every enabled base model is given a preset once, carrying that model's dialect,
+sampler settings, size, and priority, plus one open LoRA slot sized to the
+catalog's LoRA limit. That reproduces what the coordinator does today, so
+nothing an operator has configured changes meaning. The backfill is lazy per
+owner, the same way legacy provider settings are imported, so an account set up
+after the migration is treated identically without a second migration.
+
+Planning still selects resources the previous way. Moving selection onto presets
+is the next step and is tracked in `BACKLOG.md`.
+
+The API is `/api/v1/media-catalog/presets` and
+`/api/v1/media-catalog/presets/{id}`.
+
 ## Planning context
 
 Capability planning receives a bounded window of this chat's earlier user
@@ -236,6 +271,8 @@ provider after the one-shot import had already completed, but only when the
 matching catalog kind is empty. Future disabled-to-enabled settings changes use
 the same missing-kind rule. Existing operator resources are never overwritten
 or recreated; see ADR 0016.
+Migration `0023_media_generation_presets` adds the preset table. It is
+additive; owners are backfilled lazily on first use rather than rewritten.
 Migration `0022_media_generation_journal` adds the journal and its stages.
 It is additive: existing plans, attempts, and media are untouched, and anything
 generated before it simply has no journal.

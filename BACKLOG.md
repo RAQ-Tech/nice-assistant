@@ -52,7 +52,8 @@ Owner-directed, decided 2026-08-14. Design and rationale are in
 [ADR 0031](docs/decisions/0031-structural-identity-conditioning.md).
 
 Phase 1 is delivered: the per-generation journal, declared workflow request
-bindings, per-model prompt dialects, and conversation context for planning. See
+bindings, per-model prompt dialects, and conversation context for planning. The
+generation preset record and its backfill are delivered too. See
 `docs/media-catalog.md`. Every item below adds its own stages to the journal
 rather than replacing it, so each one is reviewable from the picture it
 produced.
@@ -65,21 +66,22 @@ This program does not displace the voice-core items in section 3. Those remain
 the highest product priority and are blocked on an operator decision that has
 not been made; this work is what can actually progress in the meantime.
 
-1. **Generation Preset resource and migration.** Make the tested recipe the
-   planned unit instead of assembling one from scored tags at request time.
-   Source: ADR 0030.
+1. **Planning selects a preset.** The preset record exists and every enabled
+   base model is backfilled into one, but the coordinator still assembles a
+   combination from scored resource tags at request time. This is the change
+   that makes the tested recipe the planned unit. Source: ADR 0030.
 
    Done when:
-   - A preset holds its graph or provider call, exact checkpoint and LoRAs at
-     tested weights, sampler settings, permitted dimensions, dialect, declared
-     inputs, and routing card.
-   - Existing model, workflow, and LoRA plans migrate to implicit single-pass
-     presets with no change to what they generate.
+   - Planning selects an enabled preset and executes its base model, workflow,
+     fixed LoRAs, sampler settings, dimensions, and dialect.
    - Automatic LoRA selection applies only to declared open slots, and existing
      compatibility edges still gate it.
-   - Planning selects a preset and records which one, and why, in the journal.
-   - The preset editor presents the prompt dialect as named fields. Dialects are
-     configurable today only through the advanced default-settings JSON editor.
+   - A backfilled preset generates exactly what its model generated before, and
+     a test proves it.
+   - The chosen preset and the reason it won are recorded in the journal.
+   - Plans remain immutable and explainable, and a stale preset still produces a
+     retryable failure rather than a silent substitution.
+
 
 2. **Scene contract.** The Task Model emits a typed scene record rather than
    prompt text, so dialect becomes a rendering concern. Source: ADR 0030.
