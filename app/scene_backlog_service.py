@@ -12,10 +12,12 @@ spent on them.
 
 from __future__ import annotations
 
+from datetime import datetime
 import json
 
 from app.media_scene import normalize_scene, scene_is_empty, scene_summary
 from app.persona_card import CARD_STORED_FIELDS
+from app.pregeneration import PregenerationPolicy, may_produce
 from app.provider_contracts import CancellationToken, ProviderError
 from app.repositories import UnitOfWork, now_ts
 from app.service_errors import NotFoundError, RequestError, ServiceError
@@ -37,11 +39,23 @@ MAX_BACKLOG_ENTRIES = 500
 
 
 class SceneBacklogService:
-    def __init__(self, session_factory, secret_store, logger, task_models=None):
+    def __init__(
+        self,
+        session_factory,
+        secret_store,
+        logger,
+        task_models=None,
+        capabilities=None,
+        jobs=None,
+        policy: PregenerationPolicy | None = None,
+    ):
         self.session_factory = session_factory
         self.secret_store = secret_store
         self.logger = logger
         self.task_models = task_models
+        self.capabilities = capabilities
+        self.jobs = jobs
+        self.policy = policy or PregenerationPolicy()
 
     def _uow(self):
         return UnitOfWork(self.session_factory, self.secret_store)
@@ -147,6 +161,33 @@ class SceneBacklogService:
             "proposed": proposed,
             "requested": limit,
             "model_answered": not outcome.fallback_used,
+        }
+
+    def production_readiness(self, user_id: str, *, hour: int | None = None) -> dict:
+        """Report whether a background picture could start now, and why not."""
+
+        # The queue only exists once the service has started, and a stopped
+        # queue means nothing is running, which is a valid answer.
+        queue = getattr(self.jobs, "queue", None) if self.jobs else None
+        snapshot = queue.snapshot() if queue else {"pending": {}, "active": {}}
+        pending = snapshot.get("pending") or {}
+        active = snapshot.get("active") or {}
+        with self._uow() as uow:
+            approved = len(uow.repo.scene_backlog_entries(user_id, state="approved"))
+        decision = may_produce(
+            self.policy,
+            hour=int(datetime.now().hour if hour is None else hour),
+            interactive_pending=int(pending.get("interactive", 0)),
+            media_pending=int(pending.get("media", 0)),
+            media_active=int(active.get("media", 0)),
+            approved_waiting=approved,
+        )
+        return {
+            "allowed": decision.allowed,
+            "reason": decision.reason,
+            "approved_waiting": approved,
+            "window": f"{self.policy.start_hour:02d}:00-{self.policy.end_hour:02d}:00",
+            "enabled": self.policy.enabled,
         }
 
     def set_state(self, user_id: str, entry_id: str, state: str) -> dict:

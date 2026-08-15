@@ -260,6 +260,12 @@ installed-browser acceptance.
   `proposed` with their provenance, that the persona card and existing ideas
   reach the model, that a model which did not answer is reported rather than
   looking like no ideas, and that a persona the owner does not have is refused.
+- Pre-generation policy tests prove a quiet window may wrap past midnight, that
+  an empty window never matches, that production is off unless switched on, that
+  a waiting conversation and an already-queued picture both outrank it, that a
+  refusal names the window or the missing approval, and that quiet-idle-approved
+  is the only way through. Readiness tests prove the reason is reported rather
+  than silence, and that only approved scenes are counted.
 - API tests use isolated temporary databases and deterministic fake providers.
 - Migration tests upgrade pre-0004/0005/0007/0008/0009/0010/0011/0012/0013/0014/0015/0016/0017/0019/0021/0022 databases and prove
   chats, messages, jobs, media, memories, turn ordering, stored artifact links,

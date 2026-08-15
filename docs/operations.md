@@ -588,7 +588,15 @@ with zero disabling age pruning. Per-generation journals default to 60 days
 through `MEDIA_JOURNAL_RETENTION_DAYS`, and a journal is always removed with the
 media it describes regardless of that setting. `MEDIA_LIBRARY_ENTRY_LIMIT`
 defaults to 200 retained pictures per owner; entries beyond it are retired, not
-deleted, so no image file disappears without an explicit decision. `DAILY_DATABASE_BACKUP_LIMIT=14` and
+deleted, so no image file disappears without an explicit decision.
+
+Background picture production is off unless `PREGENERATION_ENABLED` is set.
+`PREGENERATION_START_HOUR` and `PREGENERATION_END_HOUR` bound the quiet window,
+which may wrap past midnight, and `PREGENERATION_MAX_PER_RUN` caps how many
+start in one pass. Production never begins while a conversation is waiting or a
+requested picture is queued or running, and
+`/api/v1/scene-backlog/production-readiness` states the reason when it will not
+start. `DAILY_DATABASE_BACKUP_LIMIT=14` and
 `BACKUP_SNAPSHOT_LIMIT=10` are count limits. Review the admin storage report
 before shortening retention because deletion is permanent outside backups.
 Moving completed audio from the hot cache into the archive updates its durable

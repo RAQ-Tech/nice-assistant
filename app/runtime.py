@@ -52,6 +52,11 @@ class AppConfig:
     log_archive_retention_days: int = 30
     media_journal_retention_days: int = 60
     media_library_entry_limit: int = 200
+    # Off by default: this spends electricity on a machine someone is using.
+    pregeneration_enabled: bool = False
+    pregeneration_start_hour: int = 2
+    pregeneration_end_hour: int = 6
+    pregeneration_max_per_run: int = 3
     daily_database_backup_limit: int = 14
     maintenance_interval_seconds: int = 21600
     web_dir: Path = WEB_DIR
@@ -104,6 +109,10 @@ class AppConfig:
             log_archive_retention_days=max(0, int(os.getenv("LOG_ARCHIVE_RETENTION_DAYS", "30"))),
             media_journal_retention_days=max(0, int(os.getenv("MEDIA_JOURNAL_RETENTION_DAYS", "60"))),
             media_library_entry_limit=max(0, int(os.getenv("MEDIA_LIBRARY_ENTRY_LIMIT", "200"))),
+            pregeneration_enabled=_env_bool("PREGENERATION_ENABLED", False),
+            pregeneration_start_hour=min(23, max(0, int(os.getenv("PREGENERATION_START_HOUR", "2")))),
+            pregeneration_end_hour=min(23, max(0, int(os.getenv("PREGENERATION_END_HOUR", "6")))),
+            pregeneration_max_per_run=min(20, max(1, int(os.getenv("PREGENERATION_MAX_PER_RUN", "3")))),
             daily_database_backup_limit=max(1, int(os.getenv("DAILY_DATABASE_BACKUP_LIMIT", "14"))),
             maintenance_interval_seconds=max(60, int(os.getenv("MAINTENANCE_INTERVAL_SECONDS", "21600"))),
         )

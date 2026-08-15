@@ -15,6 +15,7 @@ from app.media_adapters import LocalImageProvider, OpenAIImageProvider, OpenAIVi
 from app.media_catalog_service import MediaCatalogService
 from app.media_journal_service import MediaJournalService
 from app.media_library_service import MediaLibraryService
+from app.pregeneration import PregenerationPolicy
 from app.scene_backlog_service import SceneBacklogService
 from app.media_service import MediaService
 from app.ollama_provider import OllamaChatProvider
@@ -202,6 +203,13 @@ def build_services(
         runtime.secret_store,
         runtime.logger,
         task_models=task_models,
+        jobs=jobs,
+        policy=PregenerationPolicy(
+            enabled=config.pregeneration_enabled,
+            start_hour=config.pregeneration_start_hour,
+            end_hour=config.pregeneration_end_hour,
+            max_per_run=config.pregeneration_max_per_run,
+        ),
     )
     capabilities = CapabilityService(
         runtime.session_factory,

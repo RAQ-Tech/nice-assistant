@@ -603,6 +603,14 @@ class SceneBacklogCreate(StrictModel):
     source_detail: str = Field(default="", max_length=500)
 
 
+class PregenerationReadinessRepresentation(BaseModel):
+    allowed: bool
+    reason: str
+    approved_waiting: int
+    window: str
+    enabled: bool
+
+
 class SceneProposalRequest(StrictModel):
     persona_id: str = Field(min_length=1, max_length=64)
     limit: int = Field(default=5, ge=1, le=10)
@@ -1937,6 +1945,17 @@ def propose_scene(body: SceneBacklogCreate, request: Request, context: AuthConte
         source="operator",
         source_detail=body.source_detail,
     )
+
+
+@router.get(
+    "/scene-backlog/production-readiness",
+    response_model=PregenerationReadinessRepresentation,
+    tags=["media"],
+)
+def pregeneration_readiness(request: Request, context: AuthContext = Depends(current_user)):
+    """Whether a background picture could start now, and if not, why not."""
+
+    return services(request).scene_backlog.production_readiness(context.user_id)
 
 
 @router.post("/scene-backlog/proposals", response_model=SceneProposalResponse, tags=["media"])

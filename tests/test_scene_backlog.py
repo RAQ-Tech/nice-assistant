@@ -146,3 +146,42 @@ class SceneBacklogTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class ProductionReadinessTests(unittest.TestCase):
+    def _persona(self, running) -> dict:
+        workspace = running.client.post("/api/v1/workspaces", json={"name": "Home"}).json()
+        return running.client.post("/api/v1/personas", json={"workspace_id": workspace["id"], "name": "Avery"}).json()
+
+    def test_readiness_explains_why_nothing_is_being_made(self):
+        with tempfile.TemporaryDirectory() as tmp, TestApp(Path(tmp)) as running:
+            running.create_and_login()
+            readiness = running.client.get("/api/v1/scene-backlog/production-readiness")
+
+            self.assertEqual(readiness.status_code, 200, readiness.text)
+            body = readiness.json()
+            # Off by default, and the reason says so rather than leaving an
+            # operator to wonder whether it is broken.
+            self.assertFalse(body["allowed"])
+            self.assertFalse(body["enabled"])
+            self.assertIn("switched off", body["reason"])
+            self.assertEqual(body["approved_waiting"], 0)
+
+    def test_readiness_counts_only_approved_scenes(self):
+        with tempfile.TemporaryDirectory() as tmp, TestApp(Path(tmp)) as running:
+            running.create_and_login()
+            persona = self._persona(running)
+            entry = running.client.post(
+                "/api/v1/scene-backlog",
+                json={"persona_id": persona["id"], "scene": SCENE},
+            ).json()
+
+            self.assertEqual(
+                running.client.get("/api/v1/scene-backlog/production-readiness").json()["approved_waiting"],
+                0,
+            )
+            running.client.put(f"/api/v1/scene-backlog/{entry['id']}/state", json={"state": "approved"})
+            self.assertEqual(
+                running.client.get("/api/v1/scene-backlog/production-readiness").json()["approved_waiting"],
+                1,
+            )

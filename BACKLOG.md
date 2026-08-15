@@ -70,12 +70,23 @@ This program does not displace the voice-core items in section 3. Those remain
 the highest product priority and are blocked on an operator decision that has
 not been made; this work is what can actually progress in the meantime.
 
-1. **Idle scheduler.** Produce backlog scenes on the background lane during
-    quiet hours. Source: ADR 0030.
+1. **Produce approved scenes in the background.** The quiet-hours policy and
+    its readiness report exist and are tested, but nothing consumes them: no
+    approved scene is ever made. Source: ADR 0030.
 
-    Done when production runs only inside an operator-configured window and
-    behind the existing capacity coordinator, a live turn preempts it, and a
-    test proves an interactive job is never delayed behind batch work.
+    Done when:
+    - Approved scenes are generated when the policy allows it, on the media lane
+      as bulk work so a requested picture is always chosen first.
+    - Entries move to `generating` and then `done` with their picture, and a
+      failure returns them to `approved` rather than stranding them.
+    - A test proves an interactive job is never delayed behind background work.
+
+    First decide: a background picture has no conversation, but a capability
+    request is currently tied to a chat and an assistant message for its
+    attachment. Either such requests become chat-less, or production writes
+    straight to the library without a capability request. That choice shapes the
+    rest and should be made deliberately rather than discovered while wiring.
+
 
 2. **Photo sets.** One idea, several frames sharing wardrobe, room, lighting,
     and seed family, varying pose and angle. Source: ADR 0030.

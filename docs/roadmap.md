@@ -257,6 +257,13 @@ is never auto-approved. The response says whether the model actually answered.
 Migration `0028_scene_proposal_role` widens the role vocabulary by rebuilding the
 profile and run tables, copying existing rows verbatim. See ADR 0030.
 
+Background picture production has a policy and a readiness report: off by
+default, bounded to a configurable quiet window that may wrap past midnight, and
+never starting while a conversation is waiting or a requested picture is queued
+or running. Every refusal states its reason, so a quiet night is
+distinguishable from a broken one. No producer consumes the policy yet. See
+ADR 0030.
+
 ## Deferred voice core
 
 10. Blind TTS evaluation and provider decision.

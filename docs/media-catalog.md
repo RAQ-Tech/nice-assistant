@@ -231,9 +231,31 @@ reaches generation without a person agreeing to it. A response says whether the
 model answered, because a fallback and "no ideas" both come back empty and need
 different fixes.
 
-Nothing generates from the backlog yet. Producing the pictures is a separate
-item in `BACKLOG.md`. Recording proposals first means the ideas can be reviewed
-before any GPU time is spent on them.
+### When background pictures may be made
+
+Pre-generation spends real electricity on a machine somebody is using, so the
+decision to start one is a small, pure, tested function rather than a scattered
+set of conditions. A background picture may start only when production is
+switched on, the hour is inside the configured quiet window, no conversation is
+waiting, no requested picture is queued or running, and an approved scene is
+waiting.
+
+Every refusal carries a reason. "Nothing happened last night" and "it is broken"
+need different fixes, and an operator cannot tell them apart without being told
+which it was, so `/api/v1/scene-backlog/production-readiness` reports the reason
+whether or not anything could run.
+
+It is off by default. `PREGENERATION_ENABLED`, `PREGENERATION_START_HOUR`,
+`PREGENERATION_END_HOUR`, and `PREGENERATION_MAX_PER_RUN` set the policy, and the
+window may wrap past midnight because a quiet window normally does.
+
+Nothing generates from the backlog yet: the policy exists and reports, but no
+producer consumes it. That is the next item, and it is separate because a
+background picture has no conversation to belong to - an open question about
+where such a request lives, not a detail to improvise.
+
+Recording proposals and gating them first means the ideas can be reviewed, and
+the machine protected, before any GPU time is spent.
 
 The API is `/api/v1/scene-backlog`, `/api/v1/scene-backlog/proposals`,
 `/api/v1/scene-backlog/{id}/state`, and `/api/v1/scene-backlog/{id}`.
