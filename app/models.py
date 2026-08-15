@@ -570,6 +570,9 @@ class PersonaVisualIdentity(Base):
     # advisory measurement that happens afterwards.
     conditioning_mechanism: Mapped[str] = mapped_column(Text, nullable=False, default="reference_adapter")
     conditioning_parameters_json: Mapped[str] = mapped_column(Text, nullable=False, default="{}")
+    # Which recipes are known to work for this persona, best first. Routing
+    # consults it only after the model's own choice.
+    preferred_preset_ids_json: Mapped[str] = mapped_column(Text, nullable=False, default="[]")
     comparison_retry_enabled: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     revision: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
     last_validation_sequence: Mapped[int] = mapped_column(Integer, nullable=False, default=0)

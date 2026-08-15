@@ -8,6 +8,11 @@ carries which mechanism applies - reference-adapter conditioning, or an identity
 pass in a multi-pass preset - alongside its approved reference set and canonical
 appearance text. That is the Identity Spec, and it is the control.
 
+A persona also records which presets are known to work for it. Whether a
+recipe's conditioning actually holds for one particular face is not something a
+score can represent, so it is remembered rather than rediscovered. Routing
+consults it after the task model's own choice and never before the hard filter.
+
 Presets declare which mechanisms they implement, and a persona image plans only
 against one that can honor the spec. A preset without the right wiring is
 rejected by name rather than quietly producing an unconditioned result.

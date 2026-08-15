@@ -700,6 +700,9 @@ class MediaCatalogRepresentation(BaseModel):
 
 class MediaPlanRequirementsCreate(StrictModel):
     kind: Literal["image", "video"]
+    # Previewing a persona's routing needs the persona, because preferences and
+    # the Identity Spec are persona-scoped.
+    persona_id: str | None = Field(default=None, max_length=64)
     operation: Literal["generate", "inpaint", "outpaint", "image_to_image"] = "generate"
     domains: list[str] = Field(default_factory=list, max_length=64)
     content_tags: list[str] = Field(default_factory=list, max_length=64)
@@ -748,7 +751,7 @@ class MediaPlanPresetExplanation(BaseModel):
     routing_card: str
     # Whether the task model chose this preset from the offered shortlist, or
     # the deterministic score did.
-    source: Literal["task_model", "deterministic"] = "deterministic"
+    source: Literal["task_model", "persona_preference", "deterministic"] = "deterministic"
     reason: str
     considered: list[MediaPlanConsideredPreset] = Field(default_factory=list)
 

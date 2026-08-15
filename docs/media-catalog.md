@@ -140,13 +140,21 @@ at plan time, and it can reject the model's choice - a preset that cannot serve
 the request is not used because the model liked its description. When that
 happens the plan carries a visible warning.
 
+A persona can record which recipes are known to work for it, best first. That
+preference is consulted only after the task model's own choice, and only among
+presets that already passed the hard filter: the model saw this request, while a
+preference is standing knowledge. A preference naming a preset that no longer
+fits is skipped rather than blocking, so a stale entry never stops a picture
+being made.
+
 Selection falls back to the deterministic score whenever the model expresses no
-preference, fails, times out, or returns something unusable. The fallback picks
+preference, the persona has none that fits, or the model fails, times out, or
+returns something unusable. The fallback picks
 from the same candidates the model was choosing between, so a planning outage
 degrades the choice rather than the result.
 
-The plan records which preset won, whether the model or the deterministic score
-chose it, and what else was considered. All of it reaches the generation
+The plan records which preset won, whether the model, a persona preference, or
+the deterministic score chose it, and what else was considered. All of it reaches the generation
 journal.
 
 ### Starter presets and the bundle format

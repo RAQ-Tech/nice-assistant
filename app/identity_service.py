@@ -138,6 +138,9 @@ class IdentityService:
     def save_profile(self, user_id: str, persona_id: str, values: dict) -> dict:
         threshold = float(values.get("acceptance_threshold", 0.78))
         attempts = int(values.get("max_generation_attempts", 2))
+        preferred = values.get("preferred_preset_ids")
+        if preferred is not None and (not isinstance(preferred, list) or len(preferred) > 16):
+            raise RequestError("preferred presets must be a list of at most sixteen entries", 400)
         mechanism = str(values.get("conditioning_mechanism") or "reference_adapter").strip()
         if mechanism not in CONDITIONING_MECHANISMS:
             raise RequestError("unsupported identity conditioning mechanism", 400)
@@ -158,6 +161,11 @@ class IdentityService:
             identity.acceptance_threshold = threshold
             identity.max_generation_attempts = attempts
             identity.conditioning_mechanism = mechanism
+            if preferred is not None:
+                identity.preferred_preset_ids_json = json.dumps(
+                    [str(item) for item in preferred if str(item).strip()][:16],
+                    separators=(",", ":"),
+                )
             identity.comparison_retry_enabled = int(bool(values.get("comparison_retry_enabled", False)))
             identity.failure_policy = policy
             identity.conditioning_fallback = conditioning_fallback
@@ -780,6 +788,7 @@ class IdentityService:
             "acceptance_threshold": identity.acceptance_threshold,
             "max_generation_attempts": identity.max_generation_attempts,
             "conditioning_mechanism": identity.conditioning_mechanism,
+            "preferred_preset_ids": _json_list(identity.preferred_preset_ids_json),
             "comparison_retry_enabled": bool(identity.comparison_retry_enabled),
             "failure_policy": identity.failure_policy,
             "conditioning_fallback": identity.conditioning_fallback,
@@ -844,6 +853,7 @@ class IdentityService:
             "acceptance_threshold": 0.78,
             "max_generation_attempts": 2,
             "conditioning_mechanism": "reference_adapter",
+            "preferred_preset_ids": [],
             "comparison_retry_enabled": False,
             "failure_policy": "show_unverified",
             "conditioning_fallback": "allow_unconditioned",

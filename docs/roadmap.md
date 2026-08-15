@@ -236,6 +236,13 @@ increase in top-level settings tabs. Kept pictures show the description they are
 matched against, and forgetting one stops reuse without deleting the image. See
 `docs/settings-experience.md`.
 
+A persona records which presets are known to work for it, best first, editable
+on Persona Pictures. Routing consults that preference after the task model's own
+choice and only among presets that already passed the hard filter; a stale
+preference is skipped rather than blocking. The plan explanation names which of
+the three chose. Migration `0026_persona_preset_preferences` adds the column
+empty, because an existing persona expresses no preference. See ADR 0030.
+
 ## Deferred voice core
 
 10. Blind TTS evaluation and provider decision.

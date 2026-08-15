@@ -240,6 +240,13 @@ installed-browser acceptance.
   deletion, that forgetting an entry says the picture itself stays, and that an
   empty library says so rather than rendering nothing. The browser journey
   covers the merged Persona Pictures surface.
+- Persona preset preference tests prove a persona records an ordered preference
+  and expresses none until one is set, that a preference wins over the
+  deterministic score and says so in the plan, that the task model's own choice
+  still outranks it, that a preference naming an unusable preset is skipped
+  rather than blocking, and that the list is bounded. Browser tests cover adding,
+  reordering, and removing a preference, and that removal does not claim to
+  touch the preset.
 - API tests use isolated temporary databases and deterministic fake providers.
 - Migration tests upgrade pre-0004/0005/0007/0008/0009/0010/0011/0012/0013/0014/0015/0016/0017/0019/0021/0022 databases and prove
   chats, messages, jobs, media, memories, turn ordering, stored artifact links,

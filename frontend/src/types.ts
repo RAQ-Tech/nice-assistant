@@ -145,6 +145,8 @@ export interface IdentityReference {
 
 export interface VisualIdentityProfile {
   id: Id | null;
+  // Recipes known to work for this persona, best first.
+  preferred_preset_ids?: string[];
   persona_id: Id;
   status: 'draft' | 'active' | 'disabled';
   consent_status: 'not_granted' | 'granted' | 'withdrawn';

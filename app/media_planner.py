@@ -55,6 +55,7 @@ def build_media_plan(repo, user_id: str, requirements: dict, providers, ready_ba
     required_features = set(requirements["required_features"])
     preferred_preset_id = str(requirements.get("preferred_preset_id") or "")
     required_mechanism = str(requirements.get("required_identity_mechanism") or "")
+    persona_preset_ids = [str(item) for item in (requirements.get("persona_preset_ids") or [])]
 
     presets = repo.media_presets(user_id, kind=kind, enabled=True)
     resources = {row.id: row for row in repo.media_catalog_resources(user_id, enabled=True)}
@@ -113,8 +114,17 @@ def build_media_plan(repo, user_id: str, requirements: dict, providers, ready_ba
     # other candidate did. Otherwise the deterministic order stands, which is
     # also what happens when the model fails, times out, or expresses nothing.
     preferred = next((item for item in candidates if item["preset"].id == preferred_preset_id), None)
-    winner = preferred or candidates[0]
-    selection_source = "task_model" if preferred else "deterministic"
+    # The model saw this request, so its choice outranks a standing preference.
+    # A persona preference then outranks the score, because "this recipe works
+    # for this face" is knowledge the score cannot represent.
+    persona_choice = None
+    if not preferred:
+        for preset_id in persona_preset_ids:
+            persona_choice = next((item for item in candidates if item["preset"].id == preset_id), None)
+            if persona_choice:
+                break
+    winner = preferred or persona_choice or candidates[0]
+    selection_source = "task_model" if preferred else ("persona_preference" if persona_choice else "deterministic")
     preset = winner["preset"]
     snapshots = [_snapshot(item) for item in winner["selected"]]
     warnings = []
@@ -161,6 +171,8 @@ def build_media_plan(repo, user_id: str, requirements: dict, providers, ready_ba
                 "reason": (
                     "chosen by the task model from the offered shortlist"
                     if selection_source == "task_model"
+                    else "this persona's preferred recipe"
+                    if selection_source == "persona_preference"
                     else _preset_reason(preset, winner, requirements)
                 ),
                 "considered": [

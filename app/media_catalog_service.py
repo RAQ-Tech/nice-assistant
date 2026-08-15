@@ -528,9 +528,10 @@ class MediaCatalogService:
 
     def preview(self, user_id: str, requirements: dict) -> dict:
         normalized = self._normalize_requirements(requirements)
+        persona_id = str(requirements.get("persona_id") or "").strip() or None
         with self._uow() as uow:
             self._ensure_imported(uow.repo, user_id)
-            built = self._build_plan(uow.repo, user_id, normalized, persona_id=None)
+            built = self._build_plan(uow.repo, user_id, normalized, persona_id=persona_id)
             return self._plan_response_values(None, "coordinator", normalized, built)
 
     def create_coordinator_plan(
@@ -736,6 +737,7 @@ class MediaCatalogService:
         # place that has to guarantee an owner has presets to choose from.
         self._ensure_presets(repo, user_id)
         requirements = self._with_identity_mechanism(repo, user_id, requirements, persona_id)
+        requirements = self._with_persona_preferences(repo, user_id, requirements, persona_id)
         built = build_media_plan(repo, user_id, requirements, self.providers, ready_backends)
         identity_required = IDENTITY_CONTROL_FEATURE in requirements["required_features"]
         built["identity_conditioning"] = (
@@ -758,6 +760,24 @@ class MediaCatalogService:
         if not self._identity_configuration_missing(built):
             return built
         return self._build_unconditioned_fallback(repo, user_id, persona_id, requirements, built)
+
+    @staticmethod
+    def _with_persona_preferences(repo, user_id: str, requirements: dict, persona_id: str | None) -> dict:
+        """Carry which recipes are known to work for this persona.
+
+        A preference, not a command: it is consulted only when the task model
+        did not choose, and only among presets that already passed the filter.
+        """
+
+        if not persona_id:
+            return requirements
+        identity = repo.visual_identity(user_id, persona_id)
+        if not identity:
+            return requirements
+        preferred = _json(identity.preferred_preset_ids_json, [])
+        if not preferred:
+            return requirements
+        return {**requirements, "persona_preset_ids": [str(item) for item in preferred]}
 
     @staticmethod
     def _with_identity_mechanism(repo, user_id: str, requirements: dict, persona_id: str | None) -> dict:
@@ -1484,6 +1504,7 @@ class MediaCatalogService:
             "content_tags": _tags(values.get("content_tags") or [], label="content tags"),
             "required_features": _tags(values.get("required_features") or [], label="required features"),
             "required_identity_mechanism": str(values.get("required_identity_mechanism") or "").strip()[:64],
+            "persona_preset_ids": [str(item) for item in (values.get("persona_preset_ids") or [])][:16],
             # A preference the model expressed from an offered shortlist. The
             # hard filter still decides whether it is legal.
             "preferred_preset_id": str(values.get("preferred_preset_id") or "").strip()[:64],

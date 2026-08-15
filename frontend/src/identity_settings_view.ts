@@ -78,7 +78,7 @@ export class IdentitySettingsView {
       profile
         ? this.profileStack(profile)
         : el('div', { class: 'settings-empty-state', textContent: 'Choose a persona to manage its appearance.' }),
-      this.library.node(personaId ?? ''),
+      this.library.node(personaId ?? '', profile, () => this.reloadPersona(personaId ?? '')),
     ];
   }
 

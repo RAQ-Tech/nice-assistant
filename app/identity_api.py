@@ -33,6 +33,8 @@ class VisualIdentityWrite(StrictModel):
     conditioning_mechanism: Literal["reference_adapter", "identity_pass"] = "reference_adapter"
     # ADR 0031: off unless an operator deliberately switches it on.
     comparison_retry_enabled: bool = False
+    # Recipes known to work for this persona, best first.
+    preferred_preset_ids: list[str] = Field(default_factory=list, max_length=16)
     failure_policy: str = Field(default="show_unverified", pattern="^(block_claim|show_unverified)$")
     conditioning_fallback: str = Field(
         default="allow_unconditioned",

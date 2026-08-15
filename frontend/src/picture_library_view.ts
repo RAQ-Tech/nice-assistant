@@ -1,7 +1,7 @@
 import type { ApiClient } from './api';
 import { el, errorMessage } from './dom';
 import { settingsCard, settingsHeading } from './settings_ui';
-import type { AppState, LibraryEntry } from './types';
+import type { AppState, LibraryEntry, MediaPreset, VisualIdentityProfile } from './types';
 
 /**
  * The retained picture library, per persona.
@@ -14,6 +14,7 @@ import type { AppState, LibraryEntry } from './types';
  */
 export class PictureLibraryView {
   private entries: LibraryEntry[] = [];
+  private presets: MediaPreset[] = [];
   private busy = false;
   private loadedPersonaId = '';
 
@@ -28,6 +29,7 @@ export class PictureLibraryView {
     this.loadedPersonaId = personaId;
     try {
       this.entries = (await this.client.libraryEntries(personaId)).items;
+      this.presets = (await this.client.mediaPresets()).items;
     } catch (error) {
       this.appState.settingsError = errorMessage(error, 'Unable to load kept pictures.');
     } finally {
@@ -36,9 +38,17 @@ export class PictureLibraryView {
     }
   }
 
-  node(personaId: string): HTMLElement {
+  node(
+    personaId: string,
+    profile: VisualIdentityProfile | null = null,
+    onSaved: () => Promise<void> = async () => undefined,
+  ): HTMLElement {
+    const preferred = profile?.preferred_preset_ids ?? [];
+    const save = (ids: string[]) => void this.savePreferred(personaId, profile, ids, onSaved);
     const stale = personaId !== this.loadedPersonaId;
     return settingsCard([
+      settingsHeading('Preferred recipes', 'Which presets are known to work for this persona, best first. Routing prefers them when a request does not call for something else.'),
+      this.preferences(preferred, save),
       settingsHeading(
         `Kept pictures (${stale ? 0 : this.entries.length})`,
         'Pictures kept for reuse, with the description they were kept under. A later request is matched against that description, never against prompt text.',
@@ -60,6 +70,70 @@ export class PictureLibraryView {
               class: 'meta',
               textContent: 'Nothing kept yet. Pictures are kept automatically once they are made with a description.',
             }),
+    ]);
+  }
+
+  private async savePreferred(
+    personaId: string,
+    profile: VisualIdentityProfile | null,
+    ids: string[],
+    onSaved: () => Promise<void>,
+  ): Promise<void> {
+    if (!personaId || !profile) return;
+    profile.preferred_preset_ids = ids;
+    this.renderApp();
+    try {
+      await this.client.updateVisualIdentity(personaId, { ...profile, preferred_preset_ids: ids });
+      await onSaved();
+    } catch (error) {
+      this.appState.settingsError = errorMessage(error, 'Unable to save preferred recipes.');
+    }
+    this.renderApp();
+  }
+
+  private preferences(preferred: string[], save: (ids: string[]) => void): HTMLElement {
+    const named = (id: string) => this.presets.find((item) => item.id === id)?.name ?? id;
+    const remaining = this.presets.filter((item) => !preferred.includes(item.id));
+    return el('div', { class: 'preset-preferences', 'data-testid': 'preset-preferences' }, [
+      preferred.length
+        ? el('ol', { class: 'routing-shortlist' }, preferred.map((id, index) =>
+            el('li', {}, [
+              el('span', { class: 'routing-shortlist-title', textContent: named(id) }),
+              el('div', { class: 'chips' }, [
+                index
+                  ? el('button', {
+                      class: 'pill-btn',
+                      textContent: 'Move up',
+                      onclick: () => {
+                        const next = [...preferred];
+                        [next[index - 1], next[index]] = [next[index]!, next[index - 1]!];
+                        save(next);
+                      },
+                    })
+                  : null,
+                el('button', {
+                  class: 'pill-btn danger',
+                  textContent: 'Remove',
+                  'data-testid': `preference-remove-${id}`,
+                  onclick: () => save(preferred.filter((item) => item !== id)),
+                }),
+              ]),
+            ]),
+          ))
+        : el('p', { class: 'meta', textContent: 'No preferred recipe yet, so routing decides on its own.' }),
+      remaining.length
+        ? el('select', {
+            class: 'search-input',
+            'data-testid': 'preference-add',
+            onchange: (event: Event) => {
+              const value = (event.currentTarget as HTMLSelectElement).value;
+              if (value) save([...preferred, value]);
+            },
+          }, [
+            el('option', { value: '', textContent: 'Add a preferred recipe…' }),
+            ...remaining.map((item) => el('option', { value: item.id, textContent: item.name })),
+          ])
+        : null,
     ]);
   }
 
