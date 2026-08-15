@@ -19,6 +19,7 @@ from app.pregeneration import PregenerationPolicy
 from app.scene_backlog_service import SceneBacklogService
 from app.media_service import MediaService
 from app.ollama_provider import OllamaChatProvider
+from app.openai_task_provider import OpenAITaskModelProvider
 from app.operations_service import OperationsService
 from app.provider_registry import ProviderRegistry
 from app.provider_service import ProviderService
@@ -108,6 +109,15 @@ def build_services(
             "openai-image": OpenAIImageProvider(),
             "local-image": LocalImageProvider(),
             "openai-video": OpenAIVideoProvider(),
+        },
+        task_providers={
+            "ollama": OllamaChatProvider(
+                config.ollama_base_url,
+                timeout_seconds=config.generation_timeout_seconds,
+                health_timeout_seconds=config.provider_timeout_seconds,
+                metrics=runtime.metrics,
+            ),
+            "openai": OpenAITaskModelProvider(),
         },
     )
     broker = TurnEventBroker()
@@ -237,6 +247,7 @@ def build_services(
         jobs,
         runtime.logger,
         config.memory_candidate_limit,
+        config.memory_candidate_min_confidence,
     )
     conversations = ConversationService(
         runtime.session_factory,
@@ -258,7 +269,7 @@ def build_services(
         provider_url_policy=provider_url_policy,
         metrics=runtime.metrics,
     )
-    operations = OperationsService(config, runtime.logger)
+    operations = OperationsService(config, runtime.logger, memory_maintenance=memory.prune_discarded)
     return ApplicationServices(
         runtime=runtime,
         providers=registry,

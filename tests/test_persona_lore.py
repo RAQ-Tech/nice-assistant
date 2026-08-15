@@ -10,6 +10,8 @@ from app import database
 from app.context_policy import ContextPolicy, TokenEstimator
 from app.persona_lore import (
     LORE_SCAN_MESSAGES,
+    fired_keys,
+    word_forms,
     LoreEntry,
     entry_fires,
     lore_section,
@@ -30,6 +32,7 @@ def entry(**overrides) -> LoreEntry:
         "content": "Her sister Nell lives two towns over.",
         "always_on": False,
         "case_sensitive": False,
+        "match_word_forms": False,
         "priority": 50,
         "updated_at": 10,
     }
@@ -241,9 +244,7 @@ class LoreApiTests(unittest.TestCase):
 
     def test_an_entry_cannot_be_reached_through_another_persona(self):
         entry_id = self._create().json()["id"]
-        other = self.client.post(
-            "/api/v1/personas", json={"workspace_id": self.workspace["id"], "name": "Bo"}
-        ).json()
+        other = self.client.post("/api/v1/personas", json={"workspace_id": self.workspace["id"], "name": "Bo"}).json()
         blocked = self.client.delete(f"/api/v1/personas/{other['id']}/lore/{entry_id}")
         self.assertEqual(blocked.status_code, 404, blocked.text)
 
@@ -254,9 +255,7 @@ class LoreApiTests(unittest.TestCase):
         persona_path = f"/api/v1/personas/{self.persona['id']}"
         self.assertEqual(self.client.get(f"{persona_path}/lore").status_code, 404)
         self.assertEqual(self.client.delete(f"{persona_path}/lore/{entry_id}").status_code, 404)
-        self.assertEqual(
-            self.client.post(f"{persona_path}/lore/preview", json={"text": "sister"}).status_code, 404
-        )
+        self.assertEqual(self.client.post(f"{persona_path}/lore/preview", json={"text": "sister"}).status_code, 404)
 
 
 class LoreTurnTests(unittest.TestCase):
@@ -266,9 +265,7 @@ class LoreTurnTests(unittest.TestCase):
                 client = running.client
                 running.create_and_login()
                 workspace = client.post("/api/v1/workspaces", json={"name": "Home"}).json()
-                persona = client.post(
-                    "/api/v1/personas", json={"workspace_id": workspace["id"], "name": "Ada"}
-                ).json()
+                persona = client.post("/api/v1/personas", json={"workspace_id": workspace["id"], "name": "Ada"}).json()
                 for payload in (
                     {"title": "Sister", "content": "Her sister Nell is a nurse.", "keys": ["sister"]},
                     {"title": "Bakery", "content": "She opens the bakery at five.", "keys": ["bakery"]},
@@ -305,18 +302,14 @@ class LoreTurnTests(unittest.TestCase):
                 client = running.client
                 running.create_and_login()
                 workspace = client.post("/api/v1/workspaces", json={"name": "Home"}).json()
-                persona = client.post(
-                    "/api/v1/personas", json={"workspace_id": workspace["id"], "name": "Ada"}
-                ).json()
+                persona = client.post("/api/v1/personas", json={"workspace_id": workspace["id"], "name": "Ada"}).json()
                 chat = client.post(
                     "/api/v1/chats",
                     json={"workspace_id": workspace["id"], "persona_id": persona["id"], "title": "New chat"},
                 ).json()
                 started = client.post(f"/api/v1/chats/{chat['id']}/turns", json={"text": "Hello"})
                 running.wait_job(started.json()["job"]["id"])
-                self.assertNotIn(
-                    "[Persona background:", running.chat_provider.requests[0].messages[0]["content"]
-                )
+                self.assertNotIn("[Persona background:", running.chat_provider.requests[0].messages[0]["content"])
 
     def test_a_disabled_entry_is_never_sent(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -324,9 +317,7 @@ class LoreTurnTests(unittest.TestCase):
                 client = running.client
                 running.create_and_login()
                 workspace = client.post("/api/v1/workspaces", json={"name": "Home"}).json()
-                persona = client.post(
-                    "/api/v1/personas", json={"workspace_id": workspace["id"], "name": "Ada"}
-                ).json()
+                persona = client.post("/api/v1/personas", json={"workspace_id": workspace["id"], "name": "Ada"}).json()
                 client.post(
                     f"/api/v1/personas/{persona['id']}/lore",
                     json={
@@ -394,9 +385,7 @@ class LoreMigrationTests(unittest.TestCase):
                 client = running.client
                 running.create_and_login()
                 workspace = client.post("/api/v1/workspaces", json={"name": "Home"}).json()
-                persona = client.post(
-                    "/api/v1/personas", json={"workspace_id": workspace["id"], "name": "Ada"}
-                ).json()
+                persona = client.post("/api/v1/personas", json={"workspace_id": workspace["id"], "name": "Ada"}).json()
                 client.post(
                     f"/api/v1/personas/{persona['id']}/lore",
                     json={
@@ -422,3 +411,37 @@ class LoreDefaultPolicyTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class LoreWordFormTests(unittest.TestCase):
+    """A key of "sister" silently missing "sisters" was the common authoring surprise."""
+
+    def test_regular_plurals_are_generated_from_the_authored_key(self):
+        self.assertEqual(word_forms("sister"), ("sister", "sisters"))
+        self.assertEqual(word_forms("bakery"), ("bakery", "bakeries"))
+        self.assertEqual(word_forms("bus"), ("bus", "buses"))
+        self.assertEqual(word_forms("church"), ("church", "churches"))
+
+    def test_a_vowel_before_the_y_takes_a_plain_s(self):
+        self.assertEqual(word_forms("day"), ("day", "days"))
+
+    def test_a_phrase_is_left_alone_because_pluralizing_it_is_guesswork(self):
+        self.assertEqual(word_forms("st. clair"), ("st. clair",))
+
+    def test_a_plural_message_fires_a_singular_key(self):
+        self.assertTrue(entry_fires(entry(match_word_forms=True), "both of my sisters called"))
+        self.assertTrue(entry_fires(entry(keys=("bakery",), match_word_forms=True), "the bakeries are shut"))
+
+    def test_word_forms_never_cross_a_word_boundary(self):
+        self.assertFalse(entry_fires(entry(match_word_forms=True), "the sisterhood met"))
+
+    def test_the_behavior_can_be_turned_off_per_entry(self):
+        self.assertFalse(entry_fires(entry(match_word_forms=False), "both of my sisters called"))
+
+    def test_fired_keys_reports_which_authored_key_matched(self):
+        current = entry(keys=("sister", "bakery"), match_word_forms=True)
+        self.assertEqual(fired_keys(current, "the bakeries are shut"), ("bakery",))
+        self.assertEqual(fired_keys(current, "my sisters own bakeries"), ("sister", "bakery"))
+
+    def test_an_always_on_entry_reports_no_fired_keys(self):
+        self.assertEqual(fired_keys(entry(always_on=True), "anything"), ())

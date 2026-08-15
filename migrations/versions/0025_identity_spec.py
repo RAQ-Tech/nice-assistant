@@ -13,8 +13,8 @@ from __future__ import annotations
 from alembic import op
 
 
-revision = "0024_identity_spec"
-down_revision = "0023_media_generation_presets"
+revision = "0025_identity_spec"
+down_revision = "0024_media_generation_presets"
 branch_labels = None
 depends_on = None
 

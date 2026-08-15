@@ -10,8 +10,8 @@ from __future__ import annotations
 from alembic import op
 
 
-revision = "0025_persona_image_library"
-down_revision = "0024_identity_spec"
+revision = "0026_persona_image_library"
+down_revision = "0025_identity_spec"
 branch_labels = None
 depends_on = None
 

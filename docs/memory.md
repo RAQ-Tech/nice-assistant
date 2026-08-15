@@ -57,6 +57,15 @@ validation. A `scope` field from an older contract is accepted and discarded
 rather than failing the job, because the value no longer carries authority.
 Broadening access remains a deliberate user action through the memory APIs.
 
+An extracted candidate is discarded unless its stated confidence reaches
+`MEMORY_CANDIDATE_MIN_CONFIDENCE`, default 0.6. The floor is applied when the job
+runs and again at the transaction boundary, alongside the sensitive-content screen.
+The content-free job result reports how many candidates were dropped for low
+confidence and the floor in force, so a quiet extraction is explainable rather than
+indistinguishable from a broken one. Precision is preferred deliberately: a wrong
+memory is reviewed once and then treated as true, while a missed one costs a
+restatement.
+
 Candidates never enter context automatically. Exact normalized duplicates of a
 pending or active memory in the same scope are skipped. The candidate limit is
 configured with `MEMORY_CANDIDATE_LIMIT`, clamped from one to ten.
@@ -88,3 +97,17 @@ provenance and confidence, and provides explicit review/history actions. It can
 select all memories or a complete status group for bulk forget or permanent
 delete. A forgotten or rejected row remains visible in History until explicitly
 deleted or a broader retention policy is implemented.
+
+## Retention of discarded memories
+
+Rejected and forgotten memories are kept indefinitely unless
+`MEMORY_DISCARD_RETENTION_DAYS` is set to a positive number of days. It is off by
+default because ADR 0015 separates reversible forget from permanent deletion on
+purpose, and an upgrade must not begin destroying content a user only hid.
+
+When enabled, the scheduled maintenance pass permanently deletes rejected and
+forgotten rows whose last update is older than the window, including their history.
+Active, pending, and superseded rows are never removed: the first two are live
+content, and a superseded row is one link in the chain that explains an edit. The
+configured window appears in the administrator observability report, and a pass that
+removes rows logs the count without content.

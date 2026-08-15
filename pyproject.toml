@@ -1,5 +1,5 @@
 [build-system]
-requires = ["setuptools>=80,<81"]
+requires = ["setuptools>=80,<85"]
 build-backend = "setuptools.build_meta"
 
 [project]
@@ -9,20 +9,20 @@ description = "Private-LAN, voice-first assistant"
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
-  "alembic==1.18.5",
+  "alembic==1.19.1",
   "cryptography==50.0.0",
-  "fastapi==0.139.0",
+  "fastapi==0.141.1",
   "Pillow==12.3.0",
-  "python-multipart==0.0.31",
+  "python-multipart==0.0.32",
   "SQLAlchemy==2.0.51",
-  "uvicorn==0.51.0",
+  "uvicorn==0.52.1",
 ]
 
 [project.optional-dependencies]
 dev = [
-  "coverage==7.15.1",
+  "coverage==7.15.4",
   "httpx==0.28.1",
-  "ruff==0.15.21",
+  "ruff==0.16.2",
 ]
 
 [tool.setuptools.packages.find]
@@ -36,7 +36,13 @@ target-version = "py311"
 line-length = 120
 
 [tool.ruff.lint]
-select = ["E9", "F63", "F7", "F82"]
+# E9/F63/F7/F82 are "does this parse". C901 measures how tangled a function has
+# become, which is where defects concentrate and where an agent is least able to
+# change code safely without reading all of it.
+select = ["E9", "F63", "F7", "F82", "C901"]
+
+[tool.ruff.lint.mccabe]
+max-complexity = 15
 
 [tool.coverage.run]
 branch = true

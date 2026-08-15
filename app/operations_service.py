@@ -19,9 +19,11 @@ from app.storage import BackupStore, safe_name
 
 
 class OperationsService:
-    def __init__(self, config, logger):
+    def __init__(self, config, logger, memory_maintenance=None):
         self.config = config
         self.logger = logger
+        # Injected so scheduling stays here and memory lifecycle stays in MemoryService.
+        self.memory_maintenance = memory_maintenance
         self._stop = threading.Event()
         self._thread: threading.Thread | None = None
         self.backups = BackupStore(
@@ -77,6 +79,18 @@ class OperationsService:
         self._prune_age(self.config.archive_dir / "audio", self.config.audio_archive_retention_days)
         self._prune_age(self.config.stt_recordings_dir, self.config.stt_recording_retention_days)
         self._prune_age(self.config.archive_dir / "logs", self.config.log_archive_retention_days)
+        self._prune_discarded_memories()
+
+    def _prune_discarded_memories(self) -> None:
+        if not self.memory_maintenance or self.config.memory_discard_retention_days <= 0:
+            return
+        try:
+            removed = self.memory_maintenance(self.config.memory_discard_retention_days)
+        except Exception as exc:
+            self.logger.warning("memory retention pass failed error=%s", exc.__class__.__name__)
+            return
+        if removed:
+            self.log("memory.retention", "removed discarded memories past the retention window", count=removed)
 
     def log(self, event_type: str, message: str, **context) -> None:
         safe_context = {key: redact_sensitive_text(str(value)) for key, value in context.items() if value is not None}
@@ -212,6 +226,7 @@ class OperationsService:
                 "stt_recording_days": self.config.stt_recording_retention_days,
                 "log_archive_days": self.config.log_archive_retention_days,
                 "daily_database_backup_limit": self.config.daily_database_backup_limit,
+                "memory_discard_days": self.config.memory_discard_retention_days,
                 "backup_snapshot_limit": self.config.backup_snapshot_limit,
                 "zero_days_disables_age_pruning": True,
             },

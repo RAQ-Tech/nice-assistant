@@ -48,6 +48,7 @@ export const SETTINGS_DEFAULTS: Settings = {
   video_duration: '4',
   models_context_window_tokens: '4096',
   user_display_name: '',
+  user_profile: '',
   user_timezone: 'local',
   personas_default_system_prompt: 'Be helpful and concise.',
   workspaces_default_workspace_id: '',

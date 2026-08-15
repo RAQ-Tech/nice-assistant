@@ -205,7 +205,7 @@ text, and the comparison-driven retry loop is off unless an operator switches it
 on. Comparison is advisory measurement: nothing requires a verifier to be
 running, readiness is answered on demand rather than polled, and a persona image
 generates and is labeled `unverified` when none is configured. `verified` still
-requires a real passed comparison. Migration `0024_identity_spec` adds the spec
+requires a real passed comparison. Migration `0025_identity_spec` adds the spec
 columns and switches the retry loop off for existing profiles without touching
 references, consent, validations, or completed plans. See ADR 0031.
 
@@ -240,7 +240,7 @@ A persona records which presets are known to work for it, best first, editable
 on Persona Pictures. Routing consults that preference after the task model's own
 choice and only among presets that already passed the hard filter; a stale
 preference is skipped rather than blocking. The plan explanation names which of
-the three chose. Migration `0026_persona_preset_preferences` adds the column
+the three chose. Migration `0027_persona_preset_preferences` adds the column
 empty, because an existing persona expresses no preference. See ADR 0030.
 
 A persona has a durable scene backlog: pictures proposed but not made, each
@@ -254,7 +254,7 @@ Scenes can now be proposed automatically from a persona's card, lorebook, and
 recent conversation themes by a dedicated Task Model role. Each proposal records
 which source suggested it and the detail it drew on, arrives as `proposed`, and
 is never auto-approved. The response says whether the model actually answered.
-Migration `0028_scene_proposal_role` widens the role vocabulary by rebuilding the
+Migration `0029_scene_proposal_role` widens the role vocabulary by rebuilding the
 profile and run tables, copying existing rows verbatim. See ADR 0030.
 
 Background picture production has a policy and a readiness report: off by

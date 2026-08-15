@@ -9,8 +9,8 @@ from __future__ import annotations
 from alembic import op
 
 
-revision = "0022_media_generation_journal"
-down_revision = "0021_persona_lorebooks"
+revision = "0023_media_generation_journal"
+down_revision = "0022_lore_word_forms"
 branch_labels = None
 depends_on = None
 

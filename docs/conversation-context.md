@@ -60,6 +60,13 @@ dialogue — until the floor is clear. Nothing yields on a turn with no history,
 never yield, and a turn that dropped sections is marked degraded and reports the
 dropped material as omitted rather than included.
 
+An authored owner profile is protected material sent with every turn, rendered
+after persona instructions and labeled as factual context rather than
+instructions. It carries the account display name when one is set. Because
+protected material fails a turn instead of degrading, it is capped at 10 percent
+of the prompt budget when it is saved rather than clipped when a turn is planned,
+and it never reaches the summary, memory-extraction, or capability roles.
+
 A persona character card is protected material capped when it is saved. Persona
 example dialogue is droppable data under a 10 percent allowance, rendered above
 saved memory, labeled as voice examples rather than transcript, and included as
@@ -70,7 +77,10 @@ Persona lore is droppable data under a 12 percent allowance, rendered between
 example dialogue and saved memory. Entries are selected by deterministic literal
 keyword matching over the current message and the last three transcript messages;
 no model chooses which fire, keys are never treated as patterns, and injected
-lore is not rescanned, so activation cannot cascade. Fired entries sort by
+lore is not rescanned, so activation cannot cascade. A key also matches its common
+English plural unless the entry turns that off; forms are generated from the authored
+key and never stripped from the message, so matching only widens where the operator
+already pointed it. Fired entries sort by
 priority, then recency, then identifier, and are included whole or skipped.
 
 ## Memory and deduplication
@@ -102,4 +112,6 @@ deterministic history truncation; the turn is marked degraded rather than failed
 Summary text is never emitted as assistant streaming output.
 
 Turn diagnostics expose token/count accounting and the referenced summary to the
-owner. Prompt text is not copied into logs or diagnostic metadata.
+owner. A turn that ran with reduced context also reports its reason on the
+assistant message it produced, so the conversation itself says so after a reload
+rather than only the diagnostics API. Prompt text is not copied into logs or diagnostic metadata.

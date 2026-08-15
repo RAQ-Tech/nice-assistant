@@ -81,6 +81,8 @@ export class PersonaLoreView {
           'Include this entry on every turn instead of matching keywords.'),
         toggleField('Match case', entry.case_sensitive, (value) => { entry.case_sensitive = value; },
           'Off means Bakery and bakery both match.'),
+        toggleField('Match plurals', entry.match_word_forms, (value) => { entry.match_word_forms = value; },
+          'On means a keyword of sister also fires on sisters, and bakery on bakeries.'),
         toggleField('Enabled', entry.enabled, (value) => { entry.enabled = value; },
           'Turn off to keep the entry without sending it.'),
         el('div', {
@@ -135,8 +137,9 @@ export class PersonaLoreView {
       ...(preview?.items ?? []).map((item) =>
         el('div', {
           class: 'meta',
-          textContent: `${item.included ? '✓' : '✕'} ${item.title} · priority ${item.priority} · `
-            + `${item.token_estimate} tokens${item.included ? '' : ' · left out, over the allowance'}`,
+          textContent: `${item.included ? '✓' : '✕'} ${item.title}`
+            + `${item.fired_keys.length ? ` · on "${item.fired_keys.join('", "')}"` : ' · always included'}`
+            + ` · ${item.token_estimate} tokens${item.included ? '' : ' · left out, over the allowance'}`,
         }),
       ),
     ]);
@@ -164,6 +167,7 @@ export class PersonaLoreView {
         secondary_keys: [],
         always_on: true,
         case_sensitive: false,
+        match_word_forms: true,
         priority: 50,
         enabled: true,
       }),
@@ -234,6 +238,7 @@ function loreInput(entry: PersonaLoreEntry): PersonaLoreInput {
     secondary_keys: entry.secondary_keys,
     always_on: entry.always_on,
     case_sensitive: entry.case_sensitive,
+    match_word_forms: entry.match_word_forms,
     priority: entry.priority,
     enabled: entry.enabled,
   };

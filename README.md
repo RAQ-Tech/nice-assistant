@@ -65,6 +65,8 @@ supervised server session and never grants a general remote shell.
 - `CONTEXT_SUMMARY_TRIGGER_RATIO=0.75`
 - `CONTEXT_MAX_COMPACTION_PASSES=2`
 - `MEMORY_CANDIDATE_LIMIT=5`
+- `MEMORY_CANDIDATE_MIN_CONFIDENCE=0.6` (extraction confidence below this is
+  discarded rather than queued for review; raise it for fewer, surer candidates)
 - `NICE_ASSISTANT_DEVELOPMENT_PROJECT_SYNC=0` (development-only escape hatch;
   production must keep the image-authoritative default)
 - `AUTOMATIC1111_BASE_URL=http://127.0.0.1:7860` (default local image endpoint for `image_provider=local`)
@@ -77,6 +79,8 @@ supervised server session and never grants a general remote shell.
 - `MINIMUM_FREE_STORAGE_BYTES=134217728`
 - `AUDIO_ARCHIVE_RETENTION_DAYS=30`, `STT_RECORDING_RETENTION_DAYS=30`, `LOG_ARCHIVE_RETENTION_DAYS=30`
 - `DAILY_DATABASE_BACKUP_LIMIT=14`
+- `MEMORY_DISCARD_RETENTION_DAYS=0` (0 keeps rejected and forgotten memories
+  indefinitely; a positive value permanently deletes them once they are that old)
 - `MAINTENANCE_INTERVAL_SECONDS=21600` (how often retention and the dated backup
   repeat while the process runs; they also run once at startup)
 

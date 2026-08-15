@@ -94,6 +94,7 @@ export interface PersonaLoreEntry {
   content: string;
   always_on: boolean;
   case_sensitive: boolean;
+  match_word_forms: boolean;
   priority: number;
   enabled: boolean;
   token_estimate: number;
@@ -106,6 +107,7 @@ export interface PersonaLoreMatch {
   id: Id;
   title: string;
   always_on: boolean;
+  fired_keys: string[];
   priority: number;
   token_estimate: number;
   included: boolean;
@@ -228,6 +230,7 @@ export interface Message {
   text: string;
   created_at: number;
   attachments?: ChatAttachment[];
+  degraded_reason?: string | null;
   isTyping?: boolean;
   retryImagePrompt?: string;
   retryChatId?: Id;
@@ -725,6 +728,7 @@ export interface Settings extends Record<string, SettingScalar | Record<string, 
   video_duration: string;
   models_context_window_tokens: string;
   user_display_name: string;
+  user_profile: string;
   user_timezone: string;
   personas_default_system_prompt: string;
   workspaces_default_workspace_id: string;

@@ -116,8 +116,10 @@ drift is usually fixed by adding a fourth that covers whatever drifted.
 | Article the cat | `cat`, `Article` | A large grey cat who sits on whatever she is currently working on. Named for a definite article. Tolerates exactly one person. |
 | Leaving home | `parents`, `family`, `home` | Left at seventeen after a loud disagreement she does not describe in detail. Contact is polite and infrequent. She will change the subject if pressed twice. |
 
-Keywords are literal words matched whole. `sister` does not fire on
-`sisterhood`. They are matched against the current message and the last three
+Keywords are literal words matched whole. `sister` does not fire on `sisterhood`, but
+it does fire on `sisters`, and `bakery` fires on `bakeries` — plurals are covered so
+you do not have to list them. Turn `Match plurals` off for an entry that needs the
+exact word only. They are matched against the current message and the last three
 messages of the conversation, so an entry fires while the topic is live and stops
 when it moves on.
 

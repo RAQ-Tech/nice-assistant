@@ -459,3 +459,33 @@ class ContextServiceTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class ContextDegradationVisibilityTests(unittest.TestCase):
+    """A reply produced with reduced context has to stay explainable after a reload."""
+
+    def test_chat_detail_reports_the_reason_on_the_message_it_produced(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            with TestApp(Path(tmp)) as running:
+                running.create_and_login()
+                chat = running.client.post("/api/v1/chats", json={"title": "New chat"}).json()
+                started = running.client.post(f"/api/v1/chats/{chat['id']}/turns", json={"text": "Say hello"})
+                self.assertEqual(started.status_code, 202, started.text)
+                turn_id = started.json()["turn"]["id"]
+                self.assertEqual(running.wait_job(started.json()["job"]["id"])["status"], "completed")
+
+                # A normal turn carries no reason at all.
+                before = running.client.get(f"/api/v1/chats/{chat['id']}").json()["messages"]
+                self.assertTrue(before)
+                self.assertTrue(all(item["degraded_reason"] is None for item in before))
+
+                with UnitOfWork(running.services.runtime.session_factory, running.services.runtime.secret_store) as uow:
+                    turn = uow.repo.turn_by_id(turn_id)
+                    turn.context_degraded_reason = "history_floor_dropped:summary,memory"
+                    assistant_message_id = turn.assistant_message_id
+
+                messages = running.client.get(f"/api/v1/chats/{chat['id']}").json()["messages"]
+                assistant = next(item for item in messages if item["id"] == assistant_message_id)
+                self.assertEqual(assistant["degraded_reason"], "history_floor_dropped:summary,memory")
+                user_message = next(item for item in messages if item["role"] == "user")
+                self.assertIsNone(user_message["degraded_reason"])

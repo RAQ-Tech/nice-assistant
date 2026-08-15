@@ -20,7 +20,10 @@ Playwright browser journeys. It then runs the deterministic human-experience
 scenario subset. Run that subset directly with
 `python scripts/evaluate_human_experience.py` or `npm run evaluate:human`.
 Branch coverage is enforced at a minimum of 70 percent across `app`; no legacy
-server exclusion remains.
+server exclusion remains. Static analysis also enforces a cyclomatic complexity
+ceiling of 15. Thirteen functions predate the rule and carry an explicit
+`# noqa: C901`; those markers are the debt list, and new code is expected to stay
+under the ceiling rather than add to it.
 
 Verification also runs `scripts/audit_public_repo.py`. On an operator
 workstation, maintain `.local/public-repo-private-values.txt` with one private
@@ -266,6 +269,27 @@ installed-browser acceptance.
   refusal names the window or the missing approval, and that quiet-idle-approved
   is the only way through. Readiness tests prove the reason is reported rather
   than silence, and that only approved scenes are counted.
+- Documented-claim tests assert absences that would otherwise regress silently:
+  resource audit rows carry no endpoint URL, credential, or generated content, and
+  persona card, example dialogue, and lore reach the persona prompt without reaching
+  the summary, memory-extraction, or capability roles or the durable transcript.
+- Owner profile tests cover empty-profile neutrality, the display name reaching the
+  prompt, the labelled section, the cap at 4096 and 8192, refusal of an oversized
+  profile leaving nothing stored, a raised allocation accepting a previously refused
+  profile, and the profile never reaching platform task roles.
+- Memory retention tests prove expiry is off unless configured, that rejected and
+  forgotten rows past the window are removed, that active, pending, superseded, and
+  recently discarded rows are never touched, and that the configured window is
+  reported.
+- Turn reconnect tests prove a mid-reply reconnect renders the reply exactly once,
+  that deltas produced after the snapshot still arrive, that a cursor pointing into
+  evicted events leaves no hole, and that a fresh subscriber sees the reply once.
+- Second task adapter tests prove only schema-capable models are advertised, that
+  health makes no untested reachability claim, that a missing account key fails
+  before any request, that the role schema is sent as a strict structured-output
+  envelope, that its output satisfies the same parser Ollama output does, that a
+  refusal is terminal rather than malformed, that an unexpected body is not leaked,
+  and that the adapter is not offered for conversation.
 - API tests use isolated temporary databases and deterministic fake providers.
 - Migration tests upgrade pre-0004/0005/0007/0008/0009/0010/0011/0012/0013/0014/0015/0016/0017/0019/0021/0022 databases and prove
   chats, messages, jobs, media, memories, turn ordering, stored artifact links,
@@ -280,7 +304,9 @@ installed-browser acceptance.
   rejection message surfacing. Both suites price one shared card, so a change to
   either side's labels or estimator fails a test instead of showing the operator
   a number the platform will not honour.
-- Lorebook tests cover word-boundary matching, case sensitivity, literal handling
+- Lorebook tests cover generated plural forms and the vowel-before-y and phrase
+  exceptions, per-entry opt-out, which authored keys a preview reports as fired,
+  word-boundary matching, case sensitivity, literal handling
   of pattern-looking keys, punctuation keys, secondary keys as an additional
   requirement, `always_on` without keys, the bounded scan window, an entry falling
   out of it, injected lore not triggering further entries, priority and recency

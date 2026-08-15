@@ -544,7 +544,13 @@ def _system_prompt(role: str) -> str:
         return shared + (
             "Extract only stable facts, preferences, identity details, relationships, or ongoing commitments "
             "explicitly stated by the user. Exclude secrets, credentials, transient requests, guesses, medical or "
-            "legal inferences, and assistant claims."
+            "legal inferences, and assistant claims. "
+            "Returning nothing is the correct and common answer: most turns state no durable fact. A wrong "
+            "memory is worse than a missed one, because it is reviewed once and then treated as true. "
+            "Exclude anything true only today, anything about the current task or request, and anything you "
+            "inferred rather than read. Set confidence to your actual certainty that the user stated this as a "
+            "lasting fact about themselves; use a low value when unsure rather than omitting the field, and "
+            "expect low-confidence candidates to be discarded."
         )
     if role == SCENE_PROPOSAL:
         return shared + (
@@ -607,10 +613,13 @@ def _strict_object(raw: str, allowed: set[str]) -> dict:
     return value
 
 
-def _strict_mapping(value: Any, allowed: set[str], *, label: str) -> dict:
+def _strict_mapping(value: Any, allowed: set[str], *, label: str, optional: set[str] | None = None) -> dict:
     if not isinstance(value, dict):
         raise TaskContractError(f"task model returned an invalid {label}")
-    if set(value) != allowed:
+    present = set(value)
+    if present - allowed - (optional or set()):
+        raise TaskContractError(f"task model returned unexpected {label} fields")
+    if allowed - present:
         raise TaskContractError(f"task model returned unexpected {label} fields")
     return value
 
@@ -710,7 +719,15 @@ def _parse_memory(
         # model still emitting it is following an older contract rather than
         # misbehaving; failing extraction would silently stop memory learning. The
         # platform now assigns the access scope, so the value carries no authority.
-        value = _strict_mapping(value, {"content", "confidence", "scope"}, label="memory candidate")
+        # The response schema advertises content and confidence only, so a compliant model
+        # sends exactly those. "scope" is tolerated because it was required by an older
+        # contract; it is discarded either way, since the platform owns that boundary.
+        value = _strict_mapping(
+            value,
+            {"content", "confidence"},
+            label="memory candidate",
+            optional={"scope"},
+        )
         content = _bounded_text(value.get("content"), label="memory content", max_chars=500)
         normalized = content.casefold()
         if normalized in seen:
@@ -892,6 +909,66 @@ def _attachment_reference(value: Any, available: set[str], *, label: str) -> str
     return reference
 
 
+def _persona_subject(
+    value: dict,
+    task_input: CapabilityPlanningTaskInput,
+    *,
+    key: str,
+    required_features: tuple[str, ...],
+) -> tuple[bool, tuple[str, ...]]:
+    """Decide whether this picture is of the selected persona, and say so once.
+
+    Identity conditioning is never taken from the model's feature list. It is
+    added here or not at all, so a request cannot claim identity control for a
+    picture that is not of anybody.
+    """
+
+    persona_subject = value.get("persona_subject")
+    if not isinstance(persona_subject, bool):
+        raise TaskContractError("task model returned an invalid persona subject flag")
+    if persona_subject and explicitly_excludes_persona(task_input.user_text):
+        persona_subject = False
+    if persona_subject and (key != "media.generate_image" or not task_input.persona_selected):
+        raise TaskContractError("task model assigned a selected persona to an invalid capability request")
+    required_features = tuple(feature for feature in required_features if feature != IDENTITY_CONTROL_FEATURE)
+    if not persona_subject:
+        return False, required_features
+    if IDENTITY_CONTROL_FEATURE not in task_input.available_features:
+        raise TaskContractError("persona image planning is unavailable")
+    return True, (*required_features, IDENTITY_CONTROL_FEATURE)
+
+
+def _request_attachments(
+    value: dict,
+    attachment_references: set[str],
+    *,
+    operation: str,
+) -> tuple[str, str]:
+    """Resolve the images an operation needs, and refuse the combinations that lie."""
+
+    source_attachment = _attachment_reference(
+        value.get("source_attachment"), attachment_references, label="source attachment"
+    )
+    mask_attachment = _attachment_reference(
+        value.get("mask_attachment"), attachment_references, label="mask attachment"
+    )
+    if operation not in EDIT_OPERATIONS:
+        if source_attachment or mask_attachment:
+            raise TaskContractError("task model attached an image to a non-edit operation")
+        return source_attachment, mask_attachment
+    # An edit without a resolvable source would otherwise reach the provider as
+    # a silent generate.
+    if not source_attachment:
+        raise TaskContractError("task model requested an edit without a source attachment")
+    if operation in MASK_OPERATIONS and not mask_attachment:
+        raise TaskContractError("task model requested a masked edit without a mask attachment")
+    if operation not in MASK_OPERATIONS and mask_attachment:
+        raise TaskContractError("task model supplied a mask for an unmasked operation")
+    if mask_attachment and mask_attachment == source_attachment:
+        raise TaskContractError("task model reused one attachment as both source and mask")
+    return source_attachment, mask_attachment
+
+
 def _parse_capabilities(
     raw: str,
     task_input: CapabilityPlanningTaskInput,
@@ -943,37 +1020,10 @@ def _parse_capabilities(
         preset = str(value.get("preset") or NO_PRESET).strip()
         if preset and preset not in preset_references:
             raise TaskContractError("task model chose a preset that was not offered")
-        persona_subject = value.get("persona_subject")
-        if not isinstance(persona_subject, bool):
-            raise TaskContractError("task model returned an invalid persona subject flag")
-        if persona_subject and explicitly_excludes_persona(task_input.user_text):
-            persona_subject = False
-        if persona_subject and (key != "media.generate_image" or not task_input.persona_selected):
-            raise TaskContractError("task model assigned a selected persona to an invalid capability request")
-        required_features = tuple(feature for feature in required_features if feature != IDENTITY_CONTROL_FEATURE)
-        if persona_subject:
-            if IDENTITY_CONTROL_FEATURE not in task_input.available_features:
-                raise TaskContractError("persona image planning is unavailable")
-            required_features = (*required_features, IDENTITY_CONTROL_FEATURE)
-        source_attachment = _attachment_reference(
-            value.get("source_attachment"), attachment_references, label="source attachment"
+        persona_subject, required_features = _persona_subject(
+            value, task_input, key=key, required_features=required_features
         )
-        mask_attachment = _attachment_reference(
-            value.get("mask_attachment"), attachment_references, label="mask attachment"
-        )
-        if operation in EDIT_OPERATIONS:
-            # An edit without a resolvable source would otherwise reach the
-            # provider as a silent generate.
-            if not source_attachment:
-                raise TaskContractError("task model requested an edit without a source attachment")
-            if operation in MASK_OPERATIONS and not mask_attachment:
-                raise TaskContractError("task model requested a masked edit without a mask attachment")
-            if operation not in MASK_OPERATIONS and mask_attachment:
-                raise TaskContractError("task model supplied a mask for an unmasked operation")
-            if mask_attachment and mask_attachment == source_attachment:
-                raise TaskContractError("task model reused one attachment as both source and mask")
-        elif source_attachment or mask_attachment:
-            raise TaskContractError("task model attached an image to a non-edit operation")
+        source_attachment, mask_attachment = _request_attachments(value, attachment_references, operation=operation)
         identity = (key, prompt.casefold(), source_attachment, mask_attachment)
         if identity in seen:
             continue

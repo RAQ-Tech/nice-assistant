@@ -115,6 +115,10 @@ and Workspaces now use the same approachable structure:
   preview box takes a pasted message and reports which entries fire, which fit the
   allowance, and which were left out, so keyword tuning is observed rather than
   guessed. Entries load only when the section is opened.
+- User adds a short About you profile sent with every message. It is refused when
+  saved if it would not fit, naming the budget, because it is never dropped to make
+  room once stored. The display name is sent with it, so that setting now changes
+  runtime behavior instead of only labeling the browser.
 - Local image connection choices remain readily available while sampling,
   authentication, and raw JSON controls live under advanced disclosure.
 - Enabling an image provider seeds a starter Media Catalog model only when no

@@ -83,6 +83,7 @@ class PersonaLoreWrite(StrictModel):
     secondary_keys: list[str] = Field(default_factory=list)
     always_on: bool = False
     case_sensitive: bool = False
+    match_word_forms: bool = True
     priority: int = Field(default=50, ge=0, le=100)
     enabled: bool = True
 
@@ -347,6 +348,7 @@ class MessageRepresentation(BaseModel):
     text: str
     created_at: int
     attachments: list[ChatAttachmentRepresentation] = Field(default_factory=list)
+    degraded_reason: str | None = None
 
 
 class ChatListResponse(BaseModel):

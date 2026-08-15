@@ -5,8 +5,10 @@ from pathlib import Path
 
 from app.auth import hash_password, is_masked_secret, mask_secret, verify_password
 from app.context_policy import ContextPolicy, TokenEstimator
+from app.owner_profile import owner_profile_tokens, profile_budget, profile_too_large_message
 from app.persona_lore import (
     entry_from_row,
+    fired_keys,
     matching_entries,
     parse_keys,
     scan_window,
@@ -105,6 +107,7 @@ def lore_entry_response(row, budget: CardBudget) -> dict:
         "content": row.content,
         "always_on": bool(row.always_on),
         "case_sensitive": bool(row.case_sensitive),
+        "match_word_forms": bool(getattr(row, "match_word_forms", 1)),
         "priority": int(row.priority),
         "enabled": bool(row.enabled),
         "token_estimate": int(row.token_estimate or 0),
@@ -235,6 +238,11 @@ class ResourceService:
             current = uow.repo.settings(user_id) or {}
             previous_preferences = normalize_media_preferences(current.get("preferences") or {})
             validate_media_preferences(preferences, previous_preferences)
+            # Protected material fails a turn rather than degrading, so it is bounded here.
+            estimate = owner_profile_tokens(preferences)
+            budget = profile_budget(preferences, self.context_policy)
+            if estimate > budget.cap_tokens:
+                raise RequestError(profile_too_large_message(estimate, budget), 422)
             submitted = values.get("openai_api_key")
             preserve = submitted is None or submitted == "" or is_masked_secret(submitted)
             if preserve:
@@ -368,6 +376,7 @@ class ResourceService:
                         "id": entry.id,
                         "title": entry.title,
                         "always_on": entry.always_on,
+                        "fired_keys": list(fired_keys(entry, scan_window(text, []))),
                         "priority": entry.priority,
                         "token_estimate": TokenEstimator.text(entry.content),
                         "included": entry.id in included_ids,
@@ -402,6 +411,9 @@ class ResourceService:
             "secondary_keys": list(parse_keys(values.get("secondary_keys"))),
             "always_on": always_on,
             "case_sensitive": bool(values.get("case_sensitive")),
+            "match_word_forms": True
+            if values.get("match_word_forms") is None
+            else bool(values.get("match_word_forms")),
             "priority": priority,
             "enabled": True if values.get("enabled") is None else bool(values.get("enabled")),
         }

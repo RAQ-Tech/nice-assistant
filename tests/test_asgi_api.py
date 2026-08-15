@@ -59,9 +59,12 @@ class AsgiApiTests(unittest.TestCase):
         with self.client.stream("GET", f"/api/v1/turns/{turn['id']}/events") as response:
             stream = "\n".join(response.iter_lines())
         self.assertIn("event: turn.snapshot", stream)
-        self.assertIn("event: assistant.delta", stream)
+        self.assertIn("event: turn.started", stream)
         self.assertIn("event: turn.completed", stream)
-        self.assertIn("hello ", stream)
+        # The snapshot carries the reply, and a subscriber applies it as authoritative
+        # text. Replaying the deltas it already contains would render them twice.
+        self.assertIn("hello world", stream)
+        self.assertNotIn("event: assistant.delta", stream)
 
         media_path = self.running.config.image_dir / "owned.png"
         media_path.write_bytes(b"owned-media")

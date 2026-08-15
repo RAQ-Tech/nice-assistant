@@ -14,6 +14,7 @@ from app.job_service import JobExecution, JobService, turn_response
 from app.context_service import ContextService
 from app.memory_service import MemoryService
 from app.persona_card import CARD_FIELDS
+from app.owner_profile import render_owner_profile
 from app.persona_lore import entry_from_row
 from app.models import AsyncJob
 from app.persona_output import (
@@ -114,6 +115,13 @@ class ConversationService:
             attachments = {}
             for row in uow.repo.chat_attachments(user_id, chat_id):
                 attachments.setdefault(row.assistant_message_id, []).append(attachment_response(row))
+            # A reply produced with reduced context stays explainable after a reload, so the
+            # reason travels with the message it produced rather than only with the live turn.
+            degraded = {
+                turn.assistant_message_id: turn.context_degraded_reason
+                for turn in uow.repo.turns_for_chat(user_id, chat_id)
+                if turn.assistant_message_id and turn.context_degraded_reason
+            }
             messages = [
                 {
                     "id": row.id,
@@ -121,6 +129,7 @@ class ConversationService:
                     "text": safe_persona_output_text(row.text) if row.role == "assistant" else row.text,
                     "created_at": row.created_at,
                     "attachments": attachments.get(row.id, []),
+                    "degraded_reason": degraded.get(row.id),
                 }
                 for row in uow.repo.messages(chat_id)
             ]
@@ -199,7 +208,7 @@ class ConversationService:
             raise RequestError("At least one item must be selected.", 400)
         return ids
 
-    def create_turn(self, user_id: str, chat_id: str, values: dict) -> tuple[dict, dict]:
+    def create_turn(self, user_id: str, chat_id: str, values: dict) -> tuple[dict, dict]:  # noqa: C901
         text = str(values.get("text") or "").strip()
         if not text:
             raise RequestError("text required", 400)
@@ -326,6 +335,7 @@ class ConversationService:
                 persona_name=persona.name if persona else "",
                 example_dialogue=getattr(persona, "card_example_dialogue", "") if persona else "",
                 lore_entries=lore_entries,
+                owner_profile=render_owner_profile(preferences),
                 memory_mode=memory_mode,
                 preferences=preferences,
                 application_instructions=application_instructions,
@@ -651,11 +661,8 @@ class ConversationService:
             if not turn:
                 return None
             job = uow.session.scalar(select(AsyncJob).where(AsyncJob.turn_id == turn_id))
-            return turn_response(
-                turn,
-                job.id if job else None,
-                self.broker.accumulated_text(turn_id),
-            )
+            accumulated_text, event_cursor = self.broker.snapshot_state(turn_id)
+            return turn_response(turn, job.id if job else None, accumulated_text, event_cursor)
 
     def context_detail(self, user_id: str, chat_id: str) -> dict | None:
         return self.context.chat_context(user_id, chat_id)

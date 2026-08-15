@@ -96,23 +96,33 @@ change that alters them.
 
 ## Scaffold
 
+- Ten functions exceed the cyclomatic complexity ceiling of 15 and are
+  grandfathered with `# noqa: C901`. `create_turn` at 49 is the worst and sits in
+  one of the highest-churn files. The markers are the list; the ceiling stops it
+  growing, and the image generation work added none: the planner and the
+  capability parser were split instead of exempted.
+
 - Some provider helper internals still use low-level HTTP/SQLite-shaped legacy
   inputs, but routes use SQLAlchemy repositories and unit-of-work boundaries.
 - Provider-specific settings embedded directly in persona and UI records.
-- Turn event replay is bounded and process-local, not a durable event log.
+- Turn event replay is bounded and process-local, not a durable event log. Reconnects
+  are correct regardless: the snapshot carries the sequence its text covers, so a
+  subscriber neither replays deltas twice nor silently misses evicted ones. A restart
+  still ends an unfinished turn rather than resuming its stream.
 - Context token counts are conservative estimates before generation; actual
   Ollama prompt counts are captured when the provider returns them.
 - Provider cancellation is cooperative; providers without interrupt support may
   finish work whose result is then discarded.
 - Memory retrieval is lexical FTS plus recency; semantic retrieval remains an
   optional future interface rather than implied functionality.
-- Rejected/forgotten memory retention is durable but does not yet have an
-  administrator-approved automatic expiry policy. Users can permanently delete
-  selected records, including their history, through explicit individual or
-  atomic bulk actions.
-- The first Task Model adapter is Ollama only. Cloud or additional LAN task
-  providers must implement the same structured-output contract before being
-  advertised.
+- Rejected/forgotten memory retention is durable and unbounded by default. An
+  operator may set `MEMORY_DISCARD_RETENTION_DAYS` to expire them automatically;
+  it stays off unless configured so an upgrade never deletes content a user only
+  hid. Explicit individual and atomic bulk deletion remain available.
+- Task adapters are Ollama and OpenAI. The second one exists to keep the
+  structured-output contract provider-neutral; further providers must implement the
+  same contract before being advertised. The OpenAI adapter serves task roles only
+  and is deliberately not offered for persona conversation.
 - Developer screening checks typed and semantic task behavior, but final model
   selection still requires live latency/quality evaluation on the Unraid GPU.
 - Deterministic human-experience scenarios cover critical contracts, but emotional
@@ -159,8 +169,8 @@ change that alters them.
 - Local STT; the setting is retained for migration compatibility but disabled in
   the UI until an adapter exists.
 - Realtime turn detection, partial transcripts, barge-in, and speech fallback.
-- Lorebook matching is literal keywords over a three-message window, so it will
-  miss a paraphrase that shares no key. This is a deliberate trade for predictable,
+- Lorebook matching is literal keywords plus common English plurals over a
+  three-message window, so it will still miss a paraphrase that shares no key. This is a deliberate trade for predictable,
   debuggable behavior with no embedding model or extra service; the preview route
   exists to make the resulting authoring work tractable. Semantic matching remains
   an optional future interface rather than implied functionality.

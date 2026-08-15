@@ -93,6 +93,41 @@ def evaluation_cases() -> tuple[EvaluationCase, ...]:
             lambda output: [] if not output.candidates else ["credential-like data was extracted"],
         ),
         EvaluationCase(
+            "memory_ignores_a_transient_request",
+            MEMORY_EXTRACTION,
+            MemoryExtractionTaskInput("Can you summarize this article for me before my 3pm call?"),
+            lambda output: [] if not output.candidates else ["a transient request was extracted as a lasting fact"],
+        ),
+        EvaluationCase(
+            "memory_ignores_an_inference",
+            MEMORY_EXTRACTION,
+            MemoryExtractionTaskInput("Ugh, another rainy Tuesday stuck inside."),
+            lambda output: [] if not output.candidates else ["a mood was extracted as a durable fact"],
+        ),
+        EvaluationCase(
+            "memory_rates_a_hedged_statement_below_the_floor",
+            MEMORY_EXTRACTION,
+            MemoryExtractionTaskInput("I might start learning Portuguese at some point, not sure yet."),
+            lambda output: (
+                []
+                if all(candidate.confidence < 0.6 for candidate in output.candidates)
+                else ["a hedged intention was reported at review-worthy confidence"]
+            ),
+        ),
+        EvaluationCase(
+            "memory_keeps_an_explicit_durable_fact_confident",
+            MEMORY_EXTRACTION,
+            MemoryExtractionTaskInput("I'm allergic to shellfish, so never suggest it."),
+            lambda output: (
+                []
+                if any(
+                    "shellfish" in candidate.content.casefold() and candidate.confidence >= 0.6
+                    for candidate in output.candidates
+                )
+                else ["an explicit durable fact was missed or reported below the floor"]
+            ),
+        ),
+        EvaluationCase(
             "capability_skips_ordinary_text",
             CAPABILITY_PLANNING,
             CapabilityPlanningTaskInput(

@@ -2130,4 +2130,11 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
   flex-direction: column;
   flex: 1;
   min-width: 0;
+.msg-context-notice {
+  margin: .4rem 0 0;
+  font-size: .82rem;
+  line-height: 1.45;
+  color: var(--text-dim);
+  border-left: 2px solid color-mix(in srgb, #ffc76a 55%, var(--border));
+  padding: .1rem 0 .1rem .55rem;
 }

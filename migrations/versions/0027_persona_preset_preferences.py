@@ -9,8 +9,8 @@ from __future__ import annotations
 from alembic import op
 
 
-revision = "0026_persona_preset_preferences"
-down_revision = "0025_persona_image_library"
+revision = "0027_persona_preset_preferences"
+down_revision = "0026_persona_image_library"
 branch_labels = None
 depends_on = None
 

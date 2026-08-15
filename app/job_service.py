@@ -94,7 +94,7 @@ def job_response(job, queue_position=None) -> dict:
     }
 
 
-def turn_response(turn, job_id: str | None = None, accumulated_text: str = "") -> dict:
+def turn_response(turn, job_id: str | None = None, accumulated_text: str = "", event_cursor: int = 0) -> dict:
     error = None
     if turn.error_code or turn.error_message:
         error = {"code": turn.error_code or "failed", "message": turn.error_message or "Turn failed."}
@@ -120,6 +120,9 @@ def turn_response(turn, job_id: str | None = None, accumulated_text: str = "") -
         "user_message_id": turn.user_message_id,
         "assistant_message_id": turn.assistant_message_id,
         "accumulated_text": accumulated_text,
+        # The sequence the accumulated text already covers, so a reconnecting
+        # subscriber does not replay deltas it has just been given in full.
+        "event_cursor": event_cursor,
         "error": error,
         "created_at": turn.created_at,
         "started_at": turn.started_at,
@@ -178,7 +181,7 @@ class JobService:
                     self.resource_coordinator.bind_queue_wake(self.queue.wake)
             self._accepting_submissions = True
 
-    def stop(self) -> None:
+    def stop(self) -> None:  # noqa: C901
         with self._lifecycle_cv:
             if self._stopping:
                 while self._stopping:

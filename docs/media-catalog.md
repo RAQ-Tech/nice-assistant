@@ -498,9 +498,9 @@ provider after the one-shot import had already completed, but only when the
 matching catalog kind is empty. Future disabled-to-enabled settings changes use
 the same missing-kind rule. Existing operator resources are never overwritten
 or recreated; see ADR 0016.
-Migration `0023_media_generation_presets` adds the preset table. It is
+Migration `0024_media_generation_presets` adds the preset table. It is
 additive; owners are backfilled lazily on first use rather than rewritten.
-Migration `0022_media_generation_journal` adds the journal and its stages.
+Migration `0023_media_generation_journal` adds the journal and its stages.
 It is additive: existing plans, attempts, and media are untouched, and anything
 generated before it simply has no journal.
 Migration `0016_identity_fallback` adds the explicit no-workflow policy to

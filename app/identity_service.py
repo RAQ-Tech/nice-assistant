@@ -502,7 +502,7 @@ class IdentityService:
             self.logger.warning("inline identity validation failed error=%s", exc.__class__.__name__)
             return {"status": "error", "claim_status": "unverified", "validation": public}
 
-    def validate_media(self, user_id: str, persona_id: str, media_id: str) -> dict:
+    def validate_media(self, user_id: str, persona_id: str, media_id: str) -> dict:  # noqa: C901
         provider_settings = self._provider_settings(user_id)
         if provider_settings["provider"] == "disabled":
             raise ConflictError("Visual identity validation is disabled.")

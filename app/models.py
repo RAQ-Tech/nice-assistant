@@ -65,6 +65,7 @@ class PersonaLoreEntry(Base):
     __table_args__ = (
         CheckConstraint("always_on IN (0,1)", name="ck_persona_lore_always_on"),
         CheckConstraint("case_sensitive IN (0,1)", name="ck_persona_lore_case_sensitive"),
+        CheckConstraint("match_word_forms IN (0,1)", name="ck_persona_lore_word_forms"),
         CheckConstraint("enabled IN (0,1)", name="ck_persona_lore_enabled"),
         CheckConstraint("priority >= 0 AND priority <= 100", name="ck_persona_lore_priority"),
         Index("idx_persona_lore_owner_persona_enabled", "user_id", "persona_id", "enabled"),
@@ -78,6 +79,7 @@ class PersonaLoreEntry(Base):
     content: Mapped[str] = mapped_column(Text, nullable=False)
     always_on: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     case_sensitive: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    match_word_forms: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
     priority: Mapped[int] = mapped_column(Integer, nullable=False, default=50)
     enabled: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
     token_estimate: Mapped[int] = mapped_column(Integer, nullable=False, default=0)

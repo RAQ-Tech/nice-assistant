@@ -198,25 +198,20 @@ def build_media_plan(repo, user_id: str, requirements: dict, providers, ready_ba
     }
 
 
-def _evaluate_preset(
-    preset,
+def _resolve_preset_resources(
     definition: dict,
     *,
+    base,
     resources,
     compatibility,
-    setting,
     providers,
     ready_backends,
     operation: str,
-    desired_domains: set[str],
-    required_content: set[str],
     required_features: set[str],
-    required_mechanism: str = "",
-) -> dict:
+) -> tuple:
+    """Work out what this preset would actually run, and what is missing."""
+
     reasons = []
-    base = resources.get(definition.get("base_model_resource_id") or "")
-    if not base or base.resource_type != "model":
-        return {"preset": preset, "reasons": ["the preset's base model is missing or disabled"]}
     if base.provider_key not in providers.media_providers:
         reasons.append("provider adapter is unavailable")
     if ready_backends is not None and (base.provider_key, base.backend) not in ready_backends:
@@ -246,6 +241,72 @@ def _evaluate_preset(
             reasons.append("a LoRA this preset depends on is missing or disabled")
             continue
         fixed_loras.append((row, float(item.get("weight", 1.0))))
+    return workflow, fixed_loras, reasons
+
+
+def _requirement_failures(
+    definition: dict,
+    *,
+    base,
+    workflow,
+    operation: str,
+    required_content: set[str],
+    required_features: set[str],
+    required_mechanism: str,
+    coverage_ops: set[str],
+    coverage_content: set[str],
+    coverage_features: set[str],
+) -> list[str]:
+    """Every reason this preset cannot serve the request, named individually."""
+
+    reasons = []
+    if operation not in coverage_ops:
+        reasons.append(f"operation '{operation}' is not declared compatible")
+    if operation != "generate" and not workflow:
+        reasons.append(f"operation '{operation}' requires an explicit compatible ComfyUI workflow")
+    missing_content = sorted(required_content - coverage_content)
+    if missing_content:
+        reasons.append("missing content tags: " + ", ".join(missing_content))
+    missing_features = sorted(required_features - coverage_features)
+    if missing_features:
+        reasons.append("missing required features: " + ", ".join(missing_features))
+    if required_mechanism and required_mechanism not in (definition.get("identity_mechanisms") or []):
+        # Named, because "this preset cannot do reference_adapter" tells the
+        # operator what to fix; a generic rejection does not.
+        reasons.append(f"does not implement the '{required_mechanism}' identity mechanism this persona requires")
+    if operation not in RUNTIME_OPERATIONS.get((base.provider_key, base.backend), set()):
+        reasons.append(f"the {base.backend} adapter does not yet execute '{operation}' workflows")
+    return reasons
+
+
+def _evaluate_preset(
+    preset,
+    definition: dict,
+    *,
+    resources,
+    compatibility,
+    setting,
+    providers,
+    ready_backends,
+    operation: str,
+    desired_domains: set[str],
+    required_content: set[str],
+    required_features: set[str],
+    required_mechanism: str = "",
+) -> dict:
+    base = resources.get(definition.get("base_model_resource_id") or "")
+    if not base or base.resource_type != "model":
+        return {"preset": preset, "reasons": ["the preset's base model is missing or disabled"]}
+    workflow, fixed_loras, reasons = _resolve_preset_resources(
+        definition,
+        base=base,
+        resources=resources,
+        compatibility=compatibility,
+        providers=providers,
+        ready_backends=ready_backends,
+        operation=operation,
+        required_features=required_features,
+    )
 
     coverage_domains = set(_json(preset.domains_json, [])) | set(_json(base.domains_json, []))
     coverage_content = set(_json(preset.content_tags_json, [])) | set(_json(base.content_tags_json, []))
@@ -279,23 +340,20 @@ def _evaluate_preset(
         coverage_features.update(_json(row.features_json, []))
         coverage_ops.update(_json(row.operations_json, []))
 
-    if operation not in coverage_ops:
-        reasons.append(f"operation '{operation}' is not declared compatible")
-    if operation != "generate" and not workflow:
-        reasons.append(f"operation '{operation}' requires an explicit compatible ComfyUI workflow")
-    missing_content = sorted(required_content - coverage_content)
-    if missing_content:
-        reasons.append("missing content tags: " + ", ".join(missing_content))
-    missing_features = sorted(required_features - coverage_features)
-    if missing_features:
-        reasons.append("missing required features: " + ", ".join(missing_features))
-    if required_mechanism and required_mechanism not in (definition.get("identity_mechanisms") or []):
-        # Named, because "this preset cannot do reference_adapter" tells the
-        # operator what to fix; a generic rejection does not.
-        reasons.append(f"does not implement the '{required_mechanism}' identity mechanism this persona requires")
-    runtime_ops = RUNTIME_OPERATIONS.get((base.provider_key, base.backend), set())
-    if operation not in runtime_ops:
-        reasons.append(f"the {base.backend} adapter does not yet execute '{operation}' workflows")
+    reasons.extend(
+        _requirement_failures(
+            definition,
+            base=base,
+            workflow=workflow,
+            operation=operation,
+            required_content=required_content,
+            required_features=required_features,
+            required_mechanism=required_mechanism,
+            coverage_ops=coverage_ops,
+            coverage_content=coverage_content,
+            coverage_features=coverage_features,
+        )
+    )
 
     loras = fixed_loras + slot_loras
     stages, stage_reasons = _resolve_stages(definition, workflow, resources)

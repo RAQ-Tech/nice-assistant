@@ -10,8 +10,8 @@ from __future__ import annotations
 from alembic import op
 
 
-revision = "0028_scene_proposal_role"
-down_revision = "0027_persona_scene_backlog"
+revision = "0029_scene_proposal_role"
+down_revision = "0028_persona_scene_backlog"
 branch_labels = None
 depends_on = None
 
