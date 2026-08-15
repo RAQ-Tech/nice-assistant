@@ -216,6 +216,14 @@ naming the mechanism instead of silently producing an unconditioned picture. The
 ADR 0018 unconditioned fallback is unchanged and drops the mechanism requirement
 along with the feature it belonged to. See ADR 0031.
 
+Generated pictures are retained with the scene that produced them, and a later
+request that matches one closely enough is served instead of generated, which
+the journal records. Matching is over scene fields rather than prompt text, the
+subject dominates, and a picture is never served twice into one conversation nor
+recycled into the conversation that made it. Pictures can be added by hand with
+a description. The library is capped by `MEDIA_LIBRARY_ENTRY_LIMIT` and retires
+rather than deletes. See ADR 0030.
+
 ## Deferred voice core
 
 10. Blind TTS evaluation and provider decision.

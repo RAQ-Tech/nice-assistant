@@ -31,6 +31,7 @@ from app.models import (
     MemoryEvent,
     Message,
     Persona,
+    PersonaImageLibraryEntry,
     PersonaIdentityEvent,
     PersonaIdentityReference,
     PersonaIdentityValidation,
@@ -1782,6 +1783,77 @@ class ApplicationRepository:
 
     def delete_media_preset(self, row) -> None:
         self.session.delete(row)
+
+    def add_library_entry(
+        self, *, user_id: str, persona_id: str | None, media_id: str, scene_json: str, origin_chat_id=None
+    ):
+        existing = self.session.scalar(
+            select(PersonaImageLibraryEntry).where(
+                PersonaImageLibraryEntry.user_id == user_id,
+                PersonaImageLibraryEntry.media_id == media_id,
+            )
+        )
+        if existing:
+            return None
+        row = PersonaImageLibraryEntry(
+            id=secrets.token_hex(12),
+            user_id=user_id,
+            persona_id=persona_id,
+            media_id=media_id,
+            scene_json=scene_json,
+            state="ready",
+            origin_chat_id=origin_chat_id,
+            created_at=now_ts(),
+        )
+        self.session.add(row)
+        self.session.flush()
+        return row
+
+    def library_entry(self, user_id: str, entry_id: str):
+        return self.session.scalar(
+            select(PersonaImageLibraryEntry).where(
+                PersonaImageLibraryEntry.user_id == user_id,
+                PersonaImageLibraryEntry.id == entry_id,
+            )
+        )
+
+    def library_entries(
+        self, user_id: str, *, persona_id: str | None = None, state: str | None = None, limit: int = 100
+    ):
+        query = select(PersonaImageLibraryEntry).where(PersonaImageLibraryEntry.user_id == user_id)
+        if persona_id:
+            query = query.where(PersonaImageLibraryEntry.persona_id == persona_id)
+        if state:
+            query = query.where(PersonaImageLibraryEntry.state == state)
+        return self.session.scalars(
+            query.order_by(PersonaImageLibraryEntry.created_at.desc(), PersonaImageLibraryEntry.id).limit(
+                max(1, min(int(limit), 500))
+            )
+        ).all()
+
+    def retire_oldest_library_entries(self, user_id: str, *, keep: int) -> int:
+        """Retire the oldest entries beyond the cap.
+
+        Retired rather than deleted: the picture is still the owner's, and
+        quietly removing files to save space is not this layer's decision.
+        """
+
+        rows = self.session.scalars(
+            select(PersonaImageLibraryEntry)
+            .where(
+                PersonaImageLibraryEntry.user_id == user_id,
+                PersonaImageLibraryEntry.state != "retired",
+            )
+            .order_by(PersonaImageLibraryEntry.created_at.desc(), PersonaImageLibraryEntry.id)
+        ).all()
+        retired = 0
+        for row in rows[keep:]:
+            row.state = "retired"
+            retired += 1
+        return retired
+
+    def media_for_user(self, user_id: str, media_id: str):
+        return self.session.scalar(select(MediaFile).where(MediaFile.user_id == user_id, MediaFile.id == media_id))
 
     def add_media_generation_journal(
         self,

@@ -681,6 +681,9 @@ class MediaCatalogService:
         options = self.execution_values(repo, user_id, capability_request_id)
         if row:
             options["_media_plan_id"] = row.id
+            # The library is per persona, so serving and retention both need to
+            # know whose picture this is.
+            options["_persona_id"] = row.persona_id
             requirements = _json(row.requirements_json, {})
             operation = str(requirements.get("operation") or "generate")
             options["_operation"] = operation

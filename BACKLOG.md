@@ -55,7 +55,8 @@ Phase 1 is delivered: the per-generation journal, declared workflow request
 bindings, per-model prompt dialects, and conversation context for planning. The
 generation preset record, its backfill, preset-directed planning, the scene
 contract, shortlist routing, the routing tester, starter presets,
-multi-pass stages, and structural persona identity are delivered too. See
+multi-pass stages, structural persona identity, and the retained picture
+library are delivered too. See
 `docs/media-catalog.md`. Every item below adds its own stages to the journal
 rather than replacing it, so each one is reviewable from the picture it
 produced.
@@ -67,20 +68,19 @@ This program does not displace the voice-core items in section 3. Those remain
 the highest product priority and are blocked on an operator decision that has
 not been made; this work is what can actually progress in the meantime.
 
-1. **Image library and ready-image serving.** The serving half of
-    pre-generation, valuable against a hand-filled library. Source: ADR 0030.
+1. **Compose a proactive persona message after its picture is chosen.** The
+   library can serve a ready picture, but a persona still writes its reply
+   before anything decides which image is attached. That is how "took Roofus for
+   a walk" ends up next to a beach photo. Source: ADR 0030.
 
-    Done when:
-    - Generated images can be retained in an owner-scoped library with their
-      scene record, and images can be added to it by hand.
-    - A persona picture request serves a matching ready image when one fits,
-      and generates live when none does. Which happened is in the journal.
-    - A proactive persona message is composed after its picture is chosen, so
-      the text describes the image that will actually be attached.
-    - No-repeat and freshness rules prevent serving the same image twice into
-      one conversation.
-    - A storage cap and a retirement policy exist, and the library is visible
-      and deletable in settings.
+   Done when:
+   - For a proactive or incidental persona picture, the image is chosen first
+     and the persona composes knowing what it is sending.
+   - An explicit user request keeps its current order; the user asked for a
+     specific thing and the reply should answer it.
+   - A test proves the reply text and the attached picture describe the same
+     scene.
+
 
 2. **Settings consolidation.** This program must reduce settings surface, not
     grow it. Source: ADR 0030; `docs/settings-experience.md`.

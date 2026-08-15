@@ -586,7 +586,9 @@ STT recordings, and archived logs; `AUDIO_ARCHIVE_RETENTION_DAYS`,
 `STT_RECORDING_RETENTION_DAYS`, and `LOG_ARCHIVE_RETENTION_DAYS` set the policy,
 with zero disabling age pruning. Per-generation journals default to 60 days
 through `MEDIA_JOURNAL_RETENTION_DAYS`, and a journal is always removed with the
-media it describes regardless of that setting. `DAILY_DATABASE_BACKUP_LIMIT=14` and
+media it describes regardless of that setting. `MEDIA_LIBRARY_ENTRY_LIMIT`
+defaults to 200 retained pictures per owner; entries beyond it are retired, not
+deleted, so no image file disappears without an explicit decision. `DAILY_DATABASE_BACKUP_LIMIT=14` and
 `BACKUP_SNAPSHOT_LIMIT=10` are count limits. Review the admin storage report
 before shortening retention because deletion is permanent outside backups.
 Moving completed audio from the hot cache into the archive updates its durable

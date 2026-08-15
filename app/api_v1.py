@@ -580,6 +580,28 @@ class MediaCatalogResourceRepresentation(MediaCatalogResourceWrite):
     needs_binding_review: bool = False
 
 
+class LibraryEntryRepresentation(BaseModel):
+    id: str
+    persona_id: str | None = None
+    media_id: str
+    content_url: str
+    scene: dict
+    state: Literal["ready", "served", "retired"]
+    served_count: int
+    created_at: int
+    last_served_at: int | None = None
+
+
+class LibraryEntryListResponse(BaseModel):
+    items: list[LibraryEntryRepresentation]
+
+
+class LibraryEntryCreate(StrictModel):
+    media_id: str = Field(min_length=1, max_length=64)
+    persona_id: str | None = Field(default=None, max_length=64)
+    scene: dict = Field(default_factory=dict)
+
+
 class StarterPresetRepresentation(BaseModel):
     name: str
     routing_card: str
@@ -1851,6 +1873,34 @@ def media_library(
 def media_file(media_id: str, request: Request, context: AuthContext = Depends(current_user)):
     path = services(request).resources.media_path(context.user_id, media_id)
     return FileResponse(path, media_type=mimetypes.guess_type(path.name)[0] or "application/octet-stream")
+
+
+@router.get("/media-library", response_model=LibraryEntryListResponse, tags=["media"])
+def media_library_entries(
+    request: Request,
+    persona_id: str | None = Query(default=None),
+    limit: int = Query(default=100, ge=1, le=500),
+    context: AuthContext = Depends(current_user),
+):
+    return {"items": services(request).media_library.entries(context.user_id, persona_id=persona_id, limit=limit)}
+
+
+@router.post("/media-library", response_model=LibraryEntryRepresentation, status_code=201, tags=["media"])
+def add_media_library_entry(
+    body: LibraryEntryCreate,
+    request: Request,
+    context: AuthContext = Depends(current_user),
+):
+    return services(request).media_library.add_existing(
+        context.user_id, media_id=body.media_id, persona_id=body.persona_id, scene=body.scene
+    )
+
+
+@router.delete("/media-library/{entry_id}", status_code=204, tags=["media"])
+def delete_media_library_entry(entry_id: str, request: Request, context: AuthContext = Depends(current_user)):
+    if not services(request).media_library.remove(context.user_id, entry_id):
+        raise NotFoundError("library entry not found")
+    return Response(status_code=204)
 
 
 @router.get(

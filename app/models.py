@@ -729,6 +729,35 @@ class MediaGenerationAttempt(Base):
     completed_at: Mapped[int | None] = mapped_column(Integer)
 
 
+class PersonaImageLibraryEntry(Base):
+    """A retained picture, kept with the scene that produced it.
+
+    The scene is what makes a stored picture reusable: it says what the image is
+    of, so a later request can be matched against it rather than against prompt
+    text nobody can compare.
+    """
+
+    __tablename__ = "persona_image_library"
+    __table_args__ = (
+        CheckConstraint("state IN ('ready','served','retired')", name="ck_library_state"),
+        UniqueConstraint("user_id", "media_id", name="uq_library_owner_media"),
+        Index("idx_library_owner_persona_state", "user_id", "persona_id", "state"),
+    )
+    id: Mapped[str] = mapped_column(Text, primary_key=True)
+    user_id: Mapped[str] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    persona_id: Mapped[str | None] = mapped_column(ForeignKey("personas.id", ondelete="CASCADE"))
+    media_id: Mapped[str] = mapped_column(ForeignKey("media_files.id", ondelete="CASCADE"), nullable=False)
+    scene_json: Mapped[str] = mapped_column(Text, nullable=False, default="{}")
+    state: Mapped[str] = mapped_column(Text, nullable=False, default="ready")
+    # The conversation this picture was made in. A picture is never recycled
+    # back into the chat that produced it.
+    origin_chat_id: Mapped[str | None] = mapped_column(Text)
+    served_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    last_served_chat_id: Mapped[str | None] = mapped_column(Text)
+    created_at: Mapped[int] = mapped_column(Integer, nullable=False)
+    last_served_at: Mapped[int | None] = mapped_column(Integer)
+
+
 class MediaGenerationJournal(Base):
     """One durable record per generation, readable next to the artifact it produced."""
 

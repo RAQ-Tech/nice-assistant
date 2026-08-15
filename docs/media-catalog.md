@@ -190,6 +190,37 @@ guesswork - there is no way to see whether the sentence you wrote makes the
 preset you meant win. It is expected to be removed once routing is demonstrably
 stable.
 
+## The retained picture library
+
+A generated picture is kept with the scene that produced it. When a later
+request matches a retained picture closely enough, it is served instead of
+generated, and the journal records that it was. A picture that already exists
+arrives now; a better one that takes forty seconds arrives after the
+conversation has moved on.
+
+Matching is over the scene record, never prompt text. Two prompts can describe
+the same picture in completely different words, and comparing rendered strings
+would either miss that or match things nobody can explain. Scene fields are
+comparable because they are separate fields: the subject dominates the score, so
+a wrong subject can never be rescued by a matching setting, and a request asking
+for detail the stored picture says nothing about scores lower rather than being
+ignored.
+
+Two rules keep reuse from reading as a mistake. A picture is never served twice
+into the same conversation, and a picture is never recycled back into the
+conversation that produced it - asking twice means two pictures, not the same
+one returned again.
+
+A picture with no scene is not retained. Without one there is nothing to match a
+later request against, and an unmatchable library is only disk use. Pictures can
+also be added by hand with a description, which is what makes the library useful
+before anything generates into it.
+
+`MEDIA_LIBRARY_ENTRY_LIMIT` caps how many entries stay active. Beyond it the
+oldest are retired rather than deleted: the picture is still the owner's, and
+removing files to save space is not this layer's decision. The API is
+`/api/v1/media-library` and `/api/v1/media-library/{id}`.
+
 ## The scene contract
 
 A Task Model returns a typed scene - subject, action, setting, wardrobe,

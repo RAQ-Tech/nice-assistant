@@ -221,6 +221,14 @@ installed-browser acceptance.
   model still declares reference conditioning, and that planning rejects a
   preset which cannot honor the persona's spec with a reason naming the
   mechanism.
+- Picture library tests prove a different subject never matches however similar
+  the rest, that the same scene matches strongly, that a request asking for more
+  than the stored picture scores lower, that an empty scene matches nothing,
+  that a generated picture is retained with its scene, that a matching request
+  in another conversation is served with no provider call and journals that it
+  was, that a picture is never recycled into the conversation that made it, that
+  a different subject generates instead, that hand-added pictures need a
+  description, and that the cap retires rather than deletes.
 - API tests use isolated temporary databases and deterministic fake providers.
 - Migration tests upgrade pre-0004/0005/0007/0008/0009/0010/0011/0012/0013/0014/0015/0016/0017/0019/0021/0022 databases and prove
   chats, messages, jobs, media, memories, turn ordering, stored artifact links,

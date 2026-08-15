@@ -46,6 +46,7 @@ class MediaService:
         provider_url_policy=None,
         metrics=None,
         journal=None,
+        library=None,
     ):
         self.session_factory = session_factory
         self.secret_store = secret_store
@@ -56,6 +57,7 @@ class MediaService:
         self.provider_url_policy = provider_url_policy
         self.metrics = metrics
         self.journal = journal
+        self.library = library
 
     def _uow(self):
         return UnitOfWork(self.session_factory, self.secret_store)
@@ -150,11 +152,39 @@ class MediaService:
         recorder.finish("completed", media_id=result.get("mediaId"))
         return result
 
+    def _serve_from_library(self, user_id, chat_id, values, recorder):
+        """Answer with a picture that already exists, when one genuinely fits.
+
+        Checked before any provider work: the point is that it arrives now.
+        """
+
+        if not self.library:
+            return None
+        persona_id = values.get("_persona_id")
+        match = self.library.find_ready(user_id, persona_id=persona_id, scene=values.get("scene"), chat_id=chat_id)
+        if not match:
+            return None
+        with self._uow() as uow:
+            media = uow.repo.media_for_user(user_id, match["media_id"])
+        if not media:
+            return None
+        self.library.mark_served(user_id, match["id"], chat_id)
+        recorder.record(
+            "served_from_library",
+            summary="answered with a retained picture instead of generating",
+            detail={"library_entry_id": match["id"], "media_id": media.id, "match_score": match["score"]},
+        )
+        recorder.attach_media(media.id)
+        return media
+
     def _generate_image(self, user_id, chat_id, prompt, values, settings, preferences, cancellation, recorder):
         identity = values.get("_identity_conditioning")
         conditioned_identity = identity if (identity or {}).get("status") == "ready" else None
         generation_plan_id = values.get("_media_plan_id")
         prompt = prompt_with_identity_description(prompt, identity)
+        served = self._serve_from_library(user_id, chat_id, values, recorder)
+        if served is not None:
+            return self._image_result(served, chat_id, identity)
         self._record_plan_stage(recorder, user_id, generation_plan_id)
         recorder.record(
             "identity_conditioning",
@@ -217,6 +247,7 @@ class MediaService:
                 media = self._persist_image(user_id, chat_id, generation_plan_id, artifact, cancellation, recorder)
                 if not conditioned_identity:
                     self._finish_attempt(attempt, "passed", media_id=media.id)
+                    self._retain(user_id, media, values, recorder)
                     return self._image_result(media, chat_id, identity)
                 with recorder.timed("identity_comparison") as stage:
                     validation = self.identity.validate_generated_media(
@@ -342,6 +373,23 @@ class MediaService:
             finally:
                 scratch.unlink(missing_ok=True)
         return artifact
+
+    def _retain(self, user_id, media, values, recorder) -> None:
+        if not self.library:
+            return
+        entry_id = self.library.retain(
+            user_id,
+            media_id=media.id,
+            persona_id=values.get("_persona_id"),
+            scene=values.get("scene"),
+            origin_chat_id=media.chat_id,
+        )
+        if entry_id:
+            recorder.record(
+                "retained",
+                summary="kept for reuse with the scene that produced it",
+                detail={"library_entry_id": entry_id},
+            )
 
     def _record_plan_stage(self, recorder, user_id, plan_id):
         """Record which catalog resources the coordinator selected, and why."""
