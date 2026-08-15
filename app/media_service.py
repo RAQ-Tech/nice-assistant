@@ -122,6 +122,7 @@ class MediaService:
                 "prompt_characters": len(str(prompt or "")),
                 "in_chat": bool(chat_id),
                 "media_plan_id": values.get("_media_plan_id"),
+                "planning_context": values.get("planning_context") or [],
             },
         )
         try:

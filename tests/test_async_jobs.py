@@ -549,6 +549,9 @@ class AsyncJobTests(unittest.TestCase):
                     "domains": [],
                     "content_tags": [],
                     "required_features": [],
+                    # The conversation window planning saw, so what informed a
+                    # request stays inspectable alongside the request itself.
+                    "planning_context": ["Generate an image of a small cat"],
                 },
             )
             self.assertIsNotNone(requests[0]["job_id"])

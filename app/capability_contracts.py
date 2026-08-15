@@ -35,6 +35,9 @@ class MediaTaskRequirements:
     # task model. Absent for generation so its argument shape is unchanged.
     source_media_id: str = ""
     mask_media_id: str = ""
+    # The conversation window planning actually saw, carried so the generation
+    # journal can show what informed the request. Platform-set, never modeled.
+    planning_context: tuple[str, ...] = ()
 
     def as_arguments(self) -> dict:
         arguments = {
@@ -48,6 +51,8 @@ class MediaTaskRequirements:
             arguments["source_media_id"] = self.source_media_id
         if self.mask_media_id:
             arguments["mask_media_id"] = self.mask_media_id
+        if self.planning_context:
+            arguments["planning_context"] = list(self.planning_context)
         return arguments
 
 

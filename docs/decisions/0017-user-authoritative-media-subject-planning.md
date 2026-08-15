@@ -1,7 +1,8 @@
 # ADR 0017: User-authoritative media subject planning
 
-- Status: Accepted; fallback behavior superseded by ADR 0018 and blocked-card
-  behavior superseded by ADR 0023
+- Status: Accepted; fallback behavior superseded by ADR 0018, blocked-card
+  behavior superseded by ADR 0023, and the sole-input rule widened by ADR 0030
+  (see Amendment below)
 - Date: 2026-07-15
 - Owners: Nice Assistant maintainers
 
@@ -25,6 +26,8 @@ preserved the reviewed persona reference.
   or must preserve that persona's established appearance.
 - The user request is the sole conversational input to capability planning.
   Persona-model prose is excluded so it cannot invent or expand a media subject.
+  Amended: planning also receives a bounded window of this chat's earlier *user*
+  messages. See the Amendment below.
 - The platform, not the Task Model, derives `identity_control`: it removes that
   feature for unrelated images and requires it for a valid persona subject.
 - A narrow deterministic exclusion guard overrides an erroneous positive model
@@ -74,3 +77,19 @@ configure it.
 - Deployment acceptance must request, generate, and reveal an ordinary image
   through a real persona chat without a second approval. Persona-image acceptance additionally
   requires a real installed identity workflow and model assets.
+
+## Amendment (2026-08-15, ADR 0030 program)
+
+Planning receives a bounded window of earlier user messages from the same chat,
+oldest first, alongside the current request. Without it a request that refers to
+something already established - a colour, a subject, a place named earlier -
+cannot be routed or described correctly, which is a real failure this decision
+did not anticipate.
+
+The exclusion this ADR exists for is unchanged. Persona reply prose still never
+reaches planning, so a persona still cannot invent or widen a media subject. The
+window covers only what the user said, it is bounded in message count and total
+characters, and the current request remains the authoritative one: earlier
+messages may complete a request but never make a capability appropriate on their
+own. The window that informed a picture is recorded in that picture's generation
+journal.

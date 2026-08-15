@@ -138,6 +138,12 @@ carried one. Models with no configured dialect keep the previous behavior
 through an explicit default rather than compiled-in text. See ADR 0030 and
 `docs/media-catalog.md`.
 
+Capability planning now sees a bounded window of this chat's earlier user
+messages, so a request that refers to something already established resolves
+correctly. Persona reply prose remains excluded exactly as ADR 0017 requires,
+the window is bounded in count and characters, and the window that informed a
+picture is recorded in its journal. ADR 0017 is amended in place.
+
 ## Deferred voice core
 
 10. Blind TTS evaluation and provider decision.

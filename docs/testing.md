@@ -156,6 +156,11 @@ installed-browser acceptance.
   unstated dialect reproduces the previous behavior, that invalid dialect fields
   are refused by name, that the client sends compiled text without restyling it,
   and that the compiled positive and negative reach the journal.
+- Planning context tests prove earlier user messages reach planning so a
+  reference resolves, that persona reply prose still never appears in a planning
+  payload, that the window is bounded in count and characters with the newest
+  messages retained, that a first message plans with a one-entry window, and that
+  the window which informed a picture is recorded in its journal.
 - API tests use isolated temporary databases and deterministic fake providers.
 - Migration tests upgrade pre-0004/0005/0007/0008/0009/0010/0011/0012/0013/0014/0015/0016/0017/0019/0021/0022 databases and prove
   chats, messages, jobs, media, memories, turn ordering, stored artifact links,

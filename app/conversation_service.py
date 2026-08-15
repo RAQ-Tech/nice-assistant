@@ -443,6 +443,7 @@ class ConversationService:
                     "planning_source": "deterministic_explicit_image",
                 }
             planning_vocabulary = self.capabilities.planning_vocabulary(user_id, allow_edits=allow_edits)
+            planning_context = self.capabilities.planning_context(user_id, chat_id)
             try:
                 outcome = self.task_models.run(
                     user_id,
@@ -456,6 +457,7 @@ class ConversationService:
                         available_content_tags=tuple(planning_vocabulary.get("content_tags") or ()),
                         available_features=tuple(planning_vocabulary.get("features") or ()),
                         available_attachments=offered_attachments.available,
+                        recent_user_messages=planning_context,
                     ),
                     token,
                     chat_id=chat_id,
@@ -475,6 +477,7 @@ class ConversationService:
                     # Carried, not persisted, so a reference resolves to the
                     # image this plan was actually offered.
                     "offered_attachments": offered_attachments.bindings,
+                    "planning_context": planning_context,
                 }
             except ProviderError as exc:
                 if exc.code == "cancelled" or token.cancelled:
@@ -490,6 +493,7 @@ class ConversationService:
             planned_capabilities = list(output.pop("planned_capabilities", []))
             planning_source = str(output.pop("planning_source", "task_model"))
             offered = output.pop("offered_attachments", None)
+            planning_context = tuple(output.pop("planning_context", ()) or ())
             if planned_capabilities:
                 capability_requests = self.capabilities.prepare_planned_requests(
                     repo,
@@ -501,6 +505,7 @@ class ConversationService:
                     planned=planned_capabilities,
                     source=planning_source,
                     offered_attachments=offered,
+                    planning_context=planning_context,
                 )
                 output["auto_capability_request_ids"] = [
                     item["id"] for item in capability_requests if item.pop("auto_submit", False)

@@ -146,6 +146,13 @@ def transition_capability(
     )
 
 
+# A planning window wide enough to resolve "the colours we talked about"
+# without turning capability planning into a second conversation history.
+PLANNING_CONTEXT_MESSAGES = 6
+PLANNING_CONTEXT_MESSAGE_CHARACTERS = 400
+PLANNING_CONTEXT_CHARACTERS = 1200
+
+
 class CapabilityService:
     def __init__(
         self,
@@ -193,6 +200,37 @@ class CapabilityService:
             for operation in EDIT_OPERATIONS
             if self.media_catalog.has_ready_operation(user_id, "image", operation)
         )
+
+    def planning_context(self, user_id: str, chat_id: str | None) -> tuple[str, ...]:
+        """Return recent user messages so a request can resolve its own references.
+
+        Only the user's own words. ADR 0017 excludes persona reply prose from
+        planning so a persona cannot invent or widen a media subject, and that
+        reason is unchanged - this widens the window over what the user said,
+        nothing else.
+        """
+
+        if not chat_id:
+            return ()
+        with self._uow() as uow:
+            if not uow.repo.chat(user_id, chat_id):
+                return ()
+            rows = uow.repo.messages(chat_id)
+        recent = [row for row in rows if row.role == "user"][-PLANNING_CONTEXT_MESSAGES:]
+        window = []
+        budget = PLANNING_CONTEXT_CHARACTERS
+        # Newest first while spending the budget, so the messages most likely to
+        # be referenced survive when the allowance runs out.
+        for row in reversed(recent):
+            text = " ".join(str(row.text or "").split()).strip()
+            if not text:
+                continue
+            text = text[:PLANNING_CONTEXT_MESSAGE_CHARACTERS]
+            if len(text) > budget:
+                break
+            budget -= len(text)
+            window.append(text)
+        return tuple(reversed(window))
 
     def planning_attachments(self, user_id: str, chat_id: str | None) -> OfferedAttachments:
         """Publish this chat's editable images as opaque references.
@@ -478,6 +516,7 @@ class CapabilityService:
         planned: list[PlannedCapability],
         source: str = "task_model",
         offered_attachments: dict | None = None,
+        planning_context: tuple[str, ...] = (),
     ) -> list[dict]:
         chat = repo.chat(user_id, chat_id)
         if not chat:
@@ -520,6 +559,7 @@ class CapabilityService:
                 required_features=request.required_features,
                 source_media_id=source_media_id,
                 mask_media_id=mask_media_id,
+                planning_context=planning_context,
             )
             row, created = repo.add_capability_request(
                 user_id=user_id,

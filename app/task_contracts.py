@@ -405,6 +405,7 @@ class CapabilityPlanningTaskInput:
     available_content_tags: tuple[str, ...] = ()
     available_features: tuple[str, ...] = ()
     available_attachments: tuple[AvailableAttachment, ...] = ()
+    recent_user_messages: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -506,6 +507,10 @@ def _system_prompt(role: str) -> str:
             "image the user means, and set mask_attachment only for inpaint or outpaint. Use the empty string when no "
             "attachment applies. Never invent a reference, and prefer a new generation when the user wants a different "
             "picture rather than a change to an existing one. "
+            "recent_user_messages holds this conversation's earlier user messages, oldest first, for resolving what "
+            "the request refers to - a colour, a subject, or a place named earlier. Use it to complete the current "
+            "request only. It never makes a capability appropriate on its own, and an earlier request that was already "
+            "handled must not be repeated. "
             "Never select or name a provider, model, LoRA, workflow, resource ID, or privileged setting. "
             "Return no requests when ordinary text is sufficient or the intent is ambiguous."
         )
@@ -852,6 +857,7 @@ def _memory_payload(task_input: MemoryExtractionTaskInput) -> dict:
 def _capability_payload(task_input: CapabilityPlanningTaskInput) -> dict:
     return {
         "user_text": task_input.user_text,
+        "recent_user_messages": list(task_input.recent_user_messages),
         "persona_selected": task_input.persona_selected,
         "available_capabilities": [
             {"key": item.key, "title": item.title, "description": item.description}

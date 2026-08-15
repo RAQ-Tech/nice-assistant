@@ -41,6 +41,22 @@ editor remains available for deliberate manual changes. An enabled workflow must
 have a non-empty patch; an enabled
 `identity_control` workflow must also have at least one valid binding.
 
+## Planning context
+
+Capability planning receives a bounded window of this chat's earlier user
+messages, oldest first, so a request that refers to something already
+established can be routed and described correctly. The window is bounded in both
+message count and total characters, and the newest messages survive when the
+allowance runs out, because those are the ones a request is most likely to refer
+to.
+
+Persona reply prose is still excluded. That exclusion is the reason ADR 0017
+exists - it stops a persona inventing or widening a media subject - and widening
+the window over the user's own words does not weaken it. The current request
+remains authoritative: earlier messages may complete a request but never make a
+capability appropriate on their own. The window that informed a picture is
+recorded in that picture's journal and in its capability request.
+
 ## Prompt dialect
 
 Prompt syntax is a property of the checkpoint, not of the request. A model
