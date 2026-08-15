@@ -100,7 +100,7 @@ export class SettingsView {
       if (intent.persona_id && this.appState.personas.some((item) => item.id === intent.persona_id)) {
         this.appState.identitySelectedPersonaId = intent.persona_id;
       }
-      this.navigateSettings('Visual Identity');
+      this.navigateSettings('Persona Pictures');
       void this.identityView.refresh();
       return;
     }
@@ -114,9 +114,9 @@ export class SettingsView {
     const settings = this.appState.settings;
     if (!settings) return el('div', { class: 'settings-screen', textContent: 'Settings are unavailable.' });
     const section = normalizeSection(this.appState.settingsSection);
-    const usesDedicatedActions = ['Data', 'Task Models', 'Media Catalog', 'Visual Identity', 'GPU Coordination'].includes(section);
+    const usesDedicatedActions = ['Data', 'Task Models', 'Media Catalog', 'Persona Pictures', 'GPU Coordination'].includes(section);
     this.appState.settingsSection = section;
-    if (section === 'Visual Identity' && !this.appState.identitySettings && !this.appState.identityBusy) {
+    if (section === 'Persona Pictures' && !this.appState.identitySettings && !this.appState.identityBusy) {
       void this.identityView.refresh();
     }
     if (
@@ -163,7 +163,7 @@ export class SettingsView {
                 if (name === 'Memory') void this.refreshMemories();
                 if (name === 'Task Models') void this.taskModelView.refresh();
                 if (name === 'Media Catalog') void this.mediaCatalogView.refresh();
-                if (name === 'Visual Identity') void this.identityView.refresh();
+                if (name === 'Persona Pictures') void this.identityView.refresh();
                 if (name === 'GPU Coordination' && this.appState.session?.is_admin) {
                   void this.operationsView.refreshCoordination();
                 }
@@ -203,7 +203,7 @@ export class SettingsView {
     if (section === 'Models') return this.modelView.nodes(settings);
     if (section === 'Task Models') return this.taskModelView.nodes();
     if (section === 'Media Catalog') return this.mediaCatalogView.nodes();
-    if (section === 'Visual Identity') return this.identityView.nodes();
+    if (section === 'Persona Pictures') return this.identityView.nodes();
     if (section === 'GPU Coordination') return this.operationsView.gpuNodes();
     return this.operationsView.dataNodes();
   }

@@ -71,7 +71,12 @@ not proof of a real person's legal identity.
 
 ## Operator flow
 
-Settings -> Visual Identity provides the review workflow:
+Settings -> Persona Pictures is one surface for a persona's appearance: reviewed
+references, the Identity Spec, and the pictures kept for reuse. It replaced the
+separate Visual Identity tab rather than adding to it.
+
+
+The review workflow is:
 
 1. Select a persona and enable private visual-identity storage. For a fictional
    persona this confirms only that the operator created the image or has the

@@ -7,6 +7,7 @@ import type {
   Chat,
   ChatDetail,
   Job,
+  LibraryEntry,
   MediaJournal,
   MediaPreset,
   Memory,
@@ -417,6 +418,14 @@ export class ApiClient {
 
   capabilityRequest(id: string): Promise<CapabilityRequest> {
     return this.request(`/capability-requests/${encodeURIComponent(id)}`);
+  }
+
+  libraryEntries(personaId: string): Promise<{ items: LibraryEntry[] }> {
+    return this.request(`/media-library?persona_id=${encodeURIComponent(personaId)}`);
+  }
+
+  deleteLibraryEntry(id: string): Promise<void> {
+    return this.request(`/media-library/${encodeURIComponent(id)}`, { method: 'DELETE' });
   }
 
   mediaPresets(): Promise<{ items: MediaPreset[] }> {

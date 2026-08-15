@@ -361,9 +361,11 @@ test('operator settings lead with readiness and keep expert editors closed', asy
 
 test('visual identity guides reference setup without exposing internal media IDs', async ({ page }) => {
   await installAuthenticatedFixture(page);
-  await page.goto('/#/settings/Visual%20Identity');
-  await expect(page.getByRole('heading', { name: 'Visual Identity' })).toBeVisible();
-  await expect(page.getByText('Keep each persona visually recognizable')).toBeVisible();
+  await page.goto('/#/settings/Persona%20Pictures');
+  await expect(page.getByRole('heading', { name: 'Persona Pictures' })).toBeVisible();
+  await expect(page.getByText("Everything about a persona's pictures")).toBeVisible();
+  // One surface: references, appearance, and the pictures kept for reuse.
+  await expect(page.getByTestId('library-refresh')).toBeVisible();
   await expect(page.getByText('Reference-aware generation', { exact: true })).toBeVisible();
   await expect(page.getByText('ComfyUI needs an identity model plus a bound workflow in Media Catalog', { exact: false })).toBeVisible();
   await expect(page.getByText('Protected media ID')).toHaveCount(0);

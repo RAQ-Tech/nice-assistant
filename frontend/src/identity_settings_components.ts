@@ -1,5 +1,11 @@
 import { el, formatDate } from './dom';
-import { readinessRow, settingsHeading, titleCase } from './settings_ui';
+import {
+  readinessRow,
+  selectControl as select,
+  settingField as field,
+  settingsHeading,
+  titleCase,
+} from './settings_ui';
 import type { AppState, VisualIdentityProfile } from './types';
 
 export function identityImageButton(
@@ -106,4 +112,18 @@ export function identityReadinessCard(
       }),
     ]),
   ]);
+}
+
+
+export function identityPersonaSelector(
+  selectedId: string,
+  personaIds: readonly string[],
+  name: (id: string) => string,
+  change: (value: string) => void,
+): HTMLElement {
+  return field(
+    'Persona',
+    select(selectedId, personaIds, change, name),
+    'Choose whose reference images, appearance guidance, kept pictures, and validation history you want to manage.',
+  );
 }

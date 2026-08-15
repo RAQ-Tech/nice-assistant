@@ -235,6 +235,11 @@ installed-browser acceptance.
   card is flagged, that saving is offered only after a change, and that an empty
   list explains where presets come from. Browser journeys open the demoted
   Inventory disclosure before reaching a raw resource editor.
+- Kept picture tests prove an entry shows the description it will be matched
+  against, that a retired entry explains the keep limit without implying
+  deletion, that forgetting an entry says the picture itself stays, and that an
+  empty library says so rather than rendering nothing. The browser journey
+  covers the merged Persona Pictures surface.
 - API tests use isolated temporary databases and deterministic fake providers.
 - Migration tests upgrade pre-0004/0005/0007/0008/0009/0010/0011/0012/0013/0014/0015/0016/0017/0019/0021/0022 databases and prove
   chats, messages, jobs, media, memories, turn ordering, stored artifact links,

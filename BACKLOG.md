@@ -56,7 +56,8 @@ bindings, per-model prompt dialects, and conversation context for planning. The
 generation preset record, its backfill, preset-directed planning, the scene
 contract, shortlist routing, the routing tester, starter presets,
 multi-pass stages, structural persona identity, the retained picture library,
-and a preset-first Media Catalog are delivered too. See
+a preset-first Media Catalog, and the merged Persona Pictures surface are
+delivered too. See
 `docs/media-catalog.md`. Every item below adds its own stages to the journal
 rather than replacing it, so each one is reviewable from the picture it
 produced.
@@ -68,19 +69,17 @@ This program does not displace the voice-core items in section 3. Those remain
 the highest product priority and are blocked on an operator decision that has
 not been made; this work is what can actually progress in the meantime.
 
-1. **Merge Visual Identity into a single Persona pictures surface.** Media
-    Catalog is preset-first and presets now have named fields, but persona
-    picture settings are still split: references and identity live in their own
-    tab, and the retained picture library has no operator surface at all.
-    Source: ADR 0030; `docs/settings-experience.md`.
+1. **Per-persona preset preferences.** Routing picks a preset from the
+    shortlist for everyone equally, but which recipe suits a persona is
+    persona-specific knowledge - the one whose identity conditioning actually
+    holds for that face. Nothing records it. Source: ADR 0030, ADR 0031.
 
     Done when:
-    - One Persona pictures surface holds reviewed references, the Identity Spec,
-      preset preferences, and the retained library, replacing the separate
-      Visual Identity tab.
-    - The retained picture library is visible and deletable there, per persona.
-    - The count of top-level settings tabs does not increase, and the browser
-      journeys cover the merged surface.
+    - A persona records an ordered preference over presets.
+    - Routing prefers a persona's known-good preset when it survives the hard
+      filter, and says so in the plan explanation.
+    - The preference is editable on Persona Pictures, which already owns that
+      persona's picture settings.
 
 #### Phase 3 - library production
 

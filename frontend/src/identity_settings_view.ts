@@ -1,9 +1,11 @@
 import type { ApiClient } from './api';
 import { el, errorMessage, formatBytes, formatDate } from './dom';
 import { IdentityMediaPicker } from './identity_media_picker';
+import { PictureLibraryView } from './picture_library_view';
 import {
   identityAuditCard,
   identityImageButton,
+  identityPersonaSelector,
   identityReadinessCard,
 } from './identity_settings_components';
 import {
@@ -34,6 +36,7 @@ export class IdentitySettingsView {
   private attested = false;
   private providerResult = '';
   private readonly mediaPicker: IdentityMediaPicker;
+  private readonly library: PictureLibraryView;
   private advancedOpen = false;
 
   constructor(
@@ -44,6 +47,7 @@ export class IdentitySettingsView {
     private readonly openIdentitySetup: (personaId: string) => void = () => undefined,
   ) {
     this.mediaPicker = new IdentityMediaPicker(renderApp, client, (url) => this.openImage(url));
+    this.library = new PictureLibraryView(appState, client, renderApp);
   }
 
   async refresh(): Promise<void> {
@@ -67,32 +71,29 @@ export class IdentitySettingsView {
     const profile = personaId ? this.appState.identityProfiles[personaId] : null;
     return [
       settingsIntro(
-        'Keep each persona visually recognizable',
-        'Choose a persona, add a clear reference image, and approve it. Reference-aware image generation must be configured separately before the image can influence new generations.',
+        "Everything about a persona's pictures",
+        'How it looks, the references that make it recognizable, and the pictures kept for reuse. Reference-aware generation is configured in Media Catalog before a reference can influence new pictures.',
       ),
       this.personaSelector(),
       profile
         ? this.profileStack(profile)
         : el('div', { class: 'settings-empty-state', textContent: 'Choose a persona to manage its appearance.' }),
+      this.library.node(personaId ?? ''),
     ];
   }
 
   private personaSelector(): HTMLElement {
-    return field(
-      'Persona',
-      select(
-        this.appState.identitySelectedPersonaId ?? '',
-        this.appState.personas.map((persona) => persona.id),
-        (value) => {
-          this.appState.identitySelectedPersonaId = value || null;
-          this.mediaPicker.close();
-          this.selectedFile = null;
-          this.attested = false;
-          void this.refresh();
-        },
-        (value) => this.personaName(value),
-      ),
-      'Choose whose reference images, appearance guidance, and validation history you want to manage.',
+    return identityPersonaSelector(
+      this.appState.identitySelectedPersonaId ?? '',
+      this.appState.personas.map((persona) => persona.id),
+      (value) => this.personaName(value),
+      (value) => {
+        this.appState.identitySelectedPersonaId = value || null;
+        this.mediaPicker.close();
+        this.selectedFile = null;
+        this.attested = false;
+        void this.refresh();
+      },
     );
   }
 

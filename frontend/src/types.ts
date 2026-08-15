@@ -444,6 +444,18 @@ export interface RoutingPreview {
   plan: MediaPlan | null;
 }
 
+export interface LibraryEntry {
+  id: Id;
+  persona_id: Id | null;
+  media_id: Id;
+  content_url: string;
+  scene: Record<string, string>;
+  state: 'ready' | 'served' | 'retired';
+  served_count: number;
+  created_at: number;
+  last_served_at: number | null;
+}
+
 export interface MediaPreset {
   id: Id;
   name: string;

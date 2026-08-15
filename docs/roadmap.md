@@ -230,6 +230,12 @@ sampling, and dimensions; the individual models, LoRAs, and workflows sit behind
 an Inventory disclosure. The raw definition remains available but is no longer
 the only way to edit a recipe. See ADR 0030 and `docs/settings-experience.md`.
 
+Visual Identity became Persona Pictures: one surface holding a persona's
+appearance, its reviewed references, and the pictures kept for reuse, with no
+increase in top-level settings tabs. Kept pictures show the description they are
+matched against, and forgetting one stops reuse without deleting the image. See
+`docs/settings-experience.md`.
+
 ## Deferred voice core
 
 10. Blind TTS evaluation and provider decision.

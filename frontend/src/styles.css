@@ -2100,3 +2100,34 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
   border-left: 3px solid rgba(120, 200, 140, .6);
   padding-left: .6rem;
 }
+
+/* Kept pictures: the scene matters as much as the thumbnail, so both show. */
+.library-entries {
+  list-style: none;
+  margin: .5rem 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: .5rem;
+}
+
+.library-entry {
+  display: flex;
+  align-items: center;
+  gap: .75rem;
+}
+
+.library-thumb {
+  width: 3.5rem;
+  height: 3.5rem;
+  object-fit: cover;
+  border-radius: .4rem;
+  flex: none;
+}
+
+.library-entry-body {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-width: 0;
+}

@@ -279,7 +279,7 @@ describe('Media catalog settings', () => {
       required_features: ['identity_control'], block_code: 'identity_reference_unavailable',
     });
 
-    expect(navigate).toHaveBeenCalledWith('Visual Identity');
+    expect(navigate).toHaveBeenCalledWith('Persona Pictures');
     expect(appState.identitySelectedPersonaId).toBe('nova');
     expect(appState.mediaCatalogIdentitySetupIntent).toBeNull();
     await vi.waitFor(() => expect(client.visualIdentity).toHaveBeenCalledWith('nova'));

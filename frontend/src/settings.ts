@@ -72,7 +72,7 @@ export const SETTINGS_SECTIONS = [
   'Models',
   'Task Models',
   'Media Catalog',
-  'Visual Identity',
+  'Persona Pictures',
   'GPU Coordination',
   'Data',
 ] as const;
@@ -128,7 +128,7 @@ export const SETTINGS_SECTION_KEYS: Record<SettingsSection, readonly (keyof Sett
   ],
   'Task Models': [],
   'Media Catalog': [],
-  'Visual Identity': [],
+  'Persona Pictures': [],
   'GPU Coordination': [],
   Data: [],
 };

@@ -96,7 +96,7 @@ function setup(enabled = true) {
 describe('Visual identity settings', () => {
   it('explains readiness, exposes behavior controls, and keeps provider plumbing advanced', () => {
     const { root } = setup();
-    expect(root.textContent).toContain('Keep each persona visually recognizable');
+    expect(root.textContent).toContain("Everything about a persona's pictures");
     expect(root.textContent).toContain('ComfyUI needs an identity model plus a bound workflow in Media Catalog');
     expect(root.textContent).toContain('IPAdapter, InstantID, PuLID, or PhotoMaker');
     const fallback = [...root.querySelectorAll('.settings-readiness-row')]

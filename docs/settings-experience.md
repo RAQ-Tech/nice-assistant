@@ -44,6 +44,24 @@ what to do next without reading the source code.
 - Keep verifier settings, thresholds, manual validation, history, and deletion
   in an optional advanced section.
 
+### Persona Pictures — delivered
+
+Visual Identity became Persona Pictures: one surface for how a persona looks,
+the references that make it recognizable, and the pictures kept for reuse. It is
+a rename plus a section, not a new tab, so the number of top-level settings tabs
+is unchanged.
+
+Kept pictures show the description they were stored under, because that
+description is what a later request is matched against; an entry nobody can
+interpret is one nobody can decide to remove. The action is "Forget", and it
+says the picture itself stays - removing a library entry stops reuse, it does
+not delete an image. A retired entry explains that it is past the keep limit
+rather than appearing broken.
+
+Persona preset preferences are not here yet. That needs a persona-to-preset
+record which does not exist, and it is tracked separately rather than implied by
+this screen.
+
 ### Media Catalog is preset-first — delivered
 
 A preset is the thing an operator opens, so presets lead the screen and the
