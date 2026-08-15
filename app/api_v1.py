@@ -659,8 +659,19 @@ class MediaPlanRejectionExplanation(BaseModel):
     reasons: list[str]
 
 
+class MediaPlanPresetExplanation(BaseModel):
+    id: str
+    name: str
+    revision: int
+    priority: int
+    routing_card: str
+    reason: str
+
+
 class MediaPlanExplanation(BaseModel):
     summary: str
+    # Absent on a manual plan, which bypasses preset selection by design.
+    preset: MediaPlanPresetExplanation | None = None
     selected: list[MediaPlanSelectionExplanation]
     warnings: list[str]
     rejected: list[MediaPlanRejectionExplanation]

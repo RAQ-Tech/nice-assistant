@@ -60,6 +60,13 @@ slot names the one axis the operator is willing to let vary and how far, and the
 existing explicit compatibility edges still gate what can fill it. Everything
 else about a preset is a fixed, tested choice.
 
+A preset may also declare an open workflow slot. That lets it reach a
+feature-capable graph it does not name itself, which is how identity
+conditioning is applied today. It is off by default, because a preset is meant
+to be a fixed recipe; presets created from an existing catalog model turn it on,
+since attaching a feature-capable workflow at request time is exactly what the
+coordinator did before presets existed.
+
 Presets are single-pass unless they declare stages. Declared stages are what
 multi-pass work - an identity pass, a detail pass - will build on.
 
@@ -69,9 +76,6 @@ catalog's LoRA limit. That reproduces what the coordinator does today, so
 nothing an operator has configured changes meaning. The backfill is lazy per
 owner, the same way legacy provider settings are imported, so an account set up
 after the migration is treated identically without a second migration.
-
-Planning still selects resources the previous way. Moving selection onto presets
-is the next step and is tracked in `BACKLOG.md`.
 
 The API is `/api/v1/media-catalog/presets` and
 `/api/v1/media-catalog/presets/{id}`.
@@ -174,14 +178,19 @@ and GPU residency.
 
 For a model-requested capability, the coordinator:
 
-1. applies hard kind, operation, content, and feature requirements;
-2. scores the remaining enabled base models by explicit domain coverage and
-   operator priority;
+1. applies hard kind, operation, content, and feature requirements to every
+   enabled preset;
+2. scores the survivors by explicit domain coverage, then operator priority,
+   then estimated cost;
 3. rejects selections that exceed the configured VRAM budget;
-4. selects only explicitly compatible LoRAs and, when relevant, a compatible
-   ComfyUI workflow; and
-5. persists an immutable, explainable plan with resource revisions before any
-   provider work begins.
+4. fills only the preset's declared open slots, still gated by the explicit
+   compatibility edges; and
+5. persists an immutable, explainable plan naming the chosen preset, its
+   revision, and the reason it won, before any provider work begins.
+
+Execution revalidates the preset revision alongside the resource revisions. A
+preset edited after planning produces the same retryable failure a changed
+resource does; nothing is ever silently substituted.
 
 For an explicit conversational image request, a ready plan is revalidated and
 queued automatically. Editing, disabling, or deleting a selected resource makes

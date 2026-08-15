@@ -168,7 +168,10 @@ installed-browser acceptance.
   single open LoRA slot; that create, update, and delete round-trip with a
   revision bump; that a preset cannot name a LoRA the catalog never paired with
   its base model; that names are unique per owner; and that presets are
-  owner-scoped.
+  owner-scoped. Planning tests prove the chosen preset and its reason appear in
+  the plan explanation, that automatic LoRA selection fills a declared open slot
+  and adds nothing to a preset without one, and that editing a preset after
+  planning produces a retryable conflict rather than a substitution.
 - API tests use isolated temporary databases and deterministic fake providers.
 - Migration tests upgrade pre-0004/0005/0007/0008/0009/0010/0011/0012/0013/0014/0015/0016/0017/0019/0021/0022 databases and prove
   chats, messages, jobs, media, memories, turn ordering, stored artifact links,

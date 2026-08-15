@@ -1,3 +1,15 @@
+"""Select a tested preset for a semantic request.
+
+Planning used to assemble a combination from scored resource tags at request
+time, which meant it could emit a checkpoint, workflow, and LoRA mix nobody had
+run. It now chooses between presets an operator has already put together, and
+the only thing still assembled is whatever fills a preset's declared open LoRA
+slots. See ADR 0030.
+
+Selection stays deterministic and explainable: hard requirements first, then
+domain coverage, then operator priority, then estimated cost.
+"""
+
 from __future__ import annotations
 
 import json
@@ -10,6 +22,18 @@ RUNTIME_OPERATIONS = {
     ("local-image", "comfyui"): {"generate", "inpaint", "outpaint", "image_to_image"},
     ("openai-video", "openai"): {"generate"},
 }
+SAMPLER_KEYS = ("steps", "cfg_scale", "sampler_name", "scheduler")
+WORKFLOW_SETTING_KEYS = (
+    "workflow_patch",
+    "identity_image_bindings",
+    "source_image_bindings",
+    "mask_image_bindings",
+    "prompt_bindings",
+    "negative_prompt_bindings",
+    "seed_bindings",
+    "width_bindings",
+    "height_bindings",
+)
 
 
 def _json(value: str | None, fallback):
@@ -21,129 +45,78 @@ def _json(value: str | None, fallback):
 
 
 def build_media_plan(repo, user_id: str, requirements: dict, providers, ready_backends=None) -> dict:
-    """Select an explainable plan from explicit metadata; never inspect resource names."""
-    resources = repo.media_catalog_resources(user_id, enabled=True)
-    setting = repo.media_catalog_setting(user_id)
-    compatibility = repo.media_compatibility_map(user_id)
+    """Choose an enabled preset that satisfies every hard requirement."""
+
     kind = requirements["kind"]
     operation = requirements["operation"]
     desired_domains = set(requirements["domains"])
     required_content = set(requirements["content_tags"])
     required_features = set(requirements["required_features"])
-    models = [row for row in resources if row.resource_type == "model" and row.kind == kind]
-    addons = [row for row in resources if row.resource_type != "model" and row.kind == kind]
+
+    presets = repo.media_presets(user_id, kind=kind, enabled=True)
+    resources = {row.id: row for row in repo.media_catalog_resources(user_id, enabled=True)}
+    compatibility = repo.media_compatibility_map(user_id)
+    setting = repo.media_catalog_setting(user_id)
+
     rejected = []
     candidates = []
-    for model in models:
-        reasons = []
-        if model.provider_key not in providers.media_providers:
-            reasons.append("provider adapter is unavailable")
-        if ready_backends is not None and (model.provider_key, model.backend) not in ready_backends:
-            reasons.append("provider is not currently reachable")
-        model_ops = set(_json(model.operations_json, []))
-        model_domains = set(_json(model.domains_json, []))
-        model_content = set(_json(model.content_tags_json, []))
-        model_features = set(_json(model.features_json, []))
-        compatible = [
-            item
-            for item in addons
-            if model.id in compatibility.get(item.id, set())
-            and item.provider_key == model.provider_key
-            and item.backend == model.backend
-        ]
-        missing_features = required_features - model_features
-        workflow = _select_workflow(compatible, operation, missing_features)
-        if operation != "generate" and not workflow:
-            reasons.append(f"operation '{operation}' requires an explicit compatible ComfyUI workflow")
-        selected = [model] + ([workflow] if workflow else [])
-        coverage_domains = set(model_domains)
-        coverage_content = set(model_content)
-        coverage_features = set(model_features)
-        coverage_ops = set(model_ops)
-        if workflow:
-            coverage_domains.update(_json(workflow.domains_json, []))
-            coverage_content.update(_json(workflow.content_tags_json, []))
-            coverage_features.update(_json(workflow.features_json, []))
-            coverage_ops.update(_json(workflow.operations_json, []))
-        loras = _select_loras(
-            [item for item in compatible if item.resource_type == "lora"],
-            desired_domains,
-            required_content,
-            required_features,
-            coverage_domains,
-            coverage_content,
-            coverage_features,
-            setting.max_loras,
+    for preset in presets:
+        definition = _json(preset.definition_json, {})
+        evaluated = _evaluate_preset(
+            preset,
+            definition,
+            resources=resources,
+            compatibility=compatibility,
+            setting=setting,
+            providers=providers,
+            ready_backends=ready_backends,
+            operation=operation,
+            desired_domains=desired_domains,
+            required_content=required_content,
+            required_features=required_features,
         )
-        selected.extend(loras)
-        for lora in loras:
-            coverage_domains.update(_json(lora.domains_json, []))
-            coverage_content.update(_json(lora.content_tags_json, []))
-            coverage_features.update(_json(lora.features_json, []))
-            coverage_ops.update(_json(lora.operations_json, []))
-        if operation not in coverage_ops:
-            reasons.append(f"operation '{operation}' is not declared compatible")
-        missing_content = sorted(required_content - coverage_content)
-        if missing_content:
-            reasons.append("missing content tags: " + ", ".join(missing_content))
-        missing_features = sorted(required_features - coverage_features)
-        if missing_features:
-            reasons.append("missing required features: " + ", ".join(missing_features))
-        runtime_ops = RUNTIME_OPERATIONS.get((model.provider_key, model.backend), set())
-        if operation not in runtime_ops:
-            reasons.append(f"the {model.backend} adapter does not yet execute '{operation}' workflows")
-        total_vram = sum(item.estimated_vram_mb for item in selected)
-        if setting.vram_budget_mb and total_vram > setting.vram_budget_mb:
-            reasons.append(f"estimated VRAM {total_vram} MB exceeds the {setting.vram_budget_mb} MB catalog budget")
-        if reasons:
-            rejected.append({"resource_id": model.id, "name": model.name, "reasons": reasons})
+        if evaluated["reasons"]:
+            rejected.append({"resource_id": preset.id, "name": preset.name, "reasons": evaluated["reasons"]})
             continue
-        domain_hits = len(desired_domains & coverage_domains)
-        priority = sum(item.priority for item in selected)
-        candidates.append(
-            {
-                "model": model,
-                "workflow": workflow,
-                "loras": loras,
-                "selected": selected,
-                "domain_hits": domain_hits,
-                "priority": priority,
-                "estimated_vram_mb": total_vram,
-                "missing_domains": sorted(desired_domains - coverage_domains),
-            }
-        )
+        candidates.append(evaluated)
+
     if not candidates:
-        block_message = _blocked_plan_message(rejected)
         return {
             "status": "blocked",
             "selected_resources": [],
             "execution_options": {},
             "explanation": {
-                "summary": "No enabled catalog model can execute every hard requirement.",
+                "summary": "No enabled generation preset can execute every hard requirement.",
                 "selected": [],
                 "warnings": [],
                 "rejected": rejected[:20],
             },
             "estimated_vram_mb": 0,
             "block_code": "no_compatible_media_plan",
-            "block_message": block_message,
+            "block_message": _blocked_plan_message(rejected),
         }
+
     candidates.sort(
         key=lambda item: (
             -item["domain_hits"],
-            -item["priority"],
+            -item["preset"].priority,
             item["estimated_vram_mb"],
-            item["model"].name.casefold(),
-            item["model"].id,
+            item["preset"].name.casefold(),
+            item["preset"].id,
         )
     )
     winner = candidates[0]
+    preset = winner["preset"]
     snapshots = [_snapshot(item) for item in winner["selected"]]
     warnings = []
     if winner["missing_domains"]:
-        warnings.append("No candidate covered every preferred domain; missing: " + ", ".join(winner["missing_domains"]))
+        warnings.append("No preset covered every preferred domain; missing: " + ", ".join(winner["missing_domains"]))
     if any(item.estimated_vram_mb == 0 for item in winner["selected"]):
         warnings.append("One or more selected resources have unknown VRAM requirements.")
+    if not (preset.routing_card or "").strip():
+        warnings.append(
+            f"Preset '{preset.name}' has no routing card, so it can only be chosen by tag coverage and priority."
+        )
     for snapshot in snapshots:
         settings = snapshot["default_settings"]
         if (
@@ -155,22 +128,32 @@ def build_media_plan(repo, user_id: str, requirements: dict, providers, ready_ba
                 f"Workflow '{snapshot['name']}' has no declared prompt binding, so the request may not reach the "
                 "graph. Open it in Media Catalog and choose its prompt input."
             )
-    explanation_selected = [
-        {
-            "resource_id": snapshot["id"],
-            "role": snapshot["resource_type"],
-            "name": snapshot["name"],
-            "reason": _selection_reason(snapshot, requirements),
-        }
-        for snapshot in snapshots
-    ]
     return {
         "status": "ready",
         "selected_resources": snapshots,
-        "execution_options": _execution_options(snapshots),
+        "execution_options": _execution_options(preset, winner, snapshots),
         "explanation": {
-            "summary": "Selected deterministically from enabled resources using compatibility, hard requirements, domain coverage, priority, and VRAM budget.",
-            "selected": explanation_selected,
+            "summary": (
+                f"Selected the '{preset.name}' preset deterministically from enabled presets using hard "
+                "requirements, domain coverage, operator priority, and estimated cost."
+            ),
+            "preset": {
+                "id": preset.id,
+                "name": preset.name,
+                "revision": preset.revision,
+                "priority": preset.priority,
+                "routing_card": preset.routing_card or "",
+                "reason": _preset_reason(preset, winner, requirements),
+            },
+            "selected": [
+                {
+                    "resource_id": snapshot["id"],
+                    "role": snapshot["resource_type"],
+                    "name": snapshot["name"],
+                    "reason": _selection_reason(snapshot, requirements),
+                }
+                for snapshot in snapshots
+            ],
             "warnings": warnings,
             "rejected": rejected[:20],
         },
@@ -180,19 +163,211 @@ def build_media_plan(repo, user_id: str, requirements: dict, providers, ready_ba
     }
 
 
-def _select_workflow(compatible, operation: str, missing_features: set[str]):
-    candidates = []
-    for item in compatible:
-        if item.resource_type != "workflow":
+def _evaluate_preset(
+    preset,
+    definition: dict,
+    *,
+    resources,
+    compatibility,
+    setting,
+    providers,
+    ready_backends,
+    operation: str,
+    desired_domains: set[str],
+    required_content: set[str],
+    required_features: set[str],
+) -> dict:
+    reasons = []
+    base = resources.get(definition.get("base_model_resource_id") or "")
+    if not base or base.resource_type != "model":
+        return {"preset": preset, "reasons": ["the preset's base model is missing or disabled"]}
+    if base.provider_key not in providers.media_providers:
+        reasons.append("provider adapter is unavailable")
+    if ready_backends is not None and (base.provider_key, base.backend) not in ready_backends:
+        reasons.append("provider is not currently reachable")
+
+    workflow = None
+    workflow_id = definition.get("workflow_resource_id") or ""
+    if workflow_id:
+        workflow = resources.get(workflow_id)
+        if not workflow or workflow.resource_type != "workflow":
+            reasons.append("the preset's workflow is missing or disabled")
+    elif (definition.get("workflow_slot") or {}).get("enabled"):
+        # An open workflow slot is how a preset reaches a feature-capable graph
+        # it does not name itself, which is what identity conditioning needs.
+        workflow = _select_workflow(
+            base_id=base.id,
+            resources=resources,
+            compatibility=compatibility,
+            operation=operation,
+            missing_features=required_features - set(_json(base.features_json, [])),
+        )
+
+    fixed_loras = []
+    for item in definition.get("fixed_loras") or []:
+        row = resources.get(item.get("resource_id") or "")
+        if not row or row.resource_type != "lora":
+            reasons.append("a LoRA this preset depends on is missing or disabled")
             continue
-        operations = set(_json(item.operations_json, []))
-        features = set(_json(item.features_json, []))
+        fixed_loras.append((row, float(item.get("weight", 1.0))))
+
+    coverage_domains = set(_json(preset.domains_json, [])) | set(_json(base.domains_json, []))
+    coverage_content = set(_json(preset.content_tags_json, [])) | set(_json(base.content_tags_json, []))
+    coverage_features = set(_json(preset.features_json, [])) | set(_json(base.features_json, []))
+    coverage_ops = set(_json(preset.operations_json, [])) | set(_json(base.operations_json, []))
+    for row in [workflow, *[lora for lora, _weight in fixed_loras]]:
+        if not row:
+            continue
+        coverage_domains.update(_json(row.domains_json, []))
+        coverage_content.update(_json(row.content_tags_json, []))
+        coverage_features.update(_json(row.features_json, []))
+        coverage_ops.update(_json(row.operations_json, []))
+
+    slot_loras = _fill_slots(
+        definition.get("lora_slots") or [],
+        base_id=base.id,
+        resources=resources,
+        compatibility=compatibility,
+        taken={row.id for row, _weight in fixed_loras},
+        desired_domains=desired_domains,
+        required_content=required_content,
+        required_features=required_features,
+        coverage_domains=coverage_domains,
+        coverage_content=coverage_content,
+        coverage_features=coverage_features,
+        limit=max(0, int(setting.max_loras or 0)),
+    )
+    for row, _weight in slot_loras:
+        coverage_domains.update(_json(row.domains_json, []))
+        coverage_content.update(_json(row.content_tags_json, []))
+        coverage_features.update(_json(row.features_json, []))
+        coverage_ops.update(_json(row.operations_json, []))
+
+    if operation not in coverage_ops:
+        reasons.append(f"operation '{operation}' is not declared compatible")
+    if operation != "generate" and not workflow:
+        reasons.append(f"operation '{operation}' requires an explicit compatible ComfyUI workflow")
+    missing_content = sorted(required_content - coverage_content)
+    if missing_content:
+        reasons.append("missing content tags: " + ", ".join(missing_content))
+    missing_features = sorted(required_features - coverage_features)
+    if missing_features:
+        reasons.append("missing required features: " + ", ".join(missing_features))
+    runtime_ops = RUNTIME_OPERATIONS.get((base.provider_key, base.backend), set())
+    if operation not in runtime_ops:
+        reasons.append(f"the {base.backend} adapter does not yet execute '{operation}' workflows")
+
+    loras = fixed_loras + slot_loras
+    selected = [base] + ([workflow] if workflow else []) + [row for row, _weight in loras]
+    total_vram = sum(item.estimated_vram_mb for item in selected)
+    if setting.vram_budget_mb and total_vram > setting.vram_budget_mb:
+        reasons.append(f"estimated VRAM {total_vram} MB exceeds the {setting.vram_budget_mb} MB catalog budget")
+
+    return {
+        "preset": preset,
+        "definition": definition,
+        "base": base,
+        "workflow": workflow,
+        "loras": loras,
+        "selected": selected,
+        "reasons": reasons,
+        "domain_hits": len(desired_domains & coverage_domains),
+        "estimated_vram_mb": total_vram,
+        "missing_domains": sorted(desired_domains - coverage_domains),
+    }
+
+
+def _select_workflow(*, base_id, resources, compatibility, operation, missing_features):
+    """Pick the compatible workflow that best serves this request.
+
+    Deterministic: an operation the workflow declares outweighs feature overlap,
+    then operator priority, then name.
+    """
+
+    candidates = []
+    for row in resources.values():
+        if row.resource_type != "workflow" or base_id not in compatibility.get(row.id, set()):
+            continue
+        operations = set(_json(row.operations_json, []))
+        features = set(_json(row.features_json, []))
         if operation not in operations and not (missing_features & features):
             continue
         coverage = len(missing_features & features) + (2 if operation in operations else 0)
-        candidates.append((item, coverage))
+        candidates.append((row, coverage))
     candidates.sort(key=lambda value: (-value[1], -value[0].priority, value[0].name.casefold(), value[0].id))
     return candidates[0][0] if candidates else None
+
+
+def _fill_slots(
+    slots,
+    *,
+    base_id,
+    resources,
+    compatibility,
+    taken,
+    desired_domains,
+    required_content,
+    required_features,
+    coverage_domains,
+    coverage_content,
+    coverage_features,
+    limit,
+) -> list[tuple]:
+    """Fill declared open slots only.
+
+    This is the single place automatic LoRA selection still happens. A slot is
+    the operator naming the one axis they are willing to let vary; the explicit
+    catalog compatibility edges still decide what may fill it.
+    """
+
+    chosen = []
+    used = set(taken)
+    domains = set(coverage_domains)
+    content = set(coverage_content)
+    features = set(coverage_features)
+    for slot in slots:
+        allowed_domains = set(slot.get("domains") or [])
+        allowed_content = set(slot.get("content_tags") or [])
+        for _ in range(int(slot.get("max", 1))):
+            if limit and len(chosen) >= limit:
+                return chosen
+            scored = []
+            for row in resources.values():
+                if row.resource_type != "lora" or row.id in used:
+                    continue
+                if base_id not in compatibility.get(row.id, set()):
+                    continue
+                row_domains = set(_json(row.domains_json, []))
+                row_content = set(_json(row.content_tags_json, []))
+                row_features = set(_json(row.features_json, []))
+                if allowed_domains and not (row_domains & allowed_domains):
+                    continue
+                if allowed_content and not (row_content & allowed_content):
+                    continue
+                contribution = len((desired_domains - domains) & row_domains)
+                contribution += 2 * len((required_content - content) & row_content)
+                contribution += 2 * len((required_features - features) & row_features)
+                if contribution:
+                    scored.append((row, contribution))
+            if not scored:
+                break
+            scored.sort(
+                key=lambda value: (
+                    -value[1],
+                    -value[0].priority,
+                    value[0].estimated_vram_mb,
+                    value[0].name.casefold(),
+                    value[0].id,
+                )
+            )
+            row = scored[0][0]
+            used.add(row.id)
+            weight = float(_json(row.default_settings_json, {}).get("weight", 1.0))
+            chosen.append((row, weight))
+            domains.update(_json(row.domains_json, []))
+            content.update(_json(row.content_tags_json, []))
+            features.update(_json(row.features_json, []))
+    return chosen
 
 
 def _blocked_plan_message(rejected: list[dict]) -> str:
@@ -203,50 +378,21 @@ def _blocked_plan_message(rejected: list[dict]) -> str:
             "provides identity_control. Open Settings → Media Catalog and add a tested ComfyUI workflow with an "
             "identity_control feature and explicit identity_image_bindings."
         )
-    return "No enabled media catalog resources satisfy this request."
-
-
-def _select_loras(
-    candidates,
-    desired_domains,
-    required_content,
-    required_features,
-    coverage_domains,
-    coverage_content,
-    coverage_features,
-    limit,
-):
-    selected = []
-    remaining = list(candidates)
-    while remaining and len(selected) < limit:
-        scored = []
-        for item in remaining:
-            domains = set(_json(item.domains_json, []))
-            content = set(_json(item.content_tags_json, []))
-            features = set(_json(item.features_json, []))
-            contribution = len((desired_domains - coverage_domains) & domains)
-            contribution += 2 * len((required_content - coverage_content) & content)
-            contribution += 2 * len((required_features - coverage_features) & features)
-            if contribution:
-                scored.append((item, contribution))
-        if not scored:
-            break
-        scored.sort(
-            key=lambda value: (
-                -value[1],
-                -value[0].priority,
-                value[0].estimated_vram_mb,
-                value[0].name.casefold(),
-                value[0].id,
-            )
+    if not rejected:
+        return (
+            "No generation preset is enabled. Open Settings → Media Catalog and enable a preset, or enable a "
+            "catalog model so one can be created for it."
         )
-        chosen = scored[0][0]
-        selected.append(chosen)
-        coverage_domains.update(_json(chosen.domains_json, []))
-        coverage_content.update(_json(chosen.content_tags_json, []))
-        coverage_features.update(_json(chosen.features_json, []))
-        remaining = [item for item in remaining if item.id != chosen.id]
-    return selected
+    return "No enabled generation preset satisfies this request."
+
+
+def _preset_reason(preset, winner: dict, requirements: dict) -> str:
+    matched = sorted(set(requirements.get("domains") or []) & set(_json(preset.domains_json, [])))
+    if matched:
+        return f"covers requested domains: {', '.join(matched)}"
+    if winner["domain_hits"]:
+        return "its resources cover the requested domains"
+    return "highest-priority enabled preset that met every hard requirement"
 
 
 def _selection_reason(snapshot: dict, requirements: dict) -> str:
@@ -257,37 +403,46 @@ def _selection_reason(snapshot: dict, requirements: dict) -> str:
         )
         if values:
             matched.append(f"{field.replace('_', ' ')}: {', '.join(values)}")
-    return "; ".join(matched) or "compatible enabled default selected by priority"
+    return "; ".join(matched) or "named by the selected preset"
 
 
-def _execution_options(snapshots: list[dict]) -> dict:
-    model = next(item for item in snapshots if item["resource_type"] == "model")
+def _execution_options(preset, winner: dict, snapshots: list[dict]) -> dict:
+    definition = winner["definition"]
+    base = next(item for item in snapshots if item["resource_type"] == "model")
     workflow = next((item for item in snapshots if item["resource_type"] == "workflow"), None)
-    loras = [item for item in snapshots if item["resource_type"] == "lora"]
-    settings = dict(model["default_settings"])
+    settings = dict(base["default_settings"])
+    settings.pop("prompt_dialect", None)
+    for key, value in (definition.get("sampler") or {}).items():
+        if key in SAMPLER_KEYS:
+            settings[key] = value
+    dimensions = definition.get("dimensions") or []
+    if dimensions:
+        settings["size"] = dimensions[0]
     if workflow:
         workflow_settings = workflow["default_settings"]
-        for key, value in workflow_settings.items():
-            if key != "workflow_patch":
-                settings[key] = value
-        if workflow_settings.get("workflow_patch"):
-            settings["workflow_patch"] = workflow_settings["workflow_patch"]
-    external_id = model["external_id"]
-    provider = "local" if model["provider_key"] == "local-image" else "openai"
+        for key in WORKFLOW_SETTING_KEYS:
+            if workflow_settings.get(key):
+                settings[key] = workflow_settings[key]
+    external_id = base["external_id"]
     options = {
-        "provider": provider,
-        "backend": model["backend"],
+        "provider": "local" if base["provider_key"] == "local-image" else "openai",
+        "backend": base["backend"],
         "model": external_id if external_id != PROVIDER_DEFAULT else None,
+        "prompt_dialect": definition.get("prompt_dialect") or {},
+        # Carried so execution can prove the preset has not changed since the
+        # plan was written, exactly as resource revisions already are.
+        "_preset_id": preset.id,
+        "_preset_revision": preset.revision,
         **settings,
     }
-    if loras:
+    if winner["loras"]:
         options["loras"] = [
             {
-                "name": item["external_id"],
-                "weight": float(item["default_settings"].get("weight", 1.0)),
-                "trigger_words": item["default_settings"].get("trigger_words", []),
+                "name": row.external_id,
+                "weight": weight,
+                "trigger_words": _json(row.default_settings_json, {}).get("trigger_words", []),
             }
-            for item in loras
+            for row, weight in winner["loras"]
         ]
     return options
 

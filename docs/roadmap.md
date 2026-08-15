@@ -151,8 +151,15 @@ card. Every resource it names must already be marked compatible with its base
 model, so a preset cannot describe a combination the catalog never paired.
 Automatic LoRA selection survives only inside declared open slots. Enabled base
 models are backfilled into presets lazily per owner, reproducing what the
-coordinator does today. Planning still selects resources the previous way; that
-move is the next step. See ADR 0030 and `docs/media-catalog.md`.
+coordinator did before.
+
+Planning now selects a preset rather than assembling a combination from scored
+resource tags. Hard requirements filter, then domain coverage, operator
+priority, and estimated cost decide; the plan records which preset won and why,
+and execution revalidates the preset revision so an edited preset produces a
+retryable failure instead of a silent substitution. A preset may declare an open
+workflow slot to reach a feature-capable graph such as identity conditioning.
+See ADR 0030 and `docs/media-catalog.md`.
 
 ## Deferred voice core
 

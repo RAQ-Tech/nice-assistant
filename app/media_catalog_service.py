@@ -199,6 +199,9 @@ class MediaCatalogService:
                     # One open slot reproduces today's automatic LoRA selection,
                     # still gated by the explicit compatibility edges.
                     "lora_slots": [{"name": "auto", "max": max(1, int(setting.max_loras or 1))}],
+                    # Likewise for attaching a feature-capable workflow, which
+                    # is how identity conditioning is reached today.
+                    "workflow_slot": {"enabled": True},
                 }
             )
             repo.add_media_preset(
@@ -568,6 +571,14 @@ class MediaCatalogService:
         options = _json(row.execution_options_json, {})
         if not isinstance(options, dict):
             raise ConflictError("The media execution plan options are invalid.")
+        preset_id = options.get("_preset_id")
+        if preset_id:
+            preset = repo.media_preset(user_id, preset_id)
+            if not preset or not preset.enabled or preset.revision != options.get("_preset_revision"):
+                raise ConflictError(
+                    "The selected generation preset changed after this request was planned. "
+                    "Retry the request before execution."
+                )
         self._revalidate_identity(repo, user_id, row, options)
         return options
 
@@ -624,6 +635,9 @@ class MediaCatalogService:
         persona_id: str | None,
         ready_backends=None,
     ) -> dict:
+        # Every planning entry point comes through here, so this is the one
+        # place that has to guarantee an owner has presets to choose from.
+        self._ensure_presets(repo, user_id)
         built = build_media_plan(repo, user_id, requirements, self.providers, ready_backends)
         identity_required = IDENTITY_CONTROL_FEATURE in requirements["required_features"]
         built["identity_conditioning"] = (

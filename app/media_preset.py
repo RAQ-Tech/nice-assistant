@@ -34,6 +34,7 @@ DEFINITION_KEYS = (
     "dimensions",
     "fixed_loras",
     "lora_slots",
+    "workflow_slot",
     "stages",
 )
 
@@ -210,6 +211,24 @@ def _stages(values, workflow_resource_id: str) -> list[dict]:
     return result
 
 
+def _workflow_slot(values) -> dict:
+    """May a compatible workflow be attached to satisfy a required feature?
+
+    Off by default: a preset is a fixed recipe. Presets created from an existing
+    catalog model turn it on, because attaching a feature-capable workflow at
+    request time is exactly what the coordinator did before presets existed.
+    """
+
+    if values is None:
+        return {"enabled": False}
+    if not isinstance(values, dict) or set(values) - {"enabled"}:
+        raise RequestError("preset workflow slot must be an object with an enabled flag", 400)
+    enabled = values.get("enabled", False)
+    if not isinstance(enabled, bool):
+        raise RequestError("preset workflow slot enabled must be true or false", 400)
+    return {"enabled": enabled}
+
+
 def normalize_definition(values) -> dict:
     """Validate a preset body's shape. Reference checks belong to the service."""
 
@@ -227,6 +246,7 @@ def normalize_definition(values) -> dict:
         "dimensions": _dimensions(values.get("dimensions")),
         "fixed_loras": _fixed_loras(values.get("fixed_loras")),
         "lora_slots": _lora_slots(values.get("lora_slots")),
+        "workflow_slot": _workflow_slot(values.get("workflow_slot")),
         "stages": _stages(values.get("stages"), workflow_resource_id),
     }
 
