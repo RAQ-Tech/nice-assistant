@@ -187,6 +187,13 @@ installed-browser acceptance.
   model can route to a preset the deterministic score would not have picked,
   that an absent choice or a failing task model falls back to that score, and
   that the plan records what was considered.
+- Routing tester tests prove the reported shortlist carries titles and routing
+  cards but no resource identity, that the chosen preset and who chose it are
+  reported, that a message needing no image says so, that a task model which
+  fell back is reported rather than shown as "no image wanted", that an empty
+  message is refused, and that the preview is owner-scoped. Browser tests cover
+  the reported shortlist, the winner and who chose it, the no-routing-card
+  notice, a surfaced task-model failure, and the removal label.
 - API tests use isolated temporary databases and deterministic fake providers.
 - Migration tests upgrade pre-0004/0005/0007/0008/0009/0010/0011/0012/0013/0014/0015/0016/0017/0019/0021/0022 databases and prove
   chats, messages, jobs, media, memories, turn ordering, stored artifact links,

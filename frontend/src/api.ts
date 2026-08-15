@@ -24,6 +24,7 @@ import type {
   IdentityValidationSettings,
   IdentityWorkflowInspection,
   Persona,
+  RoutingPreview,
   PersonaLoreEntry,
   PersonaLorePreview,
   ProviderCheckResult,
@@ -413,6 +414,13 @@ export class ApiClient {
 
   capabilityRequest(id: string): Promise<CapabilityRequest> {
     return this.request(`/capability-requests/${encodeURIComponent(id)}`);
+  }
+
+  previewMediaRouting(text: string): Promise<RoutingPreview> {
+    return this.request('/media-catalog/routing-previews', {
+      method: 'POST',
+      body: JSON.stringify({ text }),
+    });
   }
 
   mediaJournalForMedia(mediaId: string): Promise<MediaJournal> {

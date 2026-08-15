@@ -178,6 +178,11 @@ selection falls back to the deterministic score whenever the model expresses no
 preference, fails, or times out. The plan records the winner, whether the model
 or the score chose it, and what else was considered. See ADR 0030.
 
+A routing tester sits under advanced disclosure in Media Catalog. It runs the
+real shortlist, task model, and planner for a pasted message and reports what
+was offered, what was chosen, and by whom, without generating anything. It is
+labeled as a diagnostic expected to be removed once routing is stable.
+
 ## Deferred voice core
 
 10. Blind TTS evaluation and provider decision.

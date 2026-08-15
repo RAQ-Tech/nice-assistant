@@ -120,6 +120,24 @@ The plan records which preset won, whether the model or the deterministic score
 chose it, and what else was considered. All of it reaches the generation
 journal.
 
+### Routing tester
+
+Settings -> Media Catalog has a routing tester under advanced disclosure. Paste
+a message and it reports the shortlist that would be offered, whether an image
+would be requested at all, which preset routing chose, whether the task model or
+the deterministic score chose it, and any plan warnings.
+
+It runs the real shortlist, the real Task Model role, and the real planner, so
+what it shows is what would happen rather than a simulation. Nothing is
+generated. A task model that fell back to its configured policy is reported as
+such, because "no image was requested" and "routing never ran" need different
+fixes.
+
+This is deliberately temporary tooling. Authoring a routing card is otherwise
+guesswork - there is no way to see whether the sentence you wrote makes the
+preset you meant win. It is expected to be removed once routing is demonstrably
+stable.
+
 ## The scene contract
 
 A Task Model returns a typed scene - subject, action, setting, wardrobe,

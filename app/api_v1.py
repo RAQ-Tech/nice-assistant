@@ -580,6 +580,31 @@ class MediaCatalogResourceRepresentation(MediaCatalogResourceWrite):
     needs_binding_review: bool = False
 
 
+class RoutingPreviewCreate(StrictModel):
+    text: str = Field(min_length=1, max_length=2000)
+    kind: Literal["image", "video"] = "image"
+
+
+class RoutingPreviewShortlistEntry(BaseModel):
+    reference: str
+    title: str
+    routing_card: str
+
+
+class RoutingPreviewTaskModel(BaseModel):
+    ran: bool
+    error: str
+    chose: str
+
+
+class RoutingPreviewRepresentation(BaseModel):
+    message: str
+    shortlist: list[RoutingPreviewShortlistEntry]
+    requested: bool
+    task_model: RoutingPreviewTaskModel
+    plan: MediaPlanRepresentation | None = None
+
+
 class MediaPresetWrite(StrictModel):
     name: str = Field(min_length=1, max_length=120)
     kind: Literal["image", "video"] = "image"
@@ -1484,6 +1509,21 @@ def preview_media_plan(
     context: AuthContext = Depends(current_user),
 ):
     return services(request).media_catalog.preview(context.user_id, body.model_dump())
+
+
+@router.post(
+    "/media-catalog/routing-previews",
+    response_model=RoutingPreviewRepresentation,
+    tags=["media-catalog"],
+)
+def preview_media_routing(
+    body: RoutingPreviewCreate,
+    request: Request,
+    context: AuthContext = Depends(current_user),
+):
+    """Diagnostic. Expected to be removed once routing is demonstrably stable."""
+
+    return services(request).capabilities.routing_preview(context.user_id, body.text, body.kind)
 
 
 @router.get(

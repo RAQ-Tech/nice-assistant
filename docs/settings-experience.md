@@ -44,6 +44,14 @@ what to do next without reading the source code.
 - Keep verifier settings, thresholds, manual validation, history, and deletion
   in an optional advanced section.
 
+### Routing tester — delivered, temporary
+
+Media Catalog carries a routing tester behind advanced disclosure. It exists so
+preset routing cards can be observed rather than guessed, in the same spirit as
+the lorebook preview. It is labeled in the product as a diagnostic expected to
+be removed once routing is stable, and it must not become a permanent surface:
+if it is still there when routing is trusted, it is clutter.
+
 ### 21B — Everyday settings — delivered
 
 General, TTS, STT, Image Generation, Video Generation, Memory, User, Personas,

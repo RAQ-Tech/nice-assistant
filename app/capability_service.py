@@ -13,8 +13,12 @@ from app.capability_contracts import (
 from app.job_service import JobExecution, JobService
 from app.identity_conditioning import IDENTITY_CONTROL_FEATURE
 from app.repositories import UnitOfWork, now_ts
-from app.service_errors import ConflictError, NotFoundError, RequestError
+from app.provider_contracts import CancellationToken, ProviderError
+from app.service_errors import ConflictError, NotFoundError, RequestError, ServiceError
 from app.task_contracts import (
+    CAPABILITY_PLANNING,
+    CapabilityPlanningTaskInput,
+    TaskContractError,
     MAX_OFFERED_PRESETS,
     PRESET_REFERENCE_PREFIX,
     AvailablePreset,
@@ -177,6 +181,7 @@ class CapabilityService:
         provider_url_policy=None,
         provider_service=None,
         identity_service=None,
+        task_models=None,
     ):
         self.session_factory = session_factory
         self.secret_store = secret_store
@@ -187,6 +192,7 @@ class CapabilityService:
         self.logger = logger
         self.provider_url_policy = provider_url_policy
         self.provider_service = provider_service
+        self.task_models = task_models
         self.identity_service = identity_service
 
     def _uow(self):
@@ -236,6 +242,90 @@ class CapabilityService:
                 )
             )
         return OfferedPresets(tuple(available), bindings)
+
+    def routing_preview(self, user_id: str, text: str, kind: str = "image") -> dict:
+        """Run real routing for a pasted message and report every step.
+
+        Deliberately temporary tooling. Authoring a routing card is otherwise
+        guesswork - there is no way to see whether the sentence you wrote makes
+        the preset you meant win. It runs the same shortlist, the same Task
+        Model role, and the same planner a real turn does, so what it shows is
+        what would actually happen, not a simulation of it.
+        """
+
+        message = " ".join(str(text or "").split()).strip()
+        if not message:
+            raise RequestError("enter a message to test routing against", 400)
+        offered = self.planning_presets(user_id, kind)
+        shortlist = [
+            {"reference": item.reference, "title": item.title, "routing_card": item.routing_card}
+            for item in offered.available
+        ]
+        definitions = self.planning_definitions(user_id)
+        result = {
+            "message": message[:2000],
+            "shortlist": shortlist,
+            "requested": False,
+            "task_model": {"ran": False, "error": "", "chose": ""},
+            "plan": None,
+        }
+        if not definitions:
+            result["task_model"]["error"] = "No image capability is available, so nothing would be planned."
+            return result
+        vocabulary = self.planning_vocabulary(user_id)
+        chosen_reference = ""
+        planned = None
+        try:
+            outcome = self.task_models.run(
+                user_id,
+                CAPABILITY_PLANNING,
+                CapabilityPlanningTaskInput(
+                    user_text=message,
+                    available_capabilities=definitions,
+                    available_operations=tuple(vocabulary.get("operations") or ("generate",)),
+                    available_domains=tuple(vocabulary.get("domains") or ()),
+                    available_content_tags=tuple(vocabulary.get("content_tags") or ()),
+                    available_features=tuple(vocabulary.get("features") or ()),
+                    available_presets=offered.available,
+                ),
+                CancellationToken(),
+            )
+            result["task_model"]["ran"] = not outcome.fallback_used
+            if outcome.fallback_used:
+                # The service applies a fallback policy rather than raising, so
+                # a provider failure would otherwise look like "no image
+                # wanted" - which is the wrong thing to go and fix.
+                result["task_model"]["error"] = (
+                    "The task model did not answer, so its configured fallback was used. Routing would fall back "
+                    "to the deterministic score."
+                )
+            planned = next(
+                (item for item in outcome.output.requests if item.capability_key == "media.generate_image"),
+                None,
+            )
+        except (ProviderError, TaskContractError, ServiceError) as exc:
+            # A tester that hid this would be worse than no tester: not routing
+            # at all is the most common reason a preset never wins.
+            result["task_model"]["error"] = getattr(exc, "user_message", None) or str(exc)
+        if not planned:
+            if not result["task_model"]["error"]:
+                result["task_model"]["error"] = "The task model did not request an image for this message."
+            return result
+        result["requested"] = True
+        chosen_reference = planned.preset or ""
+        result["task_model"]["chose"] = chosen_reference
+        result["plan"] = self.media_catalog.preview(
+            user_id,
+            {
+                "kind": kind,
+                "operation": planned.operation,
+                "domains": list(planned.domains),
+                "content_tags": list(planned.content_tags),
+                "required_features": list(planned.required_features),
+                "preferred_preset_id": offered.bindings.get(chosen_reference, ""),
+            },
+        )
+        return result
 
     def planning_context(self, user_id: str, chat_id: str | None) -> tuple[str, ...]:
         """Return recent user messages so a request can resolve its own references.

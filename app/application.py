@@ -180,6 +180,12 @@ def build_services(
         runtime.logger,
         provider_url_policy=provider_url_policy,
     )
+    task_models = TaskModelService(
+        runtime.session_factory,
+        runtime.secret_store,
+        registry,
+        runtime.logger,
+    )
     capabilities = CapabilityService(
         runtime.session_factory,
         runtime.secret_store,
@@ -191,12 +197,7 @@ def build_services(
         provider_url_policy=provider_url_policy,
         provider_service=provider_service,
         identity_service=identity,
-    )
-    task_models = TaskModelService(
-        runtime.session_factory,
-        runtime.secret_store,
-        registry,
-        runtime.logger,
+        task_models=task_models,
     )
     context = ContextService(
         runtime.session_factory,

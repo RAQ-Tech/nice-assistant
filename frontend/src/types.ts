@@ -430,6 +430,20 @@ export interface MediaCatalogSettings {
   max_loras: number;
 }
 
+export interface RoutingPreviewShortlistEntry {
+  reference: string;
+  title: string;
+  routing_card: string;
+}
+
+export interface RoutingPreview {
+  message: string;
+  shortlist: RoutingPreviewShortlistEntry[];
+  requested: boolean;
+  task_model: { ran: boolean; error: string; chose: string };
+  plan: MediaPlan | null;
+}
+
 export interface MediaCatalogResource {
   id: Id;
   resource_type: MediaResourceType;
@@ -542,6 +556,17 @@ export interface MediaPlan {
   selected_resources: MediaPlanResource[];
   explanation: {
     summary: string;
+    // Absent on a manual plan, which bypasses preset selection by design.
+    preset?: {
+      id: Id;
+      name: string;
+      revision: number;
+      priority: number;
+      routing_card: string;
+      source: 'task_model' | 'deterministic';
+      reason: string;
+      considered: { id: Id; name: string }[];
+    };
     selected: { resource_id: Id; role: string; name: string; reason: string }[];
     warnings: string[];
     rejected: { resource_id: Id; name: string; reasons: string[] }[];
@@ -830,6 +855,7 @@ export interface AppState {
   settingsSection: string;
   modal: ModalState | null;
   generationLog: MediaJournal | null;
+  routingPreview: RoutingPreview | null;
   selectedPersonaId: Id | null;
   selectedModel: string | null;
   selectedMemoryMode: MemoryMode | null;

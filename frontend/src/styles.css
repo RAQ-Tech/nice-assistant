@@ -2066,3 +2066,37 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
   margin-top: .5rem;
   text-decoration: none;
 }
+
+/* Routing tester: a diagnostic, so it reads as a report, not a control. */
+.routing-preview {
+  margin-top: .75rem;
+  display: flex;
+  flex-direction: column;
+  gap: .4rem;
+}
+
+.routing-shortlist {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: .3rem;
+}
+
+.routing-shortlist li {
+  display: flex;
+  flex-direction: column;
+  border-left: 2px solid rgba(255, 255, 255, .18);
+  padding-left: .5rem;
+}
+
+.routing-shortlist-title {
+  font-weight: 600;
+  font-size: .9rem;
+}
+
+.routing-outcome {
+  border-left: 3px solid rgba(120, 200, 140, .6);
+  padding-left: .6rem;
+}

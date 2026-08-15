@@ -55,6 +55,7 @@ export function createState(): AppState {
     settingsSection: 'General',
     modal: null,
     generationLog: null,
+    routingPreview: null,
     selectedPersonaId: null,
     selectedModel: null,
     selectedMemoryMode: null,
