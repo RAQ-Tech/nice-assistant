@@ -767,6 +767,123 @@ class CapabilityService:
             prepared.append(response)
         return prepared
 
+    def prepare_background_request(
+        self,
+        repo,
+        *,
+        user_id: str,
+        persona_id: str,
+        scene: dict,
+        prompt: str,
+        entry_id: str,
+    ) -> tuple[str, str] | None:
+        """Create a chat-less request for a picture nobody has asked for.
+
+        It is a real capability request rather than a direct write to the
+        library, because the execution plan, the generation journal, the audit
+        history, and cancellation all hang off one. A background picture that
+        skipped it would be the only picture in the product with no record of
+        how it was made, which is the opposite of the point.
+
+        Returns the request and job ids to submit once the transaction commits,
+        or nothing if no plan could be built - in which case the caller leaves
+        the scene approved for another night.
+        """
+
+        definition = self.registry.by_kind("image")
+        requirements = self.registry.requirements(definition, {"prompt": prompt})
+        requirements = requirements.__class__(
+            kind=requirements.kind,
+            prompt=requirements.prompt,
+            operation="generate",
+            required_features=(IDENTITY_CONTROL_FEATURE,),
+            scene=tuple(sorted((scene or {}).items())),
+        )
+        row, created = repo.add_capability_request(
+            user_id=user_id,
+            chat_id=None,
+            turn_id=None,
+            capability_key=definition.key,
+            arguments=requirements.as_arguments(),
+            status="queued",
+            # The operator approved this scene. That approval is the permission,
+            # and there is no conversation in which to ask for another one.
+            permission_mode="explicit",
+            idempotency_key=f"scene:{entry_id}",
+        )
+        if not created:
+            # This scene was already produced, or attempted, on an earlier run.
+            return None
+        plan = self.media_catalog.create_coordinator_plan(
+            repo,
+            user_id,
+            row.id,
+            {
+                "kind": requirements.kind,
+                "operation": requirements.operation,
+                "domains": requirements.domains,
+                "content_tags": requirements.content_tags,
+                "required_features": requirements.required_features,
+                "preferred_preset_id": "",
+            },
+            persona_id=persona_id,
+            ready_backends=self._ready_media_backends(repo, user_id, definition.kind),
+        )
+        repo.add_capability_event(
+            row,
+            "requested",
+            from_status=None,
+            to_status=row.status,
+            detail={
+                "source": "scene_backlog",
+                "media_plan_status": plan.status,
+                "originating_persona_id": persona_id,
+                "scene_backlog_entry_id": entry_id,
+            },
+        )
+        if plan.status != "ready":
+            transition_capability(
+                repo,
+                row,
+                "failed",
+                "failed",
+                code=plan.block_code or "plan_blocked",
+                message=plan.block_message or "Background image generation is not ready.",
+            )
+            return None
+        job = repo.add_job(
+            user_id=user_id,
+            chat_id=None,
+            turn_id=None,
+            kind=definition.kind,
+            progress="Queued",
+            capability_request_id=row.id,
+        )
+        repo.add_capability_event(row, "queued", from_status="queued", to_status="queued")
+        return row.id, job.id
+
+    def submit_background(self, user_id: str, request_id: str, job_id: str, on_settled=None) -> None:
+        """Submit an already-planned background request as bulk work."""
+
+        with self._uow() as uow:
+            row = uow.repo.capability_request(user_id, request_id)
+            if not row or row.status != "queued":
+                return
+            values = _json_object(row.arguments_json)
+            execution_spec = self.media_catalog.execution_spec(uow.repo, user_id, row.id)
+            values.update(execution_spec["options"])
+            values["_estimated_vram_mb"] = execution_spec["estimated_vram_mb"]
+        self._submit(
+            request_id,
+            job_id,
+            "image",
+            user_id,
+            None,
+            values,
+            latency_class="bulk",
+            on_settled=on_settled,
+        )
+
     def submit_queued(self, user_id: str, request_id: str) -> dict | None:
         """Submit a durable auto-approved request after its creating transaction commits."""
 
@@ -1178,7 +1295,18 @@ class CapabilityService:
             return self.get(user_id, request_id)
         return response
 
-    def _submit(self, request_id: str, job_id: str, kind: str, user_id: str, chat_id: str | None, values: dict):
+    def _submit(
+        self,
+        request_id: str,
+        job_id: str,
+        kind: str,
+        user_id: str,
+        chat_id: str | None,
+        values: dict,
+        *,
+        latency_class: str = "",
+        on_settled=None,
+    ):
         arguments = dict(values)
         prompt = str(arguments.pop("prompt", "")).strip()
         operation = arguments.pop("operation", None)
@@ -1197,17 +1325,23 @@ class CapabilityService:
             row = repo.capability_request_by_id(request_id)
             if row and row.status == "running":
                 transition_capability(repo, row, "completed", "completed", result=result or {})
+            if on_settled:
+                on_settled(repo, "completed", (result or {}).get("mediaId") or "")
             return result
 
         def on_failure(repo, code, message):
             row = repo.capability_request_by_id(request_id)
             if row and row.status not in CAPABILITY_TERMINAL_STATES:
                 transition_capability(repo, row, "failed", "failed", code=code, message=message)
+            if on_settled:
+                on_settled(repo, "failed", "")
 
         def on_cancel(repo):
             row = repo.capability_request_by_id(request_id)
             if row and row.status not in CAPABILITY_TERMINAL_STATES:
                 transition_capability(repo, row, "cancelled", "cancelled")
+            if on_settled:
+                on_settled(repo, "cancelled", "")
 
         try:
             resource_request = (
@@ -1221,7 +1355,7 @@ class CapabilityService:
                 user_id=user_id,
                 chat_id=chat_id,
                 turn_id=None,
-                latency_class="bulk" if kind == "video" else "standard",
+                latency_class=latency_class or ("bulk" if kind == "video" else "standard"),
                 model_key=f"{kind}:{arguments.get('model') or ''}",
                 execution=JobExecution(
                     execute=lambda token: self.media.generate(kind, user_id, chat_id, prompt, token, arguments),

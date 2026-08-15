@@ -17,6 +17,7 @@ from app.media_journal_service import MediaJournalService
 from app.media_library_service import MediaLibraryService
 from app.pregeneration import PregenerationPolicy
 from app.scene_backlog_service import SceneBacklogService
+from app.scene_production import SceneProductionRunner
 from app.media_service import MediaService
 from app.ollama_provider import OllamaChatProvider
 from app.openai_task_provider import OpenAITaskModelProvider
@@ -48,6 +49,7 @@ class ApplicationServices:
     media_journal: MediaJournalService
     media_library: MediaLibraryService
     scene_backlog: SceneBacklogService
+    scene_production: SceneProductionRunner
     identity: IdentityService
     capabilities: CapabilityService
     task_models: TaskModelService
@@ -64,8 +66,12 @@ class ApplicationServices:
         self.operations.start()
         self.resource_coordination.start()
         self.jobs.start()
+        # Last: it asks the job queue whether the machine is busy, so the queue
+        # has to be running before the first question is worth anything.
+        self.scene_production.start()
 
     def stop(self):
+        self.scene_production.stop()
         self.jobs.stop()
         self.operations.stop()
         self.resource_coordination.stop()
@@ -270,6 +276,15 @@ def build_services(
         metrics=runtime.metrics,
     )
     operations = OperationsService(config, runtime.logger, memory_maintenance=memory.prune_discarded)
+    # Built after the capability service exists, because producing a scene goes
+    # through the same request path a conversational picture does.
+    scene_backlog.capabilities = capabilities
+    scene_production = SceneProductionRunner(
+        scene_backlog,
+        runtime.logger,
+        interval_seconds=config.pregeneration_poll_seconds,
+        enabled=config.pregeneration_enabled,
+    )
     return ApplicationServices(
         runtime=runtime,
         providers=registry,
@@ -284,6 +299,7 @@ def build_services(
         media_journal=media_journal,
         media_library=media_library,
         scene_backlog=scene_backlog,
+        scene_production=scene_production,
         identity=identity,
         capabilities=capabilities,
         task_models=task_models,

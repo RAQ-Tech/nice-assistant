@@ -1856,6 +1856,54 @@ class ApplicationRepository:
             or 0
         )
 
+    def approved_scene_backlog_entries(self, user_id: str, *, limit: int = 1):
+        """The scenes waiting to be made, oldest first.
+
+        Oldest first because a proposal that has been approved for a week has
+        waited longer than one approved this evening, and nothing else
+        distinguishes them.
+        """
+
+        return self.session.scalars(
+            select(PersonaSceneBacklogEntry)
+            .where(
+                PersonaSceneBacklogEntry.user_id == user_id,
+                PersonaSceneBacklogEntry.state == "approved",
+            )
+            .order_by(PersonaSceneBacklogEntry.created_at, PersonaSceneBacklogEntry.id)
+            .limit(max(1, int(limit)))
+        ).all()
+
+    def owners_with_approved_scenes(self) -> list[str]:
+        """Owners who have something waiting to be made.
+
+        Narrower than listing every account: this is the only question
+        background production asks, and asking it directly means production
+        never enumerates people who have nothing to do with it.
+        """
+
+        return [
+            str(value)
+            for value in self.session.scalars(
+                select(PersonaSceneBacklogEntry.user_id).where(PersonaSceneBacklogEntry.state == "approved").distinct()
+            ).all()
+        ]
+
+    def scene_backlog_entry_for_capability(self, capability_request_id: str):
+        return self.session.scalar(
+            select(PersonaSceneBacklogEntry).where(
+                PersonaSceneBacklogEntry.capability_request_id == capability_request_id
+            )
+        )
+
+    def generating_scene_backlog_entries(self, user_id: str | None = None):
+        """Entries that claim to be in production, whether or not they are."""
+
+        query = select(PersonaSceneBacklogEntry).where(PersonaSceneBacklogEntry.state == "generating")
+        if user_id:
+            query = query.where(PersonaSceneBacklogEntry.user_id == user_id)
+        return self.session.scalars(query).all()
+
     def add_scene_backlog_entry(
         self, *, user_id: str, persona_id: str, scene_json: str, source: str, source_detail: str
     ):

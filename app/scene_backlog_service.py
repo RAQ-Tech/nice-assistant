@@ -5,9 +5,10 @@ exists separately from the retained library because "we could make this" and "we
 have this" are different facts, and conflating them would make a plan look like
 an achievement.
 
-Nothing generates from the backlog yet. Producing these is separate work, and
-recording proposals first means the ideas can be reviewed before any GPU time is
-spent on them.
+Approved entries are produced in the background during quiet hours, as bulk work
+so a picture somebody asked for is always chosen first. Nothing reaches
+generation without a person having approved it, and an entry that fails or is
+interrupted returns to `approved` rather than sitting in `generating` forever.
 """
 
 from __future__ import annotations
@@ -189,6 +190,111 @@ class SceneBacklogService:
             "window": f"{self.policy.start_hour:02d}:00-{self.policy.end_hour:02d}:00",
             "enabled": self.policy.enabled,
         }
+
+    def owners_with_work(self) -> list[str]:
+        """Owners who have an approved scene waiting."""
+
+        with self._uow() as uow:
+            return uow.repo.owners_with_approved_scenes()
+
+    def produce_due(self, user_id: str, *, hour: int | None = None) -> dict:
+        """Start background pictures for approved scenes, if the policy allows.
+
+        Reports what happened either way. A caller that gets nothing needs to
+        know whether the machine was busy, the hour was wrong, or there was
+        simply nothing approved, and only the reason distinguishes them.
+        """
+
+        readiness = self.production_readiness(user_id, hour=hour)
+        if not readiness["allowed"]:
+            return {"started": [], "reason": readiness["reason"]}
+        if not self.capabilities:
+            return {"started": [], "reason": "image capabilities are unavailable"}
+        started = []
+        for _ in range(max(1, int(self.policy.max_per_run))):
+            claimed = self._claim_next_entry(user_id)
+            if not claimed:
+                break
+            entry_id, request_id, job_id = claimed
+            try:
+                self.capabilities.submit_background(
+                    user_id,
+                    request_id,
+                    job_id,
+                    on_settled=self._settlement(request_id),
+                )
+            except Exception:
+                # The request exists and its job does not, so the entry would
+                # otherwise wait for a completion that can never arrive.
+                self._release_entry(user_id, entry_id)
+                if self.logger:
+                    self.logger.warning("background picture could not be submitted")
+                break
+            started.append({"entry_id": entry_id, "request_id": request_id, "job_id": job_id})
+        if not started:
+            return {"started": [], "reason": "no approved scene could be planned"}
+        return {"started": started, "reason": readiness["reason"]}
+
+    def _claim_next_entry(self, user_id: str):
+        """Take the oldest approved scene and plan it, inside one transaction."""
+
+        with self._uow() as uow:
+            rows = uow.repo.approved_scene_backlog_entries(user_id, limit=1)
+            if not rows:
+                return None
+            row = rows[0]
+            try:
+                scene = json.loads(row.scene_json or "{}")
+            except (TypeError, ValueError):
+                scene = {}
+            prompt = scene_summary(scene)
+            if not prompt:
+                # Unproducible, and it would be selected again on every pass.
+                row.state = "retired"
+                row.updated_at = now_ts()
+                return None
+            prepared = self.capabilities.prepare_background_request(
+                uow.repo,
+                user_id=user_id,
+                persona_id=row.persona_id,
+                scene=scene,
+                prompt=prompt,
+                entry_id=row.id,
+            )
+            if not prepared:
+                # No usable plan tonight. Leaving it approved is correct: the
+                # scene is fine, the machine is not ready for it.
+                return None
+            request_id, job_id = prepared
+            row.state = "generating"
+            row.capability_request_id = request_id
+            row.updated_at = now_ts()
+            return row.id, request_id, job_id
+
+    def _settlement(self, request_id: str):
+        """Move the entry to match how its request actually ended."""
+
+        def settle(repo, status: str, media_id: str) -> None:
+            row = repo.scene_backlog_entry_for_capability(request_id)
+            if not row or row.state != "generating":
+                return
+            if status == "completed" and media_id:
+                row.state = "done"
+                row.media_id = media_id
+            else:
+                row.state = "approved"
+                row.capability_request_id = None
+            row.updated_at = now_ts()
+
+        return settle
+
+    def _release_entry(self, user_id: str, entry_id: str) -> None:
+        with self._uow() as uow:
+            row = uow.repo.scene_backlog_entry(user_id, entry_id)
+            if row and row.state == "generating":
+                row.state = "approved"
+                row.capability_request_id = None
+                row.updated_at = now_ts()
 
     def set_state(self, user_id: str, entry_id: str, state: str) -> dict:
         if state not in BACKLOG_STATES:

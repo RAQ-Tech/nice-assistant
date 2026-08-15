@@ -596,7 +596,9 @@ which may wrap past midnight, and `PREGENERATION_MAX_PER_RUN` caps how many
 start in one pass. Production never begins while a conversation is waiting or a
 requested picture is queued or running, and
 `/api/v1/scene-backlog/production-readiness` states the reason when it will not
-start. `DAILY_DATABASE_BACKUP_LIMIT=14` and
+start. `PREGENERATION_POLL_SECONDS` sets how often the question is asked,
+defaulting to 300 and clamped to between 30 and 3600; the loop is not started at
+all unless production is enabled. `DAILY_DATABASE_BACKUP_LIMIT=14` and
 `BACKUP_SNAPSHOT_LIMIT=10` are count limits. Review the admin storage report
 before shortening retention because deletion is permanent outside backups.
 Moving completed audio from the hot cache into the archive updates its durable

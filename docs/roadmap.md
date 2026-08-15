@@ -261,8 +261,10 @@ Background picture production has a policy and a readiness report: off by
 default, bounded to a configurable quiet window that may wrap past midnight, and
 never starting while a conversation is waiting or a requested picture is queued
 or running. Every refusal states its reason, so a quiet night is
-distinguishable from a broken one. No producer consumes the policy yet. See
-ADR 0030.
+distinguishable from a broken one. Approved scenes are now produced against that
+policy, as bulk work through the same request, plan, and journal a conversational
+picture uses, and an interrupted one returns to the queue instead of stranding.
+See ADR 0030.
 
 ## Deferred voice core
 

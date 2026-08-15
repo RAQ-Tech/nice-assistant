@@ -28,6 +28,30 @@ blank page.
 
 ## Delivery decisions
 
+### A11 — A background picture uses a chat-less capability request
+
+The backlog recorded this as needing a decision: a capability request is tied to
+a chat and an assistant message for its attachment, but a scene produced
+overnight has no conversation. The two options were to let such requests be
+chat-less, or to let production write straight to the library and skip the
+request entirely.
+
+Taken as an architecture decision rather than an operator one, because the
+user-visible behaviour is identical either way: a picture appears in the library
+and can be served later.
+
+Chat-less request. The execution plan, the generation journal, the audit
+history, and cancellation all hang off a capability request. Writing to the
+library directly would make a background picture the only picture in the product
+with no record of how it was made, which contradicts the reason the journal was
+built. `capability_requests.chat_id` was already nullable and the direct-action
+path already creates chat-less requests, so nothing new was invented.
+
+*Alternative:* write straight to the library. Rejected as untraceable.
+*Reverse:* `prepare_background_request` in `app/capability_service.py` is the
+only producer of these; the scene entry links to its request through
+`persona_scene_backlog.capability_request_id` (migration `0030`).
+
 ### A10 — Voice core assessed as blocked rather than started
 
 Roadmap steps 10 to 13 were the next planned capability. Step 10 is a *blind

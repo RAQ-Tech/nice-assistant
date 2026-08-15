@@ -290,6 +290,13 @@ installed-browser acceptance.
   envelope, that its output satisfies the same parser Ollama output does, that a
   refusal is terminal rather than malformed, that an unexpected body is not leaked,
   and that the adapter is not offered for conversation.
+- Background production tests prove an approved scene is made and recorded
+  against its entry, that it is retained and journalled like any other picture,
+  that a proposed scene is never made, that the per-run limit holds, that the
+  window and the off switch each refuse with their own reason, that the job is
+  queued as bulk, that a conversation completes while a background picture holds
+  the media lane, and that a failure or a restart returns the scene to
+  `approved` rather than stranding it in `generating`.
 - API tests use isolated temporary databases and deterministic fake providers.
 - Migration tests upgrade pre-0004/0005/0007/0008/0009/0010/0011/0012/0013/0014/0015/0016/0017/0019/0021/0022 databases and prove
   chats, messages, jobs, media, memories, turn ordering, stored artifact links,

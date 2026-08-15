@@ -755,6 +755,7 @@ class PersonaSceneBacklogEntry(Base):
             name="ck_scene_backlog_source",
         ),
         Index("idx_scene_backlog_owner_persona_state", "user_id", "persona_id", "state"),
+        Index("idx_scene_backlog_capability", "capability_request_id"),
     )
     id: Mapped[str] = mapped_column(Text, primary_key=True)
     user_id: Mapped[str] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
@@ -764,6 +765,9 @@ class PersonaSceneBacklogEntry(Base):
     source: Mapped[str] = mapped_column(Text, nullable=False, default="operator")
     source_detail: Mapped[str] = mapped_column(Text, nullable=False, default="")
     media_id: Mapped[str | None] = mapped_column(ForeignKey("media_files.id", ondelete="SET NULL"))
+    # Set while the picture is being made, so a restart can tell the difference
+    # between work in flight and an entry that was abandoned mid-production.
+    capability_request_id: Mapped[str | None] = mapped_column(ForeignKey("capability_requests.id", ondelete="SET NULL"))
     created_at: Mapped[int] = mapped_column(Integer, nullable=False)
     updated_at: Mapped[int] = mapped_column(Integer, nullable=False)
 

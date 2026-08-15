@@ -376,6 +376,13 @@ def initialize_database(path, session_ttl_seconds, secret_store=None):
         "UPDATE media_generation_attempts SET status='error', error_code='interrupted', error_message='interrupted by server restart', completed_at=? WHERE status='running'",
         (stamp,),
     )
+    # A background picture is not resumable: the job that was making it is gone.
+    # Putting the scene back in the queue is honest; leaving it in 'generating'
+    # would claim work nobody is doing.
+    conn.execute(
+        "UPDATE persona_scene_backlog SET state='approved', capability_request_id=NULL, updated_at=? WHERE state='generating'",
+        (stamp,),
+    )
     user_count = conn.execute("SELECT COUNT(*) FROM users").fetchone()[0]
     admin_count = conn.execute("SELECT COUNT(*) FROM users WHERE COALESCE(is_admin,0)=1").fetchone()[0]
     if user_count and not admin_count:

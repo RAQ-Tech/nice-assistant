@@ -59,6 +59,7 @@ class AppConfig:
     pregeneration_start_hour: int = 2
     pregeneration_end_hour: int = 6
     pregeneration_max_per_run: int = 3
+    pregeneration_poll_seconds: int = 300
     daily_database_backup_limit: int = 14
     maintenance_interval_seconds: int = 21600
     web_dir: Path = WEB_DIR
@@ -119,6 +120,7 @@ class AppConfig:
             pregeneration_start_hour=min(23, max(0, int(os.getenv("PREGENERATION_START_HOUR", "2")))),
             pregeneration_end_hour=min(23, max(0, int(os.getenv("PREGENERATION_END_HOUR", "6")))),
             pregeneration_max_per_run=min(20, max(1, int(os.getenv("PREGENERATION_MAX_PER_RUN", "3")))),
+            pregeneration_poll_seconds=min(3600, max(30, int(os.getenv("PREGENERATION_POLL_SECONDS", "300")))),
             daily_database_backup_limit=max(1, int(os.getenv("DAILY_DATABASE_BACKUP_LIMIT", "14"))),
             maintenance_interval_seconds=max(60, int(os.getenv("MAINTENANCE_INTERVAL_SECONDS", "21600"))),
         )

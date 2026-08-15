@@ -249,10 +249,30 @@ It is off by default. `PREGENERATION_ENABLED`, `PREGENERATION_START_HOUR`,
 `PREGENERATION_END_HOUR`, and `PREGENERATION_MAX_PER_RUN` set the policy, and the
 window may wrap past midnight because a quiet window normally does.
 
-Nothing generates from the backlog yet: the policy exists and reports, but no
-producer consumes it. That is the next item, and it is separate because a
-background picture has no conversation to belong to - an open question about
-where such a request lives, not a detail to improvise.
+### How a background picture is made
+
+An approved scene is produced through the same capability request, execution
+plan, generation journal, and job that a conversational picture uses. It was
+tempting to write straight to the library and skip all of that, but a background
+picture would then be the only picture in the product with no record of how it
+was made, and the record is the point.
+
+The differences are exactly two. It has no chat, so no assistant message and no
+attachment are created; the request is chat-less. And it queues as `bulk` work,
+so within the media lane a picture somebody actually asked for is always chosen
+before it.
+
+The scene entry follows the work: `approved` to `generating` when the job is
+submitted, then `done` with its picture. A failure, a cancellation, or a restart
+returns it to `approved`. Nothing is left claiming to be in production when it
+is not - a background picture is not resumable, because the job making it is
+gone, so the honest move is to put the scene back in the queue. A scene with
+nothing in it is retired rather than retried forever.
+
+Identity is required, exactly as it is for a persona picture in a conversation.
+The persona's own missing-conditioning policy then decides whether an
+unconditioned fallback is acceptable, so background production never invents a
+looser rule than the one the operator already chose.
 
 Recording proposals and gating them first means the ideas can be reviewed, and
 the machine protected, before any GPU time is spent.
