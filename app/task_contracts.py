@@ -377,6 +377,27 @@ class AvailableAttachment:
     description: str
 
 
+@dataclass(frozen=True)
+class AvailablePreset:
+    """One tested recipe the platform is willing to run for this request.
+
+    ``reference`` is an opaque per-request label, never a preset identifier, for
+    the same reason attachment references are: the model may only choose from
+    what the platform offered, and resource identity stays on this side.
+
+    ``routing_card`` is the operator's own words about when the preset applies.
+    It is the only reason the model has to prefer one over another.
+    """
+
+    reference: str
+    title: str
+    routing_card: str
+
+
+PRESET_REFERENCE_PREFIX = "preset_"
+NO_PRESET = ""
+MAX_OFFERED_PRESETS = 8
+
 EDIT_OPERATIONS = ("image_to_image", "inpaint", "outpaint")
 MASK_OPERATIONS = ("inpaint", "outpaint")
 NO_ATTACHMENT = ""
@@ -394,6 +415,7 @@ class PlannedCapability:
     persona_subject: bool = False
     source_attachment: str = NO_ATTACHMENT
     mask_attachment: str = NO_ATTACHMENT
+    preset: str = NO_PRESET
     # What the picture is of. The platform renders it into the selected
     # preset's dialect; the model never writes finished prompt text.
     scene: dict = field(default_factory=lambda: dict(EMPTY_SCENE))
@@ -409,6 +431,7 @@ class CapabilityPlanningTaskInput:
     available_content_tags: tuple[str, ...] = ()
     available_features: tuple[str, ...] = ()
     available_attachments: tuple[AvailableAttachment, ...] = ()
+    available_presets: tuple[AvailablePreset, ...] = ()
     recent_user_messages: tuple[str, ...] = ()
 
 
@@ -518,6 +541,9 @@ def _system_prompt(role: str) -> str:
             "Describe the picture as a scene: subject, action, setting, wardrobe, framing, lighting, camera, and "
             "mood. Leave a field empty when the request does not imply it. Do not write prompt text, tags, quality "
             "words, or style boilerplate - the platform renders the scene into the syntax the selected model wants. "
+            "available_presets lists tested recipes the platform will run, each with the operator's own note about "
+            "when it applies. Set preset to the reference whose note best matches the request, or leave it empty to "
+            "let the platform choose. A preset reference is an opaque label, not a resource. "
             "Never select or name a provider, model, LoRA, workflow, resource ID, or privileged setting. "
             "Return no requests when ordinary text is sufficient or the intent is ambiguous."
         )
@@ -698,6 +724,13 @@ def _capability_schema(task_input: CapabilityPlanningTaskInput) -> dict:
         "required_features": vocabulary_array(task_input.available_features),
         "persona_subject": {"type": "boolean"},
     }
+    if task_input.available_presets:
+        # Opaque labels plus an explicit "let the platform decide" sentinel, so
+        # the model can express no preference without inventing a value.
+        properties["preset"] = {
+            "type": "string",
+            "enum": [NO_PRESET, *(item.reference for item in task_input.available_presets)],
+        }
     if task_input.available_attachments:
         # Offer only labels the platform published, plus an explicit "none"
         # sentinel. The model can therefore never name an arbitrary artifact.
@@ -776,7 +809,10 @@ def _parse_capabilities(
     }
     # Attachment fields are optional, so a generation request keeps its original
     # shape. Unknown fields are still rejected.
+    preset_references = {item.reference for item in task_input.available_presets}
     optional_fields = {"source_attachment", "mask_attachment"} if attachment_references else set()
+    if preset_references:
+        optional_fields = optional_fields | {"preset"}
     requests = []
     seen = set()
     for value in values:
@@ -798,6 +834,9 @@ def _parse_capabilities(
         required_features = _semantic_values(
             value.get("required_features"), task_input.available_features, "media feature"
         )
+        preset = str(value.get("preset") or NO_PRESET).strip()
+        if preset and preset not in preset_references:
+            raise TaskContractError("task model chose a preset that was not offered")
         persona_subject = value.get("persona_subject")
         if not isinstance(persona_subject, bool):
             raise TaskContractError("task model returned an invalid persona subject flag")
@@ -844,6 +883,7 @@ def _parse_capabilities(
                 persona_subject=persona_subject,
                 source_attachment=source_attachment,
                 mask_attachment=mask_attachment,
+                preset=preset,
                 scene=scene,
             )
         )
@@ -881,6 +921,10 @@ def _capability_payload(task_input: CapabilityPlanningTaskInput) -> dict:
         },
         "available_attachments": [
             {"reference": item.reference, "description": item.description} for item in task_input.available_attachments
+        ],
+        "available_presets": [
+            {"reference": item.reference, "title": item.title, "when_to_use": item.routing_card}
+            for item in task_input.available_presets
         ],
     }
 

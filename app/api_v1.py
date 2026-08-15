@@ -659,13 +659,22 @@ class MediaPlanRejectionExplanation(BaseModel):
     reasons: list[str]
 
 
+class MediaPlanConsideredPreset(BaseModel):
+    id: str
+    name: str
+
+
 class MediaPlanPresetExplanation(BaseModel):
     id: str
     name: str
     revision: int
     priority: int
     routing_card: str
+    # Whether the task model chose this preset from the offered shortlist, or
+    # the deterministic score did.
+    source: Literal["task_model", "deterministic"] = "deterministic"
     reason: str
+    considered: list[MediaPlanConsideredPreset] = Field(default_factory=list)
 
 
 class MediaPlanExplanation(BaseModel):

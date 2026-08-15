@@ -16,6 +16,7 @@ import json
 
 
 PROVIDER_DEFAULT = "provider-default"
+MAX_CONSIDERED_PRESETS = 12
 RUNTIME_OPERATIONS = {
     ("openai-image", "openai"): {"generate"},
     ("local-image", "automatic1111"): {"generate"},
@@ -52,6 +53,7 @@ def build_media_plan(repo, user_id: str, requirements: dict, providers, ready_ba
     desired_domains = set(requirements["domains"])
     required_content = set(requirements["content_tags"])
     required_features = set(requirements["required_features"])
+    preferred_preset_id = str(requirements.get("preferred_preset_id") or "")
 
     presets = repo.media_presets(user_id, kind=kind, enabled=True)
     resources = {row.id: row for row in repo.media_catalog_resources(user_id, enabled=True)}
@@ -105,7 +107,12 @@ def build_media_plan(repo, user_id: str, requirements: dict, providers, ready_ba
             item["preset"].id,
         )
     )
-    winner = candidates[0]
+    # The model's choice wins only if it survived the same hard filter every
+    # other candidate did. Otherwise the deterministic order stands, which is
+    # also what happens when the model fails, times out, or expresses nothing.
+    preferred = next((item for item in candidates if item["preset"].id == preferred_preset_id), None)
+    winner = preferred or candidates[0]
+    selection_source = "task_model" if preferred else "deterministic"
     preset = winner["preset"]
     snapshots = [_snapshot(item) for item in winner["selected"]]
     warnings = []
@@ -113,6 +120,11 @@ def build_media_plan(repo, user_id: str, requirements: dict, providers, ready_ba
         warnings.append("No preset covered every preferred domain; missing: " + ", ".join(winner["missing_domains"]))
     if any(item.estimated_vram_mb == 0 for item in winner["selected"]):
         warnings.append("One or more selected resources have unknown VRAM requirements.")
+    if preferred_preset_id and not preferred:
+        warnings.append(
+            "The requested preset did not meet this request's hard requirements, so the highest-scoring "
+            "compatible preset was used instead."
+        )
     if not (preset.routing_card or "").strip():
         warnings.append(
             f"Preset '{preset.name}' has no routing card, so it can only be chosen by tag coverage and priority."
@@ -143,7 +155,16 @@ def build_media_plan(repo, user_id: str, requirements: dict, providers, ready_ba
                 "revision": preset.revision,
                 "priority": preset.priority,
                 "routing_card": preset.routing_card or "",
-                "reason": _preset_reason(preset, winner, requirements),
+                "source": selection_source,
+                "reason": (
+                    "chosen by the task model from the offered shortlist"
+                    if selection_source == "task_model"
+                    else _preset_reason(preset, winner, requirements)
+                ),
+                "considered": [
+                    {"id": item["preset"].id, "name": item["preset"].name}
+                    for item in candidates[:MAX_CONSIDERED_PRESETS]
+                ],
             },
             "selected": [
                 {

@@ -15,6 +15,9 @@ from app.identity_conditioning import IDENTITY_CONTROL_FEATURE
 from app.repositories import UnitOfWork, now_ts
 from app.service_errors import ConflictError, NotFoundError, RequestError
 from app.task_contracts import (
+    MAX_OFFERED_PRESETS,
+    PRESET_REFERENCE_PREFIX,
+    AvailablePreset,
     ATTACHMENT_REFERENCE_PREFIX,
     EDIT_OPERATIONS,
     MASK_OPERATIONS,
@@ -96,6 +99,14 @@ def _sync_attachment(repo, request, state: str, *, message: str | None = None, r
 
 class InvalidCapabilityTransition(RuntimeError):
     pass
+
+
+@dataclass(frozen=True)
+class OfferedPresets:
+    """The shortlist the planner was shown, and what those labels stand for."""
+
+    available: tuple[AvailablePreset, ...]
+    bindings: dict
 
 
 @dataclass(frozen=True)
@@ -200,6 +211,31 @@ class CapabilityService:
             for operation in EDIT_OPERATIONS
             if self.media_catalog.has_ready_operation(user_id, "image", operation)
         )
+
+    def planning_presets(self, user_id: str, kind: str = "image") -> OfferedPresets:
+        """Publish a bounded shortlist of enabled presets as opaque labels.
+
+        This is a coarse pre-filter: the request's operation and features are not
+        known until the model answers. The full hard filter still runs at plan
+        time and may reject the model's choice, in which case selection falls
+        back to the deterministic score.
+        """
+
+        presets = [item for item in self.media_catalog.presets(user_id, kind=kind) if item["enabled"]]
+        presets = presets[:MAX_OFFERED_PRESETS]
+        available = []
+        bindings = {}
+        for index, preset in enumerate(presets, start=1):
+            reference = f"{PRESET_REFERENCE_PREFIX}{index}"
+            bindings[reference] = preset["id"]
+            available.append(
+                AvailablePreset(
+                    reference=reference,
+                    title=preset["name"],
+                    routing_card=preset["routing_card"] or "",
+                )
+            )
+        return OfferedPresets(tuple(available), bindings)
 
     def planning_context(self, user_id: str, chat_id: str | None) -> tuple[str, ...]:
         """Return recent user messages so a request can resolve its own references.
@@ -516,6 +552,7 @@ class CapabilityService:
         planned: list[PlannedCapability],
         source: str = "task_model",
         offered_attachments: dict | None = None,
+        offered_presets: dict | None = None,
         planning_context: tuple[str, ...] = (),
     ) -> list[dict]:
         chat = repo.chat(user_id, chat_id)
@@ -561,6 +598,7 @@ class CapabilityService:
                 mask_media_id=mask_media_id,
                 planning_context=planning_context,
                 scene=tuple(sorted((request.scene or {}).items())),
+                preferred_preset_id=(offered_presets or {}).get(request.preset, ""),
             )
             row, created = repo.add_capability_request(
                 user_id=user_id,
@@ -580,6 +618,7 @@ class CapabilityService:
                     "domains": requirements.domains,
                     "content_tags": requirements.content_tags,
                     "required_features": requirements.required_features,
+                    "preferred_preset_id": requirements.preferred_preset_id,
                 }
                 if requirements.operation in EDIT_OPERATIONS:
                     # Editing selects a workflow with real source and mask

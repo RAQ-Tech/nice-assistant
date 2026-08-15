@@ -41,6 +41,9 @@ class MediaTaskRequirements:
     # Typed scene from planning. Absent for a direct request, where the user
     # supplied their own words and there is nothing to render.
     scene: tuple[tuple[str, str], ...] = ()
+    # Resolved by the platform from an offered shortlist label. A preference,
+    # not a command: the hard filter can still reject it.
+    preferred_preset_id: str = ""
 
     def as_arguments(self) -> dict:
         arguments = {

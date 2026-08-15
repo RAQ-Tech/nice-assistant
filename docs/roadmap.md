@@ -169,6 +169,15 @@ to get right. The model still cannot name a provider, model, LoRA, workflow, or
 generation setting. Direct requests keep the user's own words. The scene and the
 compiled text are both recorded in the journal. See ADR 0030.
 
+Requests now route to a preset. The platform hard-filters what is legal and
+offers the Task Model a bounded shortlist of opaque labels carrying each
+preset's title and the operator's routing card; the model returns a label or
+nothing. Resource identity never reaches it. The full hard filter still runs at
+plan time and can reject the model's choice with a visible warning, and
+selection falls back to the deterministic score whenever the model expresses no
+preference, fails, or times out. The plan records the winner, whether the model
+or the score chose it, and what else was considered. See ADR 0030.
+
 ## Deferred voice core
 
 10. Blind TTS evaluation and provider decision.

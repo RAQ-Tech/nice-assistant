@@ -448,6 +448,7 @@ class ConversationService:
                 }
             planning_vocabulary = self.capabilities.planning_vocabulary(user_id, allow_edits=allow_edits)
             planning_context = self.capabilities.planning_context(user_id, chat_id)
+            offered_presets = self.capabilities.planning_presets(user_id)
             try:
                 outcome = self.task_models.run(
                     user_id,
@@ -461,6 +462,7 @@ class ConversationService:
                         available_content_tags=tuple(planning_vocabulary.get("content_tags") or ()),
                         available_features=tuple(planning_vocabulary.get("features") or ()),
                         available_attachments=offered_attachments.available,
+                        available_presets=offered_presets.available,
                         recent_user_messages=planning_context,
                     ),
                     token,
@@ -481,6 +483,7 @@ class ConversationService:
                     # Carried, not persisted, so a reference resolves to the
                     # image this plan was actually offered.
                     "offered_attachments": offered_attachments.bindings,
+                    "offered_presets": offered_presets.bindings,
                     "planning_context": planning_context,
                 }
             except ProviderError as exc:
@@ -497,6 +500,7 @@ class ConversationService:
             planned_capabilities = list(output.pop("planned_capabilities", []))
             planning_source = str(output.pop("planning_source", "task_model"))
             offered = output.pop("offered_attachments", None)
+            offered_presets = output.pop("offered_presets", None)
             planning_context = tuple(output.pop("planning_context", ()) or ())
             if planned_capabilities:
                 capability_requests = self.capabilities.prepare_planned_requests(
@@ -509,6 +513,7 @@ class ConversationService:
                     planned=planned_capabilities,
                     source=planning_source,
                     offered_attachments=offered,
+                    offered_presets=offered_presets,
                     planning_context=planning_context,
                 )
                 output["auto_capability_request_ids"] = [

@@ -96,6 +96,30 @@ remains authoritative: earlier messages may complete a request but never make a
 capability appropriate on their own. The window that informed a picture is
 recorded in that picture's journal and in its capability request.
 
+## Routing a request to a preset
+
+The platform hard-filters what is legal for a request, then offers the Task
+Model a bounded shortlist of enabled presets as opaque labels with each one's
+title and routing card. The routing card is the operator's own words about when
+that preset applies, and it is the only reason the model has to prefer one over
+another. No provider, model, LoRA, workflow, filename, or setting appears in the
+shortlist, and the model can only return a label the platform offered.
+
+The shortlist is a coarse pre-filter: the request's operation and required
+features are not known until the model answers. The full hard filter still runs
+at plan time, and it can reject the model's choice - a preset that cannot serve
+the request is not used because the model liked its description. When that
+happens the plan carries a visible warning.
+
+Selection falls back to the deterministic score whenever the model expresses no
+preference, fails, times out, or returns something unusable. The fallback picks
+from the same candidates the model was choosing between, so a planning outage
+degrades the choice rather than the result.
+
+The plan records which preset won, whether the model or the deterministic score
+chose it, and what else was considered. All of it reaches the generation
+journal.
+
 ## The scene contract
 
 A Task Model returns a typed scene - subject, action, setting, wardrobe,

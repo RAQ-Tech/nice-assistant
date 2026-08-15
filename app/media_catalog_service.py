@@ -1363,6 +1363,9 @@ class MediaCatalogService:
             "domains": _tags(values.get("domains") or [], label="domains"),
             "content_tags": _tags(values.get("content_tags") or [], label="content tags"),
             "required_features": _tags(values.get("required_features") or [], label="required features"),
+            # A preference the model expressed from an offered shortlist. The
+            # hard filter still decides whether it is legal.
+            "preferred_preset_id": str(values.get("preferred_preset_id") or "").strip()[:64],
         }
 
     @staticmethod

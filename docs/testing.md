@@ -180,6 +180,13 @@ installed-browser acceptance.
   into the dialect rather than the summary while a direct request keeps the
   user's own words; and that the scene which produced a picture is recorded with
   it.
+- Preset routing tests prove the shortlist carries labels and routing cards but
+  no resource identity, that the schema offers only labels the platform
+  published plus an empty sentinel, that a label which was never offered is
+  rejected, that no preset field appears when there is no shortlist, that the
+  model can route to a preset the deterministic score would not have picked,
+  that an absent choice or a failing task model falls back to that score, and
+  that the plan records what was considered.
 - API tests use isolated temporary databases and deterministic fake providers.
 - Migration tests upgrade pre-0004/0005/0007/0008/0009/0010/0011/0012/0013/0014/0015/0016/0017/0019/0021/0022 databases and prove
   chats, messages, jobs, media, memories, turn ordering, stored artifact links,
