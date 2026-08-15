@@ -2,6 +2,7 @@ import type { ApiClient } from './api';
 import { el, errorMessage } from './dom';
 import { IdentityWorkflowSetupView } from './identity_workflow_setup_view';
 import { RoutingTesterView } from './routing_tester_view';
+import { StarterPresetsView } from './starter_presets_view';
 import { inputField, selectField, textareaField, toggleField } from './settings_controls';
 import type { SettingsDialogs } from './settings_contracts';
 import { advancedSettings, operatorEditor, readinessRow, settingsCard, settingsHeading, settingsIntro, titleCase } from './settings_ui';
@@ -20,6 +21,7 @@ export class MediaCatalogSettingsView {
   private readonly openResourceIds = new Set<string>();
   private readonly identitySetup: IdentityWorkflowSetupView;
   private readonly routingTester: RoutingTesterView;
+  private readonly starterPresets: StarterPresetsView;
   private requirements: MediaPlanRequirements = {
     kind: 'image',
     operation: 'generate',
@@ -43,6 +45,7 @@ export class MediaCatalogSettingsView {
       () => this.refresh(),
     );
     this.routingTester = new RoutingTesterView(appState, client, renderApp);
+    this.starterPresets = new StarterPresetsView(appState, client, renderApp, () => this.refresh());
   }
 
   openIdentitySetup(): void {
@@ -101,6 +104,7 @@ export class MediaCatalogSettingsView {
             class: 'settings-empty-state',
             textContent: 'No resources are cataloged. Add a base model first; LoRAs and workflows require an explicitly compatible base model.',
           })]),
+      this.starterPresets.node(),
       this.routingTester.node(),
       this.planPreview(),
     ];

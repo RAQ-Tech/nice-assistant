@@ -1,0 +1,74 @@
+{
+  "version": 1,
+  "presets": [
+    {
+      "name": "SDXL portrait (starter)",
+      "routing_card": "Use for photographic people and portraits when no more specific recipe applies.",
+      "notes": "Published SDXL defaults. Not tested on this deployment; treat every value as a starting point.",
+      "kind": "image",
+      "priority": 55,
+      "operations": ["generate"],
+      "domains": ["portrait"],
+      "base_model_external_id": "sd_xl_base_1.0.safetensors",
+      "sampler": {"steps": 30, "cfg_scale": 6.0, "sampler_name": "dpmpp_2m", "scheduler": "karras"},
+      "dimensions": ["1024x1024", "832x1216", "1216x832"],
+      "prompt_dialect": {
+        "style": "natural_language",
+        "prefix": "",
+        "suffix": "",
+        "negative_prompt": "blurry, lowres, jpeg artifacts, bad anatomy, watermark, text",
+        "supports_negative": true,
+        "trigger_placement": "suffix",
+        "target_length": 0
+      },
+      "lora_slots": [{"name": "style", "max": 1}],
+      "workflow_slot": {"enabled": true}
+    },
+    {
+      "name": "Illustrious booru (starter)",
+      "routing_card": "Use for illustrated and anime-style pictures, where booru tags describe the subject better than a sentence.",
+      "notes": "Published score-tag defaults for Illustrious and Pony derivatives. Not tested on this deployment.",
+      "kind": "image",
+      "priority": 50,
+      "operations": ["generate"],
+      "domains": ["illustration"],
+      "base_model_external_id": "Illustrious-XL-v0.1.safetensors",
+      "sampler": {"steps": 28, "cfg_scale": 7.0, "sampler_name": "euler_ancestral", "scheduler": "normal"},
+      "dimensions": ["1024x1024", "832x1216"],
+      "prompt_dialect": {
+        "style": "booru",
+        "prefix": "score_9, score_8_up, score_7_up",
+        "suffix": "",
+        "negative_prompt": "score_4, score_5, score_6, worst quality, low quality, jpeg artifacts",
+        "supports_negative": true,
+        "trigger_placement": "prefix",
+        "target_length": 0
+      },
+      "lora_slots": [{"name": "style", "max": 2}],
+      "workflow_slot": {"enabled": true}
+    },
+    {
+      "name": "Flux (starter)",
+      "routing_card": "Use when the request needs strong prompt adherence, readable text in the image, or a photographic look Flux handles well.",
+      "notes": "Flux takes no negative prompt and wants a low guidance value. Not tested on this deployment.",
+      "kind": "image",
+      "priority": 45,
+      "operations": ["generate"],
+      "domains": ["photograph"],
+      "base_model_external_id": "flux1-dev.safetensors",
+      "sampler": {"steps": 20, "cfg_scale": 1.0, "sampler_name": "euler", "scheduler": "simple"},
+      "dimensions": ["1024x1024", "896x1152"],
+      "prompt_dialect": {
+        "style": "natural_language",
+        "prefix": "",
+        "suffix": "",
+        "negative_prompt": "",
+        "supports_negative": false,
+        "trigger_placement": "suffix",
+        "target_length": 0
+      },
+      "lora_slots": [],
+      "workflow_slot": {"enabled": true}
+    }
+  ]
+}

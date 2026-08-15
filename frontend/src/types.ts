@@ -444,6 +444,25 @@ export interface RoutingPreview {
   plan: MediaPlan | null;
 }
 
+export interface StarterPreset {
+  name: string;
+  routing_card: string;
+  notes: string;
+  installable: boolean;
+  already_present: boolean;
+  missing_assets: string[];
+}
+
+export interface StarterPresetList {
+  version: number;
+  presets: StarterPreset[];
+}
+
+export interface StarterPresetInstallResult {
+  installed: { name: string; id: Id }[];
+  skipped: { name: string; reason: string }[];
+}
+
 export interface MediaCatalogResource {
   id: Id;
   resource_type: MediaResourceType;

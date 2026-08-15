@@ -183,6 +183,14 @@ real shortlist, task model, and planner for a pasted message and reports what
 was offered, what was chosen, and by whom, without generating anything. It is
 labeled as a diagnostic expected to be removed once routing is stable.
 
+Preset bundles are the serialized format, and the built-in starters ship through
+it. A bundle names assets by the filename the provider reports rather than by
+local resource IDs, so the same artifact works for starters now and sharing
+later. Starters carry published per-family defaults and are labeled as a
+starting point rather than a measurement; a starter whose model file is not in
+the catalog is reported by name instead of installed, and one whose name already
+exists is skipped rather than overwritten. See ADR 0030.
+
 ## Deferred voice core
 
 10. Blind TTS evaluation and provider decision.

@@ -194,6 +194,16 @@ installed-browser acceptance.
   message is refused, and that the preview is owner-scoped. Browser tests cover
   the reported shortlist, the winner and who chose it, the no-routing-card
   notice, a surfaced task-model failure, and the removal label.
+- Preset bundle tests prove a bundle needs a supported version and at least one
+  preset, that every entry names the model file it expects, that a malformed
+  definition or unsupported field is refused before anything is installed, that
+  the shipped starters cover distinct dialects and declare a no-negative model
+  honestly, that every starter states it is untested here, that a starter whose
+  model is absent is named rather than installed, that one installs once its
+  model is cataloged, that a second install never overwrites an edited preset,
+  and that starters are owner-scoped. Browser tests cover the starting-point
+  labelling, the named missing model, the installed and skipped report, and an
+  existing preset shown as kept.
 - API tests use isolated temporary databases and deterministic fake providers.
 - Migration tests upgrade pre-0004/0005/0007/0008/0009/0010/0011/0012/0013/0014/0015/0016/0017/0019/0021/0022 databases and prove
   chats, messages, jobs, media, memories, turn ordering, stored artifact links,

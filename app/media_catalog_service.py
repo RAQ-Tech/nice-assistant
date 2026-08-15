@@ -15,6 +15,7 @@ from app.identity_conditioning import (
 from app.identity_images import MAX_REFERENCE_BYTES, read_identity_image_file
 from app.media_planner import PROVIDER_DEFAULT, build_media_plan
 from app.media_preset import normalize_definition
+from app.preset_bundle import resolve_entry, starter_bundle
 from app.prompt_dialect import normalize_dialect
 from app.repositories import UnitOfWork
 from app.service_errors import ConflictError, NotFoundError, RequestError
@@ -164,6 +165,88 @@ class MediaCatalogService:
                 return False
             uow.repo.delete_media_preset(row)
             return True
+
+    def starter_presets(self, user_id: str) -> dict:
+        """Report what the shipped starter recipes would install, and what is missing."""
+
+        bundle = starter_bundle()
+        with self._uow() as uow:
+            self._ensure_imported(uow.repo, user_id)
+            resources = uow.repo.media_catalog_resources(user_id)
+            existing = {row.name for row in uow.repo.media_presets(user_id)}
+        entries = []
+        for entry in bundle["presets"]:
+            resolved = resolve_entry(entry, resources)
+            entries.append(
+                {
+                    "name": entry["name"],
+                    "routing_card": entry["routing_card"],
+                    "notes": entry["notes"],
+                    "installable": not resolved["missing_assets"] and entry["name"] not in existing,
+                    "already_present": entry["name"] in existing,
+                    "missing_assets": resolved["missing_assets"],
+                }
+            )
+        return {"version": bundle["version"], "presets": entries}
+
+    def install_starter_presets(self, user_id: str) -> dict:
+        """Install every starter whose named assets are present in the catalog.
+
+        Nothing an operator has curated is touched: a starter whose name already
+        exists is skipped rather than overwritten, and a starter whose model file
+        is not in the catalog is reported by name rather than installed as a
+        preset that could never run.
+        """
+
+        bundle = starter_bundle()
+        installed = []
+        skipped = []
+        with self._uow() as uow:
+            self._ensure_imported(uow.repo, user_id)
+            resources = uow.repo.media_catalog_resources(user_id)
+            existing = {row.name for row in uow.repo.media_presets(user_id)}
+            compatibility = uow.repo.media_compatibility_map(user_id)
+            for entry in bundle["presets"]:
+                resolved = resolve_entry(entry, resources)
+                if entry["name"] in existing:
+                    skipped.append({"name": entry["name"], "reason": "a preset with that name already exists"})
+                    continue
+                if resolved["missing_assets"]:
+                    skipped.append(
+                        {
+                            "name": entry["name"],
+                            "reason": "not installed: " + ", ".join(resolved["missing_assets"]),
+                        }
+                    )
+                    continue
+                base = resolved["base"]
+                loras = [row for row in resolved["loras"] if base.id in compatibility.get(row.id, set())]
+                values = {
+                    "name": entry["name"],
+                    "kind": entry["kind"],
+                    "enabled": True,
+                    "priority": entry["priority"],
+                    "routing_card": entry["routing_card"],
+                    "operations": entry["operations"],
+                    "domains": entry["domains"],
+                    "content_tags": entry["content_tags"],
+                    "features": entry["features"],
+                    "notes": entry["notes"],
+                    "estimated_vram_mb": base.estimated_vram_mb,
+                    "definition": {
+                        "base_model_resource_id": base.id,
+                        "sampler": entry["sampler"],
+                        "dimensions": entry["dimensions"],
+                        "prompt_dialect": entry["prompt_dialect"],
+                        "lora_slots": entry["lora_slots"],
+                        "workflow_slot": entry["workflow_slot"],
+                        "fixed_loras": [{"resource_id": row.id} for row in loras],
+                    },
+                }
+                row = uow.repo.add_media_preset(user_id=user_id, values=self._preset_values(uow.repo, user_id, values))
+                existing.add(row.name)
+                installed.append({"name": row.name, "id": row.id})
+        return {"installed": installed, "skipped": skipped}
 
     def _ensure_presets(self, repo, user_id: str) -> None:
         """Give every enabled base model a preset, once.

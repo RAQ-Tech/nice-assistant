@@ -580,6 +580,35 @@ class MediaCatalogResourceRepresentation(MediaCatalogResourceWrite):
     needs_binding_review: bool = False
 
 
+class StarterPresetRepresentation(BaseModel):
+    name: str
+    routing_card: str
+    notes: str
+    installable: bool
+    already_present: bool
+    missing_assets: list[str]
+
+
+class StarterPresetListResponse(BaseModel):
+    version: int
+    presets: list[StarterPresetRepresentation]
+
+
+class StarterPresetInstalled(BaseModel):
+    name: str
+    id: str
+
+
+class StarterPresetSkipped(BaseModel):
+    name: str
+    reason: str
+
+
+class StarterPresetInstallResponse(BaseModel):
+    installed: list[StarterPresetInstalled]
+    skipped: list[StarterPresetSkipped]
+
+
 class RoutingPreviewCreate(StrictModel):
     text: str = Field(min_length=1, max_length=2000)
     kind: Literal["image", "video"] = "image"
@@ -1509,6 +1538,24 @@ def preview_media_plan(
     context: AuthContext = Depends(current_user),
 ):
     return services(request).media_catalog.preview(context.user_id, body.model_dump())
+
+
+@router.get(
+    "/media-catalog/starter-presets",
+    response_model=StarterPresetListResponse,
+    tags=["media-catalog"],
+)
+def starter_presets(request: Request, context: AuthContext = Depends(current_user)):
+    return services(request).media_catalog.starter_presets(context.user_id)
+
+
+@router.post(
+    "/media-catalog/starter-presets/install",
+    response_model=StarterPresetInstallResponse,
+    tags=["media-catalog"],
+)
+def install_starter_presets(request: Request, context: AuthContext = Depends(current_user)):
+    return services(request).media_catalog.install_starter_presets(context.user_id)
 
 
 @router.post(

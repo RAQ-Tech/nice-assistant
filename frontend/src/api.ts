@@ -25,6 +25,8 @@ import type {
   IdentityWorkflowInspection,
   Persona,
   RoutingPreview,
+  StarterPresetInstallResult,
+  StarterPresetList,
   PersonaLoreEntry,
   PersonaLorePreview,
   ProviderCheckResult,
@@ -414,6 +416,14 @@ export class ApiClient {
 
   capabilityRequest(id: string): Promise<CapabilityRequest> {
     return this.request(`/capability-requests/${encodeURIComponent(id)}`);
+  }
+
+  starterPresets(): Promise<StarterPresetList> {
+    return this.request('/media-catalog/starter-presets');
+  }
+
+  installStarterPresets(): Promise<StarterPresetInstallResult> {
+    return this.request('/media-catalog/starter-presets/install', { method: 'POST' });
   }
 
   previewMediaRouting(text: string): Promise<RoutingPreview> {

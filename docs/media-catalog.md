@@ -120,6 +120,29 @@ The plan records which preset won, whether the model or the deterministic score
 chose it, and what else was considered. All of it reaches the generation
 journal.
 
+### Starter presets and the bundle format
+
+A preset bundle names assets the way a person does - by the filename the
+provider reports - rather than by this installation's resource IDs, which mean
+nothing anywhere else. That is what lets the same format carry the built-in
+starters now and shared presets later.
+
+The shipped starters carry published defaults for common model families: the
+sampler, step count, guidance, dimensions, and prompt dialect that family
+expects. They are a starting point, not a measurement. Nothing in them has been
+tested on this deployment, and the product says so wherever they are offered.
+
+Installing resolves each starter's named assets against the owner's catalog. A
+starter whose model file is not there is reported with the filename it wants,
+rather than installed as a preset that could never run - the operator learns
+what to install instead of meeting a failure during generation. A starter whose
+name already exists is skipped, never overwritten, following the same
+missing-kind rule as ADR 0016: operator-curated configuration is not replaced by
+a bootstrap.
+
+The API is `/api/v1/media-catalog/starter-presets` and
+`/api/v1/media-catalog/starter-presets/install`.
+
 ### Routing tester
 
 Settings -> Media Catalog has a routing tester under advanced disclosure. Paste
