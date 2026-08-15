@@ -13,6 +13,7 @@ from app.job_service import JobService
 from app.memory_service import MemoryService
 from app.media_adapters import LocalImageProvider, OpenAIImageProvider, OpenAIVideoProvider
 from app.media_catalog_service import MediaCatalogService
+from app.media_journal_service import MediaJournalService
 from app.media_service import MediaService
 from app.ollama_provider import OllamaChatProvider
 from app.operations_service import OperationsService
@@ -40,6 +41,7 @@ class ApplicationServices:
     memory: MemoryService
     media: MediaService
     media_catalog: MediaCatalogService
+    media_journal: MediaJournalService
     identity: IdentityService
     capabilities: CapabilityService
     task_models: TaskModelService
@@ -130,6 +132,12 @@ def build_services(
         runtime.logger,
         provider_url_policy=provider_url_policy,
     )
+    media_journal = MediaJournalService(
+        runtime.session_factory,
+        runtime.secret_store,
+        runtime.logger,
+        retention_days=config.media_journal_retention_days,
+    )
     media = MediaService(
         runtime.session_factory,
         runtime.secret_store,
@@ -139,6 +147,7 @@ def build_services(
         runtime.logger,
         provider_url_policy=provider_url_policy,
         metrics=runtime.metrics,
+        journal=media_journal,
     )
     media_catalog = MediaCatalogService(
         runtime.session_factory,
@@ -235,6 +244,7 @@ def build_services(
         memory=memory,
         media=media,
         media_catalog=media_catalog,
+        media_journal=media_journal,
         identity=identity,
         capabilities=capabilities,
         task_models=task_models,

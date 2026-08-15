@@ -584,7 +584,9 @@ before beginning that drill.
 Startup retention defaults are 30 days for archived generated audio, opted-in
 STT recordings, and archived logs; `AUDIO_ARCHIVE_RETENTION_DAYS`,
 `STT_RECORDING_RETENTION_DAYS`, and `LOG_ARCHIVE_RETENTION_DAYS` set the policy,
-with zero disabling age pruning. `DAILY_DATABASE_BACKUP_LIMIT=14` and
+with zero disabling age pruning. Per-generation journals default to 60 days
+through `MEDIA_JOURNAL_RETENTION_DAYS`, and a journal is always removed with the
+media it describes regardless of that setting. `DAILY_DATABASE_BACKUP_LIMIT=14` and
 `BACKUP_SNAPSHOT_LIMIT=10` are count limits. Review the admin storage report
 before shortening retention because deletion is permanent outside backups.
 Moving completed audio from the hot cache into the archive updates its durable

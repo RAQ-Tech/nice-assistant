@@ -466,6 +466,53 @@ class MediaGenerationAttemptListResponse(BaseModel):
     items: list[MediaGenerationAttemptRepresentation]
 
 
+class MediaJournalStageRepresentation(BaseModel):
+    sequence: int
+    stage: str
+    status: Literal["ok", "skipped", "failed"]
+    summary: str
+    detail: dict
+    started_at: int
+    duration_ms: int | None = None
+
+
+class MediaJournalError(BaseModel):
+    code: str
+    message: str
+
+
+class MediaJournalRepresentation(BaseModel):
+    id: str
+    kind: Literal["image", "video"]
+    origin: Literal["conversation", "direct", "edit", "library"]
+    status: Literal["running", "completed", "failed", "cancelled"]
+    chat_id: str | None = None
+    persona_id: str | None = None
+    media_id: str | None = None
+    media_plan_id: str | None = None
+    capability_request_id: str | None = None
+    started_at: int
+    completed_at: int | None = None
+    duration_ms: int | None = None
+    error: MediaJournalError | None = None
+    stages: list[MediaJournalStageRepresentation]
+
+
+class MediaJournalSummaryRepresentation(BaseModel):
+    id: str
+    kind: Literal["image", "video"]
+    origin: Literal["conversation", "direct", "edit", "library"]
+    status: Literal["running", "completed", "failed", "cancelled"]
+    media_id: str | None = None
+    started_at: int
+    duration_ms: int | None = None
+    stage_count: int
+
+
+class MediaJournalListResponse(BaseModel):
+    items: list[MediaJournalSummaryRepresentation]
+
+
 class MediaLibraryItemRepresentation(BaseModel):
     id: str
     chat_id: str | None = None
@@ -1613,6 +1660,44 @@ def media_library(
 def media_file(media_id: str, request: Request, context: AuthContext = Depends(current_user)):
     path = services(request).resources.media_path(context.user_id, media_id)
     return FileResponse(path, media_type=mimetypes.guess_type(path.name)[0] or "application/octet-stream")
+
+
+@router.get(
+    "/media/{media_id}/journal",
+    response_model=MediaJournalRepresentation,
+    tags=["media"],
+)
+def media_journal_for_media(media_id: str, request: Request, context: AuthContext = Depends(current_user)):
+    return services(request).media_journal.journal_for_media(context.user_id, media_id)
+
+
+@router.get("/media-journals", response_model=MediaJournalListResponse, tags=["media"])
+def media_journals(
+    request: Request,
+    limit: int = Query(default=50, ge=1, le=200),
+    offset: int = Query(default=0, ge=0),
+    context: AuthContext = Depends(current_user),
+):
+    return {"items": services(request).media_journal.journals(context.user_id, limit=limit, offset=offset)}
+
+
+@router.get(
+    "/media-journals/{journal_id}",
+    response_model=MediaJournalRepresentation,
+    tags=["media"],
+)
+def media_journal(journal_id: str, request: Request, context: AuthContext = Depends(current_user)):
+    return services(request).media_journal.journal(context.user_id, journal_id)
+
+
+@router.get("/media-journals/{journal_id}/export", tags=["media"])
+def media_journal_export(journal_id: str, request: Request, context: AuthContext = Depends(current_user)):
+    filename, content = services(request).media_journal.export(context.user_id, journal_id)
+    return Response(
+        content=content,
+        media_type="text/markdown; charset=utf-8",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
 
 
 @router.get("/audio/{audio_id}", tags=["speech"])

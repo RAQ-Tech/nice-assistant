@@ -17,10 +17,20 @@ from app.media import (
     user_safe_image_error,
     user_safe_video_error,
 )
+from app.media_journal_service import NULL_JOURNAL as _NULL_JOURNAL
 from app.provider_contracts import CancellationToken, MediaRequest, ProviderError
 from app.repositories import UnitOfWork, now_ts
 from app.service_errors import RequestError
 from app.storage import write_artifact_atomic
+
+
+def _decode(value):
+    """Decode a stored JSON column for the journal, never failing the record."""
+
+    try:
+        return json.loads(value or "null")
+    except (TypeError, ValueError):
+        return None
 
 
 class MediaService:
@@ -34,6 +44,7 @@ class MediaService:
         logger,
         provider_url_policy=None,
         metrics=None,
+        journal=None,
     ):
         self.session_factory = session_factory
         self.secret_store = secret_store
@@ -43,9 +54,49 @@ class MediaService:
         self.logger = logger
         self.provider_url_policy = provider_url_policy
         self.metrics = metrics
+        self.journal = journal
 
     def _uow(self):
         return UnitOfWork(self.session_factory, self.secret_store)
+
+    def _open_journal(self, kind, user_id, chat_id, values):
+        """Open one journal per generation, deriving origin from durable records.
+
+        Origin comes from the plan rather than from a caller-supplied flag so
+        that every path is journaled without each caller remembering to say so.
+        """
+
+        if not self.journal:
+            return _NULL_JOURNAL
+        try:
+            plan_id = values.get("_media_plan_id")
+            origin = "direct"
+            persona_id = None
+            capability_request_id = None
+            if plan_id:
+                with self._uow() as uow:
+                    plan = uow.repo.media_execution_plan(user_id, plan_id)
+                    if plan:
+                        persona_id = plan.persona_id
+                        capability_request_id = plan.capability_request_id
+                        if str(values.get("_operation") or "generate") != "generate":
+                            origin = "edit"
+                        elif plan.source == "coordinator":
+                            origin = "conversation"
+            return self.journal.start(
+                user_id=user_id,
+                kind=kind,
+                origin=origin,
+                chat_id=chat_id,
+                persona_id=persona_id,
+                media_plan_id=plan_id,
+                capability_request_id=capability_request_id,
+            )
+        except Exception:
+            # Diagnostics must never cost the operator the artifact itself.
+            if self.logger:
+                self.logger.warning("media journal could not be opened for %s", kind)
+            return _NULL_JOURNAL
 
     def generate(
         self,
@@ -59,17 +110,67 @@ class MediaService:
         with self._uow() as uow:
             settings = uow.repo.settings(user_id) or {"preferences": {}}
         preferences = settings.get("preferences") or {}
-        if kind == "image":
-            return self._generate_image(user_id, chat_id, prompt, values, settings, preferences, cancellation)
-        if kind == "video":
-            return self._generate_video(user_id, chat_id, prompt, values, settings, preferences, cancellation)
-        raise RequestError("unsupported media kind", 400)
+        if kind not in {"image", "video"}:
+            raise RequestError("unsupported media kind", 400)
+        recorder = self._open_journal(kind, user_id, chat_id, values)
+        recorder.record(
+            "request",
+            summary=f"{kind} requested",
+            detail={
+                "operation": values.get("_operation") or "generate",
+                "prompt_characters": len(str(prompt or "")),
+                "in_chat": bool(chat_id),
+                "media_plan_id": values.get("_media_plan_id"),
+            },
+        )
+        try:
+            if kind == "image":
+                result = self._generate_image(
+                    user_id, chat_id, prompt, values, settings, preferences, cancellation, recorder
+                )
+            else:
+                result = self._generate_video(
+                    user_id, chat_id, prompt, values, settings, preferences, cancellation, recorder
+                )
+        except ProviderError as exc:
+            recorder.finish(
+                "cancelled" if exc.code == "cancelled" else "failed",
+                error_code=exc.code,
+                error_message=exc.user_message,
+            )
+            raise
+        except RequestError as exc:
+            recorder.finish("failed", error_code="request_rejected", error_message=str(exc))
+            raise
+        except Exception:
+            recorder.finish("failed", error_code="generation_failed", error_message="Generation failed.")
+            raise
+        recorder.finish("completed", media_id=result.get("mediaId"))
+        return result
 
-    def _generate_image(self, user_id, chat_id, prompt, values, settings, preferences, cancellation):
+    def _generate_image(self, user_id, chat_id, prompt, values, settings, preferences, cancellation, recorder):
         identity = values.get("_identity_conditioning")
         conditioned_identity = identity if (identity or {}).get("status") == "ready" else None
         generation_plan_id = values.get("_media_plan_id")
         prompt = prompt_with_identity_description(prompt, identity)
+        self._record_plan_stage(recorder, user_id, generation_plan_id)
+        recorder.record(
+            "identity_conditioning",
+            summary=(
+                f"conditioning {(identity or {}).get('status') or 'not requested'}"
+                if identity
+                else "no identity conditioning requested"
+            ),
+            status="ok" if conditioned_identity or not identity else "skipped",
+            detail={
+                "status": (identity or {}).get("status"),
+                "policy": (identity or {}).get("policy"),
+                "reason": (identity or {}).get("reason"),
+                "max_generation_attempts": (conditioned_identity or {}).get("max_generation_attempts"),
+                "acceptance_threshold": (conditioned_identity or {}).get("acceptance_threshold"),
+                "workflow_resource_id": (conditioned_identity or {}).get("workflow_resource_id"),
+            },
+        )
         max_attempts = int((conditioned_identity or {}).get("max_generation_attempts") or 1)
         candidates = []
         attempt_values = dict(values)
@@ -87,20 +188,36 @@ class MediaService:
                 else (conditioned_identity or {}).get("workflow_resource_id"),
             )
             try:
-                artifact = self._generate_image_artifact(
-                    prompt, attempt_values, settings, preferences, conditioned_identity, cancellation
+                recorder.record(
+                    "attempt_started",
+                    summary=f"attempt {attempt_number} of {max_attempts} ({operation})",
+                    detail={"attempt_number": attempt_number, "operation": operation},
                 )
-                media = self._persist_image(user_id, chat_id, generation_plan_id, artifact, cancellation)
+                artifact = self._generate_image_artifact(
+                    prompt, attempt_values, settings, preferences, conditioned_identity, cancellation, recorder
+                )
+                media = self._persist_image(user_id, chat_id, generation_plan_id, artifact, cancellation, recorder)
                 if not conditioned_identity:
                     self._finish_attempt(attempt, "passed", media_id=media.id)
                     return self._image_result(media, chat_id, identity)
-                validation = self.identity.validate_generated_media(
-                    user_id,
-                    media.id,
-                    conditioned_identity,
-                    cancellation,
-                )
-                validation_row = validation.get("validation") or {}
+                with recorder.timed("identity_comparison") as stage:
+                    validation = self.identity.validate_generated_media(
+                        user_id,
+                        media.id,
+                        conditioned_identity,
+                        cancellation,
+                    )
+                    validation_row = validation.get("validation") or {}
+                    stage.set(
+                        summary=f"comparison {validation['status']}",
+                        detail={
+                            "status": validation["status"],
+                            "claim_status": validation.get("claim_status"),
+                            "score": validation_row.get("score"),
+                            "threshold": validation_row.get("threshold")
+                            or conditioned_identity.get("acceptance_threshold"),
+                        },
+                    )
                 status = validation["status"]
                 attempt_status = status if status in {"passed", "failed"} else "unverified"
                 self._finish_attempt(
@@ -163,7 +280,39 @@ class MediaService:
             user_message="No generated image met the persona identity threshold.",
         )
 
-    def _generate_image_artifact(self, prompt, values, settings, preferences, identity, cancellation):
+    def _record_plan_stage(self, recorder, user_id, plan_id):
+        """Record which catalog resources the coordinator selected, and why."""
+
+        if not plan_id:
+            recorder.record(
+                "plan",
+                summary="no catalog plan; legacy provider settings were used",
+                status="skipped",
+                detail={"manual": True},
+            )
+            return
+        with self._uow() as uow:
+            plan = uow.repo.media_execution_plan(user_id, plan_id)
+        if not plan:
+            recorder.record("plan", summary="plan was not found", status="failed", detail={"plan_id": plan_id})
+            return
+        recorder.record(
+            "plan",
+            summary=f"{plan.source} plan {plan.status} for {plan.operation}",
+            detail={
+                "plan_id": plan.id,
+                "source": plan.source,
+                "status": plan.status,
+                "operation": plan.operation,
+                "estimated_vram_mb": plan.estimated_vram_mb,
+                "requirements": _decode(plan.requirements_json),
+                "selected_resources": _decode(plan.selected_resources_json),
+                "explanation": _decode(plan.explanation_json),
+                "block_code": plan.block_code,
+            },
+        )
+
+    def _generate_image_artifact(self, prompt, values, settings, preferences, identity, cancellation, recorder):
         selected = str(values.get("provider") or preferences.get("image_provider") or "disabled").lower()
         if selected == "disabled":
             raise RequestError("Image generation is disabled. Enable an image provider in Settings.", 409)
@@ -237,11 +386,22 @@ class MediaService:
                 }
             else:
                 raise RequestError(f"Image provider '{selected}' is not recognized by the server.", 400)
+            recorder.record(
+                "provider_request",
+                summary=f"submitting to {selected}",
+                detail={"provider": selected, "prompt": prompt, "options": options},
+            )
             started = time.monotonic()
             outcome = "failed"
             try:
                 artifact = provider.generate(MediaRequest("image", prompt, options), cancellation)
                 outcome = "completed"
+                recorder.record(
+                    "provider_response",
+                    summary=f"{selected} returned {len(artifact.content)} bytes",
+                    detail={"bytes": len(artifact.content), "extension": artifact.extension},
+                    duration_ms=int((time.monotonic() - started) * 1000),
+                )
                 return artifact
             finally:
                 if self.metrics:
@@ -268,7 +428,7 @@ class MediaService:
                 request_id=request_id or None,
             ) from exc
 
-    def _persist_image(self, user_id, chat_id, generation_plan_id, artifact, cancellation):
+    def _persist_image(self, user_id, chat_id, generation_plan_id, artifact, cancellation, recorder=None):
         filename = f"{user_id}_{secrets.token_hex(8)}{artifact.extension}"
         target = self.config.image_dir / filename
         cancellation.raise_if_cancelled()
@@ -288,6 +448,13 @@ class MediaService:
         except Exception:
             target.unlink(missing_ok=True)
             raise
+        if recorder is not None:
+            recorder.record(
+                "stored",
+                summary=f"image stored as {media.id}",
+                detail={"media_id": media.id, "filename": filename},
+            )
+            recorder.attach_media(media.id)
         return media
 
     @staticmethod
@@ -372,8 +539,9 @@ class MediaService:
             values["_source_image_sha256"] = sha256(Path(media.local_path).read_bytes()).hexdigest()
         return values
 
-    def _generate_video(self, user_id, chat_id, prompt, values, settings, preferences, cancellation):
+    def _generate_video(self, user_id, chat_id, prompt, values, settings, preferences, cancellation, recorder):
         generation_plan_id = values.get("_media_plan_id")
+        self._record_plan_stage(recorder, user_id, generation_plan_id)
         selected = str(values.get("provider") or preferences.get("video_provider") or "disabled").lower()
         if selected == "disabled":
             raise RequestError("Video generation is disabled. Enable a video provider in Settings.", 409)
@@ -390,6 +558,11 @@ class MediaService:
             "size": normalize_video_size(values.get("size") or preferences.get("video_size"), model),
             "input_reference": values.get("input_reference"),
         }
+        recorder.record(
+            "provider_request",
+            summary="submitting to openai-video",
+            detail={"provider": "openai", "prompt": prompt, "options": options},
+        )
         started = time.monotonic()
         outcome = "failed"
         try:
@@ -397,6 +570,12 @@ class MediaService:
                 MediaRequest("video", prompt, options), cancellation
             )
             outcome = "completed"
+            recorder.record(
+                "provider_response",
+                summary=f"openai-video returned {len(artifact.content)} bytes",
+                detail={"bytes": len(artifact.content), "extension": artifact.extension},
+                duration_ms=int((time.monotonic() - started) * 1000),
+            )
         except ProviderError:
             raise
         except Exception as exc:
@@ -435,6 +614,12 @@ class MediaService:
         except Exception:
             target.unlink(missing_ok=True)
             raise
+        recorder.record(
+            "stored",
+            summary=f"video stored as {media.id}",
+            detail={"media_id": media.id, "filename": filename},
+        )
+        recorder.attach_media(media.id)
         canonical_url = f"/api/v1/media/{media.id}"
         return {
             "ok": True,

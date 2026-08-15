@@ -189,6 +189,15 @@ export class ChatRenderer {
             : attachment.identity_state === 'unverified'
               ? el('p', { class: 'attachment-identity', textContent: 'Identity match unverified' })
               : null,
+        attachment.media_id
+          ? el('button', {
+              class: 'pill-btn attachment-action attachment-log',
+              textContent: 'Generation log',
+              title: 'See exactly how this was made',
+              'data-testid': 'open-generation-log',
+              onclick: () => void this.openGenerationLog(attachment.media_id as string),
+            })
+          : null,
         this.attachmentDetails(request),
       ]);
     }
@@ -230,6 +239,15 @@ export class ChatRenderer {
         : null,
       this.attachmentDetails(request),
     ]);
+  }
+
+  private async openGenerationLog(mediaId: string): Promise<void> {
+    try {
+      this.appState.generationLog = await this.client.mediaJournalForMedia(mediaId);
+    } catch {
+      this.appState.uiError = 'No generation log was recorded for that picture.';
+    }
+    this.renderApp();
   }
 
   private attachmentDetails(request: CapabilityRequest | undefined): HTMLElement | null {

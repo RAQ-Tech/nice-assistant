@@ -82,6 +82,8 @@ def main() -> int:
                 "app/media_adapters.py",
                 "app/media_clients.py",
                 "app/media_catalog_service.py",
+                "app/media_journal.py",
+                "app/media_journal_service.py",
                 "app/media_service.py",
                 "app/media_planner.py",
                 "app/memory_service.py",

@@ -7,6 +7,7 @@ import { CapabilityController } from './capabilities';
 import { composerState } from './composer_state';
 import { DEFAULT_PERSONA_AVATAR } from './constants';
 import { captureFocus, el, errorMessage, restoreFocus } from './dom';
+import { generationLogOverlay } from './generation_log_view';
 import { MediaController } from './media';
 import { PlaybackController } from './playback';
 import { RecordingController } from './recording';
@@ -212,6 +213,7 @@ function render(): void {
   if (state.showNewChatPersonaModal) root.append(newChatModal());
   if (state.personaAvatarPreview) root.append(imageOverlay(state.personaAvatarPreview, 'Persona avatar', () => { state.personaAvatarPreview = ''; render(); }));
   if (state.chatImagePreview) root.append(imageOverlay(state.chatImagePreview, 'Image', () => { state.chatImagePreview = ''; render(); }));
+  if (state.generationLog) root.append(generationLogOverlay(state.generationLog, api.mediaJournalExportUrl(state.generationLog.id), () => { state.generationLog = null; render(); }));
   if (state.chatVideoPreview) root.append(videoOverlay(state.chatVideoPreview));
   if (state.modal) root.append(modalNode(state.modal));
   restoreFocus(root, focus, Boolean(state.modal));

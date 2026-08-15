@@ -690,6 +690,63 @@ class MediaGenerationAttempt(Base):
     completed_at: Mapped[int | None] = mapped_column(Integer)
 
 
+class MediaGenerationJournal(Base):
+    """One durable record per generation, readable next to the artifact it produced."""
+
+    __tablename__ = "media_generation_journals"
+    __table_args__ = (
+        CheckConstraint("kind IN ('image','video')", name="ck_media_journal_kind"),
+        CheckConstraint(
+            "origin IN ('conversation','direct','edit','library')",
+            name="ck_media_journal_origin",
+        ),
+        CheckConstraint(
+            "status IN ('running','completed','failed','cancelled')",
+            name="ck_media_journal_status",
+        ),
+        Index("idx_media_journal_owner_started", "user_id", "started_at"),
+        Index("idx_media_journal_media", "media_id"),
+        Index("idx_media_journal_plan", "media_plan_id"),
+    )
+    id: Mapped[str] = mapped_column(Text, primary_key=True)
+    user_id: Mapped[str] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    chat_id: Mapped[str | None] = mapped_column(ForeignKey("chats.id", ondelete="SET NULL"))
+    persona_id: Mapped[str | None] = mapped_column(Text)
+    media_plan_id: Mapped[str | None] = mapped_column(ForeignKey("media_execution_plans.id", ondelete="SET NULL"))
+    capability_request_id: Mapped[str | None] = mapped_column(Text)
+    media_id: Mapped[str | None] = mapped_column(ForeignKey("media_files.id", ondelete="CASCADE"))
+    kind: Mapped[str] = mapped_column(Text, nullable=False)
+    origin: Mapped[str] = mapped_column(Text, nullable=False)
+    status: Mapped[str] = mapped_column(Text, nullable=False, default="running")
+    error_code: Mapped[str | None] = mapped_column(Text)
+    error_message: Mapped[str | None] = mapped_column(Text)
+    started_at: Mapped[int] = mapped_column(Integer, nullable=False)
+    completed_at: Mapped[int | None] = mapped_column(Integer)
+    duration_ms: Mapped[int | None] = mapped_column(Integer)
+
+
+class MediaGenerationJournalStage(Base):
+    """Append-only stage entries, so a crash still leaves everything up to it."""
+
+    __tablename__ = "media_generation_journal_stages"
+    __table_args__ = (
+        CheckConstraint("status IN ('ok','skipped','failed')", name="ck_media_journal_stage_status"),
+        UniqueConstraint("journal_id", "sequence", name="uq_media_journal_stage_sequence"),
+        Index("idx_media_journal_stage_journal", "journal_id", "sequence"),
+    )
+    id: Mapped[str] = mapped_column(Text, primary_key=True)
+    journal_id: Mapped[str] = mapped_column(
+        ForeignKey("media_generation_journals.id", ondelete="CASCADE"), nullable=False
+    )
+    sequence: Mapped[int] = mapped_column(Integer, nullable=False)
+    stage: Mapped[str] = mapped_column(Text, nullable=False)
+    status: Mapped[str] = mapped_column(Text, nullable=False, default="ok")
+    summary: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    detail_json: Mapped[str] = mapped_column(Text, nullable=False, default="{}")
+    started_at: Mapped[int] = mapped_column(Integer, nullable=False)
+    duration_ms: Mapped[int | None] = mapped_column(Integer)
+
+
 class ResourceCoordinationSetting(Base):
     __tablename__ = "resource_coordination_settings"
     __table_args__ = (

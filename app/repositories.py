@@ -23,6 +23,8 @@ from app.models import (
     MediaExecutionPlan,
     MediaFile,
     MediaGenerationAttempt,
+    MediaGenerationJournal,
+    MediaGenerationJournalStage,
     MediaResourceCompatibility,
     Memory,
     MemoryEvent,
@@ -1717,3 +1719,121 @@ class ApplicationRepository:
             )
             .order_by(MediaGenerationAttempt.attempt_number)
         ).all()
+
+    def add_media_generation_journal(
+        self,
+        *,
+        user_id: str,
+        chat_id: str | None,
+        persona_id: str | None,
+        media_plan_id: str | None,
+        capability_request_id: str | None,
+        kind: str,
+        origin: str,
+    ):
+        row = MediaGenerationJournal(
+            id=secrets.token_hex(12),
+            user_id=user_id,
+            chat_id=chat_id,
+            persona_id=persona_id,
+            media_plan_id=media_plan_id,
+            capability_request_id=capability_request_id,
+            kind=kind,
+            origin=origin,
+            status="running",
+            started_at=now_ts(),
+        )
+        self.session.add(row)
+        self.session.flush()
+        return row
+
+    def media_generation_journal_by_id(self, journal_id: str):
+        return self.session.get(MediaGenerationJournal, journal_id)
+
+    def media_generation_journal_for_media(self, user_id: str, media_id: str):
+        return self.session.scalars(
+            select(MediaGenerationJournal)
+            .where(
+                MediaGenerationJournal.user_id == user_id,
+                MediaGenerationJournal.media_id == media_id,
+            )
+            .order_by(MediaGenerationJournal.started_at.desc())
+            .limit(1)
+        ).first()
+
+    def media_generation_journals(self, user_id: str, *, limit: int = 50, offset: int = 0):
+        return self.session.scalars(
+            select(MediaGenerationJournal)
+            .where(MediaGenerationJournal.user_id == user_id)
+            .order_by(MediaGenerationJournal.started_at.desc(), MediaGenerationJournal.id)
+            .limit(max(1, min(int(limit), 200)))
+            .offset(max(0, int(offset)))
+        ).all()
+
+    def add_media_generation_journal_stage(
+        self,
+        *,
+        journal_id: str,
+        stage: str,
+        status: str,
+        summary: str,
+        detail_json: str,
+        started_at: int,
+        duration_ms: int | None,
+    ):
+        sequence = (
+            self.session.scalar(
+                select(func.count())
+                .select_from(MediaGenerationJournalStage)
+                .where(MediaGenerationJournalStage.journal_id == journal_id)
+            )
+            or 0
+        ) + 1
+        row = MediaGenerationJournalStage(
+            id=secrets.token_hex(12),
+            journal_id=journal_id,
+            sequence=sequence,
+            stage=stage,
+            status=status,
+            summary=summary,
+            detail_json=detail_json,
+            started_at=started_at,
+            duration_ms=duration_ms,
+        )
+        self.session.add(row)
+        self.session.flush()
+        return row
+
+    def media_generation_journal_stages(self, journal_id: str):
+        return self.session.scalars(
+            select(MediaGenerationJournalStage)
+            .where(MediaGenerationJournalStage.journal_id == journal_id)
+            .order_by(MediaGenerationJournalStage.sequence)
+        ).all()
+
+    def media_generation_journal_stage_count(self, journal_id: str) -> int:
+        return (
+            self.session.scalar(
+                select(func.count())
+                .select_from(MediaGenerationJournalStage)
+                .where(MediaGenerationJournalStage.journal_id == journal_id)
+            )
+            or 0
+        )
+
+    def delete_media_generation_journals_before(self, user_id: str, cutoff: int) -> int:
+        """Drop journals whose generation finished before `cutoff`. Stages cascade."""
+
+        rows = self.session.scalars(
+            select(MediaGenerationJournal).where(
+                MediaGenerationJournal.user_id == user_id,
+                MediaGenerationJournal.started_at < cutoff,
+                MediaGenerationJournal.status != "running",
+            )
+        ).all()
+        for row in rows:
+            self.session.execute(
+                delete(MediaGenerationJournalStage).where(MediaGenerationJournalStage.journal_id == row.id)
+            )
+            self.session.delete(row)
+        return len(rows)

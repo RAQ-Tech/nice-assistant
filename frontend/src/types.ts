@@ -740,6 +740,33 @@ export interface ModalState {
   actions: ModalAction[];
 }
 
+export interface MediaJournalStage {
+  sequence: number;
+  stage: string;
+  status: 'ok' | 'skipped' | 'failed';
+  summary: string;
+  detail: Record<string, unknown>;
+  started_at: number;
+  duration_ms?: number | null;
+}
+
+export interface MediaJournal {
+  id: string;
+  kind: 'image' | 'video';
+  origin: 'conversation' | 'direct' | 'edit' | 'library';
+  status: 'running' | 'completed' | 'failed' | 'cancelled';
+  chat_id?: string | null;
+  persona_id?: string | null;
+  media_id?: string | null;
+  media_plan_id?: string | null;
+  capability_request_id?: string | null;
+  started_at: number;
+  completed_at?: number | null;
+  duration_ms?: number | null;
+  error?: { code: string; message: string } | null;
+  stages: MediaJournalStage[];
+}
+
 export interface RouteState {
   kind: 'home' | 'chat' | 'settings';
   chatId?: Id;
@@ -786,6 +813,7 @@ export interface AppState {
   showSettings: boolean;
   settingsSection: string;
   modal: ModalState | null;
+  generationLog: MediaJournal | null;
   selectedPersonaId: Id | null;
   selectedModel: string | null;
   selectedMemoryMode: MemoryMode | null;

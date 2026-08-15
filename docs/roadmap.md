@@ -106,6 +106,16 @@ and temporary-copy backup integrity/migration drills. Deterministic failure test
 cover public/metadata targets, provider outage contracts, disk-full and empty
 artifacts, corrupt snapshots, restart recovery, and clean lifecycle behavior.
 
+Every image or video generation now writes one durable journal: ordered, timed
+stages covering the request, the selected plan and the coordinator's reasoning,
+identity conditioning, each attempt, the provider exchange, storage, any
+comparison, and the outcome. It is reached in one click from the picture itself
+and exports as a single Markdown document that can be handed to another person
+alongside that image. Credentials, provider addresses, and absolute server paths
+are removed before anything is stored, and a journal is deleted with its media.
+Recording is guarded end to end so a diagnostics failure can never cost the
+operator the artifact. See ADR 0030 and `docs/media-catalog.md`.
+
 ## Deferred voice core
 
 10. Blind TTS evaluation and provider decision.

@@ -122,6 +122,33 @@ Direct media buttons remain explicit manual actions. They receive a durable
 and that coordinator selection was bypassed. This preserves the existing UI
 without representing it as catalog-planned generation.
 
+## Generation journal
+
+Every generation writes exactly one journal, whatever started it: a
+conversational request, a direct button, an edit, or a library-served picture.
+The origin is derived from the durable plan rather than supplied by the caller,
+so no path can be added later that forgets to record itself.
+
+A journal holds ordered, timed stages: the request, the selected plan with the
+coordinator's reasoning, identity conditioning, each attempt, the provider
+request and response, storage, any identity comparison, and the outcome. Later
+work in the image generation program adds its own stages rather than replacing
+the record.
+
+It is reached in one click from the picture in the conversation, not from
+settings, because the question it answers is asked while looking at the image.
+It exports as one Markdown document that can be handed to another person
+alongside that image.
+
+Credentials, provider addresses, and absolute server paths never reach a
+journal. Redaction runs before anything is stored, so an export needs no
+sanitizing step of its own; file locations appear as names only. A journal is
+deleted with the media it describes, and `MEDIA_JOURNAL_RETENTION_DAYS` bounds
+how long the rest are kept.
+
+The API is `/api/v1/media/{id}/journal`, `/api/v1/media-journals`,
+`/api/v1/media-journals/{id}`, and `/api/v1/media-journals/{id}/export`.
+
 ## Migration and privacy
 
 Migration `0010_media_catalog` imports each owner's enabled legacy image/video
@@ -136,6 +163,9 @@ provider after the one-shot import had already completed, but only when the
 matching catalog kind is empty. Future disabled-to-enabled settings changes use
 the same missing-kind rule. Existing operator resources are never overwritten
 or recreated; see ADR 0016.
+Migration `0022_media_generation_journal` adds the journal and its stages.
+It is additive: existing plans, attempts, and media are untouched, and anything
+generated before it simply has no journal.
 Migration `0016_identity_fallback` adds the explicit no-workflow policy to
 existing visual-identity profiles. It does not rewrite reviewed references,
 media, or completed plans.

@@ -132,8 +132,17 @@ installed-browser acceptance.
   the accepted values, that a refused save changes nothing, that legacy provider
   aliases still save in canonical form, and that an unchanged stored value does
   not block saving unrelated settings.
+- Generation journal tests prove redaction removes credentials, provider
+  addresses, and absolute paths before anything is stored; that oversized and
+  deeply nested details are bounded rather than dropped whole; that one
+  generation writes exactly one journal reachable by media ID; that the export
+  is a named Markdown document which passes `scripts/audit_public_repo.py`; that
+  journals are owner-scoped; that a journal is deleted with its media; and that
+  a failing journal still returns the picture. Browser tests cover reaching the
+  log in one click from the image, the download link, and the honest message
+  when no log was recorded.
 - API tests use isolated temporary databases and deterministic fake providers.
-- Migration tests upgrade pre-0004/0005/0007/0008/0009/0010/0011/0012/0013/0014/0015/0016/0017/0019/0021 databases and prove
+- Migration tests upgrade pre-0004/0005/0007/0008/0009/0010/0011/0012/0013/0014/0015/0016/0017/0019/0021/0022 databases and prove
   chats, messages, jobs, media, memories, turn ordering, stored artifact links,
   Task Model profiles, and imported catalog resources survive.
 - Persona character card tests cover render order and empty-card neutrality, the

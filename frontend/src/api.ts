@@ -7,6 +7,7 @@ import type {
   Chat,
   ChatDetail,
   Job,
+  MediaJournal,
   Memory,
   MemoryEvent,
   MemoryMode,
@@ -412,6 +413,14 @@ export class ApiClient {
 
   capabilityRequest(id: string): Promise<CapabilityRequest> {
     return this.request(`/capability-requests/${encodeURIComponent(id)}`);
+  }
+
+  mediaJournalForMedia(mediaId: string): Promise<MediaJournal> {
+    return this.request(`/media/${encodeURIComponent(mediaId)}/journal`);
+  }
+
+  mediaJournalExportUrl(journalId: string): string {
+    return `${this.base}/media-journals/${encodeURIComponent(journalId)}/export`;
   }
 
   approveCapability(id: string): Promise<CapabilityRequest> {

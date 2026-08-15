@@ -53,6 +53,12 @@ scope archival, explicit permanent deletion, atomic owner-scoped bulk actions,
 and FTS retrieval policy. `ConversationService` likewise separates chat hiding
 from permanent deletion and rejects destructive deletion while linked work is
 active. See ADR 0015.
+`MediaJournalService` owns the per-generation journal: one durable record per
+image or video, with append-only stages. It is a separate service because
+recording must never be able to fail the generation it describes; every write is
+guarded, and `MediaService` falls back to a no-op recorder rather than losing an
+artifact to a diagnostics failure. Redaction lives in `app.media_journal` and
+runs before persistence, so a stored journal is already safe to export.
 `CapabilityService` owns the registry, durable permission requests, automatic
 explicit-image admission, video approval/denial, idempotency, audit events,
 linked job submission, and terminal results.

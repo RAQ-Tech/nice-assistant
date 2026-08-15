@@ -1975,3 +1975,94 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
     margin-left: .5rem;
   }
 }
+
+/* Generation log: reached from a picture, so it has to be readable at once. */
+.generation-log-card {
+  max-width: min(46rem, 92vw);
+  max-height: 82vh;
+  overflow-y: auto;
+  text-align: left;
+}
+
+.generation-log-close {
+  position: absolute;
+  top: .5rem;
+  right: .5rem;
+}
+
+.generation-log-summary {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: .15rem .75rem;
+  margin: .5rem 0 1rem;
+  font-size: .85rem;
+}
+
+.generation-log-summary dt {
+  opacity: .7;
+}
+
+.generation-log-summary dd {
+  margin: 0;
+}
+
+.generation-log-stages {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: .5rem;
+}
+
+.generation-log-stage {
+  border-left: 3px solid rgba(255, 255, 255, .18);
+  padding: .35rem .6rem;
+}
+
+.generation-log-stage.stage-failed {
+  border-left-color: #e0685f;
+}
+
+.generation-log-stage.stage-skipped {
+  opacity: .72;
+}
+
+.generation-log-stage-head {
+  display: flex;
+  flex-wrap: wrap;
+  gap: .6rem;
+  align-items: baseline;
+}
+
+.generation-log-stage-name {
+  font-weight: 600;
+}
+
+.generation-log-stage-summary {
+  margin: .2rem 0 0;
+  font-size: .9rem;
+}
+
+.generation-log-detail pre {
+  max-height: 16rem;
+  overflow: auto;
+  font-size: .78rem;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.generation-log-error {
+  color: #e0685f;
+}
+
+.generation-log-privacy {
+  margin-top: 1rem;
+  font-size: .8rem;
+}
+
+.generation-log-download {
+  display: inline-block;
+  margin-top: .5rem;
+  text-decoration: none;
+}

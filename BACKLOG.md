@@ -51,10 +51,14 @@ Owner-directed, decided 2026-08-14. Design and rationale are in
 [ADR 0030](docs/decisions/0030-preset-directed-image-generation.md) and
 [ADR 0031](docs/decisions/0031-structural-identity-conditioning.md).
 
-**Order is mandatory through item 4.** Those four are foundation fixes; the
-rest of the program produces wrong or unreviewable results on top of them.
-After item 4, items may be reordered if one is blocked, but nothing in Phase 3
-starts before item 6 exists.
+The per-generation journal is delivered; see `docs/media-catalog.md`. Every
+item below adds its own stages to that record rather than replacing it, so each
+one is reviewable from the picture it produced.
+
+**Order is mandatory through item 3.** Those three are the remaining foundation
+fixes; the rest of the program produces wrong results on top of them. After
+item 3, items may be reordered if one is blocked, but nothing in Phase 3 starts
+before item 5 exists.
 
 This program does not displace the voice-core items in section 3. Those remain
 the highest product priority and are blocked on an operator decision that has
@@ -62,27 +66,7 @@ not been made; this work is what can actually progress in the meantime.
 
 #### Phase 1 - foundation
 
-1. **Per-generation journal.** Image generation is becoming a multi-stage
-   decision and there is currently no single place to read what happened. One
-   durable, human-readable record per generation, so an image and its journal
-   can be reviewed together after the fact. Built first so every later item in
-   this program is observable as it lands. Source: ADR 0030.
-
-   Done when:
-   - Every image generation writes exactly one journal: conversational, direct
-     button, edit, and later library-served paths included.
-   - It records staged entries with timings, and each later program item adds
-     its own stage rather than replacing the record.
-   - It is reachable from the image itself in the browser in one click, without
-     opening settings.
-   - It exports as one self-contained file that can be handed to another person
-     alongside the image.
-   - It contains no credentials, no auth headers, no absolute server paths, and
-     no reference-image bytes. `python scripts/audit_public_repo.py` runs
-     against a synthetic export fixture in the suite.
-   - Retention is bounded, and deleting an image deletes its journal.
-
-2. **Declared workflow input bindings.** A ComfyUI workflow resource cannot
+1. **Declared workflow input bindings.** A ComfyUI workflow resource cannot
    receive the request prompt today: the executor writes the prompt into fixed
    node IDs and then merges the operator's graph over it, so an imported graph
    silently renders whatever text was baked in at export. Seed and dimensions
@@ -103,7 +87,7 @@ not been made; this work is what can actually progress in the meantime.
    - Migration marks existing enabled workflows as needing binding review
      rather than guessing which node was meant to receive the prompt.
 
-3. **Prompt dialect and the prompt compiler.** Every local prompt is currently
+2. **Prompt dialect and the prompt compiler.** Every local prompt is currently
    prefixed with fixed quality words and paired with one global negative
    string. That is wrong for checkpoint families that want score or booru tags,
    and wrong for those that support no negative prompt at all. Source: ADR 0030.
@@ -122,7 +106,7 @@ not been made; this work is what can actually progress in the meantime.
      dialect declaring no negative support sends none.
    - The compiled positive and negative appear in the journal.
 
-4. **Conversation context for capability planning.** Planning receives only the
+3. **Conversation context for capability planning.** Planning receives only the
    current user message, so a request referring to something established
    earlier cannot be routed or described correctly. Source: ADR 0030;
    amends the sole-input rule in ADR 0017.
@@ -140,7 +124,7 @@ not been made; this work is what can actually progress in the meantime.
 
 #### Phase 2 - presets, routing, and serving
 
-5. **Generation Preset resource and migration.** Make the tested recipe the
+4. **Generation Preset resource and migration.** Make the tested recipe the
    planned unit instead of assembling one from scored tags at request time.
    Source: ADR 0030.
 
@@ -154,7 +138,7 @@ not been made; this work is what can actually progress in the meantime.
      compatibility edges still gate it.
    - Planning selects a preset and records which one, and why, in the journal.
 
-6. **Scene contract.** The Task Model emits a typed scene record rather than
+5. **Scene contract.** The Task Model emits a typed scene record rather than
    prompt text, so dialect becomes a rendering concern. Source: ADR 0030.
 
    Done when:
@@ -165,7 +149,7 @@ not been made; this work is what can actually progress in the meantime.
    - The compiler consumes the scene; no prose prompt path remains in planning.
    - The scene is recorded in the journal.
 
-7. **Shortlist routing with deterministic fallback.** Source: ADR 0030.
+6. **Shortlist routing with deterministic fallback.** Source: ADR 0030.
 
    Done when:
    - The platform hard-filters legal presets, then offers the model a bounded
@@ -175,7 +159,7 @@ not been made; this work is what can actually progress in the meantime.
    - The shortlist, the survivors, the filtered entries with reasons, and the
      winner with its reason are all in the journal.
 
-8. **Routing tester in settings.** Deliberately temporary tooling, documented
+7. **Routing tester in settings.** Deliberately temporary tooling, documented
    as such, to make preset authoring tractable. Source: ADR 0030.
 
    Done when:
@@ -184,7 +168,7 @@ not been made; this work is what can actually progress in the meantime.
    - It is labeled as a diagnostic that is expected to be removed, and it lives
      behind advanced disclosure per `docs/settings-experience.md`.
 
-9. **Starter presets and the bundle format.** Source: ADR 0030.
+8. **Starter presets and the bundle format.** Source: ADR 0030.
 
    Done when:
    - A serialized preset bundle format exists and the built-in starter presets
@@ -194,7 +178,7 @@ not been made; this work is what can actually progress in the meantime.
    - A starter whose assets are not installed reports which are missing by name
      rather than failing at generation time.
 
-10. **Multi-pass presets.** A preset declares its stages, including an identity
+9. **Multi-pass presets.** A preset declares its stages, including an identity
     pass and a detail pass. Today a second pass exists only as a correction
     retry. Source: ADR 0030.
 
@@ -204,7 +188,7 @@ not been made; this work is what can actually progress in the meantime.
       rule that sequential stages are not summed.
     - A test covers a two-stage preset end to end.
 
-11. **Persona Identity Spec, and comparison demoted to advisory.**
+10. **Persona Identity Spec, and comparison demoted to advisory.**
     Source: ADR 0031.
 
     Done when:
@@ -222,7 +206,7 @@ not been made; this work is what can actually progress in the meantime.
     - `docs/persona-visual-identity.md` and `docs/media-catalog.md` describe
       comparison as optional post-hoc measurement throughout.
 
-12. **Image library and ready-image serving.** The serving half of
+11. **Image library and ready-image serving.** The serving half of
     pre-generation, valuable against a hand-filled library. Source: ADR 0030.
 
     Done when:
@@ -237,7 +221,7 @@ not been made; this work is what can actually progress in the meantime.
     - A storage cap and a retirement policy exist, and the library is visible
       and deletable in settings.
 
-13. **Settings consolidation.** This program must reduce settings surface, not
+12. **Settings consolidation.** This program must reduce settings surface, not
     grow it. Source: ADR 0030; `docs/settings-experience.md`.
 
     Done when:
@@ -250,33 +234,33 @@ not been made; this work is what can actually progress in the meantime.
 
 #### Phase 3 - library production
 
-14. **Scene backlog and idea generation.** Propose scenes for a persona from
+13. **Scene backlog and idea generation.** Propose scenes for a persona from
     its card, lorebook, and recent conversation themes. Source: ADR 0030.
 
     Done when a persona has a durable backlog of proposed scenes with states,
     each traceable to what suggested it, and nothing generates from it yet.
 
-15. **Idle scheduler.** Produce backlog scenes on the background lane during
+14. **Idle scheduler.** Produce backlog scenes on the background lane during
     quiet hours. Source: ADR 0030.
 
     Done when production runs only inside an operator-configured window and
     behind the existing capacity coordinator, a live turn preempts it, and a
     test proves an interactive job is never delayed behind batch work.
 
-16. **Photo sets.** One idea, several frames sharing wardrobe, room, lighting,
+15. **Photo sets.** One idea, several frames sharing wardrobe, room, lighting,
     and seed family, varying pose and angle. Source: ADR 0030.
 
     Done when a set generates as a unit and serving can send several frames
     from the same set into one conversation.
 
-17. **Preference weighting.** Deliberately simple and inspectable.
+16. **Preference weighting.** Deliberately simple and inspectable.
     Source: ADR 0030.
 
     Done when only explicit signals are recorded, the weights are visible and
     resettable in settings, and nothing in the product describes this as
     learning beyond what it measurably does.
 
-18. **Preset export and import.** Source: ADR 0030.
+17. **Preset export and import.** Source: ADR 0030.
 
     Done when export scrubs machine-specific values and previews exactly what
     will leave, import remaps referenced checkpoints and LoRAs against the local
@@ -286,7 +270,7 @@ not been made; this work is what can actually progress in the meantime.
 
 ### 1B. Other ready work
 
-19. **Bring direct media actions under measured-capacity admission.** The direct
+18. **Bring direct media actions under measured-capacity admission.** The direct
     image buttons still use legacy provider settings through a disclosed manual
     plan, so their demand is unknown and they bypass catalog-estimate admission.
     They do take the shared-resource lease, but two different paths to the same
@@ -294,23 +278,23 @@ not been made; this work is what can actually progress in the meantime.
     generation. Source: `docs/debt-register.md`;
     `docs/human-experience-realignment-plan.md` baseline gap 8.
 
-20. **Move provider helper internals off legacy low-level inputs.** Routes use
+19. **Move provider helper internals off legacy low-level inputs.** Routes use
     SQLAlchemy repositories and unit-of-work boundaries, but some provider
     helpers still take HTTP/SQLite-shaped arguments. This is the remaining
     inconsistency in the persistence boundary. Source: `docs/debt-register.md`.
 
-21. **Lift provider-specific settings out of persona and UI records.** Provider
+20. **Lift provider-specific settings out of persona and UI records.** Provider
     details are embedded directly in those records, which couples persona data
     to whichever provider happened to be configured. Source:
     `docs/debt-register.md`.
 
-22. **Decide whether turn event replay needs a durable log.** Replay is bounded
+21. **Decide whether turn event replay needs a durable log.** Replay is bounded
     and process-local today. That is honest and sufficient for a single-process
     private-LAN deployment; it is listed so the limitation stays visible rather
     than being discovered during a future multi-process change. Source:
     `docs/debt-register.md`.
 
-23. **Second Task Model adapter.** The structured-output contract has exactly
+22. **Second Task Model adapter.** The structured-output contract has exactly
     one implementation (Ollama). A second adapter is what proves the contract is
     a real boundary rather than a description of one client. No additional
     provider may be advertised until it implements the same contract. Source:
@@ -320,13 +304,13 @@ not been made; this work is what can actually progress in the meantime.
 
 Implementable once an owner policy choice is recorded.
 
-24. **Automatic expiry for rejected and forgotten memory.** Retention is durable
+23. **Automatic expiry for rejected and forgotten memory.** Retention is durable
     and users can permanently delete individual or bulk records, but there is no
     administrator-approved automatic expiry policy. The code change is small;
     the retention period and its defaults are the decision. Source:
     `docs/debt-register.md`, `docs/memory.md`.
 
-25. **Semantic memory retrieval.** Retrieval is lexical full-text search plus
+24. **Semantic memory retrieval.** Retrieval is lexical full-text search plus
     recency. Semantic retrieval remains an optional future interface and is
     deliberately not implied anywhere in the product. Adding it is a scope
     decision, not a blocked task. Source: `docs/debt-register.md`.
@@ -338,29 +322,29 @@ decision. These are the five open voice-core items, and they are the highest
 product priority once unblocked: the roadmap states that additional catalog
 breadth does not take priority over them.
 
-An important distinction, because it changes what can start early: items 26-28
+An important distinction, because it changes what can start early: items 25-27
 are provider-neutral infrastructure and could be built against the existing
-Kokoro path behind a flag. Only items 29-30 genuinely require the approved
-listening decision. Step 29 cannot select a provider until that decision
+Kokoro path behind a flag. Only items 28-29 genuinely require the approved
+listening decision. Step 28 cannot select a provider until that decision
 exists, and no unverified provider support may be advertised in the meantime.
 
-26. **Streaming TTS.** Begin playback before a complete response file exists.
+25. **Streaming TTS.** Begin playback before a complete response file exists.
     Today synthesis must finish before audio starts.
 
-27. **Automatic end-of-turn detection.** Detect that the user has stopped
+26. **Automatic end-of-turn detection.** Detect that the user has stopped
     speaking, with push-to-talk retained as a dependable fallback rather than
     replaced.
 
-28. **True barge-in.** Interrupting playback must also stop the superseded
+27. **True barge-in.** Interrupting playback must also stop the superseded
     provider work, not just mute the output.
 
-29. **Approved quality-first and local fallback chains for TTS and STT**, with
+28. **Approved quality-first and local fallback chains for TTS and STT**, with
     compact user-facing degradation notices. Requires the approved provider
-    chain from item 30.
+    chain from item 29.
 
-30. **Repeatable provider evaluation** on latency, reliability, and blind
+29. **Repeatable provider evaluation** on latency, reliability, and blind
     listening criteria - not configuration readiness alone. This is the
-    evaluation that unblocks item 29 and deferred roadmap steps 10-13.
+    evaluation that unblocks item 28 and deferred roadmap steps 10-13.
 
 Also blocked here: **final task-model selection**, which needs live latency and
 quality evaluation on the deployment GPU rather than the developer screening
@@ -372,30 +356,30 @@ Requires the installed private-LAN deployment and, where noted, a supervised
 session. Implementation is published for all of these; what remains is
 acceptance.
 
-31. **Deployment guard migration.** Complete the one-time supervised migration
+30. **Deployment guard migration.** Complete the one-time supervised migration
     from the legacy direct guard, then prove remote guard update, guard
     rollback and re-update, one-container deployment, and the final installed
     browser image journeys. Source: `docs/roadmap.md` step 24, ADR 0025,
     `docs/human-experience-realignment-plan.md`.
 
-32. **Installed acceptance for picture-message delivery.** Roadmap step 22 is
+31. **Installed acceptance for picture-message delivery.** Roadmap step 22 is
     published but not accepted on the real topology. Source: `docs/roadmap.md`,
     ADRs 0019-0020.
 
-33. **Installed acceptance for conversation cleanup.** Roadmap step 23, same
+32. **Installed acceptance for conversation cleanup.** Roadmap step 23, same
     situation. Source: `docs/roadmap.md`, ADR 0021.
 
-34. **Identity-stage latency and capacity acceptance.** Unaccepted until the
+33. **Identity-stage latency and capacity acceptance.** Unaccepted until the
     real verifier, consented references, and a compatible ComfyUI identity
     workflow are deployed together. The completed step 20 base media checks are
     explicitly not substitute evidence. Source: `docs/debt-register.md`,
     `docs/deployment-acceptance.md`.
 
-35. **Live capacity tuning for the deployment GPU.** Timing and capacity
+34. **Live capacity tuning for the deployment GPU.** Timing and capacity
     behavior under real memory limits remains deployment acceptance work.
     Source: `docs/roadmap.md` step 18C.
 
-36. **Installed acceptance for conversational image editing.** Delivered under
+35. **Installed acceptance for conversational image editing.** Delivered under
     ADR 0029 and covered by contract, API, and gate tests, but no installed
     browser journey has confirmed the confirmation card, the reference the
     planner chose, or a real ComfyUI edit workflow on the deployment. Until then
@@ -406,12 +390,12 @@ acceptance.
 Deliberately absent. Listed so none of it is mistaken for a regression, and so
 no stub is ever shipped in its place. See `docs/debt-register.md`.
 
-- Realtime and streaming TTS - no endpoint is advertised until step 29 lands.
+- Realtime and streaming TTS - no endpoint is advertised until step 28 lands.
 - Local speech-to-text - the setting is retained for migration compatibility
   but is disabled in the UI until a real adapter exists.
 - Realtime turn detection, partial transcripts, barge-in, and speech fallback.
 - Multi-reference identity fusion and automatic mask creation.
-- Preset discovery, ratings, or a shared registry. Item 18 delivers a file an
+- Preset discovery, ratings, or a shared registry. Item 17 delivers a file an
   operator can move deliberately; it is not a distribution channel.
 - Identity resemblance produced by resampling until a comparison passes. See
   ADR 0031: comparison is advisory measurement, never the mechanism.
