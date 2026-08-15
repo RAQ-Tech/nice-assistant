@@ -382,6 +382,11 @@ class MediaService:
                         "mask_image_path": values.get("_mask_image_path"),
                         "mask_image_sha256": values.get("_mask_image_sha256"),
                         "mask_image_bindings": values.get("mask_image_bindings") or [],
+                        "prompt_bindings": values.get("prompt_bindings") or [],
+                        "negative_prompt_bindings": values.get("negative_prompt_bindings") or [],
+                        "seed_bindings": values.get("seed_bindings") or [],
+                        "width_bindings": values.get("width_bindings") or [],
+                        "height_bindings": values.get("height_bindings") or [],
                     },
                 }
             else:

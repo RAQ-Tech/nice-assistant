@@ -324,6 +324,8 @@ describe('Media catalog settings', () => {
       default_settings: {
         workflow_patch: workflowPatch,
         identity_image_bindings: [{ node_id: '100', input_name: 'image' }],
+        // Without this the workflow would render the text saved inside it.
+        prompt_bindings: [{ node_id: '41', input_name: 'text' }],
       },
       compatible_model_ids: ['model-1'],
     };
@@ -348,6 +350,10 @@ describe('Media catalog settings', () => {
         provider: 'comfyui', status: 'provider_compatible', provider_compatible: true, live_tested: false,
         message: 'The deployed ComfyUI accepts the workflow contract.',
         identity_input_candidates: [{ node_id: '100', input_name: 'image', label: 'LoadImage 100 · image' }],
+        request_input_candidates: {
+          prompt: [{ node_id: '41', input_name: 'text', label: 'CLIP Text Encode (node 41)', current_value: 'saved text' }],
+          seed: [], width: [], height: [],
+        },
         detected_node_types: ['IPAdapterAdvanced'], missing_node_types: [], asset_checks: [], warnings: [],
       }),
       createMediaCatalogResource: vi.fn().mockResolvedValue(savedWorkflow),
@@ -420,6 +426,8 @@ describe('Media catalog settings', () => {
       default_settings: {
         workflow_patch: workflowPatch,
         identity_image_bindings: [{ node_id: '100', input_name: 'image' }],
+        // Without this the workflow would render the text saved inside it.
+        prompt_bindings: [{ node_id: '41', input_name: 'text' }],
       },
     }));
     await vi.waitFor(() => expect(localDialogs.info).toHaveBeenCalledWith(

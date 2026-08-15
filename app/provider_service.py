@@ -92,6 +92,7 @@ def _workflow_inspection_result(
     message: str,
     provider_compatible: bool = False,
     identity_input_candidates: list[dict] | None = None,
+    request_input_candidates: dict | None = None,
     detected_node_types: list[str] | None = None,
     missing_node_types: list[str] | None = None,
     asset_checks: list[dict] | None = None,
@@ -104,10 +105,51 @@ def _workflow_inspection_result(
         "live_tested": False,
         "message": message,
         "identity_input_candidates": identity_input_candidates or [],
+        "request_input_candidates": request_input_candidates or empty_request_input_candidates(),
         "detected_node_types": detected_node_types or [],
         "missing_node_types": missing_node_types or [],
         "asset_checks": asset_checks or [],
         "warnings": warnings or [],
+    }
+
+
+REQUEST_INPUT_ROLES = ("prompt", "seed", "width", "height")
+_SEED_INPUT_NAMES = ("seed", "noise_seed")
+
+
+def empty_request_input_candidates() -> dict:
+    return {role: [] for role in REQUEST_INPUT_ROLES}
+
+
+def _request_input_role(input_name: str, declared_type, current_value) -> str | None:
+    """Classify a literal widget input the platform could write a request into.
+
+    Only literal values qualify. An input already fed by another node is driven
+    by the graph, and overwriting it would silently break the operator's wiring.
+    """
+
+    if _link_reference(current_value) is not None:
+        return None
+    normalized = str(input_name).casefold().replace("-", "_")
+    if declared_type == "STRING" and isinstance(current_value, str):
+        return "prompt"
+    if declared_type == "INT" and not isinstance(current_value, bool) and isinstance(current_value, int):
+        if normalized in _SEED_INPUT_NAMES:
+            return "seed"
+        if normalized in {"width", "height"}:
+            return normalized
+    return None
+
+
+def _request_candidate(node_id: str, input_name: str, title: str, current_value) -> dict:
+    preview = str(current_value)
+    return {
+        "node_id": node_id,
+        "input_name": str(input_name),
+        "label": f"{title} (node {node_id})",
+        # The operator distinguishes a positive from a negative prompt input by
+        # what is currently in it, so a bounded preview is part of the choice.
+        "current_value": preview[:200] + ("…" if len(preview) > 200 else ""),
     }
 
 
@@ -196,6 +238,7 @@ def _inspect_comfyui_object_info(nodes: dict[str, dict], object_info: dict) -> d
     detected_node_types = sorted({node["class_type"] for node in nodes.values()})
     missing_node_types = sorted(node_type for node_type in detected_node_types if node_type not in object_info)
     raw_candidates = []
+    request_candidates = empty_request_input_candidates()
     asset_checks = []
     structural_issues = []
     adjacency = {node_id: set() for node_id in nodes}
@@ -236,6 +279,10 @@ def _inspect_comfyui_object_info(nodes: dict[str, dict], object_info: dict) -> d
                         "label": f"{title} (node {node_id})",
                     }
                 )
+            declared_type = spec[0] if isinstance(spec[0], str) else None
+            role = _request_input_role(input_name, declared_type, current_value)
+            if role:
+                request_candidates[role].append(_request_candidate(node_id, input_name, title, current_value))
             allowed = spec[0] if isinstance(spec[0], list) else None
             if (
                 allowed is not None
@@ -297,6 +344,8 @@ def _inspect_comfyui_object_info(nodes: dict[str, dict], object_info: dict) -> d
         connected_identity_nodes = downstream & identity_nodes
         if any(output_nodes & _reachable(adjacency, identity_node) for identity_node in connected_identity_nodes):
             candidates.append(candidate)
+    for role in REQUEST_INPUT_ROLES:
+        request_candidates[role].sort(key=lambda item: (item["node_id"], item["input_name"]))
     raw_candidates.sort(key=lambda item: (item["label"].casefold(), item["node_id"], item["input_name"]))
     candidates.sort(key=lambda item: (item["label"].casefold(), item["node_id"], item["input_name"]))
     asset_checks.sort(key=lambda item: (item["node_id"], item["input_name"]))
@@ -308,6 +357,11 @@ def _inspect_comfyui_object_info(nodes: dict[str, dict], object_info: dict) -> d
         warnings.append(f"ComfyUI does not report {len(missing_node_types)} workflow node type(s).")
     if unavailable_assets:
         warnings.append(f"ComfyUI does not report {len(unavailable_assets)} configured model asset(s).")
+    if not request_candidates["prompt"]:
+        warnings.append(
+            "No provider-reported text input can receive the request prompt. Without one this workflow would "
+            "render the text saved inside it and ignore what was asked for."
+        )
     if not raw_candidates:
         warnings.append("No provider-reported image upload input is available for the persona reference.")
     elif not candidates:
@@ -327,6 +381,7 @@ def _inspect_comfyui_object_info(nodes: dict[str, dict], object_info: dict) -> d
         provider_compatible=compatible,
         message=message,
         identity_input_candidates=candidates,
+        request_input_candidates=request_candidates,
         detected_node_types=detected_node_types,
         missing_node_types=missing_node_types,
         asset_checks=asset_checks,

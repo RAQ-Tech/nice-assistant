@@ -30,6 +30,35 @@ MEDIA_OPERATIONS = {"generate", "inpaint", "outpaint", "image_to_image"}
 TAG_PATTERN = re.compile(r"^[a-z0-9][a-z0-9_.-]{0,63}$")
 COMFY_NODE_ID_PATTERN = re.compile(r"^[1-9][0-9]{0,9}$")
 COMFY_INPUT_NAME_PATTERN = re.compile(r"^[A-Za-z_][A-Za-z0-9_.:-]{0,99}$")
+# Inputs the platform writes the caller's request into. Each is an explicit
+# operator choice: guessing which node was meant to receive a prompt could
+# silently change what a tested graph produces.
+WORKFLOW_REQUEST_BINDINGS = (
+    ("prompt_bindings", "prompt"),
+    ("negative_prompt_bindings", "negative prompt"),
+    ("seed_bindings", "seed"),
+    ("width_bindings", "width"),
+    ("height_bindings", "height"),
+)
+WORKFLOW_REQUEST_BINDING_KEYS = tuple(key for key, _label in WORKFLOW_REQUEST_BINDINGS)
+
+
+def needs_binding_review(row) -> bool:
+    """Report a workflow that predates declared prompt bindings.
+
+    Derived rather than stored so it can never drift from the resource it
+    describes. Such a workflow still runs through the legacy merge path, which
+    is why it is surfaced rather than silently reinterpreted: guessing which
+    node was meant to receive the prompt could change what a tested graph
+    produces.
+    """
+
+    if getattr(row, "resource_type", "") != "workflow":
+        return False
+    settings = _json(getattr(row, "default_settings_json", None), {})
+    if not isinstance(settings, dict):
+        return False
+    return bool(settings.get("workflow_patch")) and not settings.get("prompt_bindings")
 
 
 def _json(value: str | None, fallback):
@@ -911,6 +940,7 @@ class MediaCatalogService:
             allow_empty_workflow=resource_type == "workflow" and not enabled,
         )
         if resource_type == "workflow":
+            patch = default_settings.get("workflow_patch") or {}
             bindings = default_settings.get("identity_image_bindings") or []
             source_bindings = default_settings.get("source_image_bindings") or []
             mask_bindings = default_settings.get("mask_image_bindings") or []
@@ -923,6 +953,15 @@ class MediaCatalogService:
             if bindings and not declares_identity:
                 raise RequestError(
                     "identity image bindings require the identity_control feature",
+                    400,
+                )
+            if enabled and patch and not default_settings.get("prompt_bindings"):
+                # A workflow that cannot receive the request renders the text
+                # saved inside it and still returns a picture, so the failure is
+                # invisible. Refusing is the only honest option; see ADR 0030.
+                raise RequestError(
+                    "enabled ComfyUI workflows require at least one prompt binding so the request reaches the "
+                    "graph. Import the workflow and choose its positive prompt input.",
                     400,
                 )
             if enabled and set(operations) & {"image_to_image", "inpaint", "outpaint"} and not source_bindings:
@@ -977,6 +1016,7 @@ class MediaCatalogService:
                 "identity_image_bindings",
                 "source_image_bindings",
                 "mask_image_bindings",
+                *WORKFLOW_REQUEST_BINDING_KEYS,
             }
         if set(values) - allowed:
             raise RequestError("default settings include unsupported fields", 400)
@@ -1004,6 +1044,8 @@ class MediaCatalogService:
             result["mask_image_bindings"] = MediaCatalogService._normalize_comfy_bindings(
                 patch, result.get("mask_image_bindings") or [], "mask image"
             )
+            for key, label in WORKFLOW_REQUEST_BINDINGS:
+                result[key] = MediaCatalogService._normalize_comfy_bindings(patch, result.get(key) or [], label)
         if resource_type == "model":
             result = {key: value for key, value in result.items() if value not in (None, "")}
             try:
@@ -1166,6 +1208,7 @@ class MediaCatalogService:
             "estimated_load_seconds": row.estimated_load_seconds,
             "default_settings": _json(row.default_settings_json, {}),
             "notes": row.notes or "",
+            "needs_binding_review": needs_binding_review(row),
             "compatible_model_ids": repo.media_resource_compatible_model_ids(row.id),
             "created_at": row.created_at,
             "updated_at": row.updated_at,

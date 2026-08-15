@@ -350,11 +350,44 @@ def _inject_comfyui_bound_image(workflow: dict, bindings, uploaded_name: str, *,
         inputs[input_name] = uploaded_name
 
 
+def _inject_comfyui_value(workflow: dict, bindings, value, *, role: str) -> None:
+    """Write a request value into the exact inputs the operator declared."""
+
+    for binding in bindings or []:
+        if not isinstance(binding, dict):
+            raise ValueError(f"ComfyUI {role} binding is invalid")
+        node_id = str(binding.get("node_id") or "")
+        input_name = str(binding.get("input_name") or "")
+        node = workflow.get(node_id)
+        inputs = node.get("inputs") if isinstance(node, dict) else None
+        if not isinstance(inputs, dict) or input_name not in inputs:
+            raise ValueError(f"ComfyUI {role} binding does not exist in the selected workflow")
+        inputs[input_name] = value
+
+
+def _comfyui_bound_workflow(workflow_patch, settings, *, prompt, negative, seed, width, height) -> dict:
+    """Build the executable graph from an operator workflow and its bindings.
+
+    The workflow is the whole graph here, not a patch over a default one. Its
+    LoRA and sampler wiring belong to the operator, so only the declared request
+    inputs are replaced.
+    """
+
+    workflow = json.loads(json.dumps(workflow_patch))
+    _inject_comfyui_value(workflow, settings.get("prompt_bindings"), prompt, role="prompt")
+    _inject_comfyui_value(workflow, settings.get("negative_prompt_bindings"), negative, role="negative prompt")
+    _inject_comfyui_value(workflow, settings.get("seed_bindings"), seed, role="seed")
+    _inject_comfyui_value(workflow, settings.get("width_bindings"), width, role="width")
+    _inject_comfyui_value(workflow, settings.get("height_bindings"), height, role="height")
+    return workflow
+
+
 def comfyui_image(prompt, size, quality, allow_nsfw, base_url, local_settings=None, cancellation=None):
     settings = local_settings or {}
     width, height = parse_image_size(size, allow_custom=True)
     loras = _normalized_loras(settings.get("loras"))
     tuned = _prompt_with_loras(adjust_prompt_for_local_sd(prompt, allow_nsfw, quality), loras, syntax=False)
+    negative = local_negative_prompt(allow_nsfw, quality)
     steps = max(1, int(_coerce_number(settings.get("steps"), local_steps_from_quality(quality), int)))
     cfg = max(1.0, _coerce_number(settings.get("cfg_scale"), 7.0, float))
     seed = local_seed_for_backend(settings.get("seed"), "comfyui")
@@ -362,6 +395,21 @@ def comfyui_image(prompt, size, quality, allow_nsfw, base_url, local_settings=No
     scheduler = str(settings.get("scheduler") or "normal").strip()
     model = str(settings.get("model") or "v1-5-pruned-emaonly.safetensors").strip()
     workflow_patch = parse_additional_parameters(settings.get("additional_parameters"))
+    if workflow_patch and settings.get("prompt_bindings"):
+        return _run_comfyui_workflow(
+            _comfyui_bound_workflow(
+                workflow_patch,
+                settings,
+                prompt=tuned,
+                negative=negative,
+                seed=seed,
+                width=width,
+                height=height,
+            ),
+            settings,
+            base_url,
+            cancellation,
+        )
     workflow = {
         "3": {
             "class_type": "KSampler",
@@ -383,7 +431,7 @@ def comfyui_image(prompt, size, quality, allow_nsfw, base_url, local_settings=No
         "6": {"class_type": "CLIPTextEncode", "inputs": {"text": tuned, "clip": ["4", 1]}},
         "7": {
             "class_type": "CLIPTextEncode",
-            "inputs": {"text": local_negative_prompt(allow_nsfw, quality), "clip": ["4", 1]},
+            "inputs": {"text": negative, "clip": ["4", 1]},
         },
         "8": {"class_type": "VAEDecode", "inputs": {"samples": ["3", 0], "vae": ["4", 2]}},
         "9": {"class_type": "SaveImage", "inputs": {"filename_prefix": "nice-assistant", "images": ["8", 0]}},
@@ -412,6 +460,12 @@ def comfyui_image(prompt, size, quality, allow_nsfw, base_url, local_settings=No
     workflow["6"]["inputs"]["clip"] = clip_ref
     workflow["7"]["inputs"]["clip"] = clip_ref
     workflow.update(workflow_patch)
+    return _run_comfyui_workflow(workflow, settings, base_url, cancellation)
+
+
+def _run_comfyui_workflow(workflow: dict, settings: dict, base_url, cancellation):
+    """Upload declared images, submit the graph, and return the produced bytes."""
+
     base_url = str(base_url).rstrip("/")
     for role in ("identity_reference", "source_image", "mask_image"):
         uploaded = _comfyui_upload_bound_image(base_url, settings, cancellation, role=role)

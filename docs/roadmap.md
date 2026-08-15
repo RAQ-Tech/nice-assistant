@@ -116,6 +116,18 @@ are removed before anything is stored, and a journal is deleted with its media.
 Recording is guarded end to end so a diagnostics failure can never cost the
 operator the artifact. See ADR 0030 and `docs/media-catalog.md`.
 
+An operator ComfyUI workflow now declares where the request goes. Prompt,
+negative prompt, seed, width, and height bindings are exact node and input pairs
+validated against the inline graph, and an enabled workflow with no prompt
+binding is refused rather than left to render the text saved inside it. A bound
+workflow executes as the whole graph, with only its declared request inputs
+replaced. Import inspection reports the writable text, seed, and dimension
+inputs ComfyUI proves exist, with the value currently in each so a positive
+prompt input can be told from a negative one, and never offers an input already
+driven by another node. Workflows saved before bindings existed keep their
+previous behavior and are reported as needing binding review. See ADR 0030 and
+`docs/media-catalog.md`.
+
 ## Deferred voice core
 
 10. Blind TTS evaluation and provider decision.

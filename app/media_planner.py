@@ -144,6 +144,17 @@ def build_media_plan(repo, user_id: str, requirements: dict, providers, ready_ba
         warnings.append("No candidate covered every preferred domain; missing: " + ", ".join(winner["missing_domains"]))
     if any(item.estimated_vram_mb == 0 for item in winner["selected"]):
         warnings.append("One or more selected resources have unknown VRAM requirements.")
+    for snapshot in snapshots:
+        settings = snapshot["default_settings"]
+        if (
+            snapshot["resource_type"] == "workflow"
+            and settings.get("workflow_patch")
+            and not settings.get("prompt_bindings")
+        ):
+            warnings.append(
+                f"Workflow '{snapshot['name']}' has no declared prompt binding, so the request may not reach the "
+                "graph. Open it in Media Catalog and choose its prompt input."
+            )
     explanation_selected = [
         {
             "resource_id": snapshot["id"],

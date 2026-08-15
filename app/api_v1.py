@@ -576,6 +576,8 @@ class MediaCatalogResourceRepresentation(MediaCatalogResourceWrite):
     revision: int
     created_at: int
     updated_at: int
+    # Derived, not stored: a workflow that predates declared prompt bindings.
+    needs_binding_review: bool = False
 
 
 class MediaPlanningVocabularyRepresentation(BaseModel):

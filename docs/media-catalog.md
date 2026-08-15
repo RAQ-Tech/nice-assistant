@@ -41,6 +41,36 @@ editor remains available for deliberate manual changes. An enabled workflow must
 have a non-empty patch; an enabled
 `identity_control` workflow must also have at least one valid binding.
 
+## Declared request inputs
+
+A workflow must say where the request goes. `prompt_bindings`,
+`negative_prompt_bindings`, `seed_bindings`, `width_bindings`, and
+`height_bindings` are exact `{node_id, input_name}` pairs validated against the
+inline graph, exactly like the image bindings below. An enabled workflow with a
+non-empty graph and no prompt binding is refused, because a workflow that cannot
+receive the request renders the text saved inside it and still returns a
+picture: the failure would be invisible.
+
+Nothing is guessed. Choosing which node was meant to receive the prompt on the
+operator's behalf could change what an already-tested graph produces, so the
+binding is always an explicit choice.
+
+Workflow import inspection reports the candidates ComfyUI proves are writable:
+text inputs for the prompt, integer `seed` or `noise_seed` inputs, and `width`
+and `height`. Each candidate carries the value currently saved in it, which is
+how an operator tells a positive prompt input from a negative one. An input
+already fed by another node is never offered, because overwriting it would break
+the operator's own wiring.
+
+A workflow with declared prompt bindings executes as the whole graph. Its own
+sampler, checkpoint, and LoRA wiring are used as saved, and only the declared
+request inputs are replaced. A workflow saved before bindings existed still runs
+through the previous merge-over-a-default-graph path, so it produces exactly
+what it produced before; it is reported with `needs_binding_review` until an
+operator opens it and chooses its prompt input. That flag is derived from the
+resource rather than stored, so it cannot drift, and a plan that selects such a
+workflow carries a visible warning.
+
 An enabled ComfyUI `image_to_image` workflow must also declare exact
 `source_image_bindings`. Enabled `inpaint` and `outpaint` workflows additionally
 require `mask_image_bindings`. Nice Assistant uploads the owner-selected

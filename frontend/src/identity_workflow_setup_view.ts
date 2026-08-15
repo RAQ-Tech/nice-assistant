@@ -13,10 +13,12 @@ export class IdentityWorkflowSetupView {
   private workflowPatch: Record<string, unknown> | null = null;
   private inspection: IdentityWorkflowInspection | null = null;
   private binding = '';
+  private promptBinding = '';
   private modelId = '';
   private workflowName = 'Identity control workflow';
   private inspectionResultNode: HTMLElement | null = null;
   private bindingFieldNode: HTMLElement | null = null;
+  private promptBindingFieldNode: HTMLElement | null = null;
   private liveTestWarningNode: HTMLElement | null = null;
   private saveButton: HTMLButtonElement | null = null;
 
@@ -120,8 +122,14 @@ export class IdentityWorkflowSetupView {
   private setupFields(models: MediaCatalogResource[]): HTMLElement[] {
     const inspection = this.inspection;
     const candidates = inspection?.identity_input_candidates ?? [];
+    const promptCandidates = inspection?.request_input_candidates?.prompt ?? [];
     const selected = candidates.find((item) => bindingKey(item.node_id, item.input_name) === this.binding);
-    const canSave = Boolean(inspection?.provider_compatible && this.workflowPatch && selected && this.modelId);
+    const selectedPrompt = promptCandidates.find(
+      (item) => bindingKey(item.node_id, item.input_name) === this.promptBinding,
+    );
+    const canSave = Boolean(
+      inspection?.provider_compatible && this.workflowPatch && selected && selectedPrompt && this.modelId,
+    );
     const workflowField = textareaField(
       'Or paste API workflow JSON',
       this.workflowJson,
@@ -147,6 +155,27 @@ export class IdentityWorkflowSetupView {
           'Nice Assistant uploads the approved reference only to this selected node and input. It does not infer custom-node bindings.',
         )
       : null;
+    this.promptBindingFieldNode = inspection && promptCandidates.length
+      ? selectField(
+          'Prompt input',
+          this.promptBinding,
+          promptCandidates.map((item) => bindingKey(item.node_id, item.input_name)),
+          (value) => { this.promptBinding = value; },
+          'identity-workflow-prompt-binding',
+          (value) => {
+            const item = promptCandidates.find((entry) => bindingKey(entry.node_id, entry.input_name) === value);
+            return item ? `${item.label} — currently "${item.current_value}"` : value;
+          },
+          false,
+          'The request is written into this input. Choose the positive prompt node; without it the workflow would render the text saved inside it and ignore what was asked for.',
+        )
+      : inspection
+        ? el('div', {
+            class: 'settings-warning',
+            'data-testid': 'identity-workflow-no-prompt-input',
+            textContent: 'ComfyUI reports no text input that can receive the request. This workflow cannot be enabled, because it would render the text saved inside it instead of what was asked for.',
+          })
+        : null;
     this.liveTestWarningNode = inspection?.provider_compatible && !inspection.live_tested
       ? el('div', {
           class: 'settings-warning',
@@ -207,6 +236,7 @@ export class IdentityWorkflowSetupView {
       }),
       this.inspectionResultNode,
       this.bindingFieldNode,
+      this.promptBindingFieldNode,
       this.liveTestWarningNode,
       this.saveButton,
     ].filter((node): node is HTMLElement => Boolean(node));
@@ -283,6 +313,8 @@ export class IdentityWorkflowSetupView {
       this.inspection = inspection;
       const first = inspection.identity_input_candidates[0];
       this.binding = first ? bindingKey(first.node_id, first.input_name) : '';
+      const firstPrompt = inspection.request_input_candidates?.prompt?.[0];
+      this.promptBinding = firstPrompt ? bindingKey(firstPrompt.node_id, firstPrompt.input_name) : '';
     } catch (error) {
       this.appState.settingsError = errorMessage(error, 'Unable to check the workflow against ComfyUI.');
     } finally {
@@ -295,8 +327,11 @@ export class IdentityWorkflowSetupView {
     const candidate = this.inspection?.identity_input_candidates.find((item) =>
       bindingKey(item.node_id, item.input_name) === this.binding
     );
-    if (!this.inspection?.provider_compatible || !this.workflowPatch || !candidate || !this.modelId) {
-      this.appState.settingsError = 'Check a provider-compatible workflow, choose its persona reference input, and select a base model before saving.';
+    const promptCandidate = this.inspection?.request_input_candidates?.prompt?.find((item) =>
+      bindingKey(item.node_id, item.input_name) === this.promptBinding
+    );
+    if (!this.inspection?.provider_compatible || !this.workflowPatch || !candidate || !promptCandidate || !this.modelId) {
+      this.appState.settingsError = 'Check a provider-compatible workflow, choose its persona reference and prompt inputs, and select a base model before saving.';
       this.renderApp();
       return;
     }
@@ -322,6 +357,7 @@ export class IdentityWorkflowSetupView {
         default_settings: {
           workflow_patch: this.workflowPatch,
           identity_image_bindings: [{ node_id: candidate.node_id, input_name: candidate.input_name }],
+          prompt_bindings: [{ node_id: promptCandidate.node_id, input_name: promptCandidate.input_name }],
         },
         notes: 'Imported through guided identity control setup. Provider compatibility checked; live generation not yet tested.',
         compatible_model_ids: [this.modelId],
@@ -388,6 +424,8 @@ export class IdentityWorkflowSetupView {
     }
     this.bindingFieldNode?.remove();
     this.bindingFieldNode = null;
+    this.promptBindingFieldNode?.remove();
+    this.promptBindingFieldNode = null;
     this.liveTestWarningNode?.remove();
     this.liveTestWarningNode = null;
     if (this.saveButton) this.saveButton.disabled = true;

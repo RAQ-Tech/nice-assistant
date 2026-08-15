@@ -448,6 +448,7 @@ export interface MediaCatalogResource {
   estimated_load_seconds: number;
   default_settings: Record<string, unknown>;
   notes: string;
+  needs_binding_review?: boolean;
   compatible_model_ids: Id[];
   revision: number;
   created_at: number;
@@ -473,6 +474,20 @@ export interface IdentityWorkflowInputCandidate {
   label: string;
 }
 
+export interface WorkflowRequestInputCandidate {
+  node_id: string;
+  input_name: string;
+  label: string;
+  current_value: string;
+}
+
+export interface WorkflowRequestInputCandidates {
+  prompt: WorkflowRequestInputCandidate[];
+  seed: WorkflowRequestInputCandidate[];
+  width: WorkflowRequestInputCandidate[];
+  height: WorkflowRequestInputCandidate[];
+}
+
 export interface IdentityWorkflowInspection {
   provider: 'comfyui';
   status: 'provider_compatible' | 'incompatible' | 'invalid' | 'unreachable' | 'error';
@@ -480,6 +495,7 @@ export interface IdentityWorkflowInspection {
   live_tested: false;
   message: string;
   identity_input_candidates: IdentityWorkflowInputCandidate[];
+  request_input_candidates: WorkflowRequestInputCandidates;
   detected_node_types: string[];
   missing_node_types: string[];
   asset_checks: {

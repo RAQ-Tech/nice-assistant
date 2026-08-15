@@ -281,8 +281,12 @@ class MediaCatalogTests(unittest.TestCase):
             base = addon_payload("workflow", "Identity generation", "identity-gen", model["id"])
             base["features"] = ["identity_control"]
             base["default_settings"] = {
-                "workflow_patch": {"100": {"class_type": "LoadImage", "inputs": {"image": "identity.png"}}},
+                "workflow_patch": {
+                    "100": {"class_type": "LoadImage", "inputs": {"image": "identity.png"}},
+                    "900": {"class_type": "CLIPTextEncode", "inputs": {"text": "placeholder"}},
+                },
                 "identity_image_bindings": [{"node_id": "100", "input_name": "image"}],
+                "prompt_bindings": [{"node_id": "900", "input_name": "text"}],
             }
             running.client.post("/api/v1/media-catalog/resources", json=base)
             correction = addon_payload(
@@ -293,9 +297,11 @@ class MediaCatalogTests(unittest.TestCase):
                 "workflow_patch": {
                     "100": {"class_type": "LoadImage", "inputs": {"image": "identity.png"}},
                     "101": {"class_type": "LoadImage", "inputs": {"image": "source.png"}},
+                    "900": {"class_type": "CLIPTextEncode", "inputs": {"text": "placeholder"}},
                 },
                 "identity_image_bindings": [{"node_id": "100", "input_name": "image"}],
                 "source_image_bindings": [{"node_id": "101", "input_name": "image"}],
+                "prompt_bindings": [{"node_id": "900", "input_name": "text"}],
             }
             correction = running.client.post("/api/v1/media-catalog/resources", json=correction)
             self.assertEqual(correction.status_code, 201, correction.text)
@@ -358,8 +364,12 @@ class MediaCatalogTests(unittest.TestCase):
             ).json()
             workflow = addon_payload("workflow", "Image editor", "edit-v1", model["id"], operations=["image_to_image"])
             workflow["default_settings"] = {
-                "workflow_patch": {"100": {"class_type": "LoadImage", "inputs": {"image": "source.png"}}},
+                "workflow_patch": {
+                    "100": {"class_type": "LoadImage", "inputs": {"image": "source.png"}},
+                    "900": {"class_type": "CLIPTextEncode", "inputs": {"text": "placeholder"}},
+                },
                 "source_image_bindings": [{"node_id": "100", "input_name": "image"}],
+                "prompt_bindings": [{"node_id": "900", "input_name": "text"}],
             }
             self.assertEqual(running.client.post("/api/v1/media-catalog/resources", json=workflow).status_code, 201)
             edit = running.client.post(
@@ -409,8 +419,12 @@ class MediaCatalogTests(unittest.TestCase):
             ).json()
             workflow = addon_payload("workflow", "Image editor", "edit-v1", model["id"], operations=["image_to_image"])
             workflow["default_settings"] = {
-                "workflow_patch": {"100": {"class_type": "LoadImage", "inputs": {"image": "source.png"}}},
+                "workflow_patch": {
+                    "100": {"class_type": "LoadImage", "inputs": {"image": "source.png"}},
+                    "900": {"class_type": "CLIPTextEncode", "inputs": {"text": "placeholder"}},
+                },
                 "source_image_bindings": [{"node_id": "100", "input_name": "image"}],
+                "prompt_bindings": [{"node_id": "900", "input_name": "text"}],
             }
             self.assertEqual(running.client.post("/api/v1/media-catalog/resources", json=workflow).status_code, 201)
             chat = running.client.post("/api/v1/chats", json={"title": "Harbour", "memory_mode": "off"}).json()
@@ -676,8 +690,10 @@ class MediaCatalogTests(unittest.TestCase):
                 "workflow_patch": {
                     "100": {"class_type": "LoadImage", "inputs": {"image": "reviewed-reference.jpg"}},
                     "101": {"class_type": "OperatorIdentityStage", "inputs": {"image": ["100", 0]}},
+                    "900": {"class_type": "CLIPTextEncode", "inputs": {"text": "placeholder"}},
                 },
                 "identity_image_bindings": [{"node_id": "100", "input_name": "image"}],
+                "prompt_bindings": [{"node_id": "900", "input_name": "text"}],
             }
             created = running.client.post("/api/v1/media-catalog/resources", json=workflow)
             self.assertEqual(created.status_code, 201, created.text)
@@ -793,8 +809,10 @@ class MediaCatalogTests(unittest.TestCase):
                 "workflow_patch": {
                     "100": {"class_type": "LoadImage", "inputs": {"image": "placeholder.jpg"}},
                     "101": {"class_type": "IdentityAdapter", "inputs": {"reference": ["100", 0]}},
+                    "900": {"class_type": "CLIPTextEncode", "inputs": {"text": "placeholder"}},
                 },
                 "identity_image_bindings": [{"node_id": "100", "input_name": "image"}],
+                "prompt_bindings": [{"node_id": "900", "input_name": "text"}],
             }
             workflow = running.client.post("/api/v1/media-catalog/resources", json=workflow).json()
             chat = running.client.post(
@@ -1145,8 +1163,12 @@ class MediaCatalogTests(unittest.TestCase):
             workflow = addon_payload("workflow", "Identity", "identity", model["id"])
             workflow["features"] = ["identity_control"]
             workflow["default_settings"] = {
-                "workflow_patch": {"100": {"class_type": "LoadImage", "inputs": {"image": "placeholder"}}},
+                "workflow_patch": {
+                    "100": {"class_type": "LoadImage", "inputs": {"image": "placeholder"}},
+                    "900": {"class_type": "CLIPTextEncode", "inputs": {"text": "placeholder"}},
+                },
                 "identity_image_bindings": [{"node_id": "100", "input_name": "image"}],
+                "prompt_bindings": [{"node_id": "900", "input_name": "text"}],
             }
             running.client.post("/api/v1/media-catalog/resources", json=workflow)
             chat = running.client.post(

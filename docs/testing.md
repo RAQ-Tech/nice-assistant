@@ -141,6 +141,13 @@ installed-browser acceptance.
   a failing journal still returns the picture. Browser tests cover reaching the
   log in one click from the image, the download link, and the honest message
   when no log was recorded.
+- Workflow binding tests prove a graph using arbitrary node IDs receives the
+  request prompt, negative prompt, seed, and dimensions through declared
+  bindings; that such a graph runs whole rather than merged over the built-in
+  one; that a binding naming a missing node fails loudly; that a workflow saved
+  before bindings existed keeps its previous behavior; that an enabled workflow
+  without a prompt binding is refused; and that inspection lists text, seed, and
+  dimension candidates while never offering an input driven by another node.
 - API tests use isolated temporary databases and deterministic fake providers.
 - Migration tests upgrade pre-0004/0005/0007/0008/0009/0010/0011/0012/0013/0014/0015/0016/0017/0019/0021/0022 databases and prove
   chats, messages, jobs, media, memories, turn ordering, stored artifact links,
