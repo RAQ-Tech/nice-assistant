@@ -198,6 +198,16 @@ class MediaService:
                 artifact = self._generate_image_artifact(
                     prompt, attempt_values, settings, preferences, conditioned_identity, cancellation, recorder
                 )
+                artifact = self._run_stages(
+                    artifact,
+                    prompt,
+                    attempt_values,
+                    settings,
+                    preferences,
+                    conditioned_identity,
+                    cancellation,
+                    recorder,
+                )
                 media = self._persist_image(user_id, chat_id, generation_plan_id, artifact, cancellation, recorder)
                 if not conditioned_identity:
                     self._finish_attempt(attempt, "passed", media_id=media.id)
@@ -281,6 +291,51 @@ class MediaService:
             code="identity_validation_failed",
             user_message="No generated image met the persona identity threshold.",
         )
+
+    def _run_stages(self, artifact, prompt, values, settings, preferences, identity, cancellation, recorder):
+        """Run every declared stage after the first on the previous result.
+
+        Intermediates are written to a scratch file rather than the media
+        library: they are working state, not pictures the owner asked for, and
+        the library should not fill up with half-finished passes.
+        """
+
+        stages = values.get("stages") or []
+        if len(stages) <= 1:
+            return artifact
+        for index, stage in enumerate(stages[1:], start=2):
+            cancellation.raise_if_cancelled()
+            scratch = self.config.image_dir / f"stage_{secrets.token_hex(8)}{artifact.extension}"
+            try:
+                write_artifact_atomic(scratch, artifact.content, mode=0o600)
+                stage_values = dict(values)
+                stage_values["_operation"] = "image_to_image"
+                stage_values["_source_image_path"] = str(scratch)
+                stage_values["_source_image_sha256"] = sha256(artifact.content).hexdigest()
+                for key in (
+                    "workflow_patch",
+                    "source_image_bindings",
+                    "mask_image_bindings",
+                    "identity_image_bindings",
+                    "prompt_bindings",
+                    "negative_prompt_bindings",
+                    "seed_bindings",
+                    "width_bindings",
+                    "height_bindings",
+                ):
+                    if stage.get(key):
+                        stage_values[key] = stage[key]
+                with recorder.timed(f"stage_{index}") as handle:
+                    artifact = self._generate_image_artifact(
+                        prompt, stage_values, settings, preferences, identity, cancellation, recorder
+                    )
+                    handle.set(
+                        summary=f"stage {index} ({stage.get('name') or 'unnamed'})",
+                        detail={"stage": stage.get("name"), "bytes": len(artifact.content)},
+                    )
+            finally:
+                scratch.unlink(missing_ok=True)
+        return artifact
 
     def _record_plan_stage(self, recorder, user_id, plan_id):
         """Record which catalog resources the coordinator selected, and why."""

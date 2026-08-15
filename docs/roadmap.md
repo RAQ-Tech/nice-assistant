@@ -191,6 +191,14 @@ starting point rather than a measurement; a starter whose model file is not in
 the catalog is reported by name instead of installed, and one whose name already
 exists is skipped rather than overwritten. See ADR 0030.
 
+Presets can declare stages. A multi-pass preset runs each pass in order with the
+previous picture as its source, so an identity pass or a detail pass is part of
+the recipe rather than a correction that only runs after a failed comparison.
+Later stages must declare a source image binding and are refused at save time
+otherwise, each stage journals separately, intermediates never reach the
+library, and sequential stages are admitted as the largest rather than the sum,
+per ADR 0013. See ADR 0030.
+
 ## Deferred voice core
 
 10. Blind TTS evaluation and provider decision.

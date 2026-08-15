@@ -361,6 +361,16 @@ class MediaCatalogService:
                 raise RequestError(f"preset {role} must be a catalog workflow of the same kind", 400)
             if base.id not in compatibility.get(row.id, set()):
                 raise RequestError(f"preset {role} is not marked compatible with the base model", 400)
+        for index, stage in enumerate(definition["stages"]):
+            if not index:
+                continue
+            row = resources.get(stage["workflow_resource_id"] or "")
+            if not row or not _json(row.default_settings_json, {}).get("source_image_bindings"):
+                raise RequestError(
+                    f"preset stage '{stage['name']}' must name a workflow with a source image binding, "
+                    "because it receives the previous stage's picture",
+                    400,
+                )
         for item in definition["fixed_loras"]:
             row = resources.get(item["resource_id"])
             if not row or row.resource_type != "lora" or row.kind != kind:

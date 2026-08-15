@@ -204,6 +204,12 @@ installed-browser acceptance.
   and that starters are owner-scoped. Browser tests cover the starting-point
   labelling, the named missing model, the installed and skipped report, and an
   existing preset shown as kept.
+- Preset stage tests prove a two-stage preset submits both passes with the
+  second receiving the first's picture as an editing operation, that each stage
+  records its own journal entry, that only the final pass reaches the library
+  and no scratch file is left behind, that a later stage without a source image
+  binding is refused when the preset is saved, and that sequential stages are
+  costed as the largest rather than the sum.
 - API tests use isolated temporary databases and deterministic fake providers.
 - Migration tests upgrade pre-0004/0005/0007/0008/0009/0010/0011/0012/0013/0014/0015/0016/0017/0019/0021/0022 databases and prove
   chats, messages, jobs, media, memories, turn ordering, stored artifact links,

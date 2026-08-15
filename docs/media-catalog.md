@@ -67,8 +67,24 @@ to be a fixed recipe; presets created from an existing catalog model turn it on,
 since attaching a feature-capable workflow at request time is exactly what the
 coordinator did before presets existed.
 
-Presets are single-pass unless they declare stages. Declared stages are what
-multi-pass work - an identity pass, a detail pass - will build on.
+Presets are single-pass unless they declare stages. A preset with declared
+stages runs them in order, each pass receiving the previous pass's picture, so
+"generate the scene, then apply identity to the result" is a property of the
+recipe rather than something that only happens after a failed measurement.
+
+Every stage after the first must name a workflow with a real source image
+binding, because it is handed a picture. A stage that cannot accept one is
+refused when the preset is saved, not discovered mid-generation. Each stage
+records its own journal entry.
+
+Intermediate passes are working state, not pictures the owner asked for. They
+are written to a scratch file and removed, so the library holds only the final
+result.
+
+Sequential stages never coexist, so a plan is costed as the resident base and
+LoRAs plus the single most expensive stage, not the sum of every stage. That is
+the ADR 0013 rule, now applied to declared stages as well as identity
+correction.
 
 Every enabled base model is given a preset once, carrying that model's dialect,
 sampler settings, size, and priority, plus one open LoRA slot sized to the

@@ -279,8 +279,17 @@ def _evaluate_preset(
         reasons.append(f"the {base.backend} adapter does not yet execute '{operation}' workflows")
 
     loras = fixed_loras + slot_loras
+    stages, stage_reasons = _resolve_stages(definition, workflow, resources)
+    reasons.extend(stage_reasons)
+    stage_workflows = [row for _name, row in stages if row]
     selected = [base] + ([workflow] if workflow else []) + [row for row, _weight in loras]
-    total_vram = sum(item.estimated_vram_mb for item in selected)
+    for row in stage_workflows:
+        if row not in selected:
+            selected.append(row)
+    # ADR 0013: sequential stages never coexist, so the estimate is the base
+    # plus the most expensive single stage, not the sum of all of them.
+    resident = base.estimated_vram_mb + sum(row.estimated_vram_mb for row, _weight in loras)
+    total_vram = resident + max([row.estimated_vram_mb for row in stage_workflows] or [0])
     if setting.vram_budget_mb and total_vram > setting.vram_budget_mb:
         reasons.append(f"estimated VRAM {total_vram} MB exceeds the {setting.vram_budget_mb} MB catalog budget")
 
@@ -290,12 +299,41 @@ def _evaluate_preset(
         "base": base,
         "workflow": workflow,
         "loras": loras,
+        "stages": stages,
         "selected": selected,
         "reasons": reasons,
         "domain_hits": len(desired_domains & coverage_domains),
         "estimated_vram_mb": total_vram,
         "missing_domains": sorted(desired_domains - coverage_domains),
     }
+
+
+def _resolve_stages(definition: dict, workflow, resources) -> tuple[list, list]:
+    """Resolve declared stages to their workflows, in order.
+
+    Every stage after the first receives the previous stage's image, so it needs
+    a workflow with real source bindings. A stage that cannot accept the picture
+    it is handed is rejected here rather than discovered mid-generation.
+    """
+
+    declared = definition.get("stages") or []
+    reasons = []
+    stages = []
+    for index, stage in enumerate(declared):
+        name = str(stage.get("name") or f"stage{index + 1}")
+        resource_id = stage.get("workflow_resource_id") or ""
+        row = resources.get(resource_id) if resource_id else (workflow if index == 0 else None)
+        if resource_id and (not row or row.resource_type != "workflow"):
+            reasons.append(f"stage '{name}' names a workflow that is missing or disabled")
+            continue
+        if index and not row:
+            reasons.append(f"stage '{name}' has no workflow, so it cannot receive the previous stage's image")
+            continue
+        if index and not _json(row.default_settings_json, {}).get("source_image_bindings"):
+            reasons.append(f"stage '{name}' has no source image binding, so it cannot receive the previous image")
+            continue
+        stages.append((name, row))
+    return stages, reasons
 
 
 def _select_workflow(*, base_id, resources, compatibility, operation, missing_features):
@@ -456,6 +494,19 @@ def _execution_options(preset, winner: dict, snapshots: list[dict]) -> dict:
         "_preset_revision": preset.revision,
         **settings,
     }
+    stages = winner.get("stages") or []
+    if len(stages) > 1:
+        options["stages"] = [
+            {
+                "name": name,
+                **{
+                    key: _json(row.default_settings_json, {}).get(key)
+                    for key in WORKFLOW_SETTING_KEYS
+                    if _json(row.default_settings_json, {}).get(key)
+                },
+            }
+            for name, row in stages
+        ]
     if winner["loras"]:
         options["loras"] = [
             {
