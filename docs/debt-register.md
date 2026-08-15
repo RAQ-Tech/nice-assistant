@@ -173,6 +173,25 @@ change that alters them.
 
 ## Misleading or broken foundations
 
+- An operator-imported ComfyUI workflow cannot receive the request prompt. The
+  executor writes the positive prompt into node `"6"` and the negative into node
+  `"7"` of a fixed nine-node graph, then merges the operator's inline graph over
+  it. Bindings exist for identity, source, and mask images but not for prompt,
+  seed, or dimensions, so an imported graph either loses the prompt or renders
+  the text baked in at export. It still returns an image, so the failure is
+  silent. Fixed by the image generation program in `BACKLOG.md`; see ADR 0030.
+- Prompt construction for local backends is hardcoded and global: a fixed
+  quality prefix on every prompt and one negative string that varies only on the
+  NSFW toggle. This is wrong for checkpoint families that expect score or booru
+  tags and for those that support no negative prompt. See ADR 0030.
+- Capability planning sees only the current user message, so a request that
+  refers to something established earlier in the conversation cannot be routed
+  or described correctly. See ADR 0030.
+- Identity resemblance currently leans on generate-then-compare correction
+  (ADR 0013). That is a check standing in for a control: it spends latency
+  resampling and can reject every candidate, and it makes an optional service
+  load-bearing. ADR 0031 redirects resemblance to a declared structural
+  mechanism and demotes comparison to advisory measurement.
 - Current TTS supports corrected request/response generation and basic OpenAI
   voice direction, but not the streaming, cancellation, fallback, or evaluation
   behavior needed by the voice-first target.
