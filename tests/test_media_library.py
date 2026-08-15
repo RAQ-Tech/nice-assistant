@@ -89,7 +89,14 @@ class LibraryServingTests(unittest.TestCase):
     def _chat(self, running, title: str) -> dict:
         return running.client.post("/api/v1/chats", json={"title": title, "memory_mode": "off"}).json()
 
+    def _requests(self, running, chat_id: str) -> list[dict]:
+        return running.client.get("/api/v1/capability-requests", params={"chat_id": chat_id}).json()["items"]
+
     def _turn(self, running, chat_id: str, text: str) -> str:
+        # Requests inside one chat share a second-resolution timestamp, so the
+        # new one is identified by what was not there before rather than by
+        # ordering.
+        before = {item["id"] for item in self._requests(running, chat_id)}
         accepted = running.client.post(
             f"/api/v1/chats/{chat_id}/turns",
             json={"text": text, "memory_mode": "off"},
@@ -98,9 +105,9 @@ class LibraryServingTests(unittest.TestCase):
         followup = (chat_job.get("result") or {}).get("followup_job_id")
         if followup:
             running.wait_job(followup)
-        requests = running.client.get("/api/v1/capability-requests", params={"chat_id": chat_id}).json()["items"]
-        assert requests, "no capability request was created"
-        return running.wait_job(requests[0]["job_id"])["result"]["mediaId"]
+        fresh = [item for item in self._requests(running, chat_id) if item["id"] not in before]
+        assert fresh, "no capability request was created for this turn"
+        return running.wait_job(fresh[0]["job_id"])["result"]["mediaId"]
 
     def test_a_generated_picture_is_retained_with_its_scene(self):
         provider = FakeChatProvider(["Here."], task_outputs={CAPABILITY_PLANNING: {"requests": [planned(scene())]}})

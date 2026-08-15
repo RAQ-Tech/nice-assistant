@@ -444,6 +444,27 @@ export interface RoutingPreview {
   plan: MediaPlan | null;
 }
 
+export interface MediaPreset {
+  id: Id;
+  name: string;
+  kind: 'image' | 'video';
+  enabled: boolean;
+  priority: number;
+  routing_card: string;
+  operations: string[];
+  domains: string[];
+  content_tags: string[];
+  features: string[];
+  // Named fields are surfaced by the editor; the shape stays open because the
+  // service is authoritative about what a definition may contain.
+  definition: Record<string, any>;
+  estimated_vram_mb: number;
+  notes: string;
+  revision: number;
+  created_at: number;
+  updated_at: number;
+}
+
 export interface StarterPreset {
   name: string;
   routing_card: string;

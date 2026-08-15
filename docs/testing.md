@@ -229,6 +229,12 @@ installed-browser acceptance.
   was, that a picture is never recycled into the conversation that made it, that
   a different subject generates instead, that hand-added pictures need a
   description, and that the cap retires rather than deletes.
+- Preset editor tests prove the values that decide how a picture comes out are
+  named fields rather than raw JSON, that a model taking no negative prompt says
+  so along with the safety-negative consequence, that a preset with no routing
+  card is flagged, that saving is offered only after a change, and that an empty
+  list explains where presets come from. Browser journeys open the demoted
+  Inventory disclosure before reaching a raw resource editor.
 - API tests use isolated temporary databases and deterministic fake providers.
 - Migration tests upgrade pre-0004/0005/0007/0008/0009/0010/0011/0012/0013/0014/0015/0016/0017/0019/0021/0022 databases and prove
   chats, messages, jobs, media, memories, turn ordering, stored artifact links,

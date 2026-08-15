@@ -262,6 +262,7 @@ test('settings review memory and media use only canonical APIs', async ({ page }
   await expect(page.getByText(/Ready: Task model is ready/)).toBeVisible();
   await page.getByTestId('settings-nav-media-catalog').click();
   const resourceCard = page.getByTestId('media-resource-media-model-1');
+  await page.getByTestId('catalog-inventory').locator(':scope > summary').click();
   await resourceCard.locator(':scope > summary').click();
   await resourceCard.locator('.setting-row').filter({ hasText: 'Name' }).locator('input').first().fill('Fantasy portrait model');
   const mediaResourceSaveRequest = page.waitForRequest((request) =>
@@ -348,6 +349,9 @@ test('operator settings lead with readiness and keep expert editors closed', asy
 
   await page.getByTestId('settings-nav-media-catalog').click();
   await expect(page.getByText('Teach the media coordinator what to use')).toBeVisible();
+  const inventory = page.getByTestId('catalog-inventory');
+  await expect(inventory).not.toHaveAttribute('open', '');
+  await inventory.locator(':scope > summary').click();
   const mediaResource = page.getByTestId('media-resource-media-model-1');
   await expect(mediaResource).not.toHaveAttribute('open', '');
   await mediaResource.locator(':scope > summary').click();

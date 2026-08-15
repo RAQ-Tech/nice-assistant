@@ -1,6 +1,7 @@
 import type { ApiClient } from './api';
 import { el, errorMessage } from './dom';
 import { IdentityWorkflowSetupView } from './identity_workflow_setup_view';
+import { PresetSettingsView } from './preset_settings_view';
 import { RoutingTesterView } from './routing_tester_view';
 import { StarterPresetsView } from './starter_presets_view';
 import { inputField, selectField, textareaField, toggleField } from './settings_controls';
@@ -21,6 +22,7 @@ export class MediaCatalogSettingsView {
   private readonly openResourceIds = new Set<string>();
   private readonly identitySetup: IdentityWorkflowSetupView;
   private readonly routingTester: RoutingTesterView;
+  private readonly presets: PresetSettingsView;
   private readonly starterPresets: StarterPresetsView;
   private requirements: MediaPlanRequirements = {
     kind: 'image',
@@ -45,6 +47,7 @@ export class MediaCatalogSettingsView {
       () => this.refresh(),
     );
     this.routingTester = new RoutingTesterView(appState, client, renderApp);
+    this.presets = new PresetSettingsView(appState, client, renderApp);
     this.starterPresets = new StarterPresetsView(appState, client, renderApp, () => this.refresh());
   }
 
@@ -98,12 +101,18 @@ export class MediaCatalogSettingsView {
           el('button', { class: 'pill-btn', textContent: 'Refresh catalog', onclick: () => void this.refresh() }),
         ]),
       ]),
-      ...(catalog.resources.length
-        ? catalog.resources.map((resource) => this.resourceCard(resource))
-        : [el('div', {
-            class: 'settings-empty-state',
-            textContent: 'No resources are cataloged. Add a base model first; LoRAs and workflows require an explicitly compatible base model.',
-          })]),
+      advancedSettings(
+        `Inventory (${catalog.resources.length})`,
+        'The individual models, LoRAs, and workflows presets are built from. Most work happens in a preset; this is where the parts live.',
+        catalog.resources.length
+          ? catalog.resources.map((resource) => this.resourceCard(resource))
+          : [el('div', {
+              class: 'settings-empty-state',
+              textContent: 'No resources are cataloged. Add a base model first; LoRAs and workflows require an explicitly compatible base model.',
+            })],
+        { testId: 'catalog-inventory' },
+      ),
+      ...this.presets.node(),
       this.starterPresets.node(),
       this.routingTester.node(),
       this.planPreview(),
@@ -116,6 +125,7 @@ export class MediaCatalogSettingsView {
     this.appState.mediaCatalogBusy = true;
     try {
       const catalog = await this.client.mediaCatalog();
+      void this.presets.refresh();
       this.appState.mediaCatalog = this.mergeSnapshot(catalog, settingsVersionAtStart, resourceVersionsAtStart);
     } catch (error) {
       this.appState.settingsError = errorMessage(error, 'Unable to load the media catalog.');

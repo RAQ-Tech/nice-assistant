@@ -224,6 +224,12 @@ recycled into the conversation that made it. Pictures can be added by hand with
 a description. The library is capped by `MEDIA_LIBRARY_ENTRY_LIMIT` and retires
 rather than deletes. See ADR 0030.
 
+Media Catalog is preset-first. Presets lead the screen with named fields for
+prompt style, prefix and suffix, negative-prompt support, trigger placement,
+sampling, and dimensions; the individual models, LoRAs, and workflows sit behind
+an Inventory disclosure. The raw definition remains available but is no longer
+the only way to edit a recipe. See ADR 0030 and `docs/settings-experience.md`.
+
 ## Deferred voice core
 
 10. Blind TTS evaluation and provider decision.

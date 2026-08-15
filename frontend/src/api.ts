@@ -8,6 +8,7 @@ import type {
   ChatDetail,
   Job,
   MediaJournal,
+  MediaPreset,
   Memory,
   MemoryEvent,
   MemoryMode,
@@ -416,6 +417,21 @@ export class ApiClient {
 
   capabilityRequest(id: string): Promise<CapabilityRequest> {
     return this.request(`/capability-requests/${encodeURIComponent(id)}`);
+  }
+
+  mediaPresets(): Promise<{ items: MediaPreset[] }> {
+    return this.request('/media-catalog/presets');
+  }
+
+  updateMediaPreset(id: string, values: Record<string, unknown>): Promise<MediaPreset> {
+    return this.request(`/media-catalog/presets/${encodeURIComponent(id)}`, {
+      method: 'PUT',
+      body: JSON.stringify(values),
+    });
+  }
+
+  deleteMediaPreset(id: string): Promise<void> {
+    return this.request(`/media-catalog/presets/${encodeURIComponent(id)}`, { method: 'DELETE' });
   }
 
   starterPresets(): Promise<StarterPresetList> {

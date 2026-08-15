@@ -44,6 +44,24 @@ what to do next without reading the source code.
 - Keep verifier settings, thresholds, manual validation, history, and deletion
   in an optional advanced section.
 
+### Media Catalog is preset-first — delivered
+
+A preset is the thing an operator opens, so presets lead the screen and the
+individual models, LoRAs, and workflows they are built from sit behind an
+Inventory disclosure. Most work happens in a preset; the parts are where you go
+when something is missing.
+
+Every value that decides how a picture comes out has a named field: prompt
+style, prefix and suffix, whether the model takes a negative prompt at all,
+where LoRA trigger words go, steps, guidance, sampler, scheduler, and permitted
+dimensions. A model that takes no negative prompt says so where the field would
+have been, including that the platform safety negative cannot be carried either.
+The raw definition stays reachable under disclosure for the cases named fields
+do not cover, but it is no longer the only way in.
+
+A preset with no routing card says so in its own summary, because routing reads
+that sentence and an empty one silently reduces the preset to tags and priority.
+
 ### Routing tester — delivered, temporary
 
 Media Catalog carries a routing tester behind advanced disclosure. It exists so
