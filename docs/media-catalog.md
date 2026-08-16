@@ -271,6 +271,34 @@ written. The export is round-tripped through the same validation an imported
 file faces, so an export that could not be imported fails here rather than on
 somebody else's machine.
 
+### Importing a preset
+
+A file names its assets by filename, so import matches them against what is
+installed here. Choosing a file shows what it would do before it does anything:
+which presets would install, which cannot and why, and anything a recipe needs
+that a file could not carry.
+
+All or nothing. If any preset in a file cannot be installed, none of it is, and
+the reasons are named. A partly imported file leaves a catalog nobody can reason
+about - some recipes present, some absent, no record of which - and refusing
+lets an operator fix what is missing and try the same file again.
+
+Every import says the recipes were tested on somebody else's installation and
+have not been run here. A file containing a preset with a workflow slot says
+plainly that importing it means running a graph somebody else wrote on this
+machine.
+
+A VRAM figure in a file is accepted and dropped rather than refused: it is a
+measurement of the machine that measured it. The imported preset carries this
+installation's estimate for its own model instead.
+
+Requirements a file could not carry are written into the imported preset's notes
+rather than discarded, so the reason it behaves differently is attached to the
+thing behaving differently.
+
+No discovery, no ratings, no registry. This is a file an operator moves
+deliberately.
+
 ### What happened to the pictures
 
 Three things are counted against the preset that produced a picture: the picture

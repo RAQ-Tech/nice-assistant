@@ -11,6 +11,7 @@ import type {
   MediaJournal,
   MediaPreset,
   PresetExport,
+  PresetImportPreview,
   PresetSignal,
   Memory,
   MemoryEvent,
@@ -435,6 +436,20 @@ export class ApiClient {
 
   exportPreset(presetId: string): Promise<PresetExport> {
     return this.request(`/media-catalog/presets/${encodeURIComponent(presetId)}/export`);
+  }
+
+  previewPresetImport(bundle: unknown): Promise<PresetImportPreview> {
+    return this.request('/media-catalog/presets/import/preview', {
+      method: 'POST',
+      body: JSON.stringify({ bundle }),
+    });
+  }
+
+  importPresets(bundle: unknown): Promise<{ installed: { id: string; name: string }[]; warnings: string[] }> {
+    return this.request('/media-catalog/presets/import', {
+      method: 'POST',
+      body: JSON.stringify({ bundle }),
+    });
   }
 
   presetSignals(): Promise<{ items: PresetSignal[] }> {

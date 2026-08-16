@@ -2,7 +2,14 @@ import type { ApiClient } from './api';
 import { el, errorMessage } from './dom';
 import { inputField, selectField, textareaField, toggleField } from './settings_controls';
 import { advancedSettings, operatorEditor, settingsCard, settingsHeading } from './settings_ui';
-import type { AppState, MediaCatalogResource, MediaPreset, PresetExport, PresetSignal } from './types';
+import type {
+  AppState,
+  MediaCatalogResource,
+  MediaPreset,
+  PresetExport,
+  PresetImportPreview,
+  PresetSignal,
+} from './types';
 
 /**
  * The preset editor.
@@ -26,6 +33,7 @@ export class PresetSettingsView {
   private presets: MediaPreset[] = [];
   private signals: PresetSignal[] = [];
   private pendingExport: PresetExport | null = null;
+  private pendingImport: { bundle: unknown; preview: PresetImportPreview } | null = null;
   private readonly openIds = new Set<string>();
   private readonly dirtyIds = new Set<string>();
   private busy = false;
@@ -119,6 +127,80 @@ export class PresetSettingsView {
     ]);
   }
 
+  private async chooseImportFile(file: File | null): Promise<void> {
+    if (!file) return;
+    try {
+      const bundle = JSON.parse(await file.text());
+      this.pendingImport = { bundle, preview: await this.client.previewPresetImport(bundle) };
+    } catch (error) {
+      this.pendingImport = null;
+      this.appState.settingsError = errorMessage(error, 'That file could not be read as a preset bundle.');
+    }
+    this.renderApp();
+  }
+
+  private async confirmImport(): Promise<void> {
+    const pending = this.pendingImport;
+    if (!pending) return;
+    try {
+      await this.client.importPresets(pending.bundle);
+      this.pendingImport = null;
+      await this.refresh();
+    } catch (error) {
+      this.appState.settingsError = errorMessage(error, 'Nothing was imported.');
+      this.renderApp();
+    }
+  }
+
+  private importCard(): HTMLElement {
+    const pending = this.pendingImport;
+    return settingsCard([
+      settingsHeading(
+        'Import a preset file',
+        'A file somebody exported from their own installation. Choosing one shows what it would do here; nothing is installed until you confirm.',
+      ),
+      el('input', {
+        type: 'file',
+        accept: 'application/json,.json',
+        'data-testid': 'import-file',
+        onchange: (event: Event) => {
+          const input = event.currentTarget as HTMLInputElement;
+          void this.chooseImportFile(input.files?.[0] ?? null);
+        },
+      }),
+      ...(pending
+        ? [
+            ...pending.preview.warnings.map((warning) =>
+              el('p', { class: 'meta warning', textContent: warning })),
+            el('ul', { class: 'settings-list', 'data-testid': 'import-preview' }, pending.preview.presets.map((entry) =>
+              el('li', { class: 'settings-list-row' }, [
+                el('span', { class: 'settings-list-name', textContent: entry.name }),
+                el('span', {
+                  class: 'settings-list-detail',
+                  textContent: entry.installable
+                    ? (entry.requirements.length ? `Will install. Also needs: ${entry.requirements.join('; ')}` : 'Will install')
+                    : entry.blockers.join('; '),
+                }),
+              ]))),
+            el('div', { class: 'chips' }, [
+              el('button', {
+                class: 'send-btn',
+                textContent: pending.preview.installable ? 'Import these presets' : 'Cannot import this file',
+                disabled: !pending.preview.installable,
+                'data-testid': 'import-confirm',
+                onclick: () => void this.confirmImport(),
+              }),
+              el('button', {
+                class: 'pill-btn',
+                textContent: 'Cancel',
+                onclick: () => { this.pendingImport = null; this.renderApp(); },
+              }),
+            ]),
+          ]
+        : []),
+    ]);
+  }
+
   private signalsCard(): HTMLElement {
     return settingsCard([
       settingsHeading(
@@ -170,6 +252,7 @@ export class PresetSettingsView {
       ]),
       ...this.presets.map((preset) => this.editor(preset)),
       this.exportPreviewCard(),
+      this.importCard(),
       // After the presets: this describes them, so it reads as a footnote
       // rather than as the point of the screen.
       this.signalsCard(),

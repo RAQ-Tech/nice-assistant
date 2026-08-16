@@ -667,6 +667,30 @@ class PresetExportRepresentation(BaseModel):
     withheld: list[str]
 
 
+class PresetImportEntry(BaseModel):
+    name: str
+    routing_card: str
+    requirements: list[str]
+    blockers: list[str]
+    installable: bool
+
+
+class PresetImportPreviewRepresentation(BaseModel):
+    version: int
+    presets: list[PresetImportEntry]
+    installable: bool
+    warnings: list[str]
+
+
+class PresetImportRequest(StrictModel):
+    bundle: dict
+
+
+class PresetImportResultRepresentation(BaseModel):
+    installed: list[dict]
+    warnings: list[str]
+
+
 class PresetSignalRepresentation(BaseModel):
     preset_id: str
     preset_name: str
@@ -2017,6 +2041,24 @@ def media_file(media_id: str, request: Request, context: AuthContext = Depends(c
 )
 def export_preset(preset_id: str, request: Request, context: AuthContext = Depends(current_user)):
     return services(request).media_catalog.export_preset(context.user_id, preset_id)
+
+
+@router.post(
+    "/media-catalog/presets/import/preview",
+    response_model=PresetImportPreviewRepresentation,
+    tags=["media"],
+)
+def preview_preset_import(body: PresetImportRequest, request: Request, context: AuthContext = Depends(current_user)):
+    return services(request).media_catalog.preview_import(context.user_id, body.bundle)
+
+
+@router.post(
+    "/media-catalog/presets/import",
+    response_model=PresetImportResultRepresentation,
+    tags=["media"],
+)
+def import_presets(body: PresetImportRequest, request: Request, context: AuthContext = Depends(current_user)):
+    return services(request).media_catalog.import_bundle(context.user_id, body.bundle)
 
 
 @router.get("/preset-signals", response_model=PresetSignalListResponse, tags=["media"])

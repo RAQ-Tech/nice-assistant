@@ -202,3 +202,11 @@ Each preset editor has an Export action. It does not write a file: it shows what
 a file would contain, field by field, together with what is deliberately left
 out and anything the recipe needs that a file cannot carry. The file is written
 only when the operator saves it from that preview.
+
+## Importing a preset
+
+Media Catalog accepts a preset file. Choosing one shows what it would do here -
+which recipes install, which cannot and why, and what each still needs - above
+a confirm action that is disabled unless the whole file can be installed. The
+warnings sit above the list rather than below it, because deciding whether to
+run somebody else's graph comes before deciding whether the recipe is any good.

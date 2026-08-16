@@ -83,6 +83,10 @@ def _normalize_entry(values) -> dict:
         # so an import can say what is missing rather than behaving differently
         # without saying why.
         "requirements",
+        # Accepted so an older or foreign file is not refused outright, and
+        # then dropped: a VRAM figure is a measurement of the machine that
+        # measured it, and it is not a fact about this one.
+        "estimated_vram_mb",
     }
     unknown = set(values) - allowed
     if unknown:

@@ -242,6 +242,21 @@ export interface AttachmentFrame {
   frame_index: number | null;
 }
 
+export interface PresetImportEntry {
+  name: string;
+  routing_card: string;
+  requirements: string[];
+  blockers: string[];
+  installable: boolean;
+}
+
+export interface PresetImportPreview {
+  version: number;
+  presets: PresetImportEntry[];
+  installable: boolean;
+  warnings: string[];
+}
+
 export interface PresetExport {
   filename: string;
   bundle: Record<string, unknown>;

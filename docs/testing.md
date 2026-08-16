@@ -344,6 +344,13 @@ installed-browser acceptance.
   on this machine appears anywhere in the file, that the preview lists the
   fields that will leave, and that an export round-trips through the importer's
   own validation.
+- Preset import tests prove a recipe whose model is installed here imports, that
+  one naming an absent model is refused by name and changes nothing, that a file
+  is all or nothing when only some of it could install, that a workflow slot is
+  declared as running somebody else's graph, that every import says it was
+  tested elsewhere, that requirements travel into the notes, that an existing
+  name is never overwritten, that a foreign VRAM figure is dropped rather than
+  refused, and that an exported preset imports into another account.
 - API tests use isolated temporary databases and deterministic fake providers.
 - Migration tests upgrade pre-0004/0005/0007/0008/0009/0010/0011/0012/0013/0014/0015/0016/0017/0019/0021/0022 databases and prove
   chats, messages, jobs, media, memories, turn ordering, stored artifact links,

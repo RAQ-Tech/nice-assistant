@@ -108,6 +108,36 @@ def _strings(values: Any, *, label: str, max_items: int = 32, max_length: int = 
     return result
 
 
+def _import_warnings(bundle: dict) -> list[str]:
+    """What an operator should know before this file becomes part of their catalog."""
+
+    warnings = [
+        "These recipes were tested on somebody else's installation. Nothing here has been run on yours.",
+    ]
+    if any((entry.get("workflow_slot") or {}).get("enabled") for entry in bundle["presets"]):
+        warnings.append(
+            "A preset in this file uses a workflow slot, which means it will run a ComfyUI graph on this "
+            "machine. Only import files from someone you trust."
+        )
+    if any(entry.get("requirements") for entry in bundle["presets"]):
+        warnings.append(
+            "Some presets name things a file cannot carry, listed against each one. They will import without "
+            "those and behave differently until you supply them."
+        )
+    return warnings
+
+
+def _imported_notes(entry: dict) -> str:
+    """Keep the author's notes, and record what did not come with them."""
+
+    parts = [entry["notes"]] if entry["notes"] else []
+    if entry.get("requirements"):
+        parts.append("Imported. This recipe also needs: " + "; ".join(entry["requirements"]) + ".")
+    else:
+        parts.append("Imported.")
+    return " ".join(parts)[:4000]
+
+
 def _export_filename(name: str) -> str:
     """A filename a person can recognise, with nothing of this machine in it."""
 
@@ -788,6 +818,101 @@ class MediaCatalogService:
         if not preferred:
             return requirements
         return {**requirements, "persona_preset_ids": [str(item) for item in preferred]}
+
+    def preview_import(self, user_id: str, values) -> dict:
+        """What this file would do here, before it does anything.
+
+        Every preset in it is checked against this catalog. Anything missing is
+        named, and so is the fact that a workflow slot means running a graph
+        somebody else wrote.
+        """
+
+        bundle = normalize_bundle(values)
+        with self._uow() as uow:
+            self._ensure_imported(uow.repo, user_id)
+            resources = uow.repo.media_catalog_resources(user_id)
+            existing = {row.name for row in uow.repo.media_presets(user_id)}
+        entries = []
+        for entry in bundle["presets"]:
+            resolved = resolve_entry(entry, resources)
+            blockers = []
+            if entry["name"] in existing:
+                blockers.append("a preset with that name already exists here")
+            for missing in resolved["missing_assets"]:
+                blockers.append(f"not installed here: {missing}")
+            entries.append(
+                {
+                    "name": entry["name"],
+                    "routing_card": entry["routing_card"],
+                    "requirements": entry["requirements"],
+                    "blockers": blockers,
+                    "installable": not blockers,
+                }
+            )
+        return {
+            "version": bundle["version"],
+            "presets": entries,
+            "installable": bool(entries) and all(item["installable"] for item in entries),
+            "warnings": _import_warnings(bundle),
+        }
+
+    def import_bundle(self, user_id: str, values) -> dict:
+        """Install every preset in a file, or none of them.
+
+        All or nothing on purpose. A partly installed file leaves a catalog
+        nobody can reason about: some recipes present, some absent, and no
+        record of which. Refusing and naming what is missing lets the operator
+        fix it and try the same file again.
+        """
+
+        preview = self.preview_import(user_id, values)
+        if not preview["installable"]:
+            blocked = [
+                f"{item['name']}: {'; '.join(item['blockers'])}" for item in preview["presets"] if item["blockers"]
+            ]
+            raise RequestError(
+                "Nothing was imported. " + (" ".join(blocked) or "The file contained no presets."),
+                409,
+            )
+        bundle = normalize_bundle(values)
+        installed = []
+        with self._uow() as uow:
+            resources = uow.repo.media_catalog_resources(user_id)
+            compatibility = uow.repo.media_compatibility_map(user_id)
+            for entry in bundle["presets"]:
+                resolved = resolve_entry(entry, resources)
+                base = resolved["base"]
+                loras = [row for row in resolved["loras"] if base.id in compatibility.get(row.id, set())]
+                values_for_row = {
+                    "name": entry["name"],
+                    "kind": entry["kind"],
+                    "enabled": True,
+                    "priority": entry["priority"],
+                    "routing_card": entry["routing_card"],
+                    "operations": entry["operations"],
+                    "domains": entry["domains"],
+                    "content_tags": entry["content_tags"],
+                    "features": entry["features"],
+                    "notes": _imported_notes(entry),
+                    # This machine's measurement of this machine's model. The
+                    # file's own figure, if it carried one, was dropped when the
+                    # bundle was normalized.
+                    "estimated_vram_mb": base.estimated_vram_mb,
+                    "definition": {
+                        "base_model_resource_id": base.id,
+                        "sampler": entry["sampler"],
+                        "dimensions": entry["dimensions"],
+                        "prompt_dialect": entry["prompt_dialect"],
+                        "lora_slots": entry["lora_slots"],
+                        "workflow_slot": entry["workflow_slot"],
+                        "fixed_loras": [{"resource_id": row.id} for row in loras],
+                    },
+                }
+                row = uow.repo.add_media_preset(
+                    user_id=user_id, values=self._preset_values(uow.repo, user_id, values_for_row)
+                )
+                installed.append({"name": row.name, "id": row.id})
+        return {"installed": installed, "warnings": preview["warnings"]}
 
     def export_preset(self, user_id: str, preset_id: str) -> dict:
         """A shareable file for one preset, with a preview of exactly what leaves.
