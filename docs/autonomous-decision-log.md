@@ -28,6 +28,35 @@ blank page.
 
 ## Delivery decisions
 
+### A12 — The reply keeps its place in front of the picture
+
+Owner decision, 2026-08-16, recorded here because it overturns something this
+file previously listed as needing an answer, and because it now constrains
+unrelated work.
+
+A persona replies before anything decides which picture is attached, so it can
+describe one thing while a picture of another arrives beside it. Fixing it by
+planning the picture first would put a Task Model call on the critical path of
+every turn, including turns containing no picture at all, and on a 12 GB card
+where the task model and the chat model may not both be resident it can cost a
+model swap.
+
+The owner is heading toward real-time voice conversation, so per-turn latency is
+the wrong currency to spend. The reply stays first.
+
+A middle option was offered and also declined for now: run the existing free
+pattern gate first and plan early only for messages it flags. Declined because
+the owner does not expect a deterministic filter to catch requests made
+conversationally, by hint or suggestion rather than trigger word, and a filter
+that quietly misses is worse than none here.
+
+*Consequence:* alignment is pursued from the other end. Capability planning
+already runs after the reply commits, so the reply is available to influence
+which retained picture is chosen, at no per-turn cost. That narrows ADR 0017
+rather than reversing it, and needs its own ADR, which is item 6 in `BACKLOG.md`.
+*Reverse:* nothing was built for the rejected option, so there is nothing to
+undo.
+
 ### A11 — A background picture uses a chat-less capability request
 
 The backlog recorded this as needing a decision: a capability request is tied to

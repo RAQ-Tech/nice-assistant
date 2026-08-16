@@ -135,6 +135,32 @@ not been made; this work is what can actually progress in the meantime.
     - No discovery, ratings, or registry. This is a file an operator moves
       deliberately.
 
+6. **Choose the retained picture that matches what the persona said.** A
+    persona writes its reply before anything decides which picture is attached,
+    so it can say one thing while a picture of something else arrives beside it.
+    Planning the picture first was rejected on 2026-08-16 because it would add a
+    Task Model call to every turn, and real-time voice is the direction. This
+    fixes the same problem from the other end and costs nothing per turn:
+    capability planning already runs after the reply commits, so the reply is
+    already there to be read. Source: ADR 0017, ADR 0021, ADR 0030.
+
+    Done when:
+    - The persona's reply may influence which already-retained picture is
+      chosen, and nothing else. It may not introduce a subject, widen one,
+      cause a generation, or make a picture eligible that the user's own words
+      did not already make eligible. ADR 0017 holds; this ranks candidates that
+      already passed it.
+    - A new ADR records that narrowing, because it reads as a contradiction of
+      ADR 0017 otherwise, and the reason the two are different is the whole
+      argument.
+    - `test_persona_reply_prose_still_never_reaches_planning` is kept, or
+      replaced by a stricter test that proves prose cannot create or widen work
+      while still allowing it to rank.
+    - A test shows the beach-photo case fixed: a persona that describes walking
+      the dog does not get a beach picture when a dog picture is retained.
+    - When no retained picture matches the reply, behaviour is exactly what it
+      is today. This never makes a picture arrive that would not have.
+
 ### 1B. Homepage and everyday visibility
 
 Owner-requested 2026-08-16. Loading the browser drops straight into the last
@@ -142,10 +168,10 @@ chat, so there is nowhere to see what the assistant is currently set up to do.
 The pre-generation schedule is the sharp example: it spends GPU time overnight
 and is currently only visible to someone who goes looking for it in settings.
 
-Item 6 is a prerequisite for item 10 and should be done first. The rest can be
+Item 7 is a prerequisite for item 11 and should be done first. The rest can be
 taken in any order.
 
-6. **Make pre-generation an owner setting, not deployment configuration.** The
+7. **Make pre-generation an owner setting, not deployment configuration.** The
     policy is read from `PREGENERATION_*` environment variables at startup, so
     it cannot be changed from the browser at all. A toggle on a dashboard would
     be a control that changes nothing, which this repository does not ship.
@@ -160,7 +186,7 @@ taken in any order.
       next pass, rather than only what the API returns.
     - An invalid window is refused when saved, not silently corrected later.
 
-7. **Open on a homepage instead of the last chat.** `#/` already parses as a
+8. **Open on a homepage instead of the last chat.** `#/` already parses as a
     home route, but `applyCurrentRoute` immediately opens the first chat and
     rewrites the URL, so the route has never been reachable. Source:
     `frontend/src/routing.ts`, `frontend/src/app.ts`.
@@ -175,7 +201,7 @@ taken in any order.
     - Existing browser journeys that assumed a chat opens on load are updated
       rather than deleted.
 
-8. **Put the logo in the chat header as the way back.** Source: owner request.
+9. **Put the logo in the chat header as the way back.** Source: owner request.
 
     Done when:
     - The mark already in `web/favicon.svg` is reused. No new brand is invented
@@ -186,7 +212,7 @@ taken in any order.
       controls that are already there.
     - A browser journey clicks it from a chat and lands on the homepage.
 
-9. **Show what is true right now on the homepage.** Information only; every
+10. **Show what is true right now on the homepage.** Information only; every
     value read from an API that already exists. Source: owner request.
 
     Done when:
@@ -199,13 +225,15 @@ taken in any order.
     - It does not poll aggressively: one load, and refresh on the events the
       browser already receives.
 
-10. **Put the pre-generation toggle and schedule on the homepage.** The reason
+11. **Put the pre-generation toggle and schedule on the homepage.** The reason
     this belongs on the front page rather than in settings is that it spends
     real electricity on a schedule, and a setting nobody sees is a setting
-    nobody revisits. Needs item 6. Source: owner request, ADR 0030.
+    nobody revisits. Needs item 7. Source: owner request, ADR 0030.
 
     Done when:
-    - The switch and the quiet window are editable from the homepage.
+    - The switch and the quiet window are editable from the homepage, alongside
+      speech on/off and memory mode, which the owner named as the other two
+      worth seeing without opening settings.
     - Its current state is legible without opening anything: on or off, the
       window, whether the current hour is inside it, and what production last
       did or last refused to do and why.
@@ -221,7 +249,7 @@ Recorded by a parallel session and verified against `main` at `0df1d89` on
 These come before the remaining foundation work below because each one is a
 defect in behavior that already ships.
 
-11. **Make chat workspace and persona bindings immutable.**
+12. **Make chat workspace and persona bindings immutable.**
 
     **Why this is first:** a chat can currently be retargeted to another persona or
     workspace after it already has a transcript. The old persona's assistant replies
@@ -268,7 +296,7 @@ defect in behavior that already ships.
     - Focused service/API/browser tests cover the two verified reproductions, followed
       by the complete verifier and a deterministic human-experience scenario.
 
-12. **Make Task Model readiness credential-aware and truthful.**
+13. **Make Task Model readiness credential-aware and truthful.**
 
     **Observed failure:** an OpenAI Task Model profile can be saved through the API
     without an account API key, yet readiness reports `ready: true`. Execution then
@@ -302,7 +330,7 @@ defect in behavior that already ships.
       live-verified when they are not.
     - Focused task-provider/service/API tests and the complete verifier pass.
 
-13. **Untangle the conversation critical path before extending voice.**
+14. **Untangle the conversation critical path before extending voice.**
 
     **Why now:** `ConversationService.create_turn` has cyclomatic complexity 49 and
     combines binding resolution, model/settings selection, persistence, job creation,
@@ -336,7 +364,7 @@ defect in behavior that already ships.
 
 ### 1D. Other ready work
 
-14. **Bring direct media actions under measured-capacity admission.** The direct
+15. **Bring direct media actions under measured-capacity admission.** The direct
     image buttons still use legacy provider settings through a disclosed manual
     plan, so their demand is unknown and they bypass catalog-estimate admission.
     They do take the shared-resource lease, but two different paths to the same
@@ -344,17 +372,17 @@ defect in behavior that already ships.
     generation. Source: `docs/debt-register.md`;
     `docs/human-experience-realignment-plan.md` baseline gap 8.
 
-15. **Move provider helper internals off legacy low-level inputs.** Routes use
+16. **Move provider helper internals off legacy low-level inputs.** Routes use
     SQLAlchemy repositories and unit-of-work boundaries, but some provider
     helpers still take HTTP/SQLite-shaped arguments. This is the remaining
     inconsistency in the persistence boundary. Source: `docs/debt-register.md`.
 
-16. **Lift provider-specific settings out of persona and UI records.** Provider
+17. **Lift provider-specific settings out of persona and UI records.** Provider
     details are embedded directly in those records, which couples persona data
     to whichever provider happened to be configured. Source:
     `docs/debt-register.md`.
 
-17. **Decide whether turn event replay needs a durable log.** Replay is bounded
+18. **Decide whether turn event replay needs a durable log.** Replay is bounded
     and process-local today. That is honest and sufficient for a single-process
     private-LAN deployment; it is listed so the limitation stays visible rather
     than being discovered during a future multi-process change. Source:
@@ -365,49 +393,28 @@ defect in behavior that already ships.
 
 Implementable once an owner policy choice is recorded.
 
-**Compose a proactive persona message after its picture is chosen.** The library
-can serve a ready picture, but a persona still writes its reply before anything
-decides which image is attached. That is how "took Roofus for a walk" ends up
-next to a beach photo.
+Nothing is parked here that the owner has not seen. The proactive-message
+question that sat here was answered on 2026-08-16: the reply stays first. See
+section 6 and item 6.
 
-The fix conflicts with a recorded decision. ADR 0021 keeps capability planning
-off the reply critical path so a reply arrives fast; choosing the picture first
-means planning before the persona speaks, which adds its latency to every
-persona turn. Both are real: an instant reply that describes the wrong picture
-is not obviously better than a slower one that describes the right picture.
-
-The decision is which cost to pay, and the options are not equal work:
-
-- Plan before the reply for persona chats only, accepting the added latency.
-- Invert only when the picture comes from the library, since a lookup is fast
-  and a generation is not. Mismatches remain possible whenever a picture is
-  generated live.
-- Leave the reply first and give the attachment its own caption composed after
-  the picture is known, so the words next to the image always match it while the
-  reply itself stays fast. This needs a new task-model role.
-
-Recorded rather than guessed because it trades product feel against reply
-latency, and because the third option adds a task role that should not appear
-without intent. Source: ADR 0030, ADR 0021.
-
-18. **Automatic expiry for rejected and forgotten memory.** Retention is durable
+19. **Automatic expiry for rejected and forgotten memory.** Retention is durable
     and users can permanently delete individual or bulk records, but there is no
     administrator-approved automatic expiry policy. The code change is small;
     the retention period and its defaults are the decision. Source:
     `docs/debt-register.md`, `docs/memory.md`.
 
-19. **Semantic memory retrieval.** Retrieval is lexical full-text search plus
+20. **Semantic memory retrieval.** Retrieval is lexical full-text search plus
     recency. Semantic retrieval remains an optional future interface and is
     deliberately not implied anywhere in the product. Adding it is a scope
     decision, not a blocked task. Source: `docs/debt-register.md`.
 
-20. **Workspace-shared lore.** Lore is persona-scoped, so an entry used by
+21. **Workspace-shared lore.** Lore is persona-scoped, so an entry used by
     several personas in a workspace has to be authored more than once. Sharing
     is a product decision about who owns an entry and what happens when one
     persona edits it, not a schema problem. Source:
     `docs/autonomous-decision-log.md` D5, `docs/debt-register.md`.
 
-21. **Whether Task Model roles may send conversation-derived text to OpenAI.**
+22. **Whether Task Model roles may send conversation-derived text to OpenAI.**
     The adapter exists and is deliberately not selectable in settings. Until
     this is answered the UI stays local-only and must not advertise OpenAI as a
     usable provider. Source: `docs/task-models.md`, open question 5 below.
@@ -425,21 +432,21 @@ Kokoro path behind a flag. Only items 15-16 genuinely require the approved
 listening decision. Step 15 cannot select a provider until that decision
 exists, and no unverified provider support may be advertised in the meantime.
 
-22. **Streaming TTS.** Begin playback before a complete response file exists.
+23. **Streaming TTS.** Begin playback before a complete response file exists.
     Today synthesis must finish before audio starts.
 
-23. **Automatic end-of-turn detection.** Detect that the user has stopped
+24. **Automatic end-of-turn detection.** Detect that the user has stopped
     speaking, with push-to-talk retained as a dependable fallback rather than
     replaced.
 
-24. **True barge-in.** Interrupting playback must also stop the superseded
+25. **True barge-in.** Interrupting playback must also stop the superseded
     provider work, not just mute the output.
 
-25. **Approved quality-first and local fallback chains for TTS and STT**, with
+26. **Approved quality-first and local fallback chains for TTS and STT**, with
     compact user-facing degradation notices. Requires the approved provider
     chain from item 16.
 
-26. **Repeatable provider evaluation** on latency, reliability, and blind
+27. **Repeatable provider evaluation** on latency, reliability, and blind
     listening criteria - not configuration readiness alone. This is the
     evaluation that unblocks item 15 and deferred roadmap steps 10-13.
 
@@ -453,30 +460,30 @@ Requires the installed private-LAN deployment and, where noted, a supervised
 session. Implementation is published for all of these; what remains is
 acceptance.
 
-27. **Deployment guard migration.** Complete the one-time supervised migration
+28. **Deployment guard migration.** Complete the one-time supervised migration
     from the legacy direct guard, then prove remote guard update, guard
     rollback and re-update, one-container deployment, and the final installed
     browser image journeys. Source: `docs/roadmap.md` step 24, ADR 0025,
     `docs/human-experience-realignment-plan.md`.
 
-28. **Installed acceptance for picture-message delivery.** Roadmap step 22 is
+29. **Installed acceptance for picture-message delivery.** Roadmap step 22 is
     published but not accepted on the real topology. Source: `docs/roadmap.md`,
     ADRs 0019-0020.
 
-29. **Installed acceptance for conversation cleanup.** Roadmap step 23, same
+30. **Installed acceptance for conversation cleanup.** Roadmap step 23, same
     situation. Source: `docs/roadmap.md`, ADR 0021.
 
-30. **Identity-stage latency and capacity acceptance.** Unaccepted until the
+31. **Identity-stage latency and capacity acceptance.** Unaccepted until the
     real verifier, consented references, and a compatible ComfyUI identity
     workflow are deployed together. The completed step 20 base media checks are
     explicitly not substitute evidence. Source: `docs/debt-register.md`,
     `docs/deployment-acceptance.md`.
 
-31. **Live capacity tuning for the deployment GPU.** Timing and capacity
+32. **Live capacity tuning for the deployment GPU.** Timing and capacity
     behavior under real memory limits remains deployment acceptance work.
     Source: `docs/roadmap.md` step 18C.
 
-32. **Installed acceptance for conversational image editing.** Delivered under
+33. **Installed acceptance for conversational image editing.** Delivered under
     ADR 0029 and covered by contract, API, and gate tests, but no installed
     browser journey has confirmed the confirmation card, the reference the
     planner chose, or a real ComfyUI edit workflow on the deployment. Until then
@@ -510,6 +517,15 @@ no stub is ever shipped in its place. See `docs/debt-register.md`.
   in-process because the supported deployment is one private-LAN application
   process; changing that requires shared rate-limit and telemetry
   infrastructure and a new threat model.
+- Planning a picture before the persona replies. Decided 2026-08-16. It would
+  add a Task Model call to the critical path of every turn, including turns
+  with no picture in them, and real-time voice conversation is the direction the
+  product is heading. Running the free pattern gate first and planning early
+  only for messages it flags is a plausible future version of this, and is
+  explicitly not being built yet: the owner does not expect a deterministic
+  filter to catch requests made conversationally, by hint or suggestion rather
+  than by trigger word, and a filter that misses is worse than no filter here.
+  Alignment is being pursued from the other direction instead, in item 6.
 - Adopting mem0, Zep, Letta, or Cognee. They optimize recall; the complaint was
   noise. Each adds a service and an embedding model to a GPU budget already
   under contention, and none provides per-persona access boundaries.
@@ -518,7 +534,7 @@ no stub is ever shipped in its place. See `docs/debt-register.md`.
 - Grants, principals, and multi-tenancy for memory. One human and a handful of
   personas; persona scoping already delivers that isolation.
 - Merging the old Memory v3 branch wholesale. Its useful immutable-binding idea
-  is carried as item 11; the branch has materially diverged and reuses migration
+  is carried as item 12; the branch has materially diverged and reuses migration
   number `0019` for a different schema.
 - Document ingestion. Chunking, versioning, citations, and retrieval is a larger
   product than everything else on this list combined.
@@ -538,6 +554,10 @@ Choices made where the request was ambiguous. Overturn any of these freely.
 - A setting that saves must change runtime behavior, or it must be refused at
   save time rather than silently substituted later.
 - Persona material is authored, never generated or inferred from conversation.
+- Real-time voice conversation is the direction. Anything that adds latency to
+  every turn is measured against that, and a per-turn cost needs a reason
+  stronger than the feature it buys. Work that happens after the reply, or
+  overnight, is cheap by comparison and is where new behaviour should go first.
 
 ## 8. Open questions
 
