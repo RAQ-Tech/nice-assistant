@@ -1,5 +1,6 @@
+import type { ApiClient } from './api';
 import { el } from './dom';
-import type { AppState, Chat, Id } from './types';
+import type { AppState, Chat, Id, LibraryEntry, MediaJournalSummary, PregenerationReadiness } from './types';
 
 /**
  * The homepage.
@@ -10,12 +11,19 @@ import type { AppState, Chat, Id } from './types';
  * never reachable, because the route handler opened the first chat and rewrote
  * the URL before anything could render.
  *
- * This module is the page that route now shows. It is deliberately its own
- * module rather than another branch inside `app.ts`, which is already at its
- * size guard.
+ * Everything here is read from an API that already exists, and nothing is
+ * modelled, estimated, or filled in with a plausible default. A value the
+ * platform does not have is missing and says why, because a dashboard that
+ * invents a reassuring number is worse than one that admits a gap.
+ *
+ * It loads once when the route is entered. There is no polling: the browser
+ * already re-renders on the events it receives, and a front page that hammers
+ * the server while somebody reads it would be spending the same GPU this page
+ * exists to keep an eye on.
  */
 
 const RECENT_CHATS = 6;
+const RECENT_PICTURES = 4;
 
 export interface HomeActions {
   startChat: () => void;
@@ -27,17 +35,59 @@ function chatLabel(chat: Chat): string {
   return (chat.title ?? '').trim() || 'Untitled conversation';
 }
 
+function outcomeLabel(journal: MediaJournalSummary): string {
+  const when = new Date(journal.started_at * 1000).toLocaleString();
+  if (journal.status === 'completed') {
+    const seconds = journal.duration_ms ? ` in ${(journal.duration_ms / 1000).toFixed(1)}s` : '';
+    return `Last picture: finished${seconds}, ${when}`;
+  }
+  if (journal.status === 'running') return `Last picture: still running, started ${when}`;
+  return `Last picture: ${journal.status}, ${when}`;
+}
+
 export class HomeView {
+  private journals: MediaJournalSummary[] = [];
+  private pictures: LibraryEntry[] = [];
+  private production: PregenerationReadiness | null = null;
+  private loaded = false;
+  private failed = '';
+
   constructor(
     private readonly appState: AppState,
+    private readonly client: ApiClient,
     private readonly actions: HomeActions,
+    private readonly renderApp: () => void,
   ) {}
+
+  /** Load once per visit. Called by the router, not by a timer. */
+  async refresh(): Promise<void> {
+    this.loaded = false;
+    this.failed = '';
+    try {
+      const [journals, pictures, production] = await Promise.all([
+        this.client.mediaJournals(5).catch(() => ({ items: [] })),
+        this.client.libraryEntries().catch(() => ({ items: [] })),
+        this.client.productionReadiness().catch(() => null),
+      ]);
+      this.journals = journals.items;
+      this.pictures = pictures.items.slice(0, RECENT_PICTURES);
+      this.production = production;
+    } catch {
+      this.failed = 'Some of this could not be loaded.';
+    } finally {
+      this.loaded = true;
+      this.renderApp();
+    }
+  }
 
   node(): HTMLElement {
     return el('main', { class: 'home', 'data-testid': 'home' }, [
       this.header(),
       this.startCard(),
+      this.nowCard(),
+      this.picturesCard(),
       this.recentCard(),
+      this.failed ? el('p', { class: 'meta', textContent: this.failed }) : null,
     ]);
   }
 
@@ -70,6 +120,87 @@ export class HomeView {
           onclick: () => this.actions.openSettings(),
         }),
       ]),
+    ]);
+  }
+
+  private nowCard(): HTMLElement {
+    return el('section', { class: 'home-card', 'data-testid': 'home-now' }, [
+      el('h2', { class: 'home-card-title', textContent: 'Right now' }),
+      el('ul', { class: 'home-facts' }, [
+        this.fact('New chat uses', this.bindingLabel()),
+        this.fact('Chat model', this.chatModelLabel()),
+        this.fact('Images', this.imagesLabel()),
+        this.fact('Background pictures', this.productionLabel()),
+        this.fact('Last generation', this.lastGenerationLabel()),
+      ]),
+    ]);
+  }
+
+  private fact(label: string, value: string): HTMLElement {
+    return el('li', { class: 'home-fact' }, [
+      el('span', { class: 'home-fact-label', textContent: label }),
+      el('span', { class: 'home-fact-value', textContent: value }),
+    ]);
+  }
+
+  private bindingLabel(): string {
+    const personaId = this.appState.selectedPersonaId ?? this.appState.personas[0]?.id ?? null;
+    const persona = this.appState.personas.find((item) => item.id === personaId);
+    if (!persona) return 'No persona yet — create one in Settings';
+    const workspaceId = persona.workspace_id ?? persona.workspace_ids[0];
+    const workspace = this.appState.workspaces.find((item) => item.id === workspaceId);
+    return workspace ? `${persona.name} in ${workspace.name}` : persona.name;
+  }
+
+  private chatModelLabel(): string {
+    const model = this.appState.settings?.global_default_model || this.appState.models[0];
+    if (!model) return 'No model installed — check the provider in Settings';
+    return model;
+  }
+
+  private imagesLabel(): string {
+    const readiness = this.appState.mediaReadiness;
+    // Absent rather than guessed: this is loaded at sign-in and a failure there
+    // leaves it null, which is a different thing from "not ready".
+    if (!readiness) return 'Not known — the readiness check did not answer';
+    return readiness.basic_generation.ready ? 'Ready' : readiness.basic_generation.message;
+  }
+
+  private productionLabel(): string {
+    if (!this.loaded) return 'Checking…';
+    const production = this.production;
+    if (!production) return 'Not known — the readiness check did not answer';
+    if (production.deployment_forbids) return 'Turned off for this deployment';
+    if (!production.enabled) return 'Off';
+    const where = production.inside_window ? 'inside the window now' : 'outside the window now';
+    return `On, ${production.window}, ${where} — ${production.reason}`;
+  }
+
+  private lastGenerationLabel(): string {
+    if (!this.loaded) return 'Checking…';
+    const newest = this.journals[0];
+    if (!newest) return 'Nothing generated yet';
+    return outcomeLabel(newest);
+  }
+
+  private picturesCard(): HTMLElement {
+    return el('section', { class: 'home-card' }, [
+      el('h2', { class: 'home-card-title', textContent: 'Recent pictures' }),
+      this.pictures.length
+        ? el('div', { class: 'home-pictures', 'data-testid': 'home-pictures' }, this.pictures.map((entry) =>
+            el('img', {
+              class: 'home-picture',
+              src: entry.content_url,
+              alt: entry.scene.subject || 'A retained picture',
+              title: entry.scene.subject || '',
+            })))
+        : el('p', {
+            class: 'meta',
+            'data-testid': 'home-pictures-empty',
+            textContent: this.loaded
+              ? 'None kept yet. Ask a persona for a picture and it will be kept for reuse.'
+              : 'Checking…',
+          }),
     ]);
   }
 

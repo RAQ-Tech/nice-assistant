@@ -156,3 +156,16 @@ anchor rather than a button, so keyboard reach, middle-click, and history come
 from the browser rather than from handlers this repository would have to keep
 correct. No new brand was invented and nothing is fetched from outside the
 deployment: it is the asset already served for the tab icon.
+
+The homepage reports what is true rather than what would look reassuring. The
+persona and workspace a new chat would use, the chat model, image readiness, the
+background-picture schedule, the outcome of the last generation, and the most
+recently kept pictures - each read from an endpoint that already existed.
+
+A value the platform does not have is missing and says why. Readiness that did
+not answer reads "Not known", never "Ready" and never a zero. Every empty state
+says what to do next.
+
+It loads once when the route is entered. There is no polling: this page exists
+partly to watch what the GPU is spending, and polling it would be the same
+spending by another route.

@@ -165,6 +165,40 @@ test('a chat link still opens that chat, and back returns to the homepage', asyn
   await expect(page.getByText('Earlier reply')).toBeVisible();
 });
 
+test('the homepage says what is true right now', async ({ page }) => {
+  await installAuthenticatedFixture(page);
+  await page.goto('/');
+
+  const now = page.getByTestId('home-now');
+  await expect(now).toContainText('Nova');
+  await expect(now).toContainText('demo');
+  // Read from the readiness endpoint, not assumed from the provider being set.
+  await expect(now).toContainText('02:00-06:00');
+  await expect(now).toContainText('outside the window now');
+  await expect(now).toContainText('Ready');
+  await expect(now).toContainText('Last picture: finished');
+
+  await expect(page.getByTestId('home-pictures').locator('img')).toHaveCount(1);
+});
+
+test('the homepage says what is missing rather than inventing it', async ({ page }) => {
+  await installAuthenticatedFixture(page);
+  // Registered after the fixture: the most recently added route wins, so these
+  // have to come second to override its catch-all.
+  await page.route('**/api/v1/media-journals*', (route) => route.fulfill({ status: 500, body: '{}' }));
+  await page.route('**/api/v1/media-library*', (route) => route.fulfill({ status: 500, body: '{}' }));
+  await page.route('**/api/v1/scene-backlog/production-readiness', (route) =>
+    route.fulfill({ status: 500, body: '{}' }));
+  await page.goto('/');
+
+  const now = page.getByTestId('home-now');
+  // A panel that could not load says so. A zero, or a reassuring "Ready", would
+  // be a claim the platform cannot support.
+  await expect(now).toContainText('Not known');
+  await expect(now).toContainText('Nothing generated yet');
+  await expect(page.getByTestId('home-pictures-empty')).toBeVisible();
+});
+
 test('the logo in a chat header goes back to the homepage', async ({ page }) => {
   await installAuthenticatedFixture(page);
   await page.goto('/#/chats/chat-1');
@@ -629,6 +663,33 @@ async function installAuthenticatedFixture(
       await json(route, {
         role: 'title_generation', ready: true, status: 'ready', message: 'Task model is ready.',
         primary_ready: true, fallback_ready: false, effective_model: 'demo', fallback_effective_model: null,
+      });
+    } else if (path === '/api/v1/media/readiness' && method === 'GET') {
+      await json(route, {
+        provider: { key: 'comfyui', reachable: true, status: 'ready', message: 'Reachable.' },
+        basic_generation: { ready: true, message: 'Ready.' },
+        optional_identity: { ready: false, status: 'disabled', message: 'Not configured.' },
+      });
+    } else if (path === '/api/v1/media-journals' && method === 'GET') {
+      await json(route, {
+        items: [{
+          id: 'journal-1', kind: 'image', origin: 'conversation', status: 'completed',
+          media_id: 'media-1', started_at: 1700000000, duration_ms: 4200, stage_count: 6,
+        }],
+      });
+    } else if (path === '/api/v1/media-library' && method === 'GET') {
+      await json(route, {
+        items: [{
+          id: 'library-1', persona_id: 'persona-1', media_id: 'media-1',
+          content_url: '/api/v1/media/media-1', scene: { subject: 'nova at the window' },
+          state: 'ready', served_count: 1, created_at: 1700000000, last_served_at: null,
+        }],
+      });
+    } else if (path === '/api/v1/scene-backlog/production-readiness' && method === 'GET') {
+      await json(route, {
+        allowed: false, reason: 'outside the 02:00-06:00 quiet window', approved_waiting: 2,
+        window: '02:00-06:00', enabled: true, start_hour: 2, end_hour: 6, max_per_run: 3,
+        deployment_forbids: false, inside_window: false,
       });
     } else if (path === '/api/v1/media-catalog' && method === 'GET') {
       await json(route, {

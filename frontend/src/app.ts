@@ -161,13 +161,16 @@ async function applyCurrentRoute(): Promise<void> {
   state.currentChat = null;
   state.messages = [];
   state.capabilityRequests = [];
+  // Loaded on arrival, not on a timer. The homepage exists partly to watch GPU
+  // spending; polling it would be the same spending by another route.
+  void homeView.refresh();
 }
 
-const homeView = new HomeView(state, {
+const homeView = new HomeView(state, api, {
   startChat: () => void chat.create(state.selectedPersonaId),
   openChat: (chatId) => router.chat(chatId),
   openSettings: () => router.settings(),
-});
+}, render);
 
 function render(): void {
   const focus = captureFocus(root);

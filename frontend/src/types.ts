@@ -257,6 +257,30 @@ export interface PresetImportPreview {
   warnings: string[];
 }
 
+export interface MediaJournalSummary {
+  id: Id;
+  kind: 'image' | 'video';
+  origin: 'conversation' | 'direct' | 'edit' | 'library';
+  status: 'running' | 'completed' | 'failed' | 'cancelled';
+  media_id: Id | null;
+  started_at: number;
+  duration_ms: number | null;
+  stage_count: number;
+}
+
+export interface PregenerationReadiness {
+  allowed: boolean;
+  reason: string;
+  approved_waiting: number;
+  window: string;
+  enabled: boolean;
+  start_hour: number;
+  end_hour: number;
+  max_per_run: number;
+  deployment_forbids: boolean;
+  inside_window: boolean;
+}
+
 export interface PresetExport {
   filename: string;
   bundle: Record<string, unknown>;

@@ -372,6 +372,12 @@ installed-browser acceptance.
   reach it by keyboard and activate it with Enter, check it announces where it
   goes, and assert at mobile width that the header controls already there are
   still visible beside it.
+- Homepage journeys assert the facts panel reports the persona and workspace a
+  new chat would use, the chat model, image readiness, the quiet window and
+  whether the current hour is inside it, and the outcome of the last generation.
+  A second journey fails those endpoints and proves the page says "Not known"
+  and "Nothing generated yet" rather than inventing a zero or a reassuring
+  "Ready".
 - API tests use isolated temporary databases and deterministic fake providers.
 - Migration tests upgrade pre-0004/0005/0007/0008/0009/0010/0011/0012/0013/0014/0015/0016/0017/0019/0021/0022 databases and prove
   chats, messages, jobs, media, memories, turn ordering, stored artifact links,

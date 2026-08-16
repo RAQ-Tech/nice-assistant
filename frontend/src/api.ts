@@ -10,6 +10,8 @@ import type {
   LibraryEntry,
   MediaJournal,
   MediaPreset,
+  MediaJournalSummary,
+  PregenerationReadiness,
   PresetExport,
   PresetImportPreview,
   PresetSignal,
@@ -426,8 +428,9 @@ export class ApiClient {
     return this.request(`/capability-requests/${encodeURIComponent(id)}`);
   }
 
-  libraryEntries(personaId: string): Promise<{ items: LibraryEntry[] }> {
-    return this.request(`/media-library?persona_id=${encodeURIComponent(personaId)}`);
+  libraryEntries(personaId?: string): Promise<{ items: LibraryEntry[] }> {
+    const query = personaId ? `?persona_id=${encodeURIComponent(personaId)}` : '';
+    return this.request(`/media-library${query}`);
   }
 
   deleteLibraryEntry(id: string): Promise<void> {
@@ -450,6 +453,14 @@ export class ApiClient {
       method: 'POST',
       body: JSON.stringify({ bundle }),
     });
+  }
+
+  mediaJournals(limit = 5): Promise<{ items: MediaJournalSummary[] }> {
+    return this.request(`/media-journals?limit=${encodeURIComponent(String(limit))}`);
+  }
+
+  productionReadiness(): Promise<PregenerationReadiness> {
+    return this.request('/scene-backlog/production-readiness');
   }
 
   presetSignals(): Promise<{ items: PresetSignal[] }> {
