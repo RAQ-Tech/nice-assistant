@@ -356,6 +356,13 @@ installed-browser acceptance.
   picture eligible, that an empty or unrelated reply has no opinion, and that
   the guarded acknowledgement on the asking turn is not what gets read. The test
   that persona prose never reaches planning is kept unchanged.
+- Pre-generation setting tests prove an owner with no setting gets the
+  deployment's values, that a saved window replaces it, that an owner can switch
+  production off but cannot switch on what the deployment forbids, that a
+  nonsense value falls back rather than breaking the runner, that a window which
+  never matches is refused when saved and nothing is stored, and that saving the
+  setting changes what the runner does on its next pass rather than only what
+  the API returns.
 - API tests use isolated temporary databases and deterministic fake providers.
 - Migration tests upgrade pre-0004/0005/0007/0008/0009/0010/0011/0012/0013/0014/0015/0016/0017/0019/0021/0022 databases and prove
   chats, messages, jobs, media, memories, turn ordering, stored artifact links,

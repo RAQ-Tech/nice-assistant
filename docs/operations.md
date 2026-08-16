@@ -593,10 +593,20 @@ deleted, so no image file disappears without an explicit decision.
 in a single reply, counting the first; it defaults to 3 and is clamped to
 between 1 and 6.
 
-Background picture production is off unless `PREGENERATION_ENABLED` is set.
-`PREGENERATION_START_HOUR` and `PREGENERATION_END_HOUR` bound the quiet window,
-which may wrap past midnight, and `PREGENERATION_MAX_PER_RUN` caps how many
-start in one pass. Production never begins while a conversation is waiting or a
+Background picture production is a per-owner setting, stored with the account's
+other preferences and read by the runner on every pass, so switching it off
+stops the next pass rather than the next restart.
+
+The `PREGENERATION_*` environment variables supply the values an account starts
+with. `PREGENERATION_START_HOUR` and `PREGENERATION_END_HOUR` bound the quiet
+window, which may wrap past midnight, and `PREGENERATION_MAX_PER_RUN` caps how
+many start in one pass.
+
+`PREGENERATION_ENABLED` is different, and deliberately so: with it off, no
+browser can switch production on. This feature runs the GPU unattended overnight
+and the deployment keeps the last word. When a deployment refuses it, the
+readiness report says `deployment_forbids` so the control is shown disabled with
+the reason rather than shown as available and quietly ignored. Production never begins while a conversation is waiting or a
 requested picture is queued or running, and
 `/api/v1/scene-backlog/production-readiness` states the reason when it will not
 start. `PREGENERATION_POLL_SECONDS` sets how often the question is asked,

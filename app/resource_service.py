@@ -24,7 +24,11 @@ from app.persona_card import (
     example_dialogue_fit,
 )
 from app.repositories import UnitOfWork, now_ts
-from app.settings import normalize_media_preferences, validate_media_preferences
+from app.settings import (
+    normalize_media_preferences,
+    validate_media_preferences,
+    validate_pregeneration_preferences,
+)
 from app.service_errors import (
     AuthenticationError,
     AuthorizationError,
@@ -238,6 +242,9 @@ class ResourceService:
             current = uow.repo.settings(user_id) or {}
             previous_preferences = normalize_media_preferences(current.get("preferences") or {})
             validate_media_preferences(preferences, previous_preferences)
+            # A schedule that could never fire is refused when it is saved,
+            # rather than corrected into something the owner did not choose.
+            validate_pregeneration_preferences(preferences)
             # Protected material fails a turn rather than degrading, so it is bounded here.
             estimate = owner_profile_tokens(preferences)
             budget = profile_budget(preferences, self.context_policy)

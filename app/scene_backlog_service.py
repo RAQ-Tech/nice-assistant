@@ -18,7 +18,7 @@ import json
 
 from app.media_scene import normalize_scene, scene_is_empty, scene_summary
 from app.persona_card import CARD_STORED_FIELDS
-from app.pregeneration import PregenerationPolicy, may_produce
+from app.pregeneration import PregenerationPolicy, may_produce, policy_for_owner
 from app.provider_contracts import CancellationToken, ProviderError
 from app.repositories import UnitOfWork, now_ts
 from app.service_errors import NotFoundError, RequestError, ServiceError
@@ -164,6 +164,24 @@ class SceneBacklogService:
             "model_answered": not outcome.fallback_used,
         }
 
+    def owner_policy(self, user_id: str) -> PregenerationPolicy:
+        """The policy in force for this owner, read fresh.
+
+        Read on every pass rather than held from startup, so switching it off
+        stops the next pass rather than the next restart. `self.policy` is the
+        deployment's, which supplies the initial values and keeps one veto:
+        production it has switched off cannot be switched back on here.
+        """
+
+        with self._uow() as uow:
+            settings = uow.repo.settings(user_id) or {}
+        return policy_for_owner(settings.get("preferences") or {}, self.policy)
+
+    def deployment_forbids(self) -> bool:
+        """Whether this deployment refuses background production outright."""
+
+        return not self.policy.enabled
+
     def production_readiness(self, user_id: str, *, hour: int | None = None) -> dict:
         """Report whether a background picture could start now, and why not."""
 
@@ -173,10 +191,11 @@ class SceneBacklogService:
         snapshot = queue.snapshot() if queue else {"pending": {}, "active": {}}
         pending = snapshot.get("pending") or {}
         active = snapshot.get("active") or {}
+        policy = self.owner_policy(user_id)
         with self._uow() as uow:
             approved = len(uow.repo.scene_backlog_entries(user_id, state="approved"))
         decision = may_produce(
-            self.policy,
+            policy,
             hour=int(datetime.now().hour if hour is None else hour),
             interactive_pending=int(pending.get("interactive", 0)),
             media_pending=int(pending.get("media", 0)),
@@ -187,8 +206,15 @@ class SceneBacklogService:
             "allowed": decision.allowed,
             "reason": decision.reason,
             "approved_waiting": approved,
-            "window": f"{self.policy.start_hour:02d}:00-{self.policy.end_hour:02d}:00",
-            "enabled": self.policy.enabled,
+            "window": f"{policy.start_hour:02d}:00-{policy.end_hour:02d}:00",
+            "enabled": policy.enabled,
+            "start_hour": policy.start_hour,
+            "end_hour": policy.end_hour,
+            "max_per_run": policy.max_per_run,
+            # Stated rather than implied: a control that cannot be switched on
+            # has to say why, not simply refuse.
+            "deployment_forbids": self.deployment_forbids(),
+            "inside_window": policy.window_contains(int(datetime.now().hour if hour is None else hour)),
         }
 
     def owners_with_work(self) -> list[str]:
@@ -211,7 +237,7 @@ class SceneBacklogService:
         if not self.capabilities:
             return {"started": [], "reason": "image capabilities are unavailable"}
         started = []
-        for _ in range(max(1, int(self.policy.max_per_run))):
+        for _ in range(max(1, int(readiness["max_per_run"]))):
             claimed = self._claim_next_entry(user_id)
             if not claimed:
                 break

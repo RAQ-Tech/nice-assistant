@@ -14,6 +14,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from app.service_errors import RequestError
+
 
 @dataclass(frozen=True)
 class PregenerationPolicy:
@@ -38,6 +40,72 @@ class PregenerationPolicy:
         if start < end:
             return start <= hour < end
         return hour >= start or hour < end
+
+
+PREFERENCE_KEYS = (
+    "pregeneration_enabled",
+    "pregeneration_start_hour",
+    "pregeneration_end_hour",
+    "pregeneration_max_per_run",
+)
+
+
+def validate_preferences(preferences: dict) -> None:
+    """Refuse a window that could never fire, when it is saved.
+
+    A start hour equal to its end hour matches no hour at all. Storing it would
+    produce a switch that is on, a schedule that looks set, and a feature that
+    never runs, which is the worst of the three.
+    """
+
+    start = preferences.get("pregeneration_start_hour")
+    end = preferences.get("pregeneration_end_hour")
+    for key in ("pregeneration_start_hour", "pregeneration_end_hour"):
+        if key in preferences and not _valid_hour(preferences[key]):
+            raise RequestError(f"{key} must be a whole number of hours from 0 to 23", 422)
+    if start is not None and end is not None and _valid_hour(start) and _valid_hour(end) and int(start) == int(end):
+        raise RequestError(
+            "The quiet window start and end cannot be the same hour; that window never matches.",
+            422,
+        )
+    limit = preferences.get("pregeneration_max_per_run")
+    if limit is not None and not (isinstance(limit, int) and not isinstance(limit, bool) and 1 <= limit <= 20):
+        raise RequestError("pregeneration_max_per_run must be a whole number from 1 to 20", 422)
+
+
+def _valid_hour(value) -> bool:
+    return isinstance(value, int) and not isinstance(value, bool) and 0 <= value <= 23
+
+
+def policy_for_owner(preferences: dict, deployment: "PregenerationPolicy") -> "PregenerationPolicy":
+    """The policy actually in force for one owner.
+
+    The stored setting decides the window, the cap, and whether it is on. The
+    deployment keeps one veto: if it has switched pre-generation off, no browser
+    can switch it back on. This feature runs the GPU unattended, and the machine
+    it runs on has overheated before.
+    """
+
+    values = preferences if isinstance(preferences, dict) else {}
+    enabled = values.get("pregeneration_enabled")
+    return PregenerationPolicy(
+        enabled=bool(deployment.enabled and (deployment.enabled if enabled is None else enabled)),
+        start_hour=_hour(values.get("pregeneration_start_hour"), deployment.start_hour),
+        end_hour=_hour(values.get("pregeneration_end_hour"), deployment.end_hour),
+        max_per_run=(
+            int(values["pregeneration_max_per_run"])
+            if _valid_limit(values.get("pregeneration_max_per_run"))
+            else deployment.max_per_run
+        ),
+    )
+
+
+def _hour(value, fallback: int) -> int:
+    return int(value) if _valid_hour(value) else int(fallback)
+
+
+def _valid_limit(value) -> bool:
+    return isinstance(value, int) and not isinstance(value, bool) and 1 <= value <= 20
 
 
 @dataclass(frozen=True)

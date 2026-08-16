@@ -88,29 +88,10 @@ chat, so there is nowhere to see what the assistant is currently set up to do.
 The pre-generation schedule is the sharp example: it spends GPU time overnight
 and is currently only visible to someone who goes looking for it in settings.
 
-Item 7 is a prerequisite for item 11 and should be done first. The rest can be
-taken in any order.
+Pre-generation is now an owner setting, so the control on the homepage has
+something real to change. The remaining items can be taken in any order.
 
-1. **Make pre-generation an owner setting, not deployment configuration.** The
-    policy is read from `PREGENERATION_*` environment variables at startup, so
-    it cannot be changed from the browser at all. A toggle on a dashboard would
-    be a control that changes nothing, which this repository does not ship.
-    Source: `app/pregeneration.py`, `app/runtime.py`, `docs/operations.md`.
-
-    Done when:
-    - The policy is stored per owner and the production runner reads the stored
-      value, not the environment, on every pass.
-    - The environment variables set the initial value for a new account. One
-      exception, decided rather than asked: `PREGENERATION_ENABLED=0` remains a
-      deployment-level refusal the browser cannot override, because this feature
-      runs the GPU unattended and the machine has overheated before. When a
-      deployment forbids it the control is shown disabled with that reason,
-      never shown as available and then ignored. `docs/operations.md` says so.
-    - A test proves that saving the setting changes what the runner does on its
-      next pass, rather than only what the API returns.
-    - An invalid window is refused when saved, not silently corrected later.
-
-2. **Open on a homepage instead of the last chat.** `#/` already parses as a
+1. **Open on a homepage instead of the last chat.** `#/` already parses as a
     home route, but `applyCurrentRoute` immediately opens the first chat and
     rewrites the URL, so the route has never been reachable. Source:
     `frontend/src/routing.ts`, `frontend/src/app.ts`.
@@ -125,7 +106,7 @@ taken in any order.
     - Existing browser journeys that assumed a chat opens on load are updated
       rather than deleted.
 
-3. **Put the logo in the chat header as the way back.** Source: owner request.
+2. **Put the logo in the chat header as the way back.** Source: owner request.
 
     Done when:
     - The mark already in `web/favicon.svg` is reused. No new brand is invented
@@ -136,7 +117,7 @@ taken in any order.
       controls that are already there.
     - A browser journey clicks it from a chat and lands on the homepage.
 
-4. **Show what is true right now on the homepage.** Information only; every
+3. **Show what is true right now on the homepage.** Information only; every
     value read from an API that already exists. Source: owner request.
 
     Done when:
@@ -149,10 +130,10 @@ taken in any order.
     - It does not poll aggressively: one load, and refresh on the events the
       browser already receives.
 
-5. **Put the pre-generation toggle and schedule on the homepage.** The reason
+4. **Put the pre-generation toggle and schedule on the homepage.** The reason
     this belongs on the front page rather than in settings is that it spends
     real electricity on a schedule, and a setting nobody sees is a setting
-    nobody revisits. Needs item 7. Source: owner request, ADR 0030.
+    nobody revisits. Source: owner request, ADR 0030.
 
     Done when:
     - The switch and the quiet window are editable from the homepage, alongside
@@ -185,7 +166,7 @@ This section is complete.
 
 ### 1D. Other ready work
 
-6. **Bring direct media actions under measured-capacity admission.** The direct
+5. **Bring direct media actions under measured-capacity admission.** The direct
     image buttons still use legacy provider settings through a disclosed manual
     plan, so their demand is unknown and they bypass catalog-estimate admission.
     They do take the shared-resource lease, but two different paths to the same
@@ -193,17 +174,17 @@ This section is complete.
     generation. Source: `docs/debt-register.md`;
     `docs/human-experience-realignment-plan.md` baseline gap 8.
 
-7. **Move provider helper internals off legacy low-level inputs.** Routes use
+6. **Move provider helper internals off legacy low-level inputs.** Routes use
     SQLAlchemy repositories and unit-of-work boundaries, but some provider
     helpers still take HTTP/SQLite-shaped arguments. This is the remaining
     inconsistency in the persistence boundary. Source: `docs/debt-register.md`.
 
-8. **Lift provider-specific settings out of persona and UI records.** Provider
+7. **Lift provider-specific settings out of persona and UI records.** Provider
     details are embedded directly in those records, which couples persona data
     to whichever provider happened to be configured. Source:
     `docs/debt-register.md`.
 
-9. **Decide whether turn event replay needs a durable log.** Replay is bounded
+8. **Decide whether turn event replay needs a durable log.** Replay is bounded
     and process-local today. That is honest and sufficient for a single-process
     private-LAN deployment; it is listed so the limitation stays visible rather
     than being discovered during a future multi-process change. Source:
@@ -218,24 +199,24 @@ Nothing is parked here that the owner has not seen. The proactive-message
 question that sat here was answered on 2026-08-16: the reply stays first. See
 section 6 and item 6.
 
-10. **Automatic expiry for rejected and forgotten memory.** Retention is durable
+9. **Automatic expiry for rejected and forgotten memory.** Retention is durable
     and users can permanently delete individual or bulk records, but there is no
     administrator-approved automatic expiry policy. The code change is small;
     the retention period and its defaults are the decision. Source:
     `docs/debt-register.md`, `docs/memory.md`.
 
-11. **Semantic memory retrieval.** Retrieval is lexical full-text search plus
+10. **Semantic memory retrieval.** Retrieval is lexical full-text search plus
     recency. Semantic retrieval remains an optional future interface and is
     deliberately not implied anywhere in the product. Adding it is a scope
     decision, not a blocked task. Source: `docs/debt-register.md`.
 
-12. **Workspace-shared lore.** Lore is persona-scoped, so an entry used by
+11. **Workspace-shared lore.** Lore is persona-scoped, so an entry used by
     several personas in a workspace has to be authored more than once. Sharing
     is a product decision about who owns an entry and what happens when one
     persona edits it, not a schema problem. Source:
     `docs/autonomous-decision-log.md` D5, `docs/debt-register.md`.
 
-13. **Whether Task Model roles may send conversation-derived text to OpenAI.**
+12. **Whether Task Model roles may send conversation-derived text to OpenAI.**
     The adapter exists and is deliberately not selectable in settings. Until
     this is answered the UI stays local-only and must not advertise OpenAI as a
     usable provider. Source: `docs/task-models.md`, open question 5 below.
@@ -253,21 +234,21 @@ Kokoro path behind a flag. Only items 15-16 genuinely require the approved
 listening decision. Step 15 cannot select a provider until that decision
 exists, and no unverified provider support may be advertised in the meantime.
 
-14. **Streaming TTS.** Begin playback before a complete response file exists.
+13. **Streaming TTS.** Begin playback before a complete response file exists.
     Today synthesis must finish before audio starts.
 
-15. **Automatic end-of-turn detection.** Detect that the user has stopped
+14. **Automatic end-of-turn detection.** Detect that the user has stopped
     speaking, with push-to-talk retained as a dependable fallback rather than
     replaced.
 
-16. **True barge-in.** Interrupting playback must also stop the superseded
+15. **True barge-in.** Interrupting playback must also stop the superseded
     provider work, not just mute the output.
 
-17. **Approved quality-first and local fallback chains for TTS and STT**, with
+16. **Approved quality-first and local fallback chains for TTS and STT**, with
     compact user-facing degradation notices. Requires the approved provider
     chain from item 16.
 
-18. **Repeatable provider evaluation** on latency, reliability, and blind
+17. **Repeatable provider evaluation** on latency, reliability, and blind
     listening criteria - not configuration readiness alone. This is the
     evaluation that unblocks item 15 and deferred roadmap steps 10-13.
 
@@ -281,30 +262,30 @@ Requires the installed private-LAN deployment and, where noted, a supervised
 session. Implementation is published for all of these; what remains is
 acceptance.
 
-19. **Deployment guard migration.** Complete the one-time supervised migration
+18. **Deployment guard migration.** Complete the one-time supervised migration
     from the legacy direct guard, then prove remote guard update, guard
     rollback and re-update, one-container deployment, and the final installed
     browser image journeys. Source: `docs/roadmap.md` step 24, ADR 0025,
     `docs/human-experience-realignment-plan.md`.
 
-20. **Installed acceptance for picture-message delivery.** Roadmap step 22 is
+19. **Installed acceptance for picture-message delivery.** Roadmap step 22 is
     published but not accepted on the real topology. Source: `docs/roadmap.md`,
     ADRs 0019-0020.
 
-21. **Installed acceptance for conversation cleanup.** Roadmap step 23, same
+20. **Installed acceptance for conversation cleanup.** Roadmap step 23, same
     situation. Source: `docs/roadmap.md`, ADR 0021.
 
-22. **Identity-stage latency and capacity acceptance.** Unaccepted until the
+21. **Identity-stage latency and capacity acceptance.** Unaccepted until the
     real verifier, consented references, and a compatible ComfyUI identity
     workflow are deployed together. The completed step 20 base media checks are
     explicitly not substitute evidence. Source: `docs/debt-register.md`,
     `docs/deployment-acceptance.md`.
 
-23. **Live capacity tuning for the deployment GPU.** Timing and capacity
+22. **Live capacity tuning for the deployment GPU.** Timing and capacity
     behavior under real memory limits remains deployment acceptance work.
     Source: `docs/roadmap.md` step 18C.
 
-24. **Installed acceptance for conversational image editing.** Delivered under
+23. **Installed acceptance for conversational image editing.** Delivered under
     ADR 0029 and covered by contract, API, and gate tests, but no installed
     browser journey has confirmed the confirmation card, the reference the
     planner chose, or a real ComfyUI edit workflow on the deployment. Until then

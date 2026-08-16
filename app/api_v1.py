@@ -711,6 +711,13 @@ class PregenerationReadinessRepresentation(BaseModel):
     approved_waiting: int
     window: str
     enabled: bool
+    start_hour: int = 2
+    end_hour: int = 6
+    max_per_run: int = 3
+    # A deployment may refuse background production outright. The control is
+    # then shown disabled with the reason rather than shown and ignored.
+    deployment_forbids: bool = False
+    inside_window: bool = False
 
 
 class SceneProposalRequest(StrictModel):

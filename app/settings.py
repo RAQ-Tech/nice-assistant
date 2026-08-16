@@ -9,6 +9,7 @@ from app.media import (
     SUPPORTED_VIDEO_SECONDS,
     SUPPORTED_VIDEO_SIZES_BY_MODEL,
 )
+from app.pregeneration import validate_preferences as validate_pregeneration
 from app.service_errors import RequestError
 
 
@@ -117,6 +118,12 @@ def validate_media_preferences(preferences: dict, previous: dict | None = None) 
             "and saving it would silently produce something else.",
             422,
         )
+
+
+def validate_pregeneration_preferences(preferences: dict) -> None:
+    """Refuse a background-picture schedule the runner could never honor."""
+
+    validate_pregeneration(preferences)
 
 
 def setting_bool(settings_row, key, default=False):

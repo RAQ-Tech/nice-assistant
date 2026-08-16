@@ -245,9 +245,15 @@ need different fixes, and an operator cannot tell them apart without being told
 which it was, so `/api/v1/scene-backlog/production-readiness` reports the reason
 whether or not anything could run.
 
-It is off by default. `PREGENERATION_ENABLED`, `PREGENERATION_START_HOUR`,
-`PREGENERATION_END_HOUR`, and `PREGENERATION_MAX_PER_RUN` set the policy, and the
-window may wrap past midnight because a quiet window normally does.
+It is off by default, and it is an owner setting rather than deployment
+configuration: the switch, the quiet window, and the per-run cap are stored with
+the account and read on every pass. The environment supplies what a new account
+starts with, and keeps one veto - a deployment with production switched off
+cannot have it switched back on from a browser.
+
+A window whose start and end are the same hour is refused when it is saved. It
+would produce a switch that is on, a schedule that looks set, and a feature that
+never runs, which is worse than either honest state.
 
 ### Exporting a preset
 
