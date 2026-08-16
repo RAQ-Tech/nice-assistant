@@ -96,11 +96,11 @@ change that alters them.
 
 ## Scaffold
 
-- Ten functions exceed the cyclomatic complexity ceiling of 15 and are
-  grandfathered with `# noqa: C901`. `create_turn` at 49 is the worst and sits in
-  one of the highest-churn files. The markers are the list; the ceiling stops it
-  growing, and the image generation work added none: the planner and the
-  capability parser were split instead of exempted.
+- Eight functions exceed the cyclomatic complexity ceiling of 15 and are
+  grandfathered with `# noqa: C901`. `create_turn` and `ContextService.plan`,
+  the two on the conversation critical path, are no longer among them. The
+  markers are the list; the ceiling stops it growing, and nothing since has
+  added one.
 
 - Some provider helper internals still use low-level HTTP/SQLite-shaped legacy
   inputs, but routes use SQLAlchemy repositories and unit-of-work boundaries.

@@ -310,6 +310,10 @@ installed-browser acceptance.
   readiness never claims a live request was made, that a keyless primary reports
   `fallback_ready` only when the fallback genuinely is ready, and that a
   provider needing no credential is unaffected.
+- Turn pipeline tests pin what the extraction newly guarantees: that the values
+  a turn resolved cannot be rewritten by its own follow-ups, that two turns do
+  not share mutable defaults, and that the application instructions sent to the
+  model follow from what was actually offered and in which order.
 - API tests use isolated temporary databases and deterministic fake providers.
 - Migration tests upgrade pre-0004/0005/0007/0008/0009/0010/0011/0012/0013/0014/0015/0016/0017/0019/0021/0022 databases and prove
   chats, messages, jobs, media, memories, turn ordering, stored artifact links,

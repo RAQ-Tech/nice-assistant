@@ -256,43 +256,16 @@ defect in behavior that already ships.
 Chat workspace and persona bindings are now immutable; see ADR 0032 and
 migration `0031`. Task Model readiness now separates adapter installation,
 account credentials, and live verification, so a keyless profile no longer
-reports itself ready; see `docs/task-models.md`.
+reports itself ready; see `docs/task-models.md`. The conversation critical path
+is untangled: `create_turn` and `ContextService.plan` both satisfy the
+complexity ceiling without suppressions, and generation and follow-ups live in
+`app/turn_pipeline.py`; see `docs/architecture.md`.
 
-12. **Untangle the conversation critical path before extending voice.**
-
-    **Why now:** `ConversationService.create_turn` has cyclomatic complexity 49 and
-    combines binding resolution, model/settings selection, persistence, job creation,
-    context inputs, and follow-up work. `ContextService.plan` is another grandfathered
-    critical path. Both will be touched by streaming speech, interruption, and
-    turn-taking, so leaving them tangled raises the cost and risk of every voice step.
-
-    **Required work:**
-
-    - After item 1 establishes the binding invariant, extract small application
-      services/helpers for turn validation and resolution, transactional persistence,
-      generation-job construction, and post-turn follow-up scheduling.
-    - Split context loading, protected-section budgeting, optional-section selection,
-      transcript-floor selection, and final prompt assembly without changing their
-      ordering or truthful context notices.
-    - Keep HTTP routes, provider adapters, persistence, and event delivery separate.
-      This is a behavior-preserving refactor, not a new orchestration framework.
-    - Remove the `# noqa: C901` exemptions from `create_turn` and
-      `ContextService.plan`; do not add new complexity exemptions elsewhere.
-    - Update architecture/debt documentation and add narrow characterization tests
-      wherever existing behavior is not already pinned down.
-
-    **Done when:**
-
-    - Both target functions satisfy the repository complexity ceiling of 15 without
-      suppressions.
-    - Prompt order, history floor, memory/lore selection, title generation, context
-      notices, job/event ordering, cancellation, fallback, and recovery behavior are
-      unchanged in focused tests.
-    - The complete verifier and deterministic human-experience scenarios pass.
+This section is complete.
 
 ### 1D. Other ready work
 
-13. **Bring direct media actions under measured-capacity admission.** The direct
+12. **Bring direct media actions under measured-capacity admission.** The direct
     image buttons still use legacy provider settings through a disclosed manual
     plan, so their demand is unknown and they bypass catalog-estimate admission.
     They do take the shared-resource lease, but two different paths to the same
@@ -300,17 +273,17 @@ reports itself ready; see `docs/task-models.md`.
     generation. Source: `docs/debt-register.md`;
     `docs/human-experience-realignment-plan.md` baseline gap 8.
 
-14. **Move provider helper internals off legacy low-level inputs.** Routes use
+13. **Move provider helper internals off legacy low-level inputs.** Routes use
     SQLAlchemy repositories and unit-of-work boundaries, but some provider
     helpers still take HTTP/SQLite-shaped arguments. This is the remaining
     inconsistency in the persistence boundary. Source: `docs/debt-register.md`.
 
-15. **Lift provider-specific settings out of persona and UI records.** Provider
+14. **Lift provider-specific settings out of persona and UI records.** Provider
     details are embedded directly in those records, which couples persona data
     to whichever provider happened to be configured. Source:
     `docs/debt-register.md`.
 
-16. **Decide whether turn event replay needs a durable log.** Replay is bounded
+15. **Decide whether turn event replay needs a durable log.** Replay is bounded
     and process-local today. That is honest and sufficient for a single-process
     private-LAN deployment; it is listed so the limitation stays visible rather
     than being discovered during a future multi-process change. Source:
@@ -325,24 +298,24 @@ Nothing is parked here that the owner has not seen. The proactive-message
 question that sat here was answered on 2026-08-16: the reply stays first. See
 section 6 and item 6.
 
-17. **Automatic expiry for rejected and forgotten memory.** Retention is durable
+16. **Automatic expiry for rejected and forgotten memory.** Retention is durable
     and users can permanently delete individual or bulk records, but there is no
     administrator-approved automatic expiry policy. The code change is small;
     the retention period and its defaults are the decision. Source:
     `docs/debt-register.md`, `docs/memory.md`.
 
-18. **Semantic memory retrieval.** Retrieval is lexical full-text search plus
+17. **Semantic memory retrieval.** Retrieval is lexical full-text search plus
     recency. Semantic retrieval remains an optional future interface and is
     deliberately not implied anywhere in the product. Adding it is a scope
     decision, not a blocked task. Source: `docs/debt-register.md`.
 
-19. **Workspace-shared lore.** Lore is persona-scoped, so an entry used by
+18. **Workspace-shared lore.** Lore is persona-scoped, so an entry used by
     several personas in a workspace has to be authored more than once. Sharing
     is a product decision about who owns an entry and what happens when one
     persona edits it, not a schema problem. Source:
     `docs/autonomous-decision-log.md` D5, `docs/debt-register.md`.
 
-20. **Whether Task Model roles may send conversation-derived text to OpenAI.**
+19. **Whether Task Model roles may send conversation-derived text to OpenAI.**
     The adapter exists and is deliberately not selectable in settings. Until
     this is answered the UI stays local-only and must not advertise OpenAI as a
     usable provider. Source: `docs/task-models.md`, open question 5 below.
@@ -360,21 +333,21 @@ Kokoro path behind a flag. Only items 15-16 genuinely require the approved
 listening decision. Step 15 cannot select a provider until that decision
 exists, and no unverified provider support may be advertised in the meantime.
 
-21. **Streaming TTS.** Begin playback before a complete response file exists.
+20. **Streaming TTS.** Begin playback before a complete response file exists.
     Today synthesis must finish before audio starts.
 
-22. **Automatic end-of-turn detection.** Detect that the user has stopped
+21. **Automatic end-of-turn detection.** Detect that the user has stopped
     speaking, with push-to-talk retained as a dependable fallback rather than
     replaced.
 
-23. **True barge-in.** Interrupting playback must also stop the superseded
+22. **True barge-in.** Interrupting playback must also stop the superseded
     provider work, not just mute the output.
 
-24. **Approved quality-first and local fallback chains for TTS and STT**, with
+23. **Approved quality-first and local fallback chains for TTS and STT**, with
     compact user-facing degradation notices. Requires the approved provider
     chain from item 16.
 
-25. **Repeatable provider evaluation** on latency, reliability, and blind
+24. **Repeatable provider evaluation** on latency, reliability, and blind
     listening criteria - not configuration readiness alone. This is the
     evaluation that unblocks item 15 and deferred roadmap steps 10-13.
 
@@ -388,30 +361,30 @@ Requires the installed private-LAN deployment and, where noted, a supervised
 session. Implementation is published for all of these; what remains is
 acceptance.
 
-26. **Deployment guard migration.** Complete the one-time supervised migration
+25. **Deployment guard migration.** Complete the one-time supervised migration
     from the legacy direct guard, then prove remote guard update, guard
     rollback and re-update, one-container deployment, and the final installed
     browser image journeys. Source: `docs/roadmap.md` step 24, ADR 0025,
     `docs/human-experience-realignment-plan.md`.
 
-27. **Installed acceptance for picture-message delivery.** Roadmap step 22 is
+26. **Installed acceptance for picture-message delivery.** Roadmap step 22 is
     published but not accepted on the real topology. Source: `docs/roadmap.md`,
     ADRs 0019-0020.
 
-28. **Installed acceptance for conversation cleanup.** Roadmap step 23, same
+27. **Installed acceptance for conversation cleanup.** Roadmap step 23, same
     situation. Source: `docs/roadmap.md`, ADR 0021.
 
-29. **Identity-stage latency and capacity acceptance.** Unaccepted until the
+28. **Identity-stage latency and capacity acceptance.** Unaccepted until the
     real verifier, consented references, and a compatible ComfyUI identity
     workflow are deployed together. The completed step 20 base media checks are
     explicitly not substitute evidence. Source: `docs/debt-register.md`,
     `docs/deployment-acceptance.md`.
 
-30. **Live capacity tuning for the deployment GPU.** Timing and capacity
+29. **Live capacity tuning for the deployment GPU.** Timing and capacity
     behavior under real memory limits remains deployment acceptance work.
     Source: `docs/roadmap.md` step 18C.
 
-31. **Installed acceptance for conversational image editing.** Delivered under
+30. **Installed acceptance for conversational image editing.** Delivered under
     ADR 0029 and covered by contract, API, and gate tests, but no installed
     browser journey has confirmed the confirmation card, the reference the
     planner chose, or a real ComfyUI edit workflow on the deployment. Until then

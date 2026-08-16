@@ -1,5 +1,33 @@
 # Architecture
 
+## The conversation critical path
+
+A turn is split at the point its transaction commits.
+
+`ConversationService.create_turn` decides what the turn is: it resolves the
+turn against the chat that owns its binding, writes the user message, turn, and
+job, and returns. `_open_turn` is the only code that reads a chat to decide a
+turn's model, memory mode, persona material, or lore.
+
+`TurnPipeline` in `app/turn_pipeline.py` decides what happens to it: streaming
+the reply through the persona output filter and the media-claim guard,
+committing the assistant message, and scheduling and submitting the title,
+capability-planning, and memory-extraction follow-ups.
+
+Between them sits `TurnContext`, a frozen record of everything the turn
+resolved. Follow-ups read that record rather than the database, because they run
+minutes later on other threads and re-reading could give them a different answer
+than the reply itself used.
+
+`ContextService.plan` is staged the same way: token budgeting, context loading,
+protected sections, optional sections, the history floor, and final assembly are
+separate named steps. Their order is the prompt's authority order and is not an
+implementation detail.
+
+Both were previously single functions carrying complexity exemptions, and both
+now satisfy the ceiling without one. This was a behaviour-preserving split, made
+before voice work has to touch streaming, interruption, and turn-taking.
+
 ## Target shape
 
 ```text
