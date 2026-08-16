@@ -772,6 +772,35 @@ class PersonaSceneBacklogEntry(Base):
     updated_at: Mapped[int] = mapped_column(Integer, nullable=False)
 
 
+class PersonaPhotoSet(Base):
+    """One idea that becomes several frames.
+
+    Separate from the scene backlog because a backlog entry is one proposed
+    picture. A set is one scene plus what changes between frames, and the shared
+    part is stored once so it cannot drift.
+    """
+
+    __tablename__ = "persona_photo_sets"
+    __table_args__ = (
+        CheckConstraint(
+            "state IN ('planned','generating','done','partial','retired')",
+            name="ck_photo_set_state",
+        ),
+        Index("idx_photo_sets_owner_persona_state", "user_id", "persona_id", "state"),
+    )
+    id: Mapped[str] = mapped_column(Text, primary_key=True)
+    user_id: Mapped[str] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    persona_id: Mapped[str] = mapped_column(ForeignKey("personas.id", ondelete="CASCADE"), nullable=False)
+    scene_json: Mapped[str] = mapped_column(Text, nullable=False, default="{}")
+    variations_json: Mapped[str] = mapped_column(Text, nullable=False, default="[]")
+    state: Mapped[str] = mapped_column(Text, nullable=False, default="planned")
+    # Frame n uses base_seed + n, so the set is reproducible from two numbers.
+    base_seed: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    frame_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    created_at: Mapped[int] = mapped_column(Integer, nullable=False)
+    updated_at: Mapped[int] = mapped_column(Integer, nullable=False)
+
+
 class PersonaImageLibraryEntry(Base):
     """A retained picture, kept with the scene that produced it.
 
@@ -785,6 +814,7 @@ class PersonaImageLibraryEntry(Base):
         CheckConstraint("state IN ('ready','served','retired')", name="ck_library_state"),
         UniqueConstraint("user_id", "media_id", name="uq_library_owner_media"),
         Index("idx_library_owner_persona_state", "user_id", "persona_id", "state"),
+        Index("idx_library_photo_set", "photo_set_id", "frame_index"),
     )
     id: Mapped[str] = mapped_column(Text, primary_key=True)
     user_id: Mapped[str] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
@@ -795,6 +825,10 @@ class PersonaImageLibraryEntry(Base):
     # The conversation this picture was made in. A picture is never recycled
     # back into the chat that produced it.
     origin_chat_id: Mapped[str | None] = mapped_column(Text)
+    # Which set this frame belongs to, and which frame it is, so several frames
+    # of one set can be served together.
+    photo_set_id: Mapped[str | None] = mapped_column(ForeignKey("persona_photo_sets.id", ondelete="SET NULL"))
+    frame_index: Mapped[int | None] = mapped_column(Integer)
     served_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     last_served_chat_id: Mapped[str | None] = mapped_column(Text)
     created_at: Mapped[int] = mapped_column(Integer, nullable=False)

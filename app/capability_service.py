@@ -776,6 +776,9 @@ class CapabilityService:
         scene: dict,
         prompt: str,
         entry_id: str,
+        seed: int | None = None,
+        photo_set_id: str = "",
+        frame_index: int | None = None,
     ) -> tuple[str, str] | None:
         """Create a chat-less request for a picture nobody has asked for.
 
@@ -799,12 +802,20 @@ class CapabilityService:
             required_features=(IDENTITY_CONTROL_FEATURE,),
             scene=tuple(sorted((scene or {}).items())),
         )
+        arguments = requirements.as_arguments()
+        if seed is not None:
+            # Pinned rather than random, so a frame relates to its set and can be
+            # regenerated as the same picture.
+            arguments["seed"] = int(seed)
+        if photo_set_id:
+            arguments["photo_set_id"] = photo_set_id
+            arguments["frame_index"] = int(frame_index or 0)
         row, created = repo.add_capability_request(
             user_id=user_id,
             chat_id=None,
             turn_id=None,
             capability_key=definition.key,
-            arguments=requirements.as_arguments(),
+            arguments=arguments,
             status="queued",
             # The operator approved this scene. That approval is the permission,
             # and there is no conversation in which to ask for another one.
@@ -839,6 +850,8 @@ class CapabilityService:
                 "media_plan_status": plan.status,
                 "originating_persona_id": persona_id,
                 "scene_backlog_entry_id": entry_id,
+                "photo_set_id": photo_set_id or None,
+                "frame_index": frame_index,
             },
         )
         if plan.status != "ready":

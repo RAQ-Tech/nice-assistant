@@ -314,6 +314,13 @@ installed-browser acceptance.
   a turn resolved cannot be rewritten by its own follow-ups, that two turns do
   not share mutable defaults, and that the application instructions sent to the
   model follow from what was actually offered and in which order.
+- Photo set tests prove a frame may change pose but not wardrobe, that a
+  disallowed field is dropped rather than the frame refused, that seeds follow
+  from the base rather than being random, that one frame is not a set and
+  neither is a set whose frames are identical, that every frame is generated
+  rather than served from the library, that each frame links back to its set
+  with its own seed, that the journal records set and frame, and that a partly
+  made set reports `partial` rather than `done`.
 - API tests use isolated temporary databases and deterministic fake providers.
 - Migration tests upgrade pre-0004/0005/0007/0008/0009/0010/0011/0012/0013/0014/0015/0016/0017/0019/0021/0022 databases and prove
   chats, messages, jobs, media, memories, turn ordering, stored artifact links,

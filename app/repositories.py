@@ -32,6 +32,7 @@ from app.models import (
     Message,
     Persona,
     PersonaImageLibraryEntry,
+    PersonaPhotoSet,
     PersonaSceneBacklogEntry,
     PersonaIdentityEvent,
     PersonaIdentityReference,
@@ -1886,6 +1887,88 @@ class ApplicationRepository:
                 PersonaSceneBacklogEntry.state == "approved",
             )
             .order_by(PersonaSceneBacklogEntry.created_at, PersonaSceneBacklogEntry.id)
+            .limit(max(1, int(limit)))
+        ).all()
+
+    def library_entry_for_media(self, user_id: str, media_id: str):
+        return self.session.scalar(
+            select(PersonaImageLibraryEntry).where(
+                PersonaImageLibraryEntry.user_id == user_id,
+                PersonaImageLibraryEntry.media_id == media_id,
+            )
+        )
+
+    def unsettled_photo_set_requests(self, user_id: str, set_id: str, *, exclude: str = "") -> int:
+        """How many frames of this set have not finished one way or the other.
+
+        Frames are identified by the idempotency key their request was created
+        with, which is where the set and frame already live. Adding a column to
+        capability requests for one feature's benefit would be the worse trade.
+        """
+
+        query = (
+            select(func.count())
+            .select_from(CapabilityRequest)
+            .where(
+                CapabilityRequest.user_id == user_id,
+                CapabilityRequest.idempotency_key.like(f"scene:{set_id}:%"),
+                CapabilityRequest.status.in_(("queued", "running", "pending_confirmation")),
+            )
+        )
+        if exclude:
+            query = query.where(CapabilityRequest.id != exclude)
+        return int(self.session.scalar(query) or 0)
+
+    def add_photo_set(
+        self, *, user_id: str, persona_id: str, scene_json: str, variations_json: str, base_seed: int, frame_count: int
+    ):
+        stamp = now_ts()
+        row = PersonaPhotoSet(
+            id=secrets.token_hex(12),
+            user_id=user_id,
+            persona_id=persona_id,
+            scene_json=scene_json,
+            variations_json=variations_json,
+            state="planned",
+            base_seed=base_seed,
+            frame_count=frame_count,
+            created_at=stamp,
+            updated_at=stamp,
+        )
+        self.session.add(row)
+        self.session.flush()
+        return row
+
+    def photo_set(self, user_id: str, set_id: str):
+        return self.session.scalar(
+            select(PersonaPhotoSet).where(PersonaPhotoSet.user_id == user_id, PersonaPhotoSet.id == set_id)
+        )
+
+    def photo_sets(self, user_id: str, *, persona_id: str | None = None, state: str | None = None):
+        query = select(PersonaPhotoSet).where(PersonaPhotoSet.user_id == user_id)
+        if persona_id:
+            query = query.where(PersonaPhotoSet.persona_id == persona_id)
+        if state:
+            query = query.where(PersonaPhotoSet.state == state)
+        return self.session.scalars(query.order_by(PersonaPhotoSet.created_at.desc(), PersonaPhotoSet.id)).all()
+
+    def photo_set_frames(self, user_id: str, set_id: str):
+        """The retained frames of a set, in frame order."""
+
+        return self.session.scalars(
+            select(PersonaImageLibraryEntry)
+            .where(
+                PersonaImageLibraryEntry.user_id == user_id,
+                PersonaImageLibraryEntry.photo_set_id == set_id,
+            )
+            .order_by(PersonaImageLibraryEntry.frame_index)
+        ).all()
+
+    def planned_photo_sets(self, user_id: str, *, limit: int = 1):
+        return self.session.scalars(
+            select(PersonaPhotoSet)
+            .where(PersonaPhotoSet.user_id == user_id, PersonaPhotoSet.state == "planned")
+            .order_by(PersonaPhotoSet.created_at, PersonaPhotoSet.id)
             .limit(max(1, int(limit)))
         ).all()
 

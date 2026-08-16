@@ -249,6 +249,36 @@ It is off by default. `PREGENERATION_ENABLED`, `PREGENERATION_START_HOUR`,
 `PREGENERATION_END_HOUR`, and `PREGENERATION_MAX_PER_RUN` set the policy, and the
 window may wrap past midnight because a quiet window normally does.
 
+### Photo sets
+
+One idea, several frames. The shared scene belongs to the set and the pose
+belongs to the frame: a frame may change action, framing, camera, and mood, and
+nothing else. Wardrobe, setting, subject, and lighting are stored once, so they
+cannot drift between frames the way they do when the same idea is described
+several times and generated separately. A variation that names a field it does
+not own has that field dropped rather than the whole frame refused - the useful
+part of such a request is almost always the pose.
+
+The seed relationship is recorded rather than incidental. A set picks one base
+seed when it is created, and frame `n` uses `base_seed + n`. Two numbers
+reproduce the whole set, and a frame that needs remaking comes back as the same
+picture.
+
+Frames are produced exactly like background pictures: chat-less capability
+requests queued as bulk work, so a picture somebody actually asked for is always
+chosen first. Each frame's journal records the set it belongs to, its index, and
+its seed.
+
+A frame is never answered from the retained library. Frames of one set match
+each other strongly by design, so serving would quietly return the previous
+frame instead of making the next one, and the set would be short a picture it
+believed it had.
+
+A set says what it actually is. `planned`, `generating`, `done`, and `partial`
+are distinct, and `partial` exists because a set that made four of six frames is
+neither finished nor still working, and calling it either one is something
+somebody would act on.
+
 ### How a background picture is made
 
 An approved scene is produced through the same capability request, execution

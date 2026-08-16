@@ -87,6 +87,8 @@ def main() -> int:
                 "app/media_library_service.py",
                 "app/pregeneration.py",
                 "app/scene_backlog_service.py",
+                "app/photo_set.py",
+                "app/photo_set_service.py",
                 "app/scene_production.py",
                 "app/turn_pipeline.py",
                 "app/media_service.py",

@@ -125,6 +125,9 @@ class MediaService:
                 "in_chat": bool(chat_id),
                 "media_plan_id": values.get("_media_plan_id"),
                 "planning_context": values.get("planning_context") or [],
+                "photo_set_id": values.get("photo_set_id"),
+                "frame_index": values.get("frame_index"),
+                "seed": values.get("seed"),
             },
         )
         try:
@@ -159,6 +162,12 @@ class MediaService:
         """
 
         if not self.library:
+            return None
+        if values.get("photo_set_id"):
+            # A set's frames differ by pose while sharing everything else, so
+            # each one matches the last one strongly. Serving from the library
+            # here would silently return frame one again instead of making
+            # frame two, and the set would be short a picture it thinks it has.
             return None
         persona_id = values.get("_persona_id")
         match = self.library.find_ready(user_id, persona_id=persona_id, scene=values.get("scene"), chat_id=chat_id)
@@ -502,7 +511,11 @@ class MediaService:
                         "cfg_scale": values.get("cfg_scale") or preferences.get("image_local_cfg_scale"),
                         "sampler_name": values.get("sampler_name") or preferences.get("image_local_sampler_name"),
                         "scheduler": values.get("scheduler") or preferences.get("image_local_scheduler"),
-                        "seed": preferences.get("image_local_seed"),
+                        # A request may pin its own seed; a photo set does,
+                        # so its frames relate to each other.
+                        "seed": values.get("seed")
+                        if values.get("seed") is not None
+                        else preferences.get("image_local_seed"),
                         "model": values.get("model") if "model" in values else preferences.get("image_local_model"),
                         "api_auth": preferences.get("image_local_api_auth"),
                         "additional_parameters": additional_parameters,

@@ -16,6 +16,7 @@ from app.media_catalog_service import MediaCatalogService
 from app.media_journal_service import MediaJournalService
 from app.media_library_service import MediaLibraryService
 from app.pregeneration import PregenerationPolicy
+from app.photo_set_service import PhotoSetService
 from app.scene_backlog_service import SceneBacklogService
 from app.scene_production import SceneProductionRunner
 from app.media_service import MediaService
@@ -49,6 +50,7 @@ class ApplicationServices:
     media_journal: MediaJournalService
     media_library: MediaLibraryService
     scene_backlog: SceneBacklogService
+    photo_sets: PhotoSetService
     scene_production: SceneProductionRunner
     identity: IdentityService
     capabilities: CapabilityService
@@ -279,6 +281,13 @@ def build_services(
     # Built after the capability service exists, because producing a scene goes
     # through the same request path a conversational picture does.
     scene_backlog.capabilities = capabilities
+    photo_sets = PhotoSetService(
+        runtime.session_factory,
+        runtime.secret_store,
+        runtime.logger,
+        capabilities=capabilities,
+        jobs=jobs,
+    )
     scene_production = SceneProductionRunner(
         scene_backlog,
         runtime.logger,
@@ -299,6 +308,7 @@ def build_services(
         media_journal=media_journal,
         media_library=media_library,
         scene_backlog=scene_backlog,
+        photo_sets=photo_sets,
         scene_production=scene_production,
         identity=identity,
         capabilities=capabilities,

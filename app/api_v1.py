@@ -605,6 +605,46 @@ class SceneBacklogCreate(StrictModel):
     source_detail: str = Field(default="", max_length=500)
 
 
+class PhotoSetFrameRepresentation(BaseModel):
+    frame_index: int | None = None
+    media_id: str
+    content_url: str
+    seed: int
+
+
+class PhotoSetRepresentation(BaseModel):
+    id: str
+    persona_id: str
+    scene: dict
+    shared: str
+    variations: list[dict]
+    state: Literal["planned", "generating", "done", "partial", "retired"]
+    base_seed: int
+    frame_count: int
+    frames_done: int
+    frames_missing: int
+    frames: list[PhotoSetFrameRepresentation]
+    created_at: int
+    updated_at: int
+
+
+class PhotoSetListResponse(BaseModel):
+    items: list[PhotoSetRepresentation]
+
+
+class PhotoSetCreate(StrictModel):
+    persona_id: str = Field(min_length=1, max_length=64)
+    scene: dict = Field(default_factory=dict)
+    # Each entry may set pose, angle, framing, or mood. Everything else belongs
+    # to the set and is shared, which is the point of a set.
+    variations: list[dict] = Field(default_factory=list, max_length=12)
+
+
+class PhotoSetProductionResponse(BaseModel):
+    set_id: str
+    started: list[dict]
+
+
 class PregenerationReadinessRepresentation(BaseModel):
     allowed: bool
     reason: str
@@ -1931,6 +1971,49 @@ def media_library(
 def media_file(media_id: str, request: Request, context: AuthContext = Depends(current_user)):
     path = services(request).resources.media_path(context.user_id, media_id)
     return FileResponse(path, media_type=mimetypes.guess_type(path.name)[0] or "application/octet-stream")
+
+
+@router.get("/photo-sets", response_model=PhotoSetListResponse, tags=["media"])
+def list_photo_sets(
+    request: Request,
+    persona_id: str | None = None,
+    context: AuthContext = Depends(current_user),
+):
+    return {"items": services(request).photo_sets.sets(context.user_id, persona_id=persona_id)}
+
+
+@router.post("/photo-sets", response_model=PhotoSetRepresentation, status_code=201, tags=["media"])
+def create_photo_set(body: PhotoSetCreate, request: Request, context: AuthContext = Depends(current_user)):
+    return services(request).photo_sets.create(
+        context.user_id,
+        persona_id=body.persona_id,
+        scene=body.scene,
+        variations=body.variations,
+    )
+
+
+@router.get("/photo-sets/{set_id}", response_model=PhotoSetRepresentation, tags=["media"])
+def get_photo_set(set_id: str, request: Request, context: AuthContext = Depends(current_user)):
+    value = services(request).photo_sets.get(context.user_id, set_id)
+    if not value:
+        raise NotFoundError("photo set not found")
+    return value
+
+
+@router.post(
+    "/photo-sets/{set_id}/production",
+    response_model=PhotoSetProductionResponse,
+    tags=["media"],
+)
+def produce_photo_set(set_id: str, request: Request, context: AuthContext = Depends(current_user)):
+    return services(request).photo_sets.produce(context.user_id, set_id)
+
+
+@router.delete("/photo-sets/{set_id}", status_code=204, tags=["media"])
+def delete_photo_set(set_id: str, request: Request, context: AuthContext = Depends(current_user)):
+    if not services(request).photo_sets.remove(context.user_id, set_id):
+        raise NotFoundError("photo set not found")
+    return Response(status_code=204)
 
 
 @router.get("/scene-backlog", response_model=SceneBacklogListResponse, tags=["media"])

@@ -266,6 +266,11 @@ policy, as bulk work through the same request, plan, and journal a conversationa
 picture uses, and an interrupted one returns to the queue instead of stranding.
 See ADR 0030.
 
+Photo sets generate several frames from one shared scene, with seeds that follow
+from the set's base seed rather than being random. Frames queue as bulk work and
+are never answered from the retained library, because frames of one set match
+each other by design. See ADR 0030.
+
 ## Deferred voice core
 
 10. Blind TTS evaluation and provider decision.
