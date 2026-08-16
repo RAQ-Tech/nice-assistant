@@ -268,6 +268,19 @@ export interface MediaJournalSummary {
   stage_count: number;
 }
 
+export interface SceneBacklogEntry {
+  id: Id;
+  persona_id: Id;
+  scene: Record<string, string>;
+  summary: string;
+  state: 'proposed' | 'approved' | 'generating' | 'done' | 'retired';
+  source: string;
+  source_detail: string;
+  media_id: Id | null;
+  created_at: number;
+  updated_at: number;
+}
+
 export interface PregenerationReadiness {
   allowed: boolean;
   reason: string;
@@ -773,6 +786,11 @@ export interface Settings extends Record<string, SettingScalar | Record<string, 
   stt_store_recordings: boolean;
   image_provider: string;
   chat_blur_images: boolean;
+  // Stored with the other preferences, so the homepage and the settings page
+  // edit one value rather than two that can disagree.
+  pregeneration_enabled: boolean;
+  pregeneration_start_hour: number;
+  pregeneration_end_hour: number;
   image_size: string;
   image_quality: string;
   image_local_allow_nsfw: boolean;

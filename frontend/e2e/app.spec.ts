@@ -199,6 +199,57 @@ test('the homepage says what is missing rather than inventing it', async ({ page
   await expect(page.getByTestId('home-pictures-empty')).toBeVisible();
 });
 
+test('the homepage carries the pre-generation control and says what it is doing', async ({ page }) => {
+  const fixture = await installAuthenticatedFixture(page);
+  await page.goto('/');
+
+  const status = page.getByTestId('home-pregeneration-status');
+  await expect(status).toContainText('Outside the window now');
+  await expect(status).toContainText('2 approved scenes waiting');
+  // The refusal in the platform's own words: a quiet night and a broken one
+  // are different things.
+  await expect(status).toContainText('outside the 02:00-06:00 quiet window');
+  await expect(status).toContainText('Last made: nova reading');
+
+  await expect(page.getByTestId('home-pregeneration-start-hour')).toBeVisible();
+  await page.getByTestId('home-pregeneration-toggle').click();
+
+  // Saved through the same settings write the settings page uses, so there is
+  // one stored value rather than two that can disagree.
+  await expect.poll(() => fixture.savedPreferences?.pregeneration_enabled).toBe(true);
+});
+
+test('the homepage says when the deployment will not allow overnight pictures', async ({ page }) => {
+  await installAuthenticatedFixture(page);
+  await page.route('**/api/v1/scene-backlog/production-readiness', (route) => route.fulfill({
+    status: 200,
+    contentType: 'application/json',
+    body: JSON.stringify({
+      allowed: false, reason: 'background picture production is switched off', approved_waiting: 0,
+      window: '02:00-06:00', enabled: false, start_hour: 2, end_hour: 6, max_per_run: 3,
+      deployment_forbids: true, inside_window: false,
+    }),
+  }));
+  await page.goto('/');
+
+  await expect(page.getByTestId('home-pregeneration-forbidden')).toBeVisible();
+  await expect(page.getByTestId('home-pregeneration-toggle')).toBeDisabled();
+});
+
+test('speech and memory mode are editable from the homepage', async ({ page }) => {
+  const fixture = await installAuthenticatedFixture(page);
+  await page.goto('/');
+
+  // The fixture starts with speech on, so clicking turns it off. Asserting the
+  // stored value rather than that the checkbox moved.
+  await expect(page.getByTestId('home-speech-toggle')).toBeChecked();
+  await page.getByTestId('home-speech-toggle').click();
+  await expect.poll(() => fixture.savedPreferences?.general_voice_responses).toBe(false);
+
+  await page.getByTestId('home-memory-mode').selectOption('off');
+  await expect.poll(() => fixture.savedMemoryMode).toBe('off');
+});
+
 test('the logo in a chat header goes back to the homepage', async ({ page }) => {
   await installAuthenticatedFixture(page);
   await page.goto('/#/chats/chat-1');
@@ -569,6 +620,8 @@ async function installAuthenticatedFixture(
   turnBody: CapturedTurnBody | null;
   memoryApproved: boolean;
   settingsUpdated: boolean;
+  savedPreferences: Record<string, unknown> | null;
+  savedMemoryMode: string | null;
   personaUpdated: boolean;
   taskModelUpdated: boolean;
   mediaCatalogUpdated: boolean;
@@ -579,6 +632,8 @@ async function installAuthenticatedFixture(
     turnBody: CapturedTurnBody | null;
     memoryApproved: boolean;
     settingsUpdated: boolean;
+    savedPreferences: Record<string, unknown> | null;
+    savedMemoryMode: string | null;
     personaUpdated: boolean;
     taskModelUpdated: boolean;
     mediaCatalogUpdated: boolean;
@@ -588,6 +643,8 @@ async function installAuthenticatedFixture(
     turnBody: null,
     memoryApproved: false,
     settingsUpdated: false,
+    savedPreferences: null,
+    savedMemoryMode: null,
     personaUpdated: false,
     taskModelUpdated: false,
     mediaCatalogUpdated: false,
@@ -649,8 +706,13 @@ async function installAuthenticatedFixture(
     else if (path === '/api/v1/chats' && method === 'GET') await json(route, { items: [chat] });
     else if (path === '/api/v1/settings' && method === 'GET') await json(route, settings);
     else if (path === '/api/v1/settings' && method === 'PUT') {
-      result.settingsUpdated = request.postDataJSON().preferences.general_theme === 'light';
-      await json(route, { ...settings, preferences: request.postDataJSON().preferences });
+      const body = request.postDataJSON();
+      result.settingsUpdated = body.preferences.general_theme === 'light';
+      // Kept so a journey can assert what was stored rather than that a control
+      // moved on screen.
+      result.savedPreferences = body.preferences;
+      result.savedMemoryMode = body.default_memory_mode ?? null;
+      await json(route, { ...settings, ...body, preferences: body.preferences });
     } else if (path === '/api/v1/task-models' && method === 'GET') {
       await json(route, { items: [taskProfile] });
     } else if (path === '/api/v1/task-model-runs' && method === 'GET') {
@@ -683,6 +745,14 @@ async function installAuthenticatedFixture(
           id: 'library-1', persona_id: 'persona-1', media_id: 'media-1',
           content_url: '/api/v1/media/media-1', scene: { subject: 'nova at the window' },
           state: 'ready', served_count: 1, created_at: 1700000000, last_served_at: null,
+        }],
+      });
+    } else if (path === '/api/v1/scene-backlog' && method === 'GET') {
+      await json(route, {
+        items: [{
+          id: 'scene-1', persona_id: 'persona-1', scene: { subject: 'nova reading' },
+          summary: 'nova reading in a lamplit room', state: 'done', source: 'operator',
+          source_detail: '', media_id: 'media-1', created_at: 1699999000, updated_at: 1700000500,
         }],
       });
     } else if (path === '/api/v1/scene-backlog/production-readiness' && method === 'GET') {

@@ -29,6 +29,11 @@ export const SETTINGS_DEFAULTS: Settings = {
   stt_store_recordings: false,
   image_provider: 'disabled',
   chat_blur_images: false,
+  // The deployment supplies the real starting values on first load; these
+  // exist so the shape is complete before any response arrives.
+  pregeneration_enabled: false,
+  pregeneration_start_hour: 2,
+  pregeneration_end_hour: 6,
   image_size: '1024x1024',
   image_quality: 'none',
   image_local_allow_nsfw: false,

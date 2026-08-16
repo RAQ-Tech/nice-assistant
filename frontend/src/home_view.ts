@@ -1,6 +1,15 @@
 import type { ApiClient } from './api';
 import { el } from './dom';
-import type { AppState, Chat, Id, LibraryEntry, MediaJournalSummary, PregenerationReadiness } from './types';
+import { HomeControls } from './home_controls';
+import type {
+  AppState,
+  Chat,
+  Id,
+  LibraryEntry,
+  MediaJournalSummary,
+  PregenerationReadiness,
+  SceneBacklogEntry,
+} from './types';
 
 /**
  * The homepage.
@@ -49,6 +58,8 @@ export class HomeView {
   private journals: MediaJournalSummary[] = [];
   private pictures: LibraryEntry[] = [];
   private production: PregenerationReadiness | null = null;
+  private produced: SceneBacklogEntry | null = null;
+  private readonly controls: HomeControls;
   private loaded = false;
   private failed = '';
 
@@ -57,21 +68,28 @@ export class HomeView {
     private readonly client: ApiClient,
     private readonly actions: HomeActions,
     private readonly renderApp: () => void,
-  ) {}
+  ) {
+    this.controls = new HomeControls(appState, client, renderApp);
+  }
 
   /** Load once per visit. Called by the router, not by a timer. */
   async refresh(): Promise<void> {
     this.loaded = false;
     this.failed = '';
     try {
-      const [journals, pictures, production] = await Promise.all([
+      const [journals, pictures, production, made] = await Promise.all([
         this.client.mediaJournals(5).catch(() => ({ items: [] })),
         this.client.libraryEntries().catch(() => ({ items: [] })),
         this.client.productionReadiness().catch(() => null),
+        this.client.sceneBacklog('done').catch(() => ({ items: [] })),
       ]);
       this.journals = journals.items;
       this.pictures = pictures.items.slice(0, RECENT_PICTURES);
       this.production = production;
+      // What production last actually did, from the backlog rather than the
+      // journal: a background picture's journal is indistinguishable from a
+      // conversational one in the summary list.
+      this.produced = [...made.items].sort((left, right) => right.updated_at - left.updated_at)[0] ?? null;
     } catch {
       this.failed = 'Some of this could not be loaded.';
     } finally {
@@ -85,6 +103,7 @@ export class HomeView {
       this.header(),
       this.startCard(),
       this.nowCard(),
+      this.controls.node(this.production, this.produced),
       this.picturesCard(),
       this.recentCard(),
       this.failed ? el('p', { class: 'meta', textContent: this.failed }) : null,

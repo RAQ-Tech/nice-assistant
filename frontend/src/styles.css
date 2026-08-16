@@ -2286,3 +2286,28 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
   object-fit: cover;
   border-radius: 0.4rem;
 }
+
+/* Quick settings. Rows rather than a grid: there are three of them and they are
+   read, not scanned. */
+.home-control {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
+.home-control-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.home-control-status {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+}
+
+.home-control-status .meta {
+  margin: 0;
+}

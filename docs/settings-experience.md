@@ -217,3 +217,21 @@ The mark at the top left of a chat returns to the homepage. It sits before the
 drawer toggle, sized to the icon buttons beside it, and the browser journeys
 assert at 375px that the settings and log-out controls are still visible with it
 in place - the point being that it did not push anything off the header.
+
+## Quick settings on the homepage
+
+Three settings sit on the front page: whether pictures are made overnight and
+between which hours, whether replies are spoken, and whether saved memory is
+used in new chats.
+
+Background production is there for a reason. It spends real electricity on a
+schedule while nobody is watching, and a setting nobody sees is a setting nobody
+revisits. Beside the control it says whether the current hour is inside the
+window, how many approved scenes are waiting, why production is not running
+right now in the platform's own words, and what it last made.
+
+There is no second copy of any of these values. Every control reads and writes
+the same settings object the settings page edits, which is the same one sent to
+`PUT /settings`, so the two surfaces cannot drift apart - there is nothing to
+drift. When a deployment forbids background production the switch is disabled
+and says so, rather than moving and being ignored.

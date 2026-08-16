@@ -378,6 +378,13 @@ installed-browser acceptance.
   A second journey fails those endpoints and proves the page says "Not known"
   and "Nothing generated yet" rather than inventing a zero or a reassuring
   "Ready".
+- Homepage control journeys assert the pre-generation status reports the window,
+  whether the current hour is inside it, how many scenes are waiting, the
+  platform's own refusal reason, and what production last made; that the switch
+  writes through the same settings request the settings page uses; that a
+  deployment refusal disables the control and says why; and that speech and
+  memory mode save from the same page. A service test proves the switch stops
+  production that was demonstrably running, rather than proving a control moved.
 - API tests use isolated temporary databases and deterministic fake providers.
 - Migration tests upgrade pre-0004/0005/0007/0008/0009/0010/0011/0012/0013/0014/0015/0016/0017/0019/0021/0022 databases and prove
   chats, messages, jobs, media, memories, turn ordering, stored artifact links,

@@ -12,7 +12,16 @@ import unittest
 
 from app.pregeneration import PregenerationPolicy, policy_for_owner, validate_preferences
 from app.service_errors import RequestError
+from app.provider_contracts import MediaArtifact
 from tests.support import TestApp
+
+
+class _Provider:
+    name = "local-image"
+
+    def generate(self, request, cancellation):
+        cancellation.raise_if_cancelled()
+        return MediaArtifact("image", b"generated-image", ".png", "image/png")
 
 
 DEPLOYMENT = PregenerationPolicy(enabled=True, start_hour=2, end_hour=6, max_per_run=3)
@@ -103,6 +112,43 @@ class SavedSettingTests(unittest.TestCase):
 
             self.assertEqual(outcome["started"], [])
             self.assertIn("switched off", outcome["reason"])
+
+    def test_switching_it_off_stops_production_that_was_running(self):
+        """The strong version: it was making pictures, and then it was not."""
+
+        with tempfile.TemporaryDirectory() as tmp, TestApp(Path(tmp)) as running:
+            self._ready(running)
+            user_id = running.client.get("/api/v1/session").json()["user_id"]
+            running.services.providers.media_providers["local-image"] = _Provider()
+            running.client.put(
+                "/api/v1/settings",
+                json={"preferences": {"image_provider": "local", "image_local_backend": "comfyui"}},
+            )
+            workspace = running.client.post("/api/v1/workspaces", json={"name": "Home"}).json()
+            persona = running.client.post(
+                "/api/v1/personas",
+                json={"workspace_id": workspace["id"], "name": "Avery"},
+            ).json()
+            for index in range(2):
+                entry = running.client.post(
+                    "/api/v1/scene-backlog",
+                    json={
+                        "persona_id": persona["id"],
+                        "scene": {"subject": "avery", "action": f"reading book {index}", "setting": "a room"},
+                    },
+                ).json()
+                running.client.put(f"/api/v1/scene-backlog/{entry['id']}/state", json={"state": "approved"})
+
+            working = running.services.scene_backlog.produce_due(user_id, hour=3)
+            for frame in working["started"]:
+                running.wait_job(frame["job_id"])
+            self.assertTrue(working["started"], working)
+
+            self._save(running, pregeneration_enabled=False)
+            after = running.services.scene_backlog.produce_due(user_id, hour=3)
+
+            self.assertEqual(after["started"], [])
+            self.assertIn("switched off", after["reason"])
 
     def test_a_saved_window_is_what_readiness_reports(self):
         with tempfile.TemporaryDirectory() as tmp, TestApp(Path(tmp)) as running:

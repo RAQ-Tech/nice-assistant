@@ -13,6 +13,7 @@ import type {
   MediaJournalSummary,
   PregenerationReadiness,
   PresetExport,
+  SceneBacklogEntry,
   PresetImportPreview,
   PresetSignal,
   Memory,
@@ -457,6 +458,11 @@ export class ApiClient {
 
   mediaJournals(limit = 5): Promise<{ items: MediaJournalSummary[] }> {
     return this.request(`/media-journals?limit=${encodeURIComponent(String(limit))}`);
+  }
+
+  sceneBacklog(state?: string): Promise<{ items: SceneBacklogEntry[] }> {
+    const query = state ? `?state=${encodeURIComponent(state)}` : '';
+    return this.request(`/scene-backlog${query}`);
   }
 
   productionReadiness(): Promise<PregenerationReadiness> {
