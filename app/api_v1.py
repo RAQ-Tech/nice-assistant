@@ -654,6 +654,19 @@ class PhotoSetProductionResponse(BaseModel):
     started: list[dict]
 
 
+class PresetPreviewRow(BaseModel):
+    label: str
+    value: str
+
+
+class PresetExportRepresentation(BaseModel):
+    filename: str
+    bundle: dict
+    preview: list[PresetPreviewRow]
+    requirements: list[str]
+    withheld: list[str]
+
+
 class PresetSignalRepresentation(BaseModel):
     preset_id: str
     preset_name: str
@@ -1995,6 +2008,15 @@ def media_library(
 def media_file(media_id: str, request: Request, context: AuthContext = Depends(current_user)):
     path = services(request).resources.media_path(context.user_id, media_id)
     return FileResponse(path, media_type=mimetypes.guess_type(path.name)[0] or "application/octet-stream")
+
+
+@router.get(
+    "/media-catalog/presets/{preset_id}/export",
+    response_model=PresetExportRepresentation,
+    tags=["media"],
+)
+def export_preset(preset_id: str, request: Request, context: AuthContext = Depends(current_user)):
+    return services(request).media_catalog.export_preset(context.user_id, preset_id)
 
 
 @router.get("/preset-signals", response_model=PresetSignalListResponse, tags=["media"])

@@ -195,3 +195,10 @@ rather than before them, because it describes them.
 Shown with the counts rather than as a score alone. A score of one from a single
 signal is not the same as a score of one from twenty, and an operator deciding
 whether to trust it needs both numbers. Each preset's counts reset on their own.
+
+## Exporting a preset
+
+Each preset editor has an Export action. It does not write a file: it shows what
+a file would contain, field by field, together with what is deliberately left
+out and anything the recipe needs that a file cannot carry. The file is written
+only when the operator saves it from that preview.

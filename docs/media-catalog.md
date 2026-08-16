@@ -249,6 +249,28 @@ It is off by default. `PREGENERATION_ENABLED`, `PREGENERATION_START_HOUR`,
 `PREGENERATION_END_HOUR`, and `PREGENERATION_MAX_PER_RUN` set the policy, and the
 window may wrap past midnight because a quiet window normally does.
 
+### Exporting a preset
+
+A preset in the catalog is written in this installation's resource identifiers,
+which mean nothing anywhere else. Export rewrites it in the names a person would
+recognise - the filenames the provider reports - and carries nothing measured
+here.
+
+Deliberately not in the file: VRAM estimates, which were measured on this
+machine; provider addresses and local paths; this installation's resource
+identifiers; and workflow graphs, which contain this installation's node
+numbering.
+
+A workflow is therefore named as a requirement rather than dropped. So is an
+identity mechanism, a per-pass workflow in a multi-pass preset, and any asset
+this installation could not name. A recipe that arrives missing a piece it never
+mentioned is worse than one that arrives asking for it.
+
+The preview shows every field that will leave, one row each, before anything is
+written. The export is round-tripped through the same validation an imported
+file faces, so an export that could not be imported fails here rather than on
+somebody else's machine.
+
 ### What happened to the pictures
 
 Three things are counted against the preset that produced a picture: the picture

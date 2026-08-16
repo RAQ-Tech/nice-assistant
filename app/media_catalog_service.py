@@ -16,7 +16,8 @@ from app.identity_images import MAX_REFERENCE_BYTES, read_identity_image_file
 from app.media_planner import PROVIDER_DEFAULT, build_media_plan
 from app.preset_signals import PresetSignals, describe, preferred_order
 from app.media_preset import normalize_definition
-from app.preset_bundle import resolve_entry, starter_bundle
+from app.preset_bundle import normalize_bundle, resolve_entry, starter_bundle
+from app.preset_export import export_bundle, export_entry, preview, withheld
 from app.prompt_dialect import normalize_dialect
 from app.repositories import UnitOfWork
 from app.service_errors import ConflictError, NotFoundError, RequestError
@@ -105,6 +106,13 @@ def _strings(values: Any, *, label: str, max_items: int = 32, max_length: int = 
     if len(result) > max_items:
         raise RequestError(f"{label} contains too many values", 400)
     return result
+
+
+def _export_filename(name: str) -> str:
+    """A filename a person can recognise, with nothing of this machine in it."""
+
+    safe = "".join(character if character.isalnum() else "-" for character in name.casefold()).strip("-")
+    return f"preset-{safe or 'unnamed'}.json"
 
 
 class MediaCatalogService:
@@ -780,6 +788,32 @@ class MediaCatalogService:
         if not preferred:
             return requirements
         return {**requirements, "persona_preset_ids": [str(item) for item in preferred]}
+
+    def export_preset(self, user_id: str, preset_id: str) -> dict:
+        """A shareable file for one preset, with a preview of exactly what leaves.
+
+        The preview is returned with the bundle rather than after it, because
+        "here is the file, and here is what is in it" is one decision for the
+        person making it, not two.
+        """
+
+        with self._uow() as uow:
+            row = uow.repo.media_preset(user_id, preset_id)
+            if not row:
+                raise NotFoundError("preset not found")
+            resources = {item.id: item for item in uow.repo.media_catalog_resources(user_id)}
+            entry = export_entry(row, _json(row.definition_json, {}), resources)
+        # Round-tripped through the same validation an imported file faces, so
+        # an export that could not be imported fails here instead of on
+        # somebody else's machine.
+        bundle = normalize_bundle(export_bundle([entry]))
+        return {
+            "filename": _export_filename(row.name),
+            "bundle": bundle,
+            "preview": preview(entry),
+            "requirements": entry["requirements"],
+            "withheld": withheld(),
+        }
 
     def preset_signals(self, user_id: str) -> list[dict]:
         """What has been counted for each preset, and the weight it produces.

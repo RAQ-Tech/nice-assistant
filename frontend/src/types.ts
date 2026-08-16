@@ -242,6 +242,14 @@ export interface AttachmentFrame {
   frame_index: number | null;
 }
 
+export interface PresetExport {
+  filename: string;
+  bundle: Record<string, unknown>;
+  preview: { label: string; value: string }[];
+  requirements: string[];
+  withheld: string[];
+}
+
 export interface PresetSignal {
   preset_id: Id;
   preset_name: string;

@@ -78,6 +78,11 @@ def _normalize_entry(values) -> dict:
         "prompt_dialect",
         "lora_slots",
         "workflow_slot",
+        # Things the recipe needs that a file cannot carry: a workflow graph, an
+        # identity mechanism, an asset this installation could not name. Present
+        # so an import can say what is missing rather than behaving differently
+        # without saying why.
+        "requirements",
     }
     unknown = set(values) - allowed
     if unknown:
@@ -120,6 +125,7 @@ def _normalize_entry(values) -> dict:
         "prompt_dialect": values.get("prompt_dialect") or {},
         "lora_slots": values.get("lora_slots") or [],
         "workflow_slot": values.get("workflow_slot") or {"enabled": False},
+        "requirements": [_text(item, "requirement", limit=300) for item in (values.get("requirements") or [])][:16],
     }
 
 

@@ -2,7 +2,7 @@ import type { ApiClient } from './api';
 import { el, errorMessage } from './dom';
 import { inputField, selectField, textareaField, toggleField } from './settings_controls';
 import { advancedSettings, operatorEditor, settingsCard, settingsHeading } from './settings_ui';
-import type { AppState, MediaCatalogResource, MediaPreset, PresetSignal } from './types';
+import type { AppState, MediaCatalogResource, MediaPreset, PresetExport, PresetSignal } from './types';
 
 /**
  * The preset editor.
@@ -25,6 +25,7 @@ function styleLabel(value: string): string {
 export class PresetSettingsView {
   private presets: MediaPreset[] = [];
   private signals: PresetSignal[] = [];
+  private pendingExport: PresetExport | null = null;
   private readonly openIds = new Set<string>();
   private readonly dirtyIds = new Set<string>();
   private busy = false;
@@ -56,6 +57,66 @@ export class PresetSettingsView {
       this.appState.settingsError = errorMessage(error, 'Unable to reset those counts.');
     }
     this.renderApp();
+  }
+
+  private async prepareExport(preset: MediaPreset): Promise<void> {
+    try {
+      this.pendingExport = await this.client.exportPreset(preset.id);
+    } catch (error) {
+      this.appState.settingsError = errorMessage(error, 'Unable to prepare that export.');
+    }
+    this.renderApp();
+  }
+
+  private saveExport(): void {
+    const pending = this.pendingExport;
+    if (!pending) return;
+    const blob = new Blob([JSON.stringify(pending.bundle, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = pending.filename;
+    link.click();
+    URL.revokeObjectURL(url);
+    this.pendingExport = null;
+    this.renderApp();
+  }
+
+  private exportPreviewCard(): HTMLElement | null {
+    const pending = this.pendingExport;
+    if (!pending) return null;
+    return settingsCard([
+      settingsHeading(
+        `What will be in ${pending.filename}`,
+        'Everything that leaves, field by field. Nothing is written until you save it.',
+      ),
+      el('ul', { class: 'settings-list', 'data-testid': 'export-preview' }, pending.preview.map((row) =>
+        el('li', { class: 'settings-list-row' }, [
+          el('span', { class: 'settings-list-name', textContent: row.label }),
+          el('span', { class: 'settings-list-detail', textContent: row.value }),
+        ]))),
+      pending.requirements.length
+        ? el('div', {}, [
+            el('p', { class: 'meta', textContent: 'This recipe also needs things a file cannot carry. They are named in it so whoever imports it knows:' }),
+            el('ul', { class: 'settings-list' }, pending.requirements.map((item) =>
+              el('li', { class: 'settings-list-row' }, [el('span', { class: 'settings-list-detail', textContent: item })]))),
+          ])
+        : null,
+      el('p', { class: 'meta', textContent: `Deliberately not included: ${pending.withheld.join('; ')}.` }),
+      el('div', { class: 'chips' }, [
+        el('button', {
+          class: 'pill-btn',
+          textContent: 'Save the file',
+          'data-testid': 'export-save',
+          onclick: () => this.saveExport(),
+        }),
+        el('button', {
+          class: 'pill-btn',
+          textContent: 'Cancel',
+          onclick: () => { this.pendingExport = null; this.renderApp(); },
+        }),
+      ]),
+    ]);
   }
 
   private signalsCard(): HTMLElement {
@@ -108,10 +169,11 @@ export class PresetSettingsView {
             }),
       ]),
       ...this.presets.map((preset) => this.editor(preset)),
+      this.exportPreviewCard(),
       // After the presets: this describes them, so it reads as a footnote
       // rather than as the point of the screen.
       this.signalsCard(),
-    ];
+    ].filter((node): node is HTMLElement => node !== null);
   }
 
   private editor(preset: MediaPreset): HTMLElement {
@@ -252,6 +314,13 @@ export class PresetSettingsView {
             disabled: !this.dirtyIds.has(preset.id) || this.busy,
             'data-testid': `preset-save-${preset.id}`,
             onclick: () => void this.save(preset),
+          }),
+          el('button', {
+            class: 'pill-btn',
+            textContent: 'Export',
+            title: 'See what a shareable file would contain, before writing one',
+            'data-testid': `preset-export-${preset.id}`,
+            onclick: () => void this.prepareExport(preset),
           }),
           el('button', {
             class: 'pill-btn danger',

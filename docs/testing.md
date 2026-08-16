@@ -337,6 +337,13 @@ installed-browser acceptance.
   evidence breaks a tie, that the summary never claims to have learned
   anything, that counts are individually resettable, and that they are
   owner-scoped.
+- Preset export tests prove resources leave as names and never as local
+  identifiers, that a workflow and an identity mechanism are named as
+  requirements rather than dropped, that every pass of a multi-pass preset is
+  named, that an asset which cannot be named is reported, that nothing measured
+  on this machine appears anywhere in the file, that the preview lists the
+  fields that will leave, and that an export round-trips through the importer's
+  own validation.
 - API tests use isolated temporary databases and deterministic fake providers.
 - Migration tests upgrade pre-0004/0005/0007/0008/0009/0010/0011/0012/0013/0014/0015/0016/0017/0019/0021/0022 databases and prove
   chats, messages, jobs, media, memories, turn ordering, stored artifact links,
