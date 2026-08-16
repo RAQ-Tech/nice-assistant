@@ -1055,7 +1055,13 @@ class CapabilityService:
             job = uow.repo.job_for_capability(row.id)
             if created:
                 plan = self.media_catalog.create_manual_plan(
-                    repo=uow.repo, user_id=user_id, capability_request_id=row.id, kind=kind
+                    repo=uow.repo,
+                    user_id=user_id,
+                    capability_request_id=row.id,
+                    kind=kind,
+                    # The submitted settings decide the demand, so the plan can
+                    # carry a real estimate rather than an unknown one.
+                    values=execution_arguments,
                 )
                 uow.repo.add_capability_event(
                     row,
@@ -1151,6 +1157,7 @@ class CapabilityService:
                     user_id=user_id,
                     capability_request_id=row.id,
                     kind=definition.kind,
+                    values=arguments,
                 )
             uow.repo.add_capability_event(
                 row,

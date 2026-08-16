@@ -627,7 +627,21 @@ class MediaCatalogService:
             self._plan_row_values("coordinator", normalized, built),
         )
 
-    def create_manual_plan(self, repo, user_id: str, capability_request_id: str, kind: str):
+    def create_manual_plan(self, repo, user_id: str, capability_request_id: str, kind: str, values: dict | None = None):
+        """Record a direct action, with its demand measured where the catalog knows it.
+
+        A direct action still uses the settings the operator submitted; the
+        coordinator does not choose for it. What changed is that its demand is
+        no longer unknown by default. The model it names is looked up in the
+        catalog, and its recorded estimate is carried onto the plan, which is
+        what puts the request under measured-capacity admission alongside every
+        conversational one.
+
+        When the catalog has never seen that model the estimate stays zero and
+        the plan says so. Guessing a number would be worse than admitting the
+        gap: an invented estimate is one the coordinator would then enforce.
+        """
+
         requirements = {
             "kind": kind,
             "operation": "generate",
@@ -635,17 +649,33 @@ class MediaCatalogService:
             "content_tags": [],
             "required_features": [],
         }
+        resource = self._manual_resource(repo, user_id, kind, values or {})
+        estimate = int(getattr(resource, "estimated_vram_mb", 0) or 0)
+        warnings = ["This request was not selected by the media coordinator."]
+        if estimate:
+            summary = (
+                "Manual generation uses the explicitly submitted provider settings. Its demand is the "
+                f"catalog's estimate for '{resource.name}', so it is admitted on measured capacity."
+            )
+        else:
+            summary = (
+                "Manual generation uses the explicitly submitted provider settings and bypasses catalog selection."
+            )
+            warnings.append(
+                "The catalog has no estimate for this model, so demand is unknown and capacity cannot be measured "
+                "against it. Add the model to the media catalog to bring this under admission."
+            )
         built = {
             "status": "ready",
-            "selected_resources": [],
+            "selected_resources": [self._snapshot(resource)] if resource else [],
             "execution_options": {},
             "explanation": {
-                "summary": "Manual generation uses the explicitly submitted provider settings and bypasses catalog selection.",
+                "summary": summary,
                 "selected": [],
-                "warnings": ["This request was not selected by the media coordinator."],
+                "warnings": warnings,
                 "rejected": [],
             },
-            "estimated_vram_mb": 0,
+            "estimated_vram_mb": estimate,
             "block_code": None,
             "block_message": None,
             "identity_conditioning": {},
@@ -655,6 +685,26 @@ class MediaCatalogService:
             capability_request_id=capability_request_id,
             values=self._plan_row_values("manual", requirements, built),
         )
+
+    @staticmethod
+    def _manual_resource(repo, user_id: str, kind: str, values: dict):
+        """The catalog row for the model a direct action named, if there is one.
+
+        Matched on what the request actually carries: the provider it resolves
+        to and the model file it names. Nothing is inferred from a similar name,
+        because a near-match would attach one model's measurement to another.
+        """
+
+        model = str(values.get("model") or "").strip()
+        if not model:
+            settings = repo.settings(user_id) or {}
+            model = str((settings.get("preferences") or {}).get("image_local_model") or "").strip()
+        if not model:
+            return None
+        for row in repo.media_catalog_resources(user_id, enabled=True):
+            if row.resource_type == "model" and row.kind == kind and row.external_id == model:
+                return row
+        return None
 
     def create_edit_plan(self, repo, user_id: str, capability_request_id: str, requirements: dict):
         normalized = self._normalize_requirements(requirements)

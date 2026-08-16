@@ -385,6 +385,11 @@ installed-browser acceptance.
   deployment refusal disables the control and says why; and that speech and
   memory mode save from the same page. A service test proves the switch stops
   production that was demonstrably running, rather than proving a control moved.
+- Direct media admission tests prove a direct action carries the catalog's
+  estimate for the model it names, that a model the catalog never saw records
+  zero and says which model to add rather than guessing, that a near-matching
+  name does not borrow another model's measurement, and that the action is still
+  recorded as the operator's own settings rather than a coordinator selection.
 - API tests use isolated temporary databases and deterministic fake providers.
 - Migration tests upgrade pre-0004/0005/0007/0008/0009/0010/0011/0012/0013/0014/0015/0016/0017/0019/0021/0022 databases and prove
   chats, messages, jobs, media, memories, turn ordering, stored artifact links,

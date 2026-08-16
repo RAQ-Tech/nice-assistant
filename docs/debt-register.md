@@ -152,9 +152,13 @@ change that alters them.
 - Media VRAM/load values remain operator estimates of demand. Provider telemetry
   now measures available capacity but cannot infer a pending model's demand.
   Direct media buttons still use legacy provider settings through a disclosed
-  manual plan and have unknown demand, so they bypass measured-capacity
-  admission. They do participate in the shared-resource lease and authorized
-  managed post-job media reclamation.
+  manual plan, so the coordinator does not select for them, but their demand is
+  no longer unknown: the model they name is matched in the catalog and its
+  recorded estimate is carried onto the plan, which puts them under
+  measured-capacity admission alongside conversational requests. A model the
+  catalog has never seen still has unknown demand, and the plan says so rather
+  than guessing. What remains split between the two paths is selection, not
+  admission.
 - ComfyUI editing is now reachable from conversation through platform-published
   attachment references under ADR 0029, but only for images in the current chat
   and only with owner confirmation. The task model never receives or supplies a

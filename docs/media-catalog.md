@@ -347,6 +347,23 @@ With no chat - a direct action, a background picture, a photo set frame - every
 affinity is zero and the order is the one it always was. See ADR 0033, and
 ADR 0017 for the rule it deliberately does not weaken.
 
+### Direct actions and capacity
+
+A direct image action submits the settings an operator chose. The coordinator
+does not select for it, and the plan says so. What it does now carry is a
+demand: the model named in the request is matched exactly against the catalog,
+and that resource's recorded estimate becomes the plan's estimate.
+
+That matters because unknown demand cannot pass measured-capacity admission at
+all - a plan with a zero estimate is admitted immediately, which is how direct
+actions used to slip past the check every conversational request goes through.
+
+Matched exactly, never approximately. A near-match would attach one model's
+measurement to another, and the coordinator would then enforce that number. When
+the catalog has never seen the model the estimate stays unknown and the plan
+says which model to add to fix it, because an invented estimate is worse than an
+admitted gap.
+
 ### Photo sets
 
 One idea, several frames. The shared scene belongs to the set and the pose
