@@ -28,9 +28,7 @@ CARD_LABELS = {
 MINIMUM_CONTEXT_WINDOW_TOKENS = 2048
 
 EXAMPLE_BLOCK_DELIMITER = "<START>"
-EXAMPLE_DIALOGUE_LABEL = (
-    "[Persona voice examples: illustrate how this persona speaks, not conversation history]"
-)
+EXAMPLE_DIALOGUE_LABEL = "[Persona voice examples: illustrate how this persona speaks, not conversation history]"
 EXAMPLE_USER_PLACEHOLDER = "{{user}}"
 EXAMPLE_CHAR_PLACEHOLDER = "{{char}}"
 # The account holder is addressed generically. A persona speaks to whoever is in the chat,

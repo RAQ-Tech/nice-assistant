@@ -326,6 +326,11 @@ installed-browser acceptance.
   exist, that a conversation never receives the same frame twice across two
   requests, that a partly made set is still served from, and that an ordinary
   picture still arrives alone.
+- The formatter check covers `app`, `migrations`, `tests`, and `scripts` in
+  full. It used to cover a curated list of modules, which meant editing anything
+  outside that list failed at the last gate of the verifier rather than the
+  first. The list was four files short of the whole repository, so the list was
+  costing more than it saved.
 - API tests use isolated temporary databases and deterministic fake providers.
 - Migration tests upgrade pre-0004/0005/0007/0008/0009/0010/0011/0012/0013/0014/0015/0016/0017/0019/0021/0022 databases and prove
   chats, messages, jobs, media, memories, turn ordering, stored artifact links,

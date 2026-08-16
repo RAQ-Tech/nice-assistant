@@ -402,8 +402,9 @@ class PersonaCardTurnTests(unittest.TestCase):
                 # Grow the card until one more sentence would exceed the cap, then save that card.
                 sentence = "She opens the bakery before dawn and counts the trays twice. "
                 card = {"card_definition": sentence}
-                while card_token_estimate({**card, "card_definition": card["card_definition"] + sentence}) <= (
-                    persona["card_cap_tokens"]
+                while (
+                    card_token_estimate({**card, "card_definition": card["card_definition"] + sentence})
+                    <= (persona["card_cap_tokens"])
                 ):
                     card["card_definition"] += sentence
                 saved = client.put(f"/api/v1/personas/{persona['id']}/card", json=card)

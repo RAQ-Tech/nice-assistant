@@ -16,7 +16,7 @@ from tests import test_resource_coordination as coordination
 
 
 class ResourceAuditContentTests(unittest.TestCase):
-    """"Resource audit rows omit provider URLs, credentials, prompts, outputs, and
+    """ "Resource audit rows omit provider URLs, credentials, prompts, outputs, and
     model-generated content." The audit writer only strips null values, so the guarantee
     rests entirely on what every caller happens to pass."""
 
@@ -39,9 +39,7 @@ class ResourceAuditContentTests(unittest.TestCase):
                     },
                 )
                 self.assertEqual(policy.status_code, 200, policy.text)
-                request = ResourceRequest(
-                    user_id, "comfyui", app.config.comfyui_base_url, "secret-api-token", 1000
-                )
+                request = ResourceRequest(user_id, "comfyui", app.config.comfyui_base_url, "secret-api-token", 1000)
                 job_id = coordination.ResourceCoordinationTests._submit(app, user_id, request)
                 self.assertEqual(app.services.jobs.wait(user_id, job_id, timeout=4)["status"], "completed")
 
@@ -63,9 +61,7 @@ class PersonaMaterialIsolationTests(unittest.TestCase):
 
     def _persona_with_material(self, running):
         workspace = running.client.post("/api/v1/workspaces", json={"name": "Home"}).json()
-        persona = running.client.post(
-            "/api/v1/personas", json={"workspace_id": workspace["id"], "name": "Ada"}
-        ).json()
+        persona = running.client.post("/api/v1/personas", json={"workspace_id": workspace["id"], "name": "Ada"}).json()
         card = running.client.put(
             f"/api/v1/personas/{persona['id']}/card",
             json={
@@ -127,9 +123,7 @@ class PersonaMaterialIsolationTests(unittest.TestCase):
                     "/api/v1/chats",
                     json={"workspace_id": workspace["id"], "persona_id": persona["id"], "title": "New chat"},
                 ).json()
-                started = running.client.post(
-                    f"/api/v1/chats/{chat['id']}/turns", json={"text": "How is your sister?"}
-                )
+                started = running.client.post(f"/api/v1/chats/{chat['id']}/turns", json={"text": "How is your sister?"})
                 running.wait_job(started.json()["job"]["id"])
 
                 messages = json.dumps(running.client.get(f"/api/v1/chats/{chat['id']}").json())
