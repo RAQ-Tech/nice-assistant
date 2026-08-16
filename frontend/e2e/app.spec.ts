@@ -165,6 +165,35 @@ test('a chat link still opens that chat, and back returns to the homepage', asyn
   await expect(page.getByText('Earlier reply')).toBeVisible();
 });
 
+test('the logo in a chat header goes back to the homepage', async ({ page }) => {
+  await installAuthenticatedFixture(page);
+  await page.goto('/#/chats/chat-1');
+  await expect(page.getByText('Earlier reply')).toBeVisible();
+
+  // This project also runs at 375px. The header controls that were already
+  // there have to survive the addition, not merely coexist with it off-screen.
+  await expect(page.getByTestId('open-settings')).toBeVisible();
+  await expect(page.getByTestId('logout')).toBeVisible();
+  await expect(page.getByTestId('topbar-home')).toBeVisible();
+
+  await page.getByTestId('topbar-home').click();
+
+  await expect(page.getByTestId('home')).toBeVisible();
+  await expect(page.getByTestId('chat-input')).toHaveCount(0);
+});
+
+test('the logo is reachable by keyboard and says where it goes', async ({ page }) => {
+  await installAuthenticatedFixture(page);
+  await page.goto('/#/chats/chat-1');
+
+  const home = page.getByTestId('topbar-home');
+  await expect(home).toHaveAttribute('aria-label', 'Nice Assistant home');
+  await home.focus();
+  await page.keyboard.press('Enter');
+
+  await expect(page.getByTestId('home')).toBeVisible();
+});
+
 test('the homepage opens a recent conversation', async ({ page }) => {
   await installAuthenticatedFixture(page);
   await page.goto('/');

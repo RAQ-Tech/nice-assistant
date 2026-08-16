@@ -259,6 +259,19 @@ function shell(): HTMLElement {
 
 function topbar(personaName: string, avatar: string): HTMLElement {
   return el('div', { class: 'topbar' }, [
+    // An anchor rather than a button: it is a link to a route, so the browser
+    // gives it keyboard reach, middle-click, and history for free. The mark is
+    // the one already shipped as the favicon; nothing new is invented and
+    // nothing is fetched from anywhere else.
+    el('a', {
+      class: 'topbar-home',
+      href: '#/',
+      title: 'Nice Assistant home',
+      'aria-label': 'Nice Assistant home',
+      'data-testid': 'topbar-home',
+    }, [
+      el('img', { class: 'topbar-home-mark', src: '/favicon.svg', alt: '' }),
+    ]),
     el('button', { class: 'icon-btn', textContent: '☰', onclick: () => { state.drawerOpen = !state.drawerOpen; render(); } }),
     el('div', { class: 'header-meta' }, [
       el('button', {

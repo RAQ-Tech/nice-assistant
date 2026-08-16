@@ -368,6 +368,10 @@ installed-browser acceptance.
   reload, back and forward move between the two, and a recent conversation opens
   from the homepage. The first-run journey now settles on the homepage and waits
   for the settings write rather than for a screen that appears slightly earlier.
+- Browser journeys click the header mark from a chat and land on the homepage,
+  reach it by keyboard and activate it with Enter, check it announces where it
+  goes, and assert at mobile width that the header controls already there are
+  still visible beside it.
 - API tests use isolated temporary databases and deterministic fake providers.
 - Migration tests upgrade pre-0004/0005/0007/0008/0009/0010/0011/0012/0013/0014/0015/0016/0017/0019/0021/0022 databases and prove
   chats, messages, jobs, media, memories, turn ordering, stored artifact links,

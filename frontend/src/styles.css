@@ -2220,3 +2220,28 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
 .home-list-row:focus-visible {
   background: rgba(127, 127, 127, 0.16);
 }
+
+/* The way back to the homepage. Sized to match the icon buttons beside it so
+   the header keeps one rhythm, and given its own tap target at mobile width
+   rather than being squeezed against the drawer toggle. */
+.topbar-home {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  width: 2rem;
+  height: 2rem;
+  border-radius: 0.4rem;
+  text-decoration: none;
+}
+
+.topbar-home:hover,
+.topbar-home:focus-visible {
+  background: rgba(127, 127, 127, 0.16);
+}
+
+.topbar-home-mark {
+  width: 1.4rem;
+  height: 1.4rem;
+  display: block;
+}

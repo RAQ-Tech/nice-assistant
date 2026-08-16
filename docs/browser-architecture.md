@@ -150,3 +150,9 @@ state.
 First-run setup moved to `onboarding.ts` in the same change. It is a flow that
 happens once, in its own dialogs, and it had been sitting in `app.ts` beside the
 routing and the chat shell because nobody had decided otherwise.
+
+The chat header carries the mark from `web/favicon.svg` as a link to `#/`. An
+anchor rather than a button, so keyboard reach, middle-click, and history come
+from the browser rather than from handlers this repository would have to keep
+correct. No new brand was invented and nothing is fetched from outside the
+deployment: it is the asset already served for the tab icon.

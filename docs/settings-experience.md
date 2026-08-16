@@ -210,3 +210,10 @@ which recipes install, which cannot and why, and what each still needs - above
 a confirm action that is disabled unless the whole file can be installed. The
 warnings sit above the list rather than below it, because deciding whether to
 run somebody else's graph comes before deciding whether the recipe is any good.
+
+## Getting back out
+
+The mark at the top left of a chat returns to the homepage. It sits before the
+drawer toggle, sized to the icon buttons beside it, and the browser journeys
+assert at 375px that the settings and log-out controls are still visible with it
+in place - the point being that it did not push anything off the header.
