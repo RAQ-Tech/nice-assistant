@@ -180,8 +180,12 @@ taken in any order.
     Done when:
     - The policy is stored per owner and the production runner reads the stored
       value, not the environment, on every pass.
-    - The environment variables set the initial value for a new account and
-      nothing else, and `docs/operations.md` says so.
+    - The environment variables set the initial value for a new account. One
+      exception, decided rather than asked: `PREGENERATION_ENABLED=0` remains a
+      deployment-level refusal the browser cannot override, because this feature
+      runs the GPU unattended and the machine has overheated before. When a
+      deployment forbids it the control is shown disabled with that reason,
+      never shown as available and then ignored. `docs/operations.md` says so.
     - A test proves that saving the setting changes what the runner does on its
       next pass, rather than only what the API returns.
     - An invalid window is refused when saved, not silently corrected later.
