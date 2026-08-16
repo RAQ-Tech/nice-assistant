@@ -134,3 +134,19 @@ journeys without provider credentials. Python API tests separately prove the
 real FastAPI contracts, ownership, migration, and persistence. The process smoke
 then runs generated browser assets and canonical APIs against a real Uvicorn
 process plus fake Ollama.
+
+## The homepage
+
+`#/` shows `home_view.ts`. It has parsed as a route since the router was
+written, but was never reachable: the route handler opened the first chat and
+rewrote the URL before anything could render. Loading or reloading with no chat
+in the URL now stays on the homepage, and a link straight to `#/chats/{id}`
+still opens that chat, with back and forward moving between the two.
+
+Entering the home route releases the current chat, its messages, and its
+capability requests, so the homepage is never drawn over live conversation
+state.
+
+First-run setup moved to `onboarding.ts` in the same change. It is a flow that
+happens once, in its own dialogs, and it had been sitting in `app.ts` beside the
+routing and the chat shell because nobody had decided otherwise.

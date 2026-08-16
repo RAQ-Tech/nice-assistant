@@ -8,6 +8,8 @@ import { composerState } from './composer_state';
 import { DEFAULT_PERSONA_AVATAR } from './constants';
 import { captureFocus, el, errorMessage, restoreFocus } from './dom';
 import { generationLogOverlay } from './generation_log_view';
+import { HomeView } from './home_view';
+import { runFirstRunSetup } from './onboarding';
 import { MediaController } from './media';
 import { PlaybackController } from './playback';
 import { RecordingController } from './recording';
@@ -122,7 +124,7 @@ async function authenticated(session: Session, runOnboarding = true): Promise<vo
   if (needsOnboarding && runOnboarding) {
     machine.transition('onboarding');
     render();
-    await onboarding();
+    await runFirstRunSetup(state, api, dialogs, machine, render);
   } else if (state.phase === 'signed_out' || state.phase === 'onboarding') {
     machine.transition('idle');
   }
@@ -131,46 +133,6 @@ async function authenticated(session: Session, runOnboarding = true): Promise<vo
   state.newChatPersonaId = state.newChatPersonaId ?? state.selectedPersonaId;
   await applyCurrentRoute();
   render();
-}
-
-async function onboarding(): Promise<void> {
-  state.onboardingRunning = true;
-  try {
-    let workspace = state.workspaces[0];
-    if (!workspace) {
-      const name = await dialogs.prompt('Welcome to Nice Assistant', 'Name your first workspace.', 'Main Workspace');
-      if (!name?.trim()) throw new Error('First-run setup needs a workspace.');
-      workspace = await api.createWorkspace(name.trim());
-      state.workspaces.push(workspace);
-    }
-    let persona = state.personas[0];
-    if (!persona) {
-      const name = await dialogs.prompt('Create first persona', 'Give your assistant a persona name.', 'Assistant');
-      if (!name?.trim()) throw new Error('First-run setup needs a persona.');
-      const prompt = await dialogs.prompt('Default personality', 'Set the initial persona instruction.', 'Be helpful and concise.');
-      persona = await api.createPersona({
-        workspace_id: workspace.id,
-        workspace_ids: [workspace.id],
-        name: name.trim(),
-        system_prompt: prompt?.trim() || 'Be helpful and concise.',
-        default_model: state.models[0] ?? null,
-      });
-      state.personas.push(persona);
-    }
-    state.selectedPersonaId = persona.id;
-    state.newChatPersonaId = persona.id;
-    if (state.settings) {
-      state.settings.onboarding_done = true;
-      await api.updateSettings(settingsWire(state.settings));
-    }
-    machine.transition('idle');
-  } catch (error) {
-    state.uiError = errorMessage(error, 'Unable to complete first-run setup.');
-    machine.transition('error');
-  } finally {
-    state.onboardingRunning = false;
-    render();
-  }
 }
 
 async function handleRoute(route: RouteState): Promise<void> {
@@ -192,12 +154,20 @@ async function applyCurrentRoute(): Promise<void> {
     await chat.open(state.route.chatId);
     return;
   }
-  const first = state.currentChat ?? state.chats[0];
-  if (first && state.phase === 'idle') {
-    await chat.open(first.id);
-    router.chat(first.id, true);
-  }
+  // The home route used to open the first chat and rewrite the URL, which is
+  // why it was never reachable. Nothing is opened here now, and the current
+  // chat is released so the homepage is not rendered over live conversation
+  // state.
+  state.currentChat = null;
+  state.messages = [];
+  state.capabilityRequests = [];
 }
+
+const homeView = new HomeView(state, {
+  startChat: () => void chat.create(state.selectedPersonaId),
+  openChat: (chatId) => router.chat(chatId),
+  openSettings: () => router.settings(),
+});
 
 function render(): void {
   const focus = captureFocus(root);
@@ -209,6 +179,7 @@ function render(): void {
     return;
   }
   if (state.showSettings) root.append(settingsView.node());
+  else if (state.route.kind === 'home') root.append(homeView.node());
   else root.append(shell());
   if (state.showNewChatPersonaModal) root.append(newChatModal());
   if (state.personaAvatarPreview) root.append(imageOverlay(state.personaAvatarPreview, 'Persona avatar', () => { state.personaAvatarPreview = ''; render(); }));

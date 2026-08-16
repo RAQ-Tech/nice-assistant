@@ -125,10 +125,53 @@ test('login completes the first-run workspace and persona journey', async ({ pag
   await page.getByRole('dialog').getByRole('button', { name: 'Continue' }).click();
   await expect(page.getByRole('dialog', { name: 'Default personality' })).toBeVisible();
   await page.getByRole('dialog').getByRole('button', { name: 'Continue' }).click();
-  await expect(page.getByTestId('client-phase')).toHaveText('Idle');
+  // First-run setup now finishes on the homepage rather than in whichever chat
+  // happened to exist. `client-phase` belongs to the chat shell, so the settled
+  // state to assert here is the homepage itself.
+  await expect(page.getByTestId('home')).toBeVisible();
   expect(createdWorkspace).toBe(true);
   expect(createdPersona).toBe(true);
-  expect(onboardingDone).toBe(true);
+  // The homepage renders as soon as setup has what it needs, which is before
+  // the settings write returns. Waiting on the write itself rather than on a
+  // screen that appears slightly earlier.
+  await expect.poll(() => onboardingDone).toBe(true);
+});
+
+test('loading with no chat in the url shows the homepage and stays there', async ({ page }) => {
+  await installAuthenticatedFixture(page);
+  await page.goto('/');
+
+  await expect(page.getByTestId('home')).toBeVisible();
+  // The home route used to redirect into the first chat and rewrite the URL.
+  await expect(page.getByTestId('chat-input')).toHaveCount(0);
+
+  await page.reload();
+  await expect(page.getByTestId('home')).toBeVisible();
+});
+
+test('a chat link still opens that chat, and back returns to the homepage', async ({ page }) => {
+  await installAuthenticatedFixture(page);
+  await page.goto('/');
+  await expect(page.getByTestId('home')).toBeVisible();
+
+  await page.goto('/#/chats/chat-1');
+  await expect(page.getByText('Earlier reply')).toBeVisible();
+  await page.reload();
+  await expect(page.getByText('Earlier reply')).toBeVisible();
+
+  await page.goBack();
+  await expect(page.getByTestId('home')).toBeVisible();
+  await page.goForward();
+  await expect(page.getByText('Earlier reply')).toBeVisible();
+});
+
+test('the homepage opens a recent conversation', async ({ page }) => {
+  await installAuthenticatedFixture(page);
+  await page.goto('/');
+
+  await page.getByTestId('home-recent').getByRole('button').first().click();
+
+  await expect(page.getByText('Earlier reply')).toBeVisible();
 });
 
 test('typed chat streams a turn and persists the canonical result', async ({ page }) => {

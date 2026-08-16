@@ -363,6 +363,11 @@ installed-browser acceptance.
   never matches is refused when saved and nothing is stored, and that saving the
   setting changes what the runner does on its next pass rather than only what
   the API returns.
+- Browser journeys cover the homepage: loading with no chat in the URL shows it
+  and a reload stays there, a chat link still opens that chat and survives a
+  reload, back and forward move between the two, and a recent conversation opens
+  from the homepage. The first-run journey now settles on the homepage and waits
+  for the settings write rather than for a screen that appears slightly earlier.
 - API tests use isolated temporary databases and deterministic fake providers.
 - Migration tests upgrade pre-0004/0005/0007/0008/0009/0010/0011/0012/0013/0014/0015/0016/0017/0019/0021/0022 databases and prove
   chats, messages, jobs, media, memories, turn ordering, stored artifact links,

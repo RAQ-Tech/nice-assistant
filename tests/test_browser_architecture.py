@@ -13,6 +13,8 @@ class BrowserArchitectureTests(unittest.TestCase):
             "app.ts",
             "chat.ts",
             "chat_drawer.ts",
+            "home_view.ts",
+            "onboarding.ts",
             "chat_rendering.ts",
             "capabilities.ts",
             "everyday_settings_view.ts",
@@ -47,6 +49,7 @@ class BrowserArchitectureTests(unittest.TestCase):
         self.assertLess((SOURCE / "persona_card_view.ts").read_text(encoding="utf-8").count("\n"), 150)
         self.assertLess((SOURCE / "persona_lore_view.ts").read_text(encoding="utf-8").count("\n"), 300)
         self.assertLess((SOURCE / "preset_settings_view.ts").read_text(encoding="utf-8").count("\n"), 550)
+        self.assertLess((SOURCE / "home_view.ts").read_text(encoding="utf-8").count("\n"), 300)
         self.assertLess((SOURCE / "operations_settings_view.ts").read_text(encoding="utf-8").count("\n"), 450)
         self.assertIn("strict", (ROOT / "tsconfig.json").read_text(encoding="utf-8"))
         self.assertIn('src="/app.js"', (ROOT / "web" / "index.html").read_text(encoding="utf-8"))
