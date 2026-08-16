@@ -126,7 +126,10 @@ change that alters them.
 - Task adapters are Ollama and OpenAI. The second one exists to keep the
   structured-output contract provider-neutral; further providers must implement the
   same contract before being advertised. The OpenAI adapter serves task roles only
-  and is deliberately not offered for persona conversation.
+  and is deliberately not offered for persona conversation, nor selectable in the
+  Task Model settings UI. Readiness now reports adapter installation, account
+  credentials, and live verification as three separate facts, and never claims
+  the third.
 - Developer screening checks typed and semantic task behavior, but final model
   selection still requires live latency/quality evaluation on the Unraid GPU.
 - Deterministic human-experience scenarios cover critical contracts, but emotional

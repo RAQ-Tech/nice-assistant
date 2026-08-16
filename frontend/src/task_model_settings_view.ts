@@ -42,7 +42,7 @@ export class TaskModelSettingsView {
           'Readiness checks',
           checked.length ? `${ready.length} of ${checked.length} checked roles ready` : 'Not checked in this browser session',
           checked.length && ready.length === checked.length ? 'ready' : (checked.length ? 'attention' : 'off'),
-          'A readiness check verifies the configured provider and installed model; it does not judge output quality.',
+          'A readiness check confirms the adapter is installed, that any credential it needs is configured for this account, and that the chosen model exists. It sends no request, so it never proves the provider answers, and it does not judge output quality.',
         ),
         readinessRow(
           'GPU scheduling',
@@ -124,7 +124,7 @@ export class TaskModelSettingsView {
       [
         settingsHeading('Execution path', ROLE_HELP[profile.role]),
         toggleField('Enable this role', profile.enabled, (value) => this.change(profile.role, 'enabled', value, false), 'Disabled roles follow the selected failure behavior instead of running a model.'),
-        selectField('Provider', profile.provider, ['ollama'], (value) => this.change(profile.role, 'provider', value, false), undefined, titleCase, false, 'Only providers implementing the structured Task Model contract appear here.'),
+        selectField('Provider', profile.provider, ['ollama'], (value) => this.change(profile.role, 'provider', value, false), undefined, titleCase, false, 'Only providers implementing the structured Task Model contract appear here. An adapter existing in the codebase is not the same as a provider offered here.'),
         selectField('Primary model', profile.model ?? '', modelOptions, (value) => this.change(profile.role, 'model', value || null, false), undefined, displayModel, false, 'Automatic uses the first installed Ollama model. An explicit choice is more predictable.'),
         selectField('Fallback model', profile.fallback_model ?? '', modelOptions, (value) => {
           this.change(profile.role, 'fallback_model', value || null, false);

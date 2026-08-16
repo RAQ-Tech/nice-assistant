@@ -31,10 +31,20 @@ class OpenAITaskProviderTests(unittest.TestCase):
     def test_it_only_advertises_models_that_accept_a_json_schema(self):
         self.assertEqual(self.provider.list_models(), list(STRUCTURED_OUTPUT_MODELS))
 
-    def test_health_does_not_claim_reachability_it_has_not_tested(self):
+    def test_health_claims_installation_and_nothing_else(self):
         health = self.provider.health()
         self.assertEqual(health.status, ProviderStatus.READY)
-        self.assertIn("task run reports", health.message)
+        # Neither reachability nor credentials: this object has no account, and
+        # saying "Configured" without one is what made a keyless profile report
+        # itself ready.
+        self.assertIn("Adapter installed", health.message)
+        self.assertNotIn("Configured", health.message)
+
+    def test_it_declares_that_it_needs_an_account_key(self):
+        # Declared on the adapter so readiness never has to special-case a
+        # provider name.
+        self.assertTrue(self.provider.requires_account_api_key)
+        self.assertIn("API key", self.provider.missing_credential_message)
 
     def test_a_missing_account_key_fails_before_any_request(self):
         with mock.patch("app.openai_task_provider.openai_auth_json_request") as call:

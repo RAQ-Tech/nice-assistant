@@ -71,14 +71,18 @@ class TaskModelService:
                 "message": "This task role is disabled and will use its documented fallback behavior.",
                 "primary_ready": False,
                 "fallback_ready": False,
+                "adapter_installed": False,
+                "credentials_configured": False,
+                "live_verified": False,
                 "effective_model": None,
             }
-        primary = self._attempt_readiness(response["provider"], response["model"])
+        primary = self._attempt_readiness(user_id, response["provider"], response["model"])
         fallback = None
         fallback_provider = response.get("fallback_provider")
         fallback_model = response.get("fallback_model")
         if fallback_provider or fallback_model:
             fallback = self._attempt_readiness(
+                user_id,
                 fallback_provider or response["provider"],
                 fallback_model,
             )
@@ -92,6 +96,11 @@ class TaskModelService:
             "fallback_ready": bool(fallback and fallback["ready"]),
             "effective_model": primary.get("effective_model") if primary["ready"] else None,
             "fallback_effective_model": fallback.get("effective_model") if fallback and fallback["ready"] else None,
+            # Stated separately so an installed adapter is never read as a
+            # usable provider, and neither is ever read as a verified one.
+            "adapter_installed": bool(primary.get("adapter_installed")),
+            "credentials_configured": bool(primary.get("credentials_configured")),
+            "live_verified": False,
         }
 
     def runs(self, user_id: str, *, role: str | None = None, limit: int = 50) -> list[dict]:
@@ -360,21 +369,55 @@ class TaskModelService:
             return None
         return models[0] if models else None
 
-    def _attempt_readiness(self, provider_name: str, configured_model: str | None) -> dict:
+    def _attempt_readiness(self, user_id: str, provider_name: str, configured_model: str | None) -> dict:
+        """Whether this attempt could actually run, and what is missing if not.
+
+        Three separate facts, reported separately because conflating them is
+        what let a profile with no API key describe itself as ready: the adapter
+        is installed, the account has the credential the adapter needs, and a
+        live request has proved it works. Only the first two can be known
+        without spending a request, so the third is always false here.
+        """
+
+        unavailable = {
+            "ready": False,
+            "adapter_installed": False,
+            "credentials_configured": False,
+            "live_verified": False,
+        }
         try:
             provider = self.providers.task(provider_name)
         except LookupError:
-            return {"ready": False, "message": "The configured provider adapter is unavailable."}
+            return {**unavailable, "message": "The configured provider adapter is unavailable."}
         health = provider.health()
         if not health.ok:
-            return {"ready": False, "message": health.message}
+            return {**unavailable, "message": health.message}
+        installed = {**unavailable, "adapter_installed": True}
+        if getattr(provider, "requires_account_api_key", False) and not self._account_api_key(user_id).strip():
+            # The adapter exists and the model may well be spelled correctly.
+            # Neither matters: the request cannot be made. The message comes
+            # from the provider and never contains the credential itself.
+            return {
+                **installed,
+                "message": getattr(
+                    provider,
+                    "missing_credential_message",
+                    "This provider needs an API key that is not configured for this account.",
+                ),
+            }
+        configured = {**installed, "credentials_configured": True}
         models = provider.list_models()
         effective = configured_model or (models[0] if models else None)
         if not effective:
-            return {"ready": False, "message": "The provider has no installed models."}
+            return {**configured, "message": "The provider has no installed models."}
         if configured_model and configured_model not in models:
-            return {"ready": False, "message": "The configured model is not installed."}
-        return {"ready": True, "message": "Task model is ready.", "effective_model": effective}
+            return {**configured, "message": "The configured model is not installed."}
+        return {
+            **configured,
+            "ready": True,
+            "message": "Task model is ready.",
+            "effective_model": effective,
+        }
 
     def _finish_run(
         self,

@@ -304,6 +304,12 @@ installed-browser acceptance.
   that title, model, and memory mode remain editable. Repair tests upgrade a
   database from the revision before the migration, because a database already at
   head would not run the migration under test.
+- Task model credential tests prove a keyless OpenAI profile is not ready, that
+  the stated reason is the missing key rather than a missing adapter, that a
+  blank key counts as none, that the key never appears in a response, that
+  readiness never claims a live request was made, that a keyless primary reports
+  `fallback_ready` only when the fallback genuinely is ready, and that a
+  provider needing no credential is unaffected.
 - API tests use isolated temporary databases and deterministic fake providers.
 - Migration tests upgrade pre-0004/0005/0007/0008/0009/0010/0011/0012/0013/0014/0015/0016/0017/0019/0021/0022 databases and prove
   chats, messages, jobs, media, memories, turn ordering, stored artifact links,

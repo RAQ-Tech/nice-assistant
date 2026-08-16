@@ -4,6 +4,33 @@ Platform Task Models perform narrow cross-persona work. They are not personas,
 do not speak to the user, and do not receive permission to select provider URLs,
 media resources, or privileged settings.
 
+## What a readiness check knows
+
+Three separate facts, reported separately, because conflating them let a profile
+with no API key describe itself as ready and then fail with
+`openai_api_key_missing` when it ran:
+
+- `adapter_installed` - the provider adapter exists in this build.
+- `credentials_configured` - the account has whatever credential that adapter
+  requires. An adapter declares its own requirement; readiness does not
+  special-case provider names, and no message ever contains the credential.
+- `live_verified` - a real request has proved the provider answers. Always
+  `false`. Readiness spends no requests, so it can never honestly claim this;
+  a task run reports its own outcome and the run audit records it.
+
+`ready` means the attempt could be made, not that it has been. A keyless primary
+with a working fallback reports `fallback_ready`; a keyless primary with a
+keyless fallback reports `unavailable`.
+
+The credential is checked before the model name. Both can be wrong at once, and
+the key is the one to fix first, because until it is configured the provider's
+model list cannot be trusted either.
+
+An installed adapter is not an offered provider. The OpenAI adapter exists to
+keep the structured-output contract provider-neutral. It is deliberately absent
+from the Task Model settings selector, and stays absent until the privacy
+question about sending conversation-derived text to OpenAI is answered.
+
 ## Roles and failure behavior
 
 | Role | Runs when | Typed result | Terminal fallback |

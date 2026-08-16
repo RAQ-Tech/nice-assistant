@@ -254,43 +254,11 @@ These come before the remaining foundation work below because each one is a
 defect in behavior that already ships.
 
 Chat workspace and persona bindings are now immutable; see ADR 0032 and
-migration `0031`.
+migration `0031`. Task Model readiness now separates adapter installation,
+account credentials, and live verification, so a keyless profile no longer
+reports itself ready; see `docs/task-models.md`.
 
-12. **Make Task Model readiness credential-aware and truthful.**
-
-    **Observed failure:** an OpenAI Task Model profile can be saved through the API
-    without an account API key, yet readiness reports `ready: true`. Execution then
-    fails with `openai_api_key_missing`. The settings UI currently offers only Ollama,
-    so adapter presence, account configuration, UI support, and runtime readiness are
-    being conflated.
-
-    **Required work:**
-
-    - Pass the account/user context into provider-attempt readiness. For OpenAI, a
-      missing or blank account API key must make the attempt unavailable with a safe,
-      actionable message; never echo the key.
-    - Separate "adapter is installed", "credentials are configured", and "a live
-      request has been verified" in naming/status text. `health()` must not say
-      "Configured" when it has no account credential evidence.
-    - Preserve fallback semantics: a keyless OpenAI primary may report
-      `fallback_ready` only when the configured fallback really is ready.
-    - Do not expand OpenAI into the Task Model settings UI as part of this fix. The
-      product/privacy decision in Open question 5 determines whether a later slice
-      exposes it or keeps it as a contract adapter only.
-    - Update task-model, settings, security, testing, and debt documentation so an
-      installed adapter is not advertised as a usable provider.
-
-    **Done when:**
-
-    - A saved keyless OpenAI profile returns `ready: false` (or genuine
-      `fallback_ready`), and an actual run fails/falls back with the same reason.
-    - Blank and redacted-key cases, valid configured-key status, missing model,
-      provider failure, and fallback combinations have deterministic tests.
-    - API and browser labels do not imply that OpenAI Task Models are selectable or
-      live-verified when they are not.
-    - Focused task-provider/service/API tests and the complete verifier pass.
-
-13. **Untangle the conversation critical path before extending voice.**
+12. **Untangle the conversation critical path before extending voice.**
 
     **Why now:** `ConversationService.create_turn` has cyclomatic complexity 49 and
     combines binding resolution, model/settings selection, persistence, job creation,
@@ -324,7 +292,7 @@ migration `0031`.
 
 ### 1D. Other ready work
 
-14. **Bring direct media actions under measured-capacity admission.** The direct
+13. **Bring direct media actions under measured-capacity admission.** The direct
     image buttons still use legacy provider settings through a disclosed manual
     plan, so their demand is unknown and they bypass catalog-estimate admission.
     They do take the shared-resource lease, but two different paths to the same
@@ -332,17 +300,17 @@ migration `0031`.
     generation. Source: `docs/debt-register.md`;
     `docs/human-experience-realignment-plan.md` baseline gap 8.
 
-15. **Move provider helper internals off legacy low-level inputs.** Routes use
+14. **Move provider helper internals off legacy low-level inputs.** Routes use
     SQLAlchemy repositories and unit-of-work boundaries, but some provider
     helpers still take HTTP/SQLite-shaped arguments. This is the remaining
     inconsistency in the persistence boundary. Source: `docs/debt-register.md`.
 
-16. **Lift provider-specific settings out of persona and UI records.** Provider
+15. **Lift provider-specific settings out of persona and UI records.** Provider
     details are embedded directly in those records, which couples persona data
     to whichever provider happened to be configured. Source:
     `docs/debt-register.md`.
 
-17. **Decide whether turn event replay needs a durable log.** Replay is bounded
+16. **Decide whether turn event replay needs a durable log.** Replay is bounded
     and process-local today. That is honest and sufficient for a single-process
     private-LAN deployment; it is listed so the limitation stays visible rather
     than being discovered during a future multi-process change. Source:
@@ -357,24 +325,24 @@ Nothing is parked here that the owner has not seen. The proactive-message
 question that sat here was answered on 2026-08-16: the reply stays first. See
 section 6 and item 6.
 
-18. **Automatic expiry for rejected and forgotten memory.** Retention is durable
+17. **Automatic expiry for rejected and forgotten memory.** Retention is durable
     and users can permanently delete individual or bulk records, but there is no
     administrator-approved automatic expiry policy. The code change is small;
     the retention period and its defaults are the decision. Source:
     `docs/debt-register.md`, `docs/memory.md`.
 
-19. **Semantic memory retrieval.** Retrieval is lexical full-text search plus
+18. **Semantic memory retrieval.** Retrieval is lexical full-text search plus
     recency. Semantic retrieval remains an optional future interface and is
     deliberately not implied anywhere in the product. Adding it is a scope
     decision, not a blocked task. Source: `docs/debt-register.md`.
 
-20. **Workspace-shared lore.** Lore is persona-scoped, so an entry used by
+19. **Workspace-shared lore.** Lore is persona-scoped, so an entry used by
     several personas in a workspace has to be authored more than once. Sharing
     is a product decision about who owns an entry and what happens when one
     persona edits it, not a schema problem. Source:
     `docs/autonomous-decision-log.md` D5, `docs/debt-register.md`.
 
-21. **Whether Task Model roles may send conversation-derived text to OpenAI.**
+20. **Whether Task Model roles may send conversation-derived text to OpenAI.**
     The adapter exists and is deliberately not selectable in settings. Until
     this is answered the UI stays local-only and must not advertise OpenAI as a
     usable provider. Source: `docs/task-models.md`, open question 5 below.
@@ -392,21 +360,21 @@ Kokoro path behind a flag. Only items 15-16 genuinely require the approved
 listening decision. Step 15 cannot select a provider until that decision
 exists, and no unverified provider support may be advertised in the meantime.
 
-22. **Streaming TTS.** Begin playback before a complete response file exists.
+21. **Streaming TTS.** Begin playback before a complete response file exists.
     Today synthesis must finish before audio starts.
 
-23. **Automatic end-of-turn detection.** Detect that the user has stopped
+22. **Automatic end-of-turn detection.** Detect that the user has stopped
     speaking, with push-to-talk retained as a dependable fallback rather than
     replaced.
 
-24. **True barge-in.** Interrupting playback must also stop the superseded
+23. **True barge-in.** Interrupting playback must also stop the superseded
     provider work, not just mute the output.
 
-25. **Approved quality-first and local fallback chains for TTS and STT**, with
+24. **Approved quality-first and local fallback chains for TTS and STT**, with
     compact user-facing degradation notices. Requires the approved provider
     chain from item 16.
 
-26. **Repeatable provider evaluation** on latency, reliability, and blind
+25. **Repeatable provider evaluation** on latency, reliability, and blind
     listening criteria - not configuration readiness alone. This is the
     evaluation that unblocks item 15 and deferred roadmap steps 10-13.
 
@@ -420,30 +388,30 @@ Requires the installed private-LAN deployment and, where noted, a supervised
 session. Implementation is published for all of these; what remains is
 acceptance.
 
-27. **Deployment guard migration.** Complete the one-time supervised migration
+26. **Deployment guard migration.** Complete the one-time supervised migration
     from the legacy direct guard, then prove remote guard update, guard
     rollback and re-update, one-container deployment, and the final installed
     browser image journeys. Source: `docs/roadmap.md` step 24, ADR 0025,
     `docs/human-experience-realignment-plan.md`.
 
-28. **Installed acceptance for picture-message delivery.** Roadmap step 22 is
+27. **Installed acceptance for picture-message delivery.** Roadmap step 22 is
     published but not accepted on the real topology. Source: `docs/roadmap.md`,
     ADRs 0019-0020.
 
-29. **Installed acceptance for conversation cleanup.** Roadmap step 23, same
+28. **Installed acceptance for conversation cleanup.** Roadmap step 23, same
     situation. Source: `docs/roadmap.md`, ADR 0021.
 
-30. **Identity-stage latency and capacity acceptance.** Unaccepted until the
+29. **Identity-stage latency and capacity acceptance.** Unaccepted until the
     real verifier, consented references, and a compatible ComfyUI identity
     workflow are deployed together. The completed step 20 base media checks are
     explicitly not substitute evidence. Source: `docs/debt-register.md`,
     `docs/deployment-acceptance.md`.
 
-31. **Live capacity tuning for the deployment GPU.** Timing and capacity
+30. **Live capacity tuning for the deployment GPU.** Timing and capacity
     behavior under real memory limits remains deployment acceptance work.
     Source: `docs/roadmap.md` step 18C.
 
-32. **Installed acceptance for conversational image editing.** Delivered under
+31. **Installed acceptance for conversational image editing.** Delivered under
     ADR 0029 and covered by contract, API, and gate tests, but no installed
     browser journey has confirmed the confirmation card, the reference the
     planner chose, or a real ComfyUI edit workflow on the deployment. Until then

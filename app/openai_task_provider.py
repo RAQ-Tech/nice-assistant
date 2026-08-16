@@ -36,13 +36,24 @@ class OpenAITaskModelProvider:
     def list_models(self) -> list[str]:
         return list(STRUCTURED_OUTPUT_MODELS)
 
+    # Declared rather than inferred by the service, so "which providers need a
+    # key" lives with the provider that needs one.
+    requires_account_api_key = True
+    missing_credential_message = "Add an OpenAI API key in Settings before using an OpenAI task model."
+
     def health(self) -> ProviderHealth:
-        # Reachability is not checked here. A task run reports its own outcome, and a
-        # readiness claim without a request behind it would not be evidence.
+        """Report only that the adapter is installed.
+
+        Not reachability: a readiness claim with no request behind it is not
+        evidence. Not credentials either - this object does not have the
+        account, and saying "Configured" without one is how a keyless profile
+        came to report itself ready.
+        """
+
         return ProviderHealth(
             self.name,
             ProviderStatus.READY,
-            "Configured. A task run reports the real result.",
+            "Adapter installed. Credentials and reachability are checked separately.",
             0,
         )
 

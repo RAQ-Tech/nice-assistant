@@ -957,6 +957,11 @@ class TaskModelReadinessRepresentation(BaseModel):
     fallback_ready: bool
     effective_model: str | None = None
     fallback_effective_model: str | None = None
+    # An installed adapter is not a configured account, and neither is a
+    # verified one. Reported separately so no client can conflate them.
+    adapter_installed: bool = False
+    credentials_configured: bool = False
+    live_verified: bool = False
 
 
 class TaskModelRunRepresentation(BaseModel):
