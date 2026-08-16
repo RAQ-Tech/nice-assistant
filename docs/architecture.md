@@ -365,3 +365,14 @@ authenticated WebSocket carries realtime microphone, transcript, model-token,
 speech, cancellation, and state events. The server remains authoritative about
 turn identity; the browser remains authoritative about how much audio actually
 played.
+
+## One way to reach the database
+
+Everything above `app/database.py` reads and writes through the repository and
+its unit of work. There is no second path: the helpers that took sqlite3 rows,
+raw connections, and JSON strings have been removed rather than converted,
+because a converted helper nothing calls is still an example somebody will copy.
+
+`app/database.py` itself stays low-level deliberately. It runs migrations and
+the interrupted-work sweep at startup, both of which happen before a session
+exists to use.

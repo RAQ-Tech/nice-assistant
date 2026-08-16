@@ -1,6 +1,5 @@
 import json
 
-from app.auth import mask_secret
 from app.media import (
     IMAGE_QUALITY_ALIASES,
     IMAGE_QUALITY_VALUES,
@@ -13,21 +12,6 @@ from app.pregeneration import validate_preferences as validate_pregeneration
 from app.service_errors import RequestError
 
 
-def settings_for_response(row):
-    if not row:
-        return {
-            "default_memory_mode": "saved",
-            "stt_provider": "disabled",
-            "tts_provider": "disabled",
-            "tts_format": "wav",
-            "openai_api_key": "",
-            "preferences_json": "{}",
-        }
-    data = dict(row)
-    data["openai_api_key"] = mask_secret(data.get("openai_api_key"))
-    return data
-
-
 def truthy(value):
     if isinstance(value, bool):
         return value
@@ -36,16 +20,6 @@ def truthy(value):
     if isinstance(value, (int, float)):
         return value != 0
     return str(value).strip().lower() in {"1", "true", "yes", "on"}
-
-
-def parse_preferences_json(raw_value):
-    if not raw_value:
-        return {}
-    try:
-        parsed = json.loads(raw_value)
-        return parsed if isinstance(parsed, dict) else {}
-    except (TypeError, ValueError):
-        return {}
 
 
 def normalize_media_preferences(value):
@@ -124,13 +98,3 @@ def validate_pregeneration_preferences(preferences: dict) -> None:
     """Refuse a background-picture schedule the runner could never honor."""
 
     validate_pregeneration(preferences)
-
-
-def setting_bool(settings_row, key, default=False):
-    prefs = parse_preferences_json(settings_row["preferences_json"] if settings_row else "{}")
-    val = prefs.get(key, default)
-    if isinstance(val, bool):
-        return val
-    if isinstance(val, str):
-        return val.strip().lower() in {"1", "true", "yes", "on"}
-    return bool(val)

@@ -8,6 +8,13 @@ change that alters them.
 - Cookie-session authentication and first-user administration for private-LAN
   use, subject to the hardening items below.
 - Owner-scoped chat, job, media, audio, and memory API coverage.
+- The persistence boundary is consistent: every module above `app/database.py`
+  reads and writes through SQLAlchemy repositories and unit-of-work boundaries.
+  The helpers that still took sqlite3 rows, raw connections, and JSON strings
+  were unreachable from the application and were deleted rather than converted,
+  since converting them would have produced repository-shaped helpers nothing
+  calls. `app/database.py` remains low-level on purpose: it runs migrations and
+  the startup sweep before any session exists.
 - Separate interactive and media job lanes.
 - One dependency-injected FastAPI application with service/unit-of-work boundaries,
   durable linked conversation turns/jobs, safe provider failures, streamed Ollama
@@ -102,8 +109,6 @@ change that alters them.
   markers are the list; the ceiling stops it growing, and nothing since has
   added one.
 
-- Some provider helper internals still use low-level HTTP/SQLite-shaped legacy
-  inputs, but routes use SQLAlchemy repositories and unit-of-work boundaries.
 - Provider-specific settings embedded directly in persona and UI records.
 - `workspace_id` and `persona_id` remain accepted on `POST /chats/{id}/turns`
   after ADR 0032 made them redundant. They are refused when they disagree with

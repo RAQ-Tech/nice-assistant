@@ -1,5 +1,9 @@
-import json
-import time
+"""How a stored setting's type is described.
+
+Everything else that lived here spoke to a raw sqlite3 connection and is gone:
+the application reads and writes settings through the repository, and a second
+path that bypassed it was an invitation to use the wrong one.
+"""
 
 
 def value_type(value):
@@ -14,39 +18,3 @@ def value_type(value):
     if isinstance(value, str):
         return "str"
     return "json"
-
-
-def parse_legacy_preferences(raw):
-    try:
-        value = json.loads(raw or "{}")
-    except (TypeError, ValueError):
-        return {}
-    return value if isinstance(value, dict) else {}
-
-
-def load_typed_preferences(conn, user_id, legacy_json="{}"):
-    rows = conn.execute(
-        "SELECT key, value_json FROM setting_values WHERE user_id=? ORDER BY key",
-        (user_id,),
-    ).fetchall()
-    if not rows:
-        return parse_legacy_preferences(legacy_json)
-    result = {}
-    for row in rows:
-        try:
-            result[row[0]] = json.loads(row[1])
-        except (TypeError, ValueError):
-            continue
-    return result
-
-
-def store_typed_preferences(conn, user_id, preferences, updated_at=None):
-    values = preferences if isinstance(preferences, dict) else parse_legacy_preferences(preferences)
-    stamp = int(updated_at or time.time())
-    conn.execute("DELETE FROM setting_values WHERE user_id=?", (user_id,))
-    for key, value in sorted(values.items()):
-        conn.execute(
-            "INSERT INTO setting_values(user_id,key,value_type,value_json,updated_at) VALUES(?,?,?,?,?)",
-            (user_id, str(key)[:120], value_type(value), json.dumps(value, separators=(",", ":")), stamp),
-        )
-    return values

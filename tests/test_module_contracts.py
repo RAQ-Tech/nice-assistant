@@ -58,7 +58,6 @@ class RefactoredModuleContractTests(unittest.TestCase):
         self.assertTrue(chat.chat_title_needs_autogeneration("Untitled chat"))
         self.assertFalse(chat.chat_title_needs_autogeneration("Greenhouse at sunrise"))
         self.assertEqual(media.normalize_image_quality("hd"), "high")
-        self.assertEqual(settings.parse_preferences_json('{"x":1}'), {"x": 1})
         response = providers.provider_test_response(
             "openai", True, "ready", "OpenAI is reachable.", "token sk-secret123456"
         )

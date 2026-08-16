@@ -10,7 +10,6 @@ from alembic.config import Config
 
 from app import database
 from app.secret_store import SECRET_PREFIX, SecretConfigurationError, SecretStore
-from app.typed_settings import load_typed_preferences
 
 
 class DatabaseFoundationTests(unittest.TestCase):
@@ -939,7 +938,15 @@ class DatabaseFoundationTests(unittest.TestCase):
 
             database.initialize_database(path, 1800)
             conn = database.connect_sqlite(path)
-            values = load_typed_preferences(conn, "u1", "{}")
+            # Read straight from the table the migration wrote. The helper that
+            # used to do this took a raw connection and is gone, and the test is
+            # about the rows anyway.
+            values = {
+                key: json.loads(value)
+                for key, value in conn.execute(
+                    "SELECT key, value_json FROM setting_values WHERE user_id=?", ("u1",)
+                ).fetchall()
+            }
             columns = {row[1] for row in conn.execute("PRAGMA table_info(app_settings)")}
             conn.close()
 
