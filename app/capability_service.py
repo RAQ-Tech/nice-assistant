@@ -85,6 +85,33 @@ def attachment_response(row, frames=None) -> dict | None:
     }
 
 
+# How far back to read the persona's own words. Three is enough to catch "I got
+# my nails done" one turn before "send me a picture", and short enough that a
+# conversation which has moved on does not still be voting.
+PERSONA_REPLY_WINDOW = 3
+
+
+def _reply_text(repo, request) -> str:
+    """What this persona has been saying lately, for ranking retained pictures.
+
+    Not the reply on this turn. When a message passes the image-action gate -
+    which is the only way a conversational picture request survives planning -
+    the persona's prose is replaced by a neutral platform acknowledgement before
+    it is stored, exactly as ADR 0021 requires. There is nothing to rank by
+    there.
+
+    The words that matter came earlier: the persona said it walked the dog, and
+    then a picture was asked for. So this reads the recent transcript instead.
+    Empty for anything without a chat, which includes every direct action and
+    every background picture; those behave exactly as they did.
+    """
+
+    if not request.chat_id:
+        return ""
+    replies = [row.text for row in repo.messages(request.chat_id) if row.role == "assistant" and row.text]
+    return " ".join(replies[-PERSONA_REPLY_WINDOW:])[:2000]
+
+
 def _attachment_with_frames(repo, row) -> dict | None:
     """An attachment together with the other frames sent beside it."""
 
@@ -942,6 +969,10 @@ class CapabilityService:
                 execution_spec = self.media_catalog.execution_spec(uow.repo, user_id, row.id)
                 values.update(execution_spec["options"])
                 values["_estimated_vram_mb"] = execution_spec["estimated_vram_mb"]
+                # ADR 0033: read here, not persisted onto the request and never
+                # sent to a task model. It only ranks retained pictures that
+                # already qualified, so it cannot introduce or widen anything.
+                values["_reply_text"] = _reply_text(uow.repo, row)
                 submit = True
             response = self._response(uow.repo, row, job=job)
         if submit:

@@ -36,6 +36,22 @@ def _tokens(value: str) -> set[str]:
     return {word for word in str(value or "").casefold().replace(",", " ").split() if len(word) > 2}
 
 
+def reply_affinity(reply_text: str, stored: dict) -> int:
+    """How much a retained picture looks like what the persona just said.
+
+    Ranking only. This is counted across candidates that already cleared the
+    match threshold on the user's own request, so it can reorder them and can
+    never add one. ADR 0033 explains why that is different from ADR 0017's rule
+    that persona prose may not introduce or widen a media subject: choosing
+    between pictures that already exist cannot introduce anything.
+    """
+
+    words = _tokens(reply_text)
+    if not words or scene_is_empty(stored):
+        return 0
+    return sum(len(words & _tokens(stored.get(field, ""))) for field in SCENE_FIELDS)
+
+
 def scene_similarity(wanted: dict, stored: dict) -> int:
     """Score how well a retained picture answers a request.
 
@@ -122,11 +138,24 @@ class MediaLibraryService:
 
     # -- serving -----------------------------------------------------------
 
-    def find_ready(self, user_id: str, *, persona_id: str | None, scene, chat_id: str | None) -> dict | None:
+    def find_ready(
+        self,
+        user_id: str,
+        *,
+        persona_id: str | None,
+        scene,
+        chat_id: str | None,
+        reply_text: str = "",
+    ) -> dict | None:
         """Return the best ready picture for this request, or nothing.
 
         Never returns a picture already served into this conversation: the same
         image arriving twice reads as a mistake, however well it matches.
+
+        When the persona has already replied, its words break ties between
+        pictures that all cleared the threshold. That is what stops "took Roofus
+        for a walk" arriving beside a beach photo. It cannot make a picture
+        eligible: the candidate list is built exactly as it was before.
         """
 
         wanted = normalize_scene(scene)
@@ -134,8 +163,7 @@ class MediaLibraryService:
             return None
         with self._uow() as uow:
             rows = uow.repo.library_entries(user_id, persona_id=persona_id, state="ready")
-            best = None
-            best_score = 0
+            candidates = []
             for row in rows:
                 if chat_id and chat_id in {row.last_served_chat_id, row.origin_chat_id}:
                     # Neither re-send a picture this conversation already saw,
@@ -143,10 +171,14 @@ class MediaLibraryService:
                     continue
                 stored = normalize_scene(json.loads(row.scene_json or "{}"))
                 score = scene_similarity(wanted, stored)
-                if score > best_score:
-                    best, best_score = row, score
-            if not best or best_score < MATCH_THRESHOLD:
+                if score >= MATCH_THRESHOLD:
+                    candidates.append((row, score, reply_affinity(reply_text, stored)))
+            if not candidates:
                 return None
+            # Affinity first, then the request score. With no reply, every
+            # affinity is zero and this is the order it always was.
+            candidates.sort(key=lambda item: (-item[2], -item[1], item[0].id))
+            best, best_score, _affinity = candidates[0]
             frames = self._set_siblings(uow.repo, best, chat_id)
             return {
                 "id": best.id,

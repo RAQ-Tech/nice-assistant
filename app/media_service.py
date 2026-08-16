@@ -170,7 +170,13 @@ class MediaService:
             # frame two, and the set would be short a picture it thinks it has.
             return None
         persona_id = values.get("_persona_id")
-        match = self.library.find_ready(user_id, persona_id=persona_id, scene=values.get("scene"), chat_id=chat_id)
+        match = self.library.find_ready(
+            user_id,
+            persona_id=persona_id,
+            scene=values.get("scene"),
+            chat_id=chat_id,
+            reply_text=str(values.get("_reply_text") or ""),
+        )
         if not match:
             return None
         with self._uow() as uow:

@@ -320,6 +320,27 @@ Each preset's counts are visible and individually resettable under Media
 Catalog. Nothing in the product describes this as learning, because nothing here
 learns: it counts.
 
+### Choosing between pictures that already qualify
+
+A persona replies before anything decides which picture is attached, so it can
+describe walking the dog while a beach photo arrives beside it. Planning the
+picture first was rejected on latency grounds; see A12 in the decision log.
+
+Instead, when a request is answered from the retained library, what the persona
+has recently said reorders the candidates. It cannot change which candidates
+there are: the list is built from the user's own words exactly as before, with
+the same match threshold and the same never-twice-in-one-conversation rule.
+
+It reads the last three assistant replies in that chat, not the reply on the
+turn making the request. A message that asks for a picture passes the
+image-action gate, and ADR 0021 replaces persona prose with a neutral
+acknowledgement whenever it does, so there is nothing in that reply to read. The
+words that matter came earlier.
+
+With no chat - a direct action, a background picture, a photo set frame - every
+affinity is zero and the order is the one it always was. See ADR 0033, and
+ADR 0017 for the rule it deliberately does not weaken.
+
 ### Photo sets
 
 One idea, several frames. The shared scene belongs to the set and the pose

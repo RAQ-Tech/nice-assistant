@@ -204,6 +204,10 @@ change that alters them.
 - Capability planning sees only the current user message, so a request that
   refers to something established earlier in the conversation cannot be routed
   or described correctly. See ADR 0030.
+- Picture-to-words alignment is ranking over shared words, which is as crude as
+  the library matching it sits beside. It only reorders candidates the user's
+  own request already produced, so being wrong costs a less apt picture rather
+  than an unrelated one. See ADR 0033.
 - Identity resemblance currently leans on generate-then-compare correction
   (ADR 0013). That is a check standing in for a control: it spends latency
   resampling and can reject every candidate, and it makes an optional service

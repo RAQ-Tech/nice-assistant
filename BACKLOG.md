@@ -59,7 +59,11 @@ from one shared scene with related seeds and arrive in a conversation together.
 What happens to a picture after it is made is counted against the preset that
 made it, and those counts reorder presets that already fit. A preset exports as
 a shareable file, previewed field by field before it is written, and a file from
-somebody else imports all-or-nothing after saying what it would do. The
+somebody else imports all-or-nothing after saying what it would do. What the
+persona has been saying reorders retained pictures that already qualify, without
+ever making one eligible; see ADR 0033.
+
+**Section 1A is complete.** The
 generation preset record, its backfill, preset-directed planning, the scene
 contract, shortlist routing, the routing tester, starter presets,
 multi-pass stages, structural persona identity, the retained picture library,
@@ -77,32 +81,6 @@ This program does not displace the voice-core items in section 3. Those remain
 the highest product priority and are blocked on an operator decision that has
 not been made; this work is what can actually progress in the meantime.
 
-1. **Choose the retained picture that matches what the persona said.** A
-    persona writes its reply before anything decides which picture is attached,
-    so it can say one thing while a picture of something else arrives beside it.
-    Planning the picture first was rejected on 2026-08-16 because it would add a
-    Task Model call to every turn, and real-time voice is the direction. This
-    fixes the same problem from the other end and costs nothing per turn:
-    capability planning already runs after the reply commits, so the reply is
-    already there to be read. Source: ADR 0017, ADR 0021, ADR 0030.
-
-    Done when:
-    - The persona's reply may influence which already-retained picture is
-      chosen, and nothing else. It may not introduce a subject, widen one,
-      cause a generation, or make a picture eligible that the user's own words
-      did not already make eligible. ADR 0017 holds; this ranks candidates that
-      already passed it.
-    - A new ADR records that narrowing, because it reads as a contradiction of
-      ADR 0017 otherwise, and the reason the two are different is the whole
-      argument.
-    - `test_persona_reply_prose_still_never_reaches_planning` is kept, or
-      replaced by a stricter test that proves prose cannot create or widen work
-      while still allowing it to rank.
-    - A test shows the beach-photo case fixed: a persona that describes walking
-      the dog does not get a beach picture when a dog picture is retained.
-    - When no retained picture matches the reply, behaviour is exactly what it
-      is today. This never makes a picture arrive that would not have.
-
 ### 1B. Homepage and everyday visibility
 
 Owner-requested 2026-08-16. Loading the browser drops straight into the last
@@ -113,7 +91,7 @@ and is currently only visible to someone who goes looking for it in settings.
 Item 7 is a prerequisite for item 11 and should be done first. The rest can be
 taken in any order.
 
-2. **Make pre-generation an owner setting, not deployment configuration.** The
+1. **Make pre-generation an owner setting, not deployment configuration.** The
     policy is read from `PREGENERATION_*` environment variables at startup, so
     it cannot be changed from the browser at all. A toggle on a dashboard would
     be a control that changes nothing, which this repository does not ship.
@@ -132,7 +110,7 @@ taken in any order.
       next pass, rather than only what the API returns.
     - An invalid window is refused when saved, not silently corrected later.
 
-3. **Open on a homepage instead of the last chat.** `#/` already parses as a
+2. **Open on a homepage instead of the last chat.** `#/` already parses as a
     home route, but `applyCurrentRoute` immediately opens the first chat and
     rewrites the URL, so the route has never been reachable. Source:
     `frontend/src/routing.ts`, `frontend/src/app.ts`.
@@ -147,7 +125,7 @@ taken in any order.
     - Existing browser journeys that assumed a chat opens on load are updated
       rather than deleted.
 
-4. **Put the logo in the chat header as the way back.** Source: owner request.
+3. **Put the logo in the chat header as the way back.** Source: owner request.
 
     Done when:
     - The mark already in `web/favicon.svg` is reused. No new brand is invented
@@ -158,7 +136,7 @@ taken in any order.
       controls that are already there.
     - A browser journey clicks it from a chat and lands on the homepage.
 
-5. **Show what is true right now on the homepage.** Information only; every
+4. **Show what is true right now on the homepage.** Information only; every
     value read from an API that already exists. Source: owner request.
 
     Done when:
@@ -171,7 +149,7 @@ taken in any order.
     - It does not poll aggressively: one load, and refresh on the events the
       browser already receives.
 
-6. **Put the pre-generation toggle and schedule on the homepage.** The reason
+5. **Put the pre-generation toggle and schedule on the homepage.** The reason
     this belongs on the front page rather than in settings is that it spends
     real electricity on a schedule, and a setting nobody sees is a setting
     nobody revisits. Needs item 7. Source: owner request, ADR 0030.
@@ -207,7 +185,7 @@ This section is complete.
 
 ### 1D. Other ready work
 
-7. **Bring direct media actions under measured-capacity admission.** The direct
+6. **Bring direct media actions under measured-capacity admission.** The direct
     image buttons still use legacy provider settings through a disclosed manual
     plan, so their demand is unknown and they bypass catalog-estimate admission.
     They do take the shared-resource lease, but two different paths to the same
@@ -215,17 +193,17 @@ This section is complete.
     generation. Source: `docs/debt-register.md`;
     `docs/human-experience-realignment-plan.md` baseline gap 8.
 
-8. **Move provider helper internals off legacy low-level inputs.** Routes use
+7. **Move provider helper internals off legacy low-level inputs.** Routes use
     SQLAlchemy repositories and unit-of-work boundaries, but some provider
     helpers still take HTTP/SQLite-shaped arguments. This is the remaining
     inconsistency in the persistence boundary. Source: `docs/debt-register.md`.
 
-9. **Lift provider-specific settings out of persona and UI records.** Provider
+8. **Lift provider-specific settings out of persona and UI records.** Provider
     details are embedded directly in those records, which couples persona data
     to whichever provider happened to be configured. Source:
     `docs/debt-register.md`.
 
-10. **Decide whether turn event replay needs a durable log.** Replay is bounded
+9. **Decide whether turn event replay needs a durable log.** Replay is bounded
     and process-local today. That is honest and sufficient for a single-process
     private-LAN deployment; it is listed so the limitation stays visible rather
     than being discovered during a future multi-process change. Source:
@@ -240,24 +218,24 @@ Nothing is parked here that the owner has not seen. The proactive-message
 question that sat here was answered on 2026-08-16: the reply stays first. See
 section 6 and item 6.
 
-11. **Automatic expiry for rejected and forgotten memory.** Retention is durable
+10. **Automatic expiry for rejected and forgotten memory.** Retention is durable
     and users can permanently delete individual or bulk records, but there is no
     administrator-approved automatic expiry policy. The code change is small;
     the retention period and its defaults are the decision. Source:
     `docs/debt-register.md`, `docs/memory.md`.
 
-12. **Semantic memory retrieval.** Retrieval is lexical full-text search plus
+11. **Semantic memory retrieval.** Retrieval is lexical full-text search plus
     recency. Semantic retrieval remains an optional future interface and is
     deliberately not implied anywhere in the product. Adding it is a scope
     decision, not a blocked task. Source: `docs/debt-register.md`.
 
-13. **Workspace-shared lore.** Lore is persona-scoped, so an entry used by
+12. **Workspace-shared lore.** Lore is persona-scoped, so an entry used by
     several personas in a workspace has to be authored more than once. Sharing
     is a product decision about who owns an entry and what happens when one
     persona edits it, not a schema problem. Source:
     `docs/autonomous-decision-log.md` D5, `docs/debt-register.md`.
 
-14. **Whether Task Model roles may send conversation-derived text to OpenAI.**
+13. **Whether Task Model roles may send conversation-derived text to OpenAI.**
     The adapter exists and is deliberately not selectable in settings. Until
     this is answered the UI stays local-only and must not advertise OpenAI as a
     usable provider. Source: `docs/task-models.md`, open question 5 below.
@@ -275,21 +253,21 @@ Kokoro path behind a flag. Only items 15-16 genuinely require the approved
 listening decision. Step 15 cannot select a provider until that decision
 exists, and no unverified provider support may be advertised in the meantime.
 
-15. **Streaming TTS.** Begin playback before a complete response file exists.
+14. **Streaming TTS.** Begin playback before a complete response file exists.
     Today synthesis must finish before audio starts.
 
-16. **Automatic end-of-turn detection.** Detect that the user has stopped
+15. **Automatic end-of-turn detection.** Detect that the user has stopped
     speaking, with push-to-talk retained as a dependable fallback rather than
     replaced.
 
-17. **True barge-in.** Interrupting playback must also stop the superseded
+16. **True barge-in.** Interrupting playback must also stop the superseded
     provider work, not just mute the output.
 
-18. **Approved quality-first and local fallback chains for TTS and STT**, with
+17. **Approved quality-first and local fallback chains for TTS and STT**, with
     compact user-facing degradation notices. Requires the approved provider
     chain from item 16.
 
-19. **Repeatable provider evaluation** on latency, reliability, and blind
+18. **Repeatable provider evaluation** on latency, reliability, and blind
     listening criteria - not configuration readiness alone. This is the
     evaluation that unblocks item 15 and deferred roadmap steps 10-13.
 
@@ -303,30 +281,30 @@ Requires the installed private-LAN deployment and, where noted, a supervised
 session. Implementation is published for all of these; what remains is
 acceptance.
 
-20. **Deployment guard migration.** Complete the one-time supervised migration
+19. **Deployment guard migration.** Complete the one-time supervised migration
     from the legacy direct guard, then prove remote guard update, guard
     rollback and re-update, one-container deployment, and the final installed
     browser image journeys. Source: `docs/roadmap.md` step 24, ADR 0025,
     `docs/human-experience-realignment-plan.md`.
 
-21. **Installed acceptance for picture-message delivery.** Roadmap step 22 is
+20. **Installed acceptance for picture-message delivery.** Roadmap step 22 is
     published but not accepted on the real topology. Source: `docs/roadmap.md`,
     ADRs 0019-0020.
 
-22. **Installed acceptance for conversation cleanup.** Roadmap step 23, same
+21. **Installed acceptance for conversation cleanup.** Roadmap step 23, same
     situation. Source: `docs/roadmap.md`, ADR 0021.
 
-23. **Identity-stage latency and capacity acceptance.** Unaccepted until the
+22. **Identity-stage latency and capacity acceptance.** Unaccepted until the
     real verifier, consented references, and a compatible ComfyUI identity
     workflow are deployed together. The completed step 20 base media checks are
     explicitly not substitute evidence. Source: `docs/debt-register.md`,
     `docs/deployment-acceptance.md`.
 
-24. **Live capacity tuning for the deployment GPU.** Timing and capacity
+23. **Live capacity tuning for the deployment GPU.** Timing and capacity
     behavior under real memory limits remains deployment acceptance work.
     Source: `docs/roadmap.md` step 18C.
 
-25. **Installed acceptance for conversational image editing.** Delivered under
+24. **Installed acceptance for conversational image editing.** Delivered under
     ADR 0029 and covered by contract, API, and gate tests, but no installed
     browser journey has confirmed the confirmation card, the reference the
     planner chose, or a real ComfyUI edit workflow on the deployment. Until then
@@ -436,7 +414,7 @@ done:
 - Update the product, architecture, security, testing, operations, roadmap, and
   debt documents in the same change as the behavior they describe.
 - Record durable architectural choices as ADRs in `docs/decisions/`. The next
-  free number is 0033.
+  free number is 0034.
 - Run `python scripts/audit_public_repo.py` before every public commit. This
   file must never contain deployment addresses, hostnames, user-specific paths,
   hardware inventories, or account identifiers.
