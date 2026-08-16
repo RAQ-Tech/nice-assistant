@@ -15,6 +15,7 @@ from __future__ import annotations
 import json
 
 from app.media_scene import SCENE_FIELDS, normalize_scene, scene_is_empty
+from app.preset_signals import KEPT, REMOVED, SENT_AGAIN
 from app.repositories import UnitOfWork, now_ts
 from app.service_errors import NotFoundError, RequestError
 
@@ -188,6 +189,9 @@ class MediaLibraryService:
                 row.served_count += 1
                 row.last_served_chat_id = chat_id
                 row.last_served_at = now_ts()
+                # Reusing a picture is the strongest evidence a recipe works:
+                # it was good enough to answer a second, different request.
+                self._signal(uow.repo, user_id, row, SENT_AGAIN)
         except Exception:
             if self.logger:
                 self.logger.warning("library entry could not be marked served")
@@ -215,6 +219,9 @@ class MediaLibraryService:
             if not row:
                 raise RequestError("that picture is already in the library", 409)
             self._enforce_limit(uow.repo, user_id)
+            # Deliberately kept by a person, rather than retained automatically
+            # by the platform. Only the first is evidence of anything.
+            self._signal(uow.repo, user_id, row, KEPT)
             return self._public(row)
 
     def remove(self, user_id: str, entry_id: str) -> bool:
@@ -222,8 +229,22 @@ class MediaLibraryService:
             row = uow.repo.library_entry(user_id, entry_id)
             if not row:
                 return False
+            self._signal(uow.repo, user_id, row, REMOVED)
             uow.session.delete(row)
             return True
+
+    @staticmethod
+    def _signal(repo, user_id: str, row, kind: str) -> None:
+        """Count what happened to this picture against the preset that made it.
+
+        Silent when the preset cannot be determined: a picture from a manual
+        plan or a legacy row has nothing to credit, and inventing an attribution
+        would be worse than counting nothing.
+        """
+
+        preset_id = repo.preset_for_media(user_id, row.media_id)
+        if preset_id:
+            repo.record_preset_signal(user_id, persona_id=row.persona_id, preset_id=preset_id, kind=kind)
 
     @staticmethod
     def _public(row) -> dict:

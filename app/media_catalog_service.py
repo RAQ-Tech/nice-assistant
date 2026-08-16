@@ -14,6 +14,7 @@ from app.identity_conditioning import (
 )
 from app.identity_images import MAX_REFERENCE_BYTES, read_identity_image_file
 from app.media_planner import PROVIDER_DEFAULT, build_media_plan
+from app.preset_signals import PresetSignals, describe, preferred_order
 from app.media_preset import normalize_definition
 from app.preset_bundle import resolve_entry, starter_bundle
 from app.prompt_dialect import normalize_dialect
@@ -738,6 +739,7 @@ class MediaCatalogService:
         self._ensure_presets(repo, user_id)
         requirements = self._with_identity_mechanism(repo, user_id, requirements, persona_id)
         requirements = self._with_persona_preferences(repo, user_id, requirements, persona_id)
+        requirements = self._with_measured_preferences(repo, user_id, requirements, persona_id)
         built = build_media_plan(repo, user_id, requirements, self.providers, ready_backends)
         identity_required = IDENTITY_CONTROL_FEATURE in requirements["required_features"]
         built["identity_conditioning"] = (
@@ -778,6 +780,67 @@ class MediaCatalogService:
         if not preferred:
             return requirements
         return {**requirements, "persona_preset_ids": [str(item) for item in preferred]}
+
+    def preset_signals(self, user_id: str) -> list[dict]:
+        """What has been counted for each preset, and the weight it produces.
+
+        Shown with the counts rather than as a score on its own: a weight of one
+        from a single signal is not the same as a weight of one from twenty, and
+        an operator deciding whether to trust it needs both.
+        """
+
+        with self._uow() as uow:
+            names = {row.id: row.name for row in uow.repo.media_presets(user_id)}
+            grouped: dict[str, PresetSignals] = {}
+            for row in uow.repo.preset_signals(user_id):
+                current = grouped.get(row.preset_id) or PresetSignals(preset_id=row.preset_id)
+                grouped[row.preset_id] = PresetSignals(
+                    preset_id=row.preset_id,
+                    kept=current.kept + row.kept,
+                    sent_again=current.sent_again + row.sent_again,
+                    removed=current.removed + row.removed,
+                )
+        items = [
+            {
+                "preset_id": signals.preset_id,
+                "preset_name": names.get(signals.preset_id, "A preset that no longer exists"),
+                "kept": signals.kept,
+                "sent_again": signals.sent_again,
+                "removed": signals.removed,
+                "weight": signals.weight,
+                "summary": describe(signals),
+            }
+            for signals in grouped.values()
+        ]
+        items.sort(key=lambda item: (-item["weight"], item["preset_name"].casefold()))
+        return items
+
+    def clear_preset_signals(self, user_id: str, preset_id: str) -> bool:
+        with self._uow() as uow:
+            return bool(uow.repo.clear_preset_signals(user_id, preset_id))
+
+    @staticmethod
+    def _with_measured_preferences(repo, user_id: str, requirements: dict, persona_id: str | None) -> dict:
+        """Carry what happened to the pictures each preset made.
+
+        Consulted after the task model and after an operator-set persona
+        preference, and only among presets that already passed every hard
+        requirement. It reorders; it cannot select.
+        """
+
+        signals = [
+            PresetSignals(
+                preset_id=row.preset_id,
+                kept=row.kept,
+                sent_again=row.sent_again,
+                removed=row.removed,
+            )
+            for row in repo.preset_signals(user_id, persona_id=persona_id)
+        ]
+        order = preferred_order(signals)
+        if not order:
+            return requirements
+        return {**requirements, "measured_preset_ids": order}
 
     @staticmethod
     def _with_identity_mechanism(repo, user_id: str, requirements: dict, persona_id: str | None) -> dict:
@@ -1601,6 +1664,7 @@ class MediaCatalogService:
             "selected_resources_json": _wire_json(built["selected_resources"]),
             "execution_options_json": _wire_json(built["execution_options"]),
             "explanation_json": _wire_json(built["explanation"]),
+            "preset_id": str((built["explanation"].get("preset") or {}).get("id") or "") or None,
             "estimated_vram_mb": built["estimated_vram_mb"],
             "block_code": built["block_code"],
             "block_message": built["block_message"],

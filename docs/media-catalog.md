@@ -249,6 +249,27 @@ It is off by default. `PREGENERATION_ENABLED`, `PREGENERATION_START_HOUR`,
 `PREGENERATION_END_HOUR`, and `PREGENERATION_MAX_PER_RUN` set the policy, and the
 window may wrap past midnight because a quiet window normally does.
 
+### What happened to the pictures
+
+Three things are counted against the preset that produced a picture: the picture
+was deliberately kept, the picture was sent again into another conversation, or
+the picture was removed. Keeping and reusing earn a point; removing loses one.
+That is the whole model, deliberately, because the number is shown in settings
+beside the counts it came from and has to be explainable by looking at it.
+
+Generating a picture is not counted. The platform chose the preset, so counting
+that would be the platform scoring its own homework.
+
+The counts only ever reorder presets that already passed every hard requirement.
+Selection order is: the task model's choice for this request, then an
+operator-set persona preference, then these counts, then the deterministic
+score. Nothing here can make an incompatible preset eligible, and a preset whose
+pictures keep being removed is not promoted for having been used a lot.
+
+Each preset's counts are visible and individually resettable under Media
+Catalog. Nothing in the product describes this as learning, because nothing here
+learns: it counts.
+
 ### Photo sets
 
 One idea, several frames. The shared scene belongs to the set and the pose

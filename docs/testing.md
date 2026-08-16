@@ -331,6 +331,12 @@ installed-browser acceptance.
   outside that list failed at the last gate of the verifier rather than the
   first. The list was four files short of the whole repository, so the list was
   costing more than it saved.
+- Preset signal tests prove generating a picture counts for nothing, that
+  sending one again and removing one are counted against the preset that made
+  it, that a preset used often and removed often is not promoted, that more
+  evidence breaks a tie, that the summary never claims to have learned
+  anything, that counts are individually resettable, and that they are
+  owner-scoped.
 - API tests use isolated temporary databases and deterministic fake providers.
 - Migration tests upgrade pre-0004/0005/0007/0008/0009/0010/0011/0012/0013/0014/0015/0016/0017/0019/0021/0022 databases and prove
   chats, messages, jobs, media, memories, turn ordering, stored artifact links,

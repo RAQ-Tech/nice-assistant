@@ -22,6 +22,7 @@ from app.models import (
     MediaCatalogResource,
     MediaCatalogSetting,
     MediaExecutionPlan,
+    MediaPresetSignals,
     MediaFile,
     MediaGenerationAttempt,
     MediaGenerationJournal,
@@ -1890,6 +1891,59 @@ class ApplicationRepository:
             .order_by(PersonaSceneBacklogEntry.created_at, PersonaSceneBacklogEntry.id)
             .limit(max(1, int(limit)))
         ).all()
+
+    def preset_for_media(self, user_id: str, media_id: str) -> str:
+        """Which preset made this picture, if a coordinator plan made it."""
+
+        media = self.media_for_user(user_id, media_id)
+        if not media or not media.generation_plan_id:
+            return ""
+        plan = self.session.get(MediaExecutionPlan, media.generation_plan_id)
+        return str(getattr(plan, "preset_id", "") or "") if plan else ""
+
+    def record_preset_signal(self, user_id: str, *, persona_id: str | None, preset_id: str, kind: str) -> None:
+        """Add one to a count. Never subtracts; removal is its own count."""
+
+        if not preset_id or kind not in {"kept", "sent_again", "removed"}:
+            return
+        row = self.session.scalar(
+            select(MediaPresetSignals).where(
+                MediaPresetSignals.user_id == user_id,
+                MediaPresetSignals.persona_id.is_(None)
+                if persona_id is None
+                else MediaPresetSignals.persona_id == persona_id,
+                MediaPresetSignals.preset_id == preset_id,
+            )
+        )
+        if not row:
+            row = MediaPresetSignals(
+                id=secrets.token_hex(12),
+                user_id=user_id,
+                persona_id=persona_id,
+                preset_id=preset_id,
+                updated_at=now_ts(),
+            )
+            self.session.add(row)
+        setattr(row, kind, int(getattr(row, kind, 0) or 0) + 1)
+        row.updated_at = now_ts()
+        self.session.flush()
+
+    def preset_signals(self, user_id: str, *, persona_id: str | None = None):
+        query = select(MediaPresetSignals).where(MediaPresetSignals.user_id == user_id)
+        if persona_id is not None:
+            query = query.where(MediaPresetSignals.persona_id == persona_id)
+        return self.session.scalars(query.order_by(MediaPresetSignals.preset_id)).all()
+
+    def clear_preset_signals(self, user_id: str, preset_id: str) -> int:
+        rows = self.session.scalars(
+            select(MediaPresetSignals).where(
+                MediaPresetSignals.user_id == user_id,
+                MediaPresetSignals.preset_id == preset_id,
+            )
+        ).all()
+        for row in rows:
+            self.session.delete(row)
+        return len(rows)
 
     def add_attachment_frames(self, attachment_id: str, frames: list[tuple[str, int | None]]) -> None:
         """Record the extra frames shown beside an attachment, in order."""

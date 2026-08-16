@@ -45,6 +45,38 @@ def _json(value: str | None, fallback):
     return parsed
 
 
+def _choose_preset(candidates, *, preferred_preset_id, persona_preset_ids, measured_preset_ids):
+    """Pick the winner from candidates that already passed every requirement.
+
+    Four tiers, most-informed first. The task model saw this request, so its
+    choice outranks a standing preference. A persona preference then outranks
+    everything below it, because "this recipe works for this face" is knowledge
+    no score represents. Measured signals come next: what actually happened to
+    the pictures each preset made. The deterministic score is what remains when
+    nothing else has anything to say, and it is also what happens when the model
+    fails, times out, or expresses nothing.
+
+    None of these tiers can select an incompatible preset. They only reorder a
+    list the hard filter already produced.
+    """
+
+    def first_of(preset_ids):
+        for preset_id in preset_ids:
+            match = next((item for item in candidates if item["preset"].id == preset_id), None)
+            if match:
+                return match
+        return None
+
+    for source, choice in (
+        ("task_model", first_of([preferred_preset_id] if preferred_preset_id else [])),
+        ("persona_preference", first_of(persona_preset_ids)),
+        ("measured_preference", first_of(measured_preset_ids)),
+    ):
+        if choice:
+            return choice, source
+    return candidates[0], "deterministic"
+
+
 def build_media_plan(repo, user_id: str, requirements: dict, providers, ready_backends=None) -> dict:
     """Choose an enabled preset that satisfies every hard requirement."""
 
@@ -113,18 +145,13 @@ def build_media_plan(repo, user_id: str, requirements: dict, providers, ready_ba
     # The model's choice wins only if it survived the same hard filter every
     # other candidate did. Otherwise the deterministic order stands, which is
     # also what happens when the model fails, times out, or expresses nothing.
-    preferred = next((item for item in candidates if item["preset"].id == preferred_preset_id), None)
-    # The model saw this request, so its choice outranks a standing preference.
-    # A persona preference then outranks the score, because "this recipe works
-    # for this face" is knowledge the score cannot represent.
-    persona_choice = None
-    if not preferred:
-        for preset_id in persona_preset_ids:
-            persona_choice = next((item for item in candidates if item["preset"].id == preset_id), None)
-            if persona_choice:
-                break
-    winner = preferred or persona_choice or candidates[0]
-    selection_source = "task_model" if preferred else ("persona_preference" if persona_choice else "deterministic")
+    winner, selection_source = _choose_preset(
+        candidates,
+        preferred_preset_id=preferred_preset_id,
+        persona_preset_ids=persona_preset_ids,
+        measured_preset_ids=requirements.get("measured_preset_ids") or [],
+    )
+    preferred = winner if selection_source == "task_model" else None
     preset = winner["preset"]
     snapshots = [_snapshot(item) for item in winner["selected"]]
     warnings = []

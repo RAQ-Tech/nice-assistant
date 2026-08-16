@@ -242,6 +242,16 @@ export interface AttachmentFrame {
   frame_index: number | null;
 }
 
+export interface PresetSignal {
+  preset_id: Id;
+  preset_name: string;
+  kept: number;
+  sent_again: number;
+  removed: number;
+  weight: number;
+  summary: string;
+}
+
 export interface ChatAttachment {
   id: Id;
   kind: 'image' | 'video';

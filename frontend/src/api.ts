@@ -10,6 +10,7 @@ import type {
   LibraryEntry,
   MediaJournal,
   MediaPreset,
+  PresetSignal,
   Memory,
   MemoryEvent,
   MemoryMode,
@@ -429,6 +430,14 @@ export class ApiClient {
 
   deleteLibraryEntry(id: string): Promise<void> {
     return this.request(`/media-library/${encodeURIComponent(id)}`, { method: 'DELETE' });
+  }
+
+  presetSignals(): Promise<{ items: PresetSignal[] }> {
+    return this.request('/preset-signals');
+  }
+
+  clearPresetSignals(presetId: string): Promise<void> {
+    return this.request(`/preset-signals/${encodeURIComponent(presetId)}`, { method: 'DELETE' });
   }
 
   mediaPresets(): Promise<{ items: MediaPreset[] }> {

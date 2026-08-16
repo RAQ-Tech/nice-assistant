@@ -185,3 +185,13 @@ These chunks were intentionally separate. Visual Identity needed a new
 protected media-list contract and an interaction redesign; the everyday and
 operator tabs have different audiences and therefore use separate modules and
 interaction depth.
+
+## What has happened to the pictures
+
+Media Catalog ends with the counts recorded against each preset: pictures kept,
+sent again, and removed, with the score they produce. It sits after the presets
+rather than before them, because it describes them.
+
+Shown with the counts rather than as a score alone. A score of one from a single
+signal is not the same as a score of one from twenty, and an operator deciding
+whether to trust it needs both numbers. Each preset's counts reset on their own.

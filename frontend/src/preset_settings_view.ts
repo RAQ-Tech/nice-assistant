@@ -2,7 +2,7 @@ import type { ApiClient } from './api';
 import { el, errorMessage } from './dom';
 import { inputField, selectField, textareaField, toggleField } from './settings_controls';
 import { advancedSettings, operatorEditor, settingsCard, settingsHeading } from './settings_ui';
-import type { AppState, MediaCatalogResource, MediaPreset } from './types';
+import type { AppState, MediaCatalogResource, MediaPreset, PresetSignal } from './types';
 
 /**
  * The preset editor.
@@ -24,6 +24,7 @@ function styleLabel(value: string): string {
 
 export class PresetSettingsView {
   private presets: MediaPreset[] = [];
+  private signals: PresetSignal[] = [];
   private readonly openIds = new Set<string>();
   private readonly dirtyIds = new Set<string>();
   private busy = false;
@@ -38,12 +39,49 @@ export class PresetSettingsView {
     this.busy = true;
     try {
       this.presets = (await this.client.mediaPresets()).items;
+      this.signals = (await this.client.presetSignals()).items;
     } catch (error) {
       this.appState.settingsError = errorMessage(error, 'Unable to load generation presets.');
     } finally {
       this.busy = false;
       this.renderApp();
     }
+  }
+
+  private async clearSignals(presetId: string): Promise<void> {
+    try {
+      await this.client.clearPresetSignals(presetId);
+      this.signals = this.signals.filter((item) => item.preset_id !== presetId);
+    } catch (error) {
+      this.appState.settingsError = errorMessage(error, 'Unable to reset those counts.');
+    }
+    this.renderApp();
+  }
+
+  private signalsCard(): HTMLElement {
+    return settingsCard([
+      settingsHeading(
+        'What has happened to the pictures',
+        'Counted when you keep a picture, when one is sent again, or when you remove one. Making a picture is not counted, because the platform chose the preset. These counts can move a preset up the order; they can never make one eligible that does not already fit the request.',
+      ),
+      this.signals.length
+        ? el('ul', { class: 'settings-list', 'data-testid': 'preset-signals' }, this.signals.map((signal) =>
+            el('li', { class: 'settings-list-row' }, [
+              el('span', { class: 'settings-list-name', textContent: signal.preset_name }),
+              el('span', { class: 'settings-list-detail', textContent: signal.summary }),
+              el('span', {
+                class: 'settings-list-detail',
+                textContent: `Score ${signal.weight > 0 ? '+' : ''}${signal.weight}`,
+              }),
+              el('button', {
+                class: 'pill-btn',
+                textContent: 'Reset',
+                title: 'Forget the counts for this preset',
+                onclick: () => void this.clearSignals(signal.preset_id),
+              }),
+            ])))
+        : el('p', { class: 'settings-empty', textContent: 'Nothing counted yet. Keep, reuse, or remove a picture and it will appear here.' }),
+    ]);
   }
 
   node(): HTMLElement[] {
@@ -70,6 +108,9 @@ export class PresetSettingsView {
             }),
       ]),
       ...this.presets.map((preset) => this.editor(preset)),
+      // After the presets: this describes them, so it reads as a footnote
+      // rather than as the point of the screen.
+      this.signalsCard(),
     ];
   }
 

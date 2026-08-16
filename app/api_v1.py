@@ -654,6 +654,20 @@ class PhotoSetProductionResponse(BaseModel):
     started: list[dict]
 
 
+class PresetSignalRepresentation(BaseModel):
+    preset_id: str
+    preset_name: str
+    kept: int
+    sent_again: int
+    removed: int
+    weight: int
+    summary: str
+
+
+class PresetSignalListResponse(BaseModel):
+    items: list[PresetSignalRepresentation]
+
+
 class PregenerationReadinessRepresentation(BaseModel):
     allowed: bool
     reason: str
@@ -848,9 +862,10 @@ class MediaPlanPresetExplanation(BaseModel):
     revision: int
     priority: int
     routing_card: str
-    # Whether the task model chose this preset from the offered shortlist, or
-    # the deterministic score did.
-    source: Literal["task_model", "persona_preference", "deterministic"] = "deterministic"
+    # Who chose this preset, in the order they are consulted: the task model
+    # for this request, an operator-set persona preference, the counts of what
+    # happened to earlier pictures, or the deterministic score.
+    source: Literal["task_model", "persona_preference", "measured_preference", "deterministic"] = "deterministic"
     reason: str
     considered: list[MediaPlanConsideredPreset] = Field(default_factory=list)
 
@@ -1980,6 +1995,18 @@ def media_library(
 def media_file(media_id: str, request: Request, context: AuthContext = Depends(current_user)):
     path = services(request).resources.media_path(context.user_id, media_id)
     return FileResponse(path, media_type=mimetypes.guess_type(path.name)[0] or "application/octet-stream")
+
+
+@router.get("/preset-signals", response_model=PresetSignalListResponse, tags=["media"])
+def list_preset_signals(request: Request, context: AuthContext = Depends(current_user)):
+    return {"items": services(request).media_catalog.preset_signals(context.user_id)}
+
+
+@router.delete("/preset-signals/{preset_id}", status_code=204, tags=["media"])
+def clear_preset_signals(preset_id: str, request: Request, context: AuthContext = Depends(current_user)):
+    if not services(request).media_catalog.clear_preset_signals(context.user_id, preset_id):
+        raise NotFoundError("no counts recorded for that preset")
+    return Response(status_code=204)
 
 
 @router.get("/photo-sets", response_model=PhotoSetListResponse, tags=["media"])

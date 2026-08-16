@@ -490,7 +490,28 @@ class MediaExecutionPlan(Base):
     identity_reference_id: Mapped[str | None] = mapped_column(Text)
     identity_reference_sha256: Mapped[str | None] = mapped_column(Text)
     identity_conditioning_json: Mapped[str] = mapped_column(Text, default="{}", nullable=False)
+    # Which preset produced this plan. Also inside the explanation, but a column
+    # is what makes counting across many plans a query rather than a scan.
+    preset_id: Mapped[str | None] = mapped_column(Text)
     created_at: Mapped[int] = mapped_column(Integer, nullable=False)
+
+
+class MediaPresetSignals(Base):
+    """What happened to the pictures one preset made, for one persona.
+
+    Counts only. The weight derived from them lives in `app/preset_signals.py`
+    so the number and the counts behind it stay in one place.
+    """
+
+    __tablename__ = "media_preset_signals"
+    id: Mapped[str] = mapped_column(Text, primary_key=True)
+    user_id: Mapped[str] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    persona_id: Mapped[str | None] = mapped_column(Text)
+    preset_id: Mapped[str] = mapped_column(Text, nullable=False)
+    kept: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    sent_again: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    removed: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    updated_at: Mapped[int] = mapped_column(Integer, nullable=False)
 
 
 class AudioFile(Base):
