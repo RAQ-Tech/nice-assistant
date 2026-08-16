@@ -102,10 +102,12 @@ export interface PersonaLoreInput {
   enabled: boolean;
 }
 
+// The workspace and persona a turn runs under come from the chat it belongs to,
+// which is bound once at creation. The API still accepts both fields for
+// compatibility and refuses any value that differs, so this client stops
+// sending them rather than repeating what the server already knows.
 export interface TurnInput {
   text: string;
-  workspace_id: string | null;
-  persona_id: string | null;
   model: string | null;
   memory_mode: MemoryMode;
   model_settings: {

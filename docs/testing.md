@@ -297,6 +297,13 @@ installed-browser acceptance.
   queued as bulk, that a conversation completes while a background picture holds
   the media lane, and that a failure or a restart returns the scene to
   `approved` rather than stranding it in `generating`.
+- Chat binding tests reproduce both defects before refusing them: saving a
+  persona from another workspace onto a chat, and a turn payload naming a
+  different persona or workspace. Each proves the refusal happens before
+  anything durable is written, that repeating the bound values still works, and
+  that title, model, and memory mode remain editable. Repair tests upgrade a
+  database from the revision before the migration, because a database already at
+  head would not run the migration under test.
 - API tests use isolated temporary databases and deterministic fake providers.
 - Migration tests upgrade pre-0004/0005/0007/0008/0009/0010/0011/0012/0013/0014/0015/0016/0017/0019/0021/0022 databases and prove
   chats, messages, jobs, media, memories, turn ordering, stored artifact links,

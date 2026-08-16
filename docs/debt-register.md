@@ -105,6 +105,10 @@ change that alters them.
 - Some provider helper internals still use low-level HTTP/SQLite-shaped legacy
   inputs, but routes use SQLAlchemy repositories and unit-of-work boundaries.
 - Provider-specific settings embedded directly in persona and UI records.
+- `workspace_id` and `persona_id` remain accepted on `POST /chats/{id}/turns`
+  after ADR 0032 made them redundant. They are refused when they disagree with
+  the chat, so they cannot cause harm; removing them is a breaking API change
+  that is not scheduled.
 - Turn event replay is bounded and process-local, not a durable event log. Reconnects
   are correct regardless: the snapshot carries the sequence its text covers, so a
   subscriber neither replays deltas twice nor silently misses evicted ones. A restart

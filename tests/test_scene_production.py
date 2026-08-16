@@ -261,7 +261,7 @@ class SceneProductionTests(unittest.TestCase):
                 provider.started.wait(timeout=5)
                 self.assertEqual(self._entry(running, entry["id"])["state"], "generating")
                 provider.release.set()
-                database_path = running.config.data_dir / "app.db"
+                database_path = running.config.database_path
 
             # The process died mid-picture. Nothing is resumable, so the scene
             # goes back in the queue rather than claiming work nobody is doing.

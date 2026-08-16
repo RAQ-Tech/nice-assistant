@@ -141,7 +141,10 @@ test('typed chat streams a turn and persists the canonical result', async ({ pag
   await expect(page.getByTestId('client-phase')).toHaveText('Idle');
   expect(fixture.turnBody?.text).toBe('Hello there');
   expect(fixture.turnBody?.model_settings.context_window_tokens).toBe(4096);
-  expect(fixture.turnBody).toHaveProperty('workspace_id', workspace.id);
+  // ADR 0032: the chat owns its workspace and persona, so a turn no longer
+  // repeats them. Sending different values would be refused anyway.
+  expect(fixture.turnBody).not.toHaveProperty('workspace_id');
+  expect(fixture.turnBody).not.toHaveProperty('persona_id');
 });
 
 test('completed turns refresh the generated chat title in the visible header', async ({ page }) => {

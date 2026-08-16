@@ -5,6 +5,28 @@ is submitted. Turns in one chat execute in durable sequence; separate chats may
 run concurrently. Later queued user messages are outside an earlier turn's
 context boundary.
 
+## The conversation boundary
+
+A chat is bound to one workspace and one persona when it is created, and that
+binding never changes. It is what decides whose instructions, lore, and memories
+build the prompt, so a chat that could be moved would be a chat whose earlier
+replies belong to somebody else.
+
+`POST /api/v1/chats/{id}/turns` still accepts `workspace_id` and `persona_id`
+for compatibility. A value matching the binding is ignored; a differing value is
+refused with `409` before the user message, turn, job, or chat row is written,
+so a refused request leaves the conversation exactly as it was.
+`PUT /api/v1/chats/{id}` refuses the same way. Choosing a different persona
+starts a new chat. Copying an existing transcript into a new binding is a fork,
+which is deliberately not this.
+
+Chats that predate the rule were repaired by migration `0031`. Where a persona
+was not a member of the workspace recorded beside it, or no workspace was
+recorded at all, the persona is kept and the workspace corrected to one that
+persona belongs to: the transcript was written by that persona, so keeping the
+persona is what keeps every reply attributable to whoever wrote it. A chat with
+no persona was left alone. No message was deleted or reattributed. See ADR 0032.
+
 ## Authority and freshness
 
 Instruction authority is application policy, persona instructions, the current

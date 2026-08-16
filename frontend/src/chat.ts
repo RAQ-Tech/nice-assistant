@@ -89,9 +89,7 @@ export class ChatController {
     if (!['idle', 'transcribing'].includes(this.appState.phase)) return;
     const chat = this.appState.currentChat ?? (await this.create(this.appState.selectedPersonaId));
     const settings = this.requiredSettings();
-    const personaId = this.appState.selectedPersonaId ?? chat.persona_id;
-    const persona = this.appState.personas.find((item) => item.id === personaId);
-    const workspaceId = chat.workspace_id ?? persona?.workspace_id ?? null;
+    const persona = this.appState.personas.find((item) => item.id === chat.persona_id);
     const model = this.appState.selectedModel ?? chat.model_override ?? persona?.default_model ?? settings.global_default_model;
     const memoryMode = this.appState.selectedMemoryMode ?? chat.memory_mode ?? settings.default_memory_mode;
     const optimisticUser: Message = {
@@ -117,8 +115,6 @@ export class ChatController {
     try {
       const accepted = await this.client.createTurn(chat.id, {
         text,
-        workspace_id: workspaceId,
-        persona_id: personaId,
         model: model || null,
         memory_mode: memoryMode,
         model_settings: modelSettings(settings, model || ''),
@@ -155,7 +151,7 @@ export class ChatController {
       const assistant = [...detail.messages].reverse().find((message) => message.role === 'assistant');
       if (assistant?.text.trim()) {
         try {
-          await this.playback.synthesize(assistant.text, assistant.id, chat.id, personaId);
+          await this.playback.synthesize(assistant.text, assistant.id, chat.id, chat.persona_id);
         } catch (error) {
           const message = errorMessage(error, 'Audio could not be played.');
           this.appState.messageAudioErrors[assistant.id] = message;

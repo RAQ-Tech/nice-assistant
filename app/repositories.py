@@ -801,9 +801,16 @@ class ApplicationRepository:
     def delete_chat(self, row: Chat) -> None:
         self.session.delete(row)
 
-    def create_chat(self, user_id: str, values: dict) -> Chat:
-        workspace_id = values.get("workspace_id")
-        persona_id = values.get("persona_id")
+    def resolve_chat_binding(self, user_id: str, workspace_id, persona_id) -> tuple:
+        """Validate a workspace and persona pair, and return what to bind.
+
+        The single place this pair is checked. A chat is bound once, at
+        creation, so every later caller either repeats the same values or is
+        refused; nowhere needs its own version of these rules.
+
+        Raises LookupError, which the service layer turns into a 404.
+        """
+
         if workspace_id and not self.workspace(user_id, workspace_id):
             raise LookupError("workspace not found")
         persona = self.persona(user_id, persona_id) if persona_id else None
@@ -812,7 +819,15 @@ class ApplicationRepository:
         if persona and not workspace_id:
             workspace_id = persona.workspace_id
         if persona and workspace_id not in self.persona_workspace_ids(persona.id):
+            # Named as a missing persona rather than a bad workspace: from the
+            # caller's side the persona genuinely is not available here.
             raise LookupError("persona not found")
+        return workspace_id, (persona.id if persona else None)
+
+    def create_chat(self, user_id: str, values: dict) -> Chat:
+        workspace_id, persona_id = self.resolve_chat_binding(
+            user_id, values.get("workspace_id"), values.get("persona_id")
+        )
         stamp = now_ts()
         row = Chat(
             id=secrets.token_hex(8),

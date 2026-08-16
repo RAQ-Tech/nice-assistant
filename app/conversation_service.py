@@ -67,6 +67,24 @@ def _chat_response(chat) -> dict:
     }
 
 
+def _reject_rebinding(values: dict, chat) -> None:
+    """Refuse any attempt to move a chat to another persona or workspace.
+
+    Repeating the values a chat is already bound to stays acceptable, because
+    the browser and the published API both still send them. Sending different
+    ones is refused here, before a message, turn, job, or chat row is written,
+    so a rejected request changes nothing at all.
+    """
+
+    for field, bound in (("persona_id", chat.persona_id), ("workspace_id", chat.workspace_id)):
+        requested = values.get(field)
+        if requested and requested != bound:
+            raise ConflictError(
+                "This conversation is bound to the persona and workspace it was created with. "
+                "Start a new chat to use a different one."
+            )
+
+
 class ConversationService:
     def __init__(
         self,
@@ -140,11 +158,10 @@ class ConversationService:
             chat = uow.repo.chat(user_id, chat_id)
             if not chat:
                 return None
-            if "persona_id" in values and values["persona_id"]:
-                persona = uow.repo.persona(user_id, values["persona_id"])
-                if not persona:
-                    raise NotFoundError("persona not found")
-                chat.persona_id = persona.id
+            # ADR 0032: retargeting a chat that already has a transcript would
+            # leave the previous persona's replies in the next prompt. Selecting
+            # a different persona starts a new chat instead.
+            _reject_rebinding(values, chat)
             for field in ("title", "model_override", "memory_mode"):
                 if field in values:
                     setattr(chat, field, self._memory_mode(values[field]) if field == "memory_mode" else values[field])
@@ -218,18 +235,16 @@ class ConversationService:
             chat = repo.chat(user_id, chat_id)
             if not chat:
                 raise NotFoundError("chat not found")
-            requested_persona_id = values.get("persona_id") or chat.persona_id
+            # ADR 0032: the chat owns its binding. A payload may still repeat
+            # the bound values for compatibility, but may never change them,
+            # and is refused before anything durable is written.
+            _reject_rebinding(values, chat)
+            requested_persona_id = chat.persona_id
             persona = repo.persona(user_id, requested_persona_id) if requested_persona_id else None
             if requested_persona_id and not persona:
                 raise NotFoundError("persona not found")
             allow_persona_image_sends = bool(persona.allow_image_sends) if persona else True
-            workspace_id = (
-                values.get("workspace_id") or chat.workspace_id or (persona.workspace_id if persona else None)
-            )
-            if workspace_id and not repo.workspace(user_id, workspace_id):
-                raise NotFoundError("workspace not found")
-            if persona and workspace_id not in repo.persona_workspace_ids(persona.id):
-                raise NotFoundError("persona not found")
+            workspace_id = chat.workspace_id
             settings = repo.settings(user_id) or {
                 "global_default_model": None,
                 "default_memory_mode": "saved",
@@ -260,8 +275,6 @@ class ConversationService:
                 chat.title = deterministic_title
             chat.updated_at = stamp
             chat.memory_mode = memory_mode
-            chat.persona_id = requested_persona_id
-            chat.workspace_id = workspace_id
             chat.model_override = values.get("model") or chat.model_override
             turn = repo.add_turn(
                 user_id=user_id,

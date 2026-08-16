@@ -467,11 +467,17 @@ class CapabilityTests(unittest.TestCase):
             self.assertTrue(provider.task_started[CAPABILITY_PLANNING].wait(1))
             primary = running.client.get(f"/api/v1/jobs/{accepted['job']['id']}").json()
             self.assertEqual(primary["status"], "completed")
+            # This test used to switch the chat's persona while planning was in
+            # flight, to prove a delayed plan kept the persona the turn started
+            # with. ADR 0032 removed the switch: a chat is bound at creation, so
+            # the race is now structurally impossible rather than merely
+            # handled. The refusal is asserted here so the guarantee stays
+            # covered by its cause and not only by its effect.
             switched = running.client.put(
                 f"/api/v1/chats/{chat['id']}",
                 json={"persona_id": replacement["id"]},
             )
-            self.assertEqual(switched.status_code, 200, switched.text)
+            self.assertEqual(switched.status_code, 409, switched.text)
 
             planning_gate.set()
             running.wait_job(primary["result"]["followup_job_id"])

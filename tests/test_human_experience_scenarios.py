@@ -6,7 +6,7 @@ from tests.support import FakeChatProvider, TestApp
 
 
 class HumanExperienceScenarioTests(unittest.TestCase):
-    def test_persona_switching_changes_the_next_turn_without_leaking_the_prior_persona(self):
+    def test_switching_persona_starts_a_clean_chat_without_leaking_the_prior_persona(self):
         provider = FakeChatProvider(["I am responding as the selected persona."])
         with tempfile.TemporaryDirectory() as tmp, TestApp(Path(tmp), chat_provider=provider) as running:
             running.create_and_login()
@@ -46,19 +46,36 @@ class HumanExperienceScenarioTests(unittest.TestCase):
             self.assertIn("ORCHID-VOICE", first_prompt)
             self.assertNotIn("CEDAR-VOICE", first_prompt)
 
-            updated = running.client.put(
+            # ADR 0032: a conversation cannot be handed to another persona. The
+            # transcript above was written by Wren, and moving it would put
+            # Wren's replies into Robin's prompt.
+            refused = running.client.put(
                 f"/api/v1/chats/{chat['id']}",
                 json={"persona_id": second["id"]},
             )
-            self.assertEqual(updated.status_code, 200, updated.text)
+            self.assertEqual(refused.status_code, 409, refused.text)
+
+            # Switching persona means starting a fresh conversation, and that is
+            # where the guarantee has to hold.
+            second_chat = running.client.post(
+                "/api/v1/chats",
+                json={
+                    "workspace_id": workspace["id"],
+                    "persona_id": second["id"],
+                    "title": "Robin",
+                    "memory_mode": "off",
+                },
+            ).json()
             second_turn = running.client.post(
-                f"/api/v1/chats/{chat['id']}/turns",
+                f"/api/v1/chats/{second_chat['id']}/turns",
                 json={"text": "Say hello again.", "memory_mode": "off"},
             ).json()
             self.assertEqual(running.wait_job(second_turn["job"]["id"])["status"], "completed")
             second_prompt = "\n".join(message["content"] for message in provider.requests[-1].messages)
             self.assertIn("CEDAR-VOICE", second_prompt)
             self.assertNotIn("ORCHID-VOICE", second_prompt)
+            # Nothing of the first conversation travels either.
+            self.assertNotIn("Say hello.", second_prompt)
 
     def test_a_pending_correction_cannot_silently_replace_approved_memory(self):
         provider = FakeChatProvider(["I will use only reviewed memory."])
