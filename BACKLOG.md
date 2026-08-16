@@ -27,8 +27,8 @@ Items marked **Blocked - deployment** additionally require the installed
 browser journey on the real private-LAN topology. A service test or a mocked
 browser route is not acceptance evidence for those.
 
-Items in the image generation program carry their own **Done when** list. Those
-criteria are in addition to the verifier, never instead of it.
+Most items carry their own **Done when** list. Those criteria are in addition to
+the verifier, never instead of it.
 
 Last full verifier run: passed, 2026-08-15.
 
@@ -72,35 +72,156 @@ This program does not displace the voice-core items in section 3. Those remain
 the highest product priority and are blocked on an operator decision that has
 not been made; this work is what can actually progress in the meantime.
 
-1. **Photo sets.** One idea, several frames sharing wardrobe, room, lighting,
-    and seed family, varying pose and angle. Source: ADR 0030.
+1. **Generate a photo set as one unit.** One idea, several frames sharing
+    wardrobe, room, lighting, and seed family, varying pose and angle. Source:
+    ADR 0030.
 
-    Done when a set generates as a unit and serving can send several frames
-    from the same set into one conversation.
+    Done when:
+    - A set record exists with its shared scene and its per-frame variations,
+      and each frame links to the set that produced it.
+    - The frames of a set are generated from one plan, so wardrobe, room, and
+      lighting cannot drift between them, and the seed relationship between
+      frames is recorded rather than incidental.
+    - A set is produced as bulk work on the media lane, like any other picture
+      nobody is waiting for.
+    - A partly generated set is honest about it: finished frames are usable and
+      the set says how many are missing, rather than the set appearing complete.
+    - The journal shows the set, its shared decisions, and each frame.
 
-2. **Preference weighting.** Deliberately simple and inspectable.
-    Source: ADR 0030.
+2. **Send several frames of one set into a conversation.** A set is only worth
+    generating if it can arrive as a set. Source: ADR 0030.
 
-    Done when only explicit signals are recorded, the weights are visible and
-    resettable in settings, and nothing in the product describes this as
-    learning beyond what it measurably does.
+    Done when:
+    - Serving can answer one request with more than one frame from the same set,
+      and the frames chosen are the ones that were not already sent.
+    - A conversation never receives the same frame twice, on the same rule the
+      single-picture library already uses.
+    - A set that is only partly generated can still be served from.
+    - The number of frames sent at once is bounded and stated, not unbounded.
 
-3. **Preset export and import.** Source: ADR 0030.
+3. **Record which presets a person actually keeps.** Deliberately simple and
+    inspectable. Source: ADR 0030.
 
-    Done when export scrubs machine-specific values and previews exactly what
-    will leave, import remaps referenced checkpoints and LoRAs against the local
-    installation and clears imported VRAM estimates, and import states plainly
-    that it executes another person's graph on this machine. No discovery or
-    registry.
+    Done when:
+    - Only explicit signals are recorded. A picture kept, sent again, or removed
+      is a signal; a picture merely generated is not.
+    - The weights are visible and individually resettable in settings, showing
+      the count behind each one rather than an opaque score.
+    - Weighting only ever reorders presets the hard filter already accepted, so
+      no preference can select something incompatible.
+    - Nothing in the product describes this as learning beyond what it
+      measurably does.
 
-### 1B. Correctness work carried in from main
+4. **Export a preset as a file.** Source: ADR 0030.
+
+    Done when:
+    - Export produces the bundle format that already exists, scrubbed of
+      machine-specific values: no base URLs, no local paths, no VRAM estimates
+      measured on this machine.
+    - The export preview shows exactly what will leave, field by field, before
+      the file is written.
+    - A preset naming resources that cannot be described portably exports with
+      those named as requirements rather than silently dropped.
+
+5. **Import a preset from a file.** Source: ADR 0030.
+
+    Done when:
+    - Import remaps referenced checkpoints and LoRAs against what is installed
+      here, and states plainly which requirements it could not satisfy.
+    - Imported VRAM estimates are cleared rather than trusted.
+    - Import states, before it runs anything, that a workflow executes another
+      person's graph on this machine.
+    - An import that cannot be satisfied leaves the catalog unchanged.
+    - No discovery, ratings, or registry. This is a file an operator moves
+      deliberately.
+
+### 1B. Homepage and everyday visibility
+
+Owner-requested 2026-08-16. Loading the browser drops straight into the last
+chat, so there is nowhere to see what the assistant is currently set up to do.
+The pre-generation schedule is the sharp example: it spends GPU time overnight
+and is currently only visible to someone who goes looking for it in settings.
+
+Item 6 is a prerequisite for item 10 and should be done first. The rest can be
+taken in any order.
+
+6. **Make pre-generation an owner setting, not deployment configuration.** The
+    policy is read from `PREGENERATION_*` environment variables at startup, so
+    it cannot be changed from the browser at all. A toggle on a dashboard would
+    be a control that changes nothing, which this repository does not ship.
+    Source: `app/pregeneration.py`, `app/runtime.py`, `docs/operations.md`.
+
+    Done when:
+    - The policy is stored per owner and the production runner reads the stored
+      value, not the environment, on every pass.
+    - The environment variables set the initial value for a new account and
+      nothing else, and `docs/operations.md` says so.
+    - A test proves that saving the setting changes what the runner does on its
+      next pass, rather than only what the API returns.
+    - An invalid window is refused when saved, not silently corrected later.
+
+7. **Open on a homepage instead of the last chat.** `#/` already parses as a
+    home route, but `applyCurrentRoute` immediately opens the first chat and
+    rewrites the URL, so the route has never been reachable. Source:
+    `frontend/src/routing.ts`, `frontend/src/app.ts`.
+
+    Done when:
+    - Loading or reloading the browser with no chat in the URL shows the
+      homepage and stays there.
+    - A link or reload directly to `#/chats/{id}` still opens that chat, and
+      browser back and forward move between homepage and chat correctly.
+    - The homepage is its own module. `app.ts` is at 646 lines against a 650
+      line guard, so this cannot be added to it.
+    - Existing browser journeys that assumed a chat opens on load are updated
+      rather than deleted.
+
+8. **Put the logo in the chat header as the way back.** Source: owner request.
+
+    Done when:
+    - The mark already in `web/favicon.svg` is reused. No new brand is invented
+      and no external asset is fetched.
+    - It is a link to the homepage, reachable by keyboard, with an accessible
+      name that says where it goes.
+    - It is visible and tappable at mobile width without crowding the header
+      controls that are already there.
+    - A browser journey clicks it from a chat and lands on the homepage.
+
+9. **Show what is true right now on the homepage.** Information only; every
+    value read from an API that already exists. Source: owner request.
+
+    Done when:
+    - It shows the persona and workspace a new chat would use, provider
+      readiness for chat and images, what the job queue is doing, and the most
+      recent pictures with the outcome of the last generation.
+    - Nothing is modeled, estimated, or filled in with a plausible default. A
+      value the platform does not have is absent, and says why.
+    - Every empty state says what to do next rather than showing a blank panel.
+    - It does not poll aggressively: one load, and refresh on the events the
+      browser already receives.
+
+10. **Put the pre-generation toggle and schedule on the homepage.** The reason
+    this belongs on the front page rather than in settings is that it spends
+    real electricity on a schedule, and a setting nobody sees is a setting
+    nobody revisits. Needs item 6. Source: owner request, ADR 0030.
+
+    Done when:
+    - The switch and the quiet window are editable from the homepage.
+    - Its current state is legible without opening anything: on or off, the
+      window, whether the current hour is inside it, and what production last
+      did or last refused to do and why.
+    - The homepage and the settings page operate the same stored setting. Two
+      controls that drift apart is the failure mode being avoided.
+    - Switching it off stops the next pass, proven by a test rather than by
+      the control appearing to move.
+
+### 1C. Correctness work carried in from main
 
 Recorded by a parallel session and verified against `main` at `0df1d89` on
 2026-08-14. The reproductions are regression-test inputs, not review notes.
 These come before the remaining foundation work below because each one is a
 defect in behavior that already ships.
 
-4. **Make chat workspace and persona bindings immutable.**
+11. **Make chat workspace and persona bindings immutable.**
 
     **Why this is first:** a chat can currently be retargeted to another persona or
     workspace after it already has a transcript. The old persona's assistant replies
@@ -147,7 +268,7 @@ defect in behavior that already ships.
     - Focused service/API/browser tests cover the two verified reproductions, followed
       by the complete verifier and a deterministic human-experience scenario.
 
-5. **Make Task Model readiness credential-aware and truthful.**
+12. **Make Task Model readiness credential-aware and truthful.**
 
     **Observed failure:** an OpenAI Task Model profile can be saved through the API
     without an account API key, yet readiness reports `ready: true`. Execution then
@@ -181,7 +302,7 @@ defect in behavior that already ships.
       live-verified when they are not.
     - Focused task-provider/service/API tests and the complete verifier pass.
 
-6. **Untangle the conversation critical path before extending voice.**
+13. **Untangle the conversation critical path before extending voice.**
 
     **Why now:** `ConversationService.create_turn` has cyclomatic complexity 49 and
     combines binding resolution, model/settings selection, persistence, job creation,
@@ -213,9 +334,9 @@ defect in behavior that already ships.
       unchanged in focused tests.
     - The complete verifier and deterministic human-experience scenarios pass.
 
-### 1C. Other ready work
+### 1D. Other ready work
 
-7. **Bring direct media actions under measured-capacity admission.** The direct
+14. **Bring direct media actions under measured-capacity admission.** The direct
     image buttons still use legacy provider settings through a disclosed manual
     plan, so their demand is unknown and they bypass catalog-estimate admission.
     They do take the shared-resource lease, but two different paths to the same
@@ -223,17 +344,17 @@ defect in behavior that already ships.
     generation. Source: `docs/debt-register.md`;
     `docs/human-experience-realignment-plan.md` baseline gap 8.
 
-8. **Move provider helper internals off legacy low-level inputs.** Routes use
+15. **Move provider helper internals off legacy low-level inputs.** Routes use
     SQLAlchemy repositories and unit-of-work boundaries, but some provider
     helpers still take HTTP/SQLite-shaped arguments. This is the remaining
     inconsistency in the persistence boundary. Source: `docs/debt-register.md`.
 
-9. **Lift provider-specific settings out of persona and UI records.** Provider
+16. **Lift provider-specific settings out of persona and UI records.** Provider
     details are embedded directly in those records, which couples persona data
     to whichever provider happened to be configured. Source:
     `docs/debt-register.md`.
 
-10. **Decide whether turn event replay needs a durable log.** Replay is bounded
+17. **Decide whether turn event replay needs a durable log.** Replay is bounded
     and process-local today. That is honest and sufficient for a single-process
     private-LAN deployment; it is listed so the limitation stays visible rather
     than being discovered during a future multi-process change. Source:
@@ -269,24 +390,24 @@ Recorded rather than guessed because it trades product feel against reply
 latency, and because the third option adds a task role that should not appear
 without intent. Source: ADR 0030, ADR 0021.
 
-11. **Automatic expiry for rejected and forgotten memory.** Retention is durable
+18. **Automatic expiry for rejected and forgotten memory.** Retention is durable
     and users can permanently delete individual or bulk records, but there is no
     administrator-approved automatic expiry policy. The code change is small;
     the retention period and its defaults are the decision. Source:
     `docs/debt-register.md`, `docs/memory.md`.
 
-12. **Semantic memory retrieval.** Retrieval is lexical full-text search plus
+19. **Semantic memory retrieval.** Retrieval is lexical full-text search plus
     recency. Semantic retrieval remains an optional future interface and is
     deliberately not implied anywhere in the product. Adding it is a scope
     decision, not a blocked task. Source: `docs/debt-register.md`.
 
-13. **Workspace-shared lore.** Lore is persona-scoped, so an entry used by
+20. **Workspace-shared lore.** Lore is persona-scoped, so an entry used by
     several personas in a workspace has to be authored more than once. Sharing
     is a product decision about who owns an entry and what happens when one
     persona edits it, not a schema problem. Source:
     `docs/autonomous-decision-log.md` D5, `docs/debt-register.md`.
 
-14. **Whether Task Model roles may send conversation-derived text to OpenAI.**
+21. **Whether Task Model roles may send conversation-derived text to OpenAI.**
     The adapter exists and is deliberately not selectable in settings. Until
     this is answered the UI stays local-only and must not advertise OpenAI as a
     usable provider. Source: `docs/task-models.md`, open question 5 below.
@@ -304,21 +425,21 @@ Kokoro path behind a flag. Only items 15-16 genuinely require the approved
 listening decision. Step 15 cannot select a provider until that decision
 exists, and no unverified provider support may be advertised in the meantime.
 
-15. **Streaming TTS.** Begin playback before a complete response file exists.
+22. **Streaming TTS.** Begin playback before a complete response file exists.
     Today synthesis must finish before audio starts.
 
-16. **Automatic end-of-turn detection.** Detect that the user has stopped
+23. **Automatic end-of-turn detection.** Detect that the user has stopped
     speaking, with push-to-talk retained as a dependable fallback rather than
     replaced.
 
-17. **True barge-in.** Interrupting playback must also stop the superseded
+24. **True barge-in.** Interrupting playback must also stop the superseded
     provider work, not just mute the output.
 
-18. **Approved quality-first and local fallback chains for TTS and STT**, with
+25. **Approved quality-first and local fallback chains for TTS and STT**, with
     compact user-facing degradation notices. Requires the approved provider
     chain from item 16.
 
-19. **Repeatable provider evaluation** on latency, reliability, and blind
+26. **Repeatable provider evaluation** on latency, reliability, and blind
     listening criteria - not configuration readiness alone. This is the
     evaluation that unblocks item 15 and deferred roadmap steps 10-13.
 
@@ -332,30 +453,30 @@ Requires the installed private-LAN deployment and, where noted, a supervised
 session. Implementation is published for all of these; what remains is
 acceptance.
 
-20. **Deployment guard migration.** Complete the one-time supervised migration
+27. **Deployment guard migration.** Complete the one-time supervised migration
     from the legacy direct guard, then prove remote guard update, guard
     rollback and re-update, one-container deployment, and the final installed
     browser image journeys. Source: `docs/roadmap.md` step 24, ADR 0025,
     `docs/human-experience-realignment-plan.md`.
 
-21. **Installed acceptance for picture-message delivery.** Roadmap step 22 is
+28. **Installed acceptance for picture-message delivery.** Roadmap step 22 is
     published but not accepted on the real topology. Source: `docs/roadmap.md`,
     ADRs 0019-0020.
 
-22. **Installed acceptance for conversation cleanup.** Roadmap step 23, same
+29. **Installed acceptance for conversation cleanup.** Roadmap step 23, same
     situation. Source: `docs/roadmap.md`, ADR 0021.
 
-23. **Identity-stage latency and capacity acceptance.** Unaccepted until the
+30. **Identity-stage latency and capacity acceptance.** Unaccepted until the
     real verifier, consented references, and a compatible ComfyUI identity
     workflow are deployed together. The completed step 20 base media checks are
     explicitly not substitute evidence. Source: `docs/debt-register.md`,
     `docs/deployment-acceptance.md`.
 
-24. **Live capacity tuning for the deployment GPU.** Timing and capacity
+31. **Live capacity tuning for the deployment GPU.** Timing and capacity
     behavior under real memory limits remains deployment acceptance work.
     Source: `docs/roadmap.md` step 18C.
 
-25. **Installed acceptance for conversational image editing.** Delivered under
+32. **Installed acceptance for conversational image editing.** Delivered under
     ADR 0029 and covered by contract, API, and gate tests, but no installed
     browser journey has confirmed the confirmation card, the reference the
     planner chose, or a real ComfyUI edit workflow on the deployment. Until then
@@ -381,8 +502,8 @@ no stub is ever shipped in its place. See `docs/debt-register.md`.
   but is disabled in the UI until a real adapter exists.
 - Realtime turn detection, partial transcripts, barge-in, and speech fallback.
 - Multi-reference identity fusion and automatic mask creation.
-- Preset discovery, ratings, or a shared registry. Item 3 delivers a file an
-  operator can move deliberately; it is not a distribution channel.
+- Preset discovery, ratings, or a shared registry. Items 4 and 5 deliver a file
+  an operator can move deliberately; it is not a distribution channel.
 - Identity resemblance produced by resampling until a comparison passes. See
   ADR 0031: comparison is advisory measurement, never the mechanism.
 - Multi-replica or public deployment. Login throttling and metrics are
@@ -397,7 +518,7 @@ no stub is ever shipped in its place. See `docs/debt-register.md`.
 - Grants, principals, and multi-tenancy for memory. One human and a handful of
   personas; persona scoping already delivers that isolation.
 - Merging the old Memory v3 branch wholesale. Its useful immutable-binding idea
-  is carried as item 4; the branch has materially diverged and reuses migration
+  is carried as item 11; the branch has materially diverged and reuses migration
   number `0019` for a different schema.
 - Document ingestion. Chunking, versioning, citations, and retrieval is a larger
   product than everything else on this list combined.
