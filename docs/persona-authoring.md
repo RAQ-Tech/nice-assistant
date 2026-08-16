@@ -149,3 +149,17 @@ are yielding, either shorten the card or raise the model context allocation.
 
 A persona that "forgets" background usually has a lore entry that never fires.
 Paste the message into the preview box and look, rather than guessing.
+
+## Voice
+
+A persona may prefer a particular voice, model, and speed, and may prefer
+different ones per speech provider. These are stored as one object keyed by
+provider name, with an optional `default` entry that any provider falls back to.
+
+The point of the keying is that nothing in the persona record is named after a
+provider. A deployment that adds a speech provider later gets that persona's
+`default`, and can be given its own entry without a schema change.
+
+An entry with nothing in it is not stored. "This persona has an opinion about
+that provider" and "that panel was opened once and left blank" should not look
+identical a year later.

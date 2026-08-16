@@ -226,10 +226,7 @@ describe('Media catalog settings', () => {
     appState.mediaCatalog = { ...catalog(), resources: [comfyModel] };
     appState.personas = [{
       id: 'nova', workspace_id: 'home', workspace_ids: ['home'], name: 'Nova', avatar_url: null,
-      system_prompt: '', personality_details: '', traits: {}, default_model: null, preferred_voice: null,
-      preferred_tts_model: null, preferred_tts_speed: null, preferred_voice_openai: null,
-      preferred_tts_model_openai: null, preferred_tts_speed_openai: null, preferred_voice_local: null,
-      preferred_tts_model_local: null, preferred_tts_speed_local: null, created_at: 1,
+      system_prompt: '', personality_details: '', traits: {}, default_model: null, voice_preferences: {}, created_at: 1,
     }];
     const client = { mediaCatalog: vi.fn().mockResolvedValue(appState.mediaCatalog) } as unknown as ApiClient;
     const root = document.createElement('div');
@@ -256,10 +253,7 @@ describe('Media catalog settings', () => {
     });
     appState.personas = [{
       id: 'nova', workspace_id: 'home', workspace_ids: ['home'], name: 'Nova', avatar_url: null,
-      system_prompt: '', personality_details: '', traits: {}, default_model: null, preferred_voice: null,
-      preferred_tts_model: null, preferred_tts_speed: null, preferred_voice_openai: null,
-      preferred_tts_model_openai: null, preferred_tts_speed_openai: null, preferred_voice_local: null,
-      preferred_tts_model_local: null, preferred_tts_speed_local: null, created_at: 1,
+      system_prompt: '', personality_details: '', traits: {}, default_model: null, voice_preferences: {}, created_at: 1,
     }];
     appState.mediaCatalogIdentitySetupIntent = {
       capability_request_id: 'old-request', chat_id: 'old-chat', persona_id: 'nova', prompt: '',
@@ -304,10 +298,7 @@ describe('Media catalog settings', () => {
     appState.mediaCatalog = initialCatalog;
     appState.personas = [{
       id: 'nova', workspace_id: 'home', workspace_ids: ['home'], name: 'Nova', avatar_url: null,
-      system_prompt: '', personality_details: '', traits: {}, default_model: null, preferred_voice: null,
-      preferred_tts_model: null, preferred_tts_speed: null, preferred_voice_openai: null,
-      preferred_tts_model_openai: null, preferred_tts_speed_openai: null, preferred_voice_local: null,
-      preferred_tts_model_local: null, preferred_tts_speed_local: null, created_at: 1,
+      system_prompt: '', personality_details: '', traits: {}, default_model: null, voice_preferences: {}, created_at: 1,
     }];
     const workflowPatch = {
       '100': { class_type: 'LoadImage', inputs: { image: 'placeholder.png' } },

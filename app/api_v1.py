@@ -57,15 +57,8 @@ class PersonaWrite(StrictModel):
     traits: dict = Field(default_factory=dict)
     default_model: str | None = None
     allow_image_sends: bool | None = None
-    preferred_voice: str | None = None
-    preferred_tts_model: str | None = None
-    preferred_tts_speed: str | None = None
-    preferred_voice_openai: str | None = None
-    preferred_tts_model_openai: str | None = None
-    preferred_tts_speed_openai: str | None = None
-    preferred_voice_local: str | None = None
-    preferred_tts_model_local: str | None = None
-    preferred_tts_speed_local: str | None = None
+    # Keyed by provider, with an optional "default" any provider falls back to.
+    voice_preferences: dict[str, dict[str, str]] = Field(default_factory=dict)
 
 
 class PersonaCardWrite(StrictModel):

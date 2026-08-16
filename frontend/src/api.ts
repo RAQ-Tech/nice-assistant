@@ -85,15 +85,7 @@ export interface PersonaInput {
   personality_details?: string | null;
   traits?: Record<string, unknown>;
   default_model?: string | null;
-  preferred_voice?: string | null;
-  preferred_tts_model?: string | null;
-  preferred_tts_speed?: string | null;
-  preferred_voice_openai?: string | null;
-  preferred_tts_model_openai?: string | null;
-  preferred_tts_speed_openai?: string | null;
-  preferred_voice_local?: string | null;
-  preferred_tts_model_local?: string | null;
-  preferred_tts_speed_local?: string | null;
+  voice_preferences?: Record<string, Record<string, string>>;
 }
 
 export interface PersonaLoreInput {

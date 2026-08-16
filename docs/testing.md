@@ -390,6 +390,12 @@ installed-browser acceptance.
   zero and says which model to add rather than guessing, that a near-matching
   name does not borrow another model's measurement, and that the action is still
   recorded as the operator's own settings rather than a coordinator selection.
+- Persona voice tests prove a provider gets its own entry, that an unknown
+  provider falls back to `default`, that a provider entry beats the default,
+  that an empty entry is not stored at all, that unknown fields are dropped, and
+  that a malformed record reads as empty. A migration test upgrades from the
+  previous revision and proves the nine columns became one keyed object with the
+  unqualified trio as the fallback, and that no `preferred_` column survives.
 - API tests use isolated temporary databases and deterministic fake providers.
 - Migration tests upgrade pre-0004/0005/0007/0008/0009/0010/0011/0012/0013/0014/0015/0016/0017/0019/0021/0022 databases and prove
   chats, messages, jobs, media, memories, turn ordering, stored artifact links,

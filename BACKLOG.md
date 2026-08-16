@@ -117,15 +117,12 @@ This section is complete.
 Direct media actions now declare their demand, so measured-capacity admission
 applies to them; what remains split from conversational generation is selection,
 not admission. See `docs/media-catalog.md`. The persistence boundary is
-consistent: nothing above `app/database.py` speaks sqlite3 any more.
+consistent: nothing above `app/database.py` speaks sqlite3 any more. A persona's
+voice settings are keyed by provider rather than held in columns named after
+one; see `docs/persona-authoring.md`.
 
 
-1. **Lift provider-specific settings out of persona and UI records.** Provider
-    details are embedded directly in those records, which couples persona data
-    to whichever provider happened to be configured. Source:
-    `docs/debt-register.md`.
-
-2. **Decide whether turn event replay needs a durable log.** Replay is bounded
+1. **Decide whether turn event replay needs a durable log.** Replay is bounded
     and process-local today. That is honest and sufficient for a single-process
     private-LAN deployment; it is listed so the limitation stays visible rather
     than being discovered during a future multi-process change. Source:
@@ -140,24 +137,24 @@ Nothing is parked here that the owner has not seen. The proactive-message
 question that sat here was answered on 2026-08-16: the reply stays first. See
 section 6 and item 6.
 
-3. **Automatic expiry for rejected and forgotten memory.** Retention is durable
+2. **Automatic expiry for rejected and forgotten memory.** Retention is durable
     and users can permanently delete individual or bulk records, but there is no
     administrator-approved automatic expiry policy. The code change is small;
     the retention period and its defaults are the decision. Source:
     `docs/debt-register.md`, `docs/memory.md`.
 
-4. **Semantic memory retrieval.** Retrieval is lexical full-text search plus
+3. **Semantic memory retrieval.** Retrieval is lexical full-text search plus
     recency. Semantic retrieval remains an optional future interface and is
     deliberately not implied anywhere in the product. Adding it is a scope
     decision, not a blocked task. Source: `docs/debt-register.md`.
 
-5. **Workspace-shared lore.** Lore is persona-scoped, so an entry used by
+4. **Workspace-shared lore.** Lore is persona-scoped, so an entry used by
     several personas in a workspace has to be authored more than once. Sharing
     is a product decision about who owns an entry and what happens when one
     persona edits it, not a schema problem. Source:
     `docs/autonomous-decision-log.md` D5, `docs/debt-register.md`.
 
-6. **Whether Task Model roles may send conversation-derived text to OpenAI.**
+5. **Whether Task Model roles may send conversation-derived text to OpenAI.**
     The adapter exists and is deliberately not selectable in settings. Until
     this is answered the UI stays local-only and must not advertise OpenAI as a
     usable provider. Source: `docs/task-models.md`, open question 5 below.
@@ -175,21 +172,21 @@ Kokoro path behind a flag. Only items 15-16 genuinely require the approved
 listening decision. Step 15 cannot select a provider until that decision
 exists, and no unverified provider support may be advertised in the meantime.
 
-7. **Streaming TTS.** Begin playback before a complete response file exists.
+6. **Streaming TTS.** Begin playback before a complete response file exists.
     Today synthesis must finish before audio starts.
 
-8. **Automatic end-of-turn detection.** Detect that the user has stopped
+7. **Automatic end-of-turn detection.** Detect that the user has stopped
     speaking, with push-to-talk retained as a dependable fallback rather than
     replaced.
 
-9. **True barge-in.** Interrupting playback must also stop the superseded
+8. **True barge-in.** Interrupting playback must also stop the superseded
     provider work, not just mute the output.
 
-10. **Approved quality-first and local fallback chains for TTS and STT**, with
+9. **Approved quality-first and local fallback chains for TTS and STT**, with
     compact user-facing degradation notices. Requires the approved provider
     chain from item 16.
 
-11. **Repeatable provider evaluation** on latency, reliability, and blind
+10. **Repeatable provider evaluation** on latency, reliability, and blind
     listening criteria - not configuration readiness alone. This is the
     evaluation that unblocks item 15 and deferred roadmap steps 10-13.
 
@@ -203,30 +200,30 @@ Requires the installed private-LAN deployment and, where noted, a supervised
 session. Implementation is published for all of these; what remains is
 acceptance.
 
-12. **Deployment guard migration.** Complete the one-time supervised migration
+11. **Deployment guard migration.** Complete the one-time supervised migration
     from the legacy direct guard, then prove remote guard update, guard
     rollback and re-update, one-container deployment, and the final installed
     browser image journeys. Source: `docs/roadmap.md` step 24, ADR 0025,
     `docs/human-experience-realignment-plan.md`.
 
-13. **Installed acceptance for picture-message delivery.** Roadmap step 22 is
+12. **Installed acceptance for picture-message delivery.** Roadmap step 22 is
     published but not accepted on the real topology. Source: `docs/roadmap.md`,
     ADRs 0019-0020.
 
-14. **Installed acceptance for conversation cleanup.** Roadmap step 23, same
+13. **Installed acceptance for conversation cleanup.** Roadmap step 23, same
     situation. Source: `docs/roadmap.md`, ADR 0021.
 
-15. **Identity-stage latency and capacity acceptance.** Unaccepted until the
+14. **Identity-stage latency and capacity acceptance.** Unaccepted until the
     real verifier, consented references, and a compatible ComfyUI identity
     workflow are deployed together. The completed step 20 base media checks are
     explicitly not substitute evidence. Source: `docs/debt-register.md`,
     `docs/deployment-acceptance.md`.
 
-16. **Live capacity tuning for the deployment GPU.** Timing and capacity
+15. **Live capacity tuning for the deployment GPU.** Timing and capacity
     behavior under real memory limits remains deployment acceptance work.
     Source: `docs/roadmap.md` step 18C.
 
-17. **Installed acceptance for conversational image editing.** Delivered under
+16. **Installed acceptance for conversational image editing.** Delivered under
     ADR 0029 and covered by contract, API, and gate tests, but no installed
     browser journey has confirmed the confirmation card, the reference the
     planner chose, or a real ComfyUI edit workflow on the deployment. Until then

@@ -747,15 +747,7 @@ function personaInput(persona: Persona): PersonaInput {
     personality_details: persona.personality_details,
     traits: persona.traits,
     default_model: persona.default_model,
-    preferred_voice: persona.preferred_voice,
-    preferred_tts_model: persona.preferred_tts_model,
-    preferred_tts_speed: persona.preferred_tts_speed,
-    preferred_voice_openai: persona.preferred_voice_openai,
-    preferred_tts_model_openai: persona.preferred_tts_model_openai,
-    preferred_tts_speed_openai: persona.preferred_tts_speed_openai,
-    preferred_voice_local: persona.preferred_voice_local,
-    preferred_tts_model_local: persona.preferred_tts_model_local,
-    preferred_tts_speed_local: persona.preferred_tts_speed_local,
+    voice_preferences: persona.voice_preferences ?? {},
   };
 }
 

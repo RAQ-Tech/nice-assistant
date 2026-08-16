@@ -15,16 +15,7 @@ function persona(): Persona {
     system_prompt: '',
     personality_details: '',
     traits: {},
-    default_model: null,
-    preferred_voice: null,
-    preferred_tts_model: null,
-    preferred_tts_speed: null,
-    preferred_voice_openai: null,
-    preferred_tts_model_openai: null,
-    preferred_tts_speed_openai: null,
-    preferred_voice_local: null,
-    preferred_tts_model_local: null,
-    preferred_tts_speed_local: null,
+    default_model: null, voice_preferences: {},
     created_at: 1,
   };
 }

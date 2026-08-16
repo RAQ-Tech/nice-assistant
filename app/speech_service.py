@@ -7,6 +7,7 @@ import time
 
 from app.provider_contracts import ProviderError
 from app.providers import user_safe_provider_error
+from app.persona_voice import parse as parse_voice_preferences, preference as voice_preference
 from app.repositories import UnitOfWork
 from app.service_errors import NotFoundError, RequestError
 from app.speech_clients import kokoro_list_voices, kokoro_speech, openai_speech, openai_stt
@@ -73,23 +74,27 @@ class SpeechService:
                 raise RequestError("TTS disabled", 400)
             provider = settings["tts_provider"]
             preferences = settings["preferences"]
+            # The persona's opinion is looked up by provider rather than read
+            # from a column named after one, so a provider this deployment adds
+            # later is honored without a schema change.
+            wanted = parse_voice_preferences(getattr(persona, "voice_preferences_json", "{}")) if persona else {}
             voice = str(
                 values.get("voice")
-                or (getattr(persona, f"preferred_voice_{provider}", None) if persona else None)
+                or voice_preference(wanted, provider, "voice")
                 or preferences.get(f"tts_voice_{provider}")
                 or preferences.get("tts_voice")
                 or ("af_heart" if provider == "local" else "marin")
             ).strip()
             model = str(
                 values.get("model")
-                or (getattr(persona, f"preferred_tts_model_{provider}", None) if persona else None)
+                or voice_preference(wanted, provider, "model")
                 or preferences.get(f"tts_model_{provider}")
                 or preferences.get("tts_model")
                 or ("kokoro" if provider == "local" else "gpt-4o-mini-tts")
             ).strip()
             speed = str(
                 values.get("speed")
-                or (getattr(persona, f"preferred_tts_speed_{provider}", None) if persona else None)
+                or voice_preference(wanted, provider, "speed")
                 or preferences.get(f"tts_speed_{provider}")
                 or preferences.get("tts_speed")
                 or "1"

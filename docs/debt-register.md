@@ -8,6 +8,11 @@ change that alters them.
 - Cookie-session authentication and first-user administration for private-LAN
   use, subject to the hardening items below.
 - Owner-scoped chat, job, media, audio, and memory API coverage.
+- A persona's voice settings are keyed by provider rather than stored in columns
+  named after one. Nine text-to-speech columns became one object holding the
+  providers a persona has an opinion about, plus an optional `default` any
+  provider falls back to. A provider added later needs no migration and no
+  column of its own.
 - The persistence boundary is consistent: every module above `app/database.py`
   reads and writes through SQLAlchemy repositories and unit-of-work boundaries.
   The helpers that still took sqlite3 rows, raw connections, and JSON strings
@@ -109,7 +114,6 @@ change that alters them.
   markers are the list; the ceiling stops it growing, and nothing since has
   added one.
 
-- Provider-specific settings embedded directly in persona and UI records.
 - `workspace_id` and `persona_id` remain accepted on `POST /chats/{id}/turns`
   after ADR 0032 made them redundant. They are refused when they disagree with
   the chat, so they cannot cause harm; removing them is a breaking API change

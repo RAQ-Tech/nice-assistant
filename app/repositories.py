@@ -57,6 +57,7 @@ from app.persona_card import CARD_STORED_FIELDS
 from app.service_errors import ConflictError
 from app.secret_store import SecretStore
 from app.task_contracts import TASK_DEFINITIONS, TASK_ROLES
+from app.persona_voice import dump as dump_voice_preferences
 from app.typed_settings import value_type
 
 
@@ -674,19 +675,8 @@ class ApplicationRepository:
         row.default_model = values.get("default_model", row.default_model)
         if "allow_image_sends" in values:
             row.allow_image_sends = int(bool(values["allow_image_sends"]))
-        for field in (
-            "preferred_voice",
-            "preferred_tts_model",
-            "preferred_tts_speed",
-            "preferred_voice_openai",
-            "preferred_tts_model_openai",
-            "preferred_tts_speed_openai",
-            "preferred_voice_local",
-            "preferred_tts_model_local",
-            "preferred_tts_speed_local",
-        ):
-            if field in values:
-                setattr(row, field, values[field])
+        if "voice_preferences" in values:
+            row.voice_preferences_json = dump_voice_preferences(values["voice_preferences"])
         self.session.flush()
         self.session.execute(delete(PersonaWorkspaceLink).where(PersonaWorkspaceLink.persona_id == row.id))
         for workspace_id in workspace_ids:

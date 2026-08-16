@@ -73,15 +73,10 @@ export interface Persona {
   example_budget_tokens?: number;
   traits: Partial<PersonaTraits>;
   default_model: string | null;
-  preferred_voice: string | null;
-  preferred_tts_model: string | null;
-  preferred_tts_speed: string | null;
-  preferred_voice_openai: string | null;
-  preferred_tts_model_openai: string | null;
-  preferred_tts_speed_openai: string | null;
-  preferred_voice_local: string | null;
-  preferred_tts_model_local: string | null;
-  preferred_tts_speed_local: string | null;
+  // Keyed by provider, with an optional "default" any provider falls back to.
+  // One field rather than three per provider, so a new provider needs no change
+  // here at all.
+  voice_preferences: Record<string, Record<string, string>>;
   created_at: number;
 }
 

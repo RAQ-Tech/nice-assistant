@@ -4,6 +4,7 @@ import json
 from pathlib import Path
 
 from app.auth import hash_password, is_masked_secret, mask_secret, verify_password
+from app.persona_voice import parse as parse_voice_preferences
 from app.context_policy import ContextPolicy, TokenEstimator
 from app.owner_profile import owner_profile_tokens, profile_budget, profile_too_large_message
 from app.persona_lore import (
@@ -88,15 +89,7 @@ def persona_response(repo, row, budget: CardBudget) -> dict:
         "traits": traits,
         "default_model": row.default_model,
         "allow_image_sends": bool(row.allow_image_sends),
-        "preferred_voice": row.preferred_voice,
-        "preferred_tts_model": row.preferred_tts_model,
-        "preferred_tts_speed": row.preferred_tts_speed,
-        "preferred_voice_openai": row.preferred_voice_openai,
-        "preferred_tts_model_openai": row.preferred_tts_model_openai,
-        "preferred_tts_speed_openai": row.preferred_tts_speed_openai,
-        "preferred_voice_local": row.preferred_voice_local,
-        "preferred_tts_model_local": row.preferred_tts_model_local,
-        "preferred_tts_speed_local": row.preferred_tts_speed_local,
+        "voice_preferences": parse_voice_preferences(row.voice_preferences_json),
         "created_at": row.created_at,
     }
 

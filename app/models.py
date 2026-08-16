@@ -48,15 +48,10 @@ class Persona(Base):
     card_token_estimate: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     default_model: Mapped[str | None] = mapped_column(Text)
     allow_image_sends: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
-    preferred_voice: Mapped[str | None] = mapped_column(Text)
-    preferred_tts_model: Mapped[str | None] = mapped_column(Text)
-    preferred_tts_speed: Mapped[str | None] = mapped_column(Text)
-    preferred_voice_openai: Mapped[str | None] = mapped_column(Text)
-    preferred_tts_model_openai: Mapped[str | None] = mapped_column(Text)
-    preferred_tts_speed_openai: Mapped[str | None] = mapped_column(Text)
-    preferred_voice_local: Mapped[str | None] = mapped_column(Text)
-    preferred_tts_model_local: Mapped[str | None] = mapped_column(Text)
-    preferred_tts_speed_local: Mapped[str | None] = mapped_column(Text)
+    # Voice, model, and speed per provider, plus an optional `default` any
+    # provider falls back to. One column rather than three per provider, so a
+    # new provider needs no migration and no persona column named after it.
+    voice_preferences_json: Mapped[str] = mapped_column(Text, nullable=False, default="{}")
     created_at: Mapped[int] = mapped_column(Integer, nullable=False)
 
 
