@@ -321,6 +321,11 @@ installed-browser acceptance.
   rather than served from the library, that each frame links back to its set
   with its own seed, that the journal records set and frame, and that a partly
   made set reports `partial` rather than `done`.
+- Photo set serving tests prove a matching request arrives as several frames
+  without generating anything, that the number is bounded when more frames
+  exist, that a conversation never receives the same frame twice across two
+  requests, that a partly made set is still served from, and that an ordinary
+  picture still arrives alone.
 - API tests use isolated temporary databases and deterministic fake providers.
 - Migration tests upgrade pre-0004/0005/0007/0008/0009/0010/0011/0012/0013/0014/0015/0016/0017/0019/0021/0022 databases and prove
   chats, messages, jobs, media, memories, turn ordering, stored artifact links,

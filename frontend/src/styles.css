@@ -2138,3 +2138,17 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
   border-left: 2px solid color-mix(in srgb, #ffc76a 55%, var(--border));
   padding: .1rem 0 .1rem .55rem;
 }
+
+/* Frames of one photo set, shown beside the first. Smaller than the leading
+   frame: they are the same idea from another angle, not four new pictures. */
+.attachment-frames {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  margin-top: 0.4rem;
+}
+
+.attachment-frames .attachment-frame {
+  max-width: 8rem;
+  border-radius: 0.4rem;
+}

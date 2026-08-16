@@ -166,6 +166,7 @@ def build_services(
         runtime.secret_store,
         runtime.logger,
         entry_limit=config.media_library_entry_limit,
+        set_frame_limit=config.media_set_frames_per_reply,
     )
     media = MediaService(
         runtime.session_factory,

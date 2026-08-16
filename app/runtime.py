@@ -54,6 +54,7 @@ class AppConfig:
     log_archive_retention_days: int = 30
     media_journal_retention_days: int = 60
     media_library_entry_limit: int = 200
+    media_set_frames_per_reply: int = 3
     # Off by default: this spends electricity on a machine someone is using.
     pregeneration_enabled: bool = False
     pregeneration_start_hour: int = 2
@@ -116,6 +117,7 @@ class AppConfig:
             log_archive_retention_days=max(0, int(os.getenv("LOG_ARCHIVE_RETENTION_DAYS", "30"))),
             media_journal_retention_days=max(0, int(os.getenv("MEDIA_JOURNAL_RETENTION_DAYS", "60"))),
             media_library_entry_limit=max(0, int(os.getenv("MEDIA_LIBRARY_ENTRY_LIMIT", "200"))),
+            media_set_frames_per_reply=min(6, max(1, int(os.getenv("MEDIA_SET_FRAMES_PER_REPLY", "3")))),
             pregeneration_enabled=_env_bool("PREGENERATION_ENABLED", False),
             pregeneration_start_hour=min(23, max(0, int(os.getenv("PREGENERATION_START_HOUR", "2")))),
             pregeneration_end_hour=min(23, max(0, int(os.getenv("PREGENERATION_END_HOUR", "6")))),

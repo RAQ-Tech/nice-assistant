@@ -56,7 +56,7 @@ def _identity_state(kind: str, result: dict | None) -> str:
     return "unverified"
 
 
-def attachment_response(row) -> dict | None:
+def attachment_response(row, frames=None) -> dict | None:
     if not row:
         return None
     return {
@@ -66,6 +66,16 @@ def attachment_response(row) -> dict | None:
         "capability_request_id": row.capability_request_id,
         "media_id": row.media_id,
         "content_url": f"/api/v1/media/{row.media_id}" if row.media_id else None,
+        # Additional frames of the same photo set, shown beside the first one.
+        # Empty for every ordinary picture, which is most of them.
+        "frames": [
+            {
+                "media_id": frame.media_id,
+                "content_url": f"/api/v1/media/{frame.media_id}",
+                "frame_index": frame.frame_index,
+            }
+            for frame in (frames or [])
+        ],
         "identity_state": row.identity_state,
         "safe_error": row.safe_error,
         "retry_available": bool(row.retry_available),
@@ -73,6 +83,14 @@ def attachment_response(row) -> dict | None:
         "updated_at": row.updated_at,
         "completed_at": row.completed_at,
     }
+
+
+def _attachment_with_frames(repo, row) -> dict | None:
+    """An attachment together with the other frames sent beside it."""
+
+    if not row:
+        return None
+    return attachment_response(row, repo.attachment_frames(row.id))
 
 
 def _sync_attachment(repo, request, state: str, *, message: str | None = None, result: dict | None = None) -> None:
@@ -87,6 +105,13 @@ def _sync_attachment(repo, request, state: str, *, message: str | None = None, r
     attachment.updated_at = now_ts()
     if result is not None:
         attachment.media_id = str(result.get("mediaId") or "") or None
+        extra = [
+            (str(frame.get("media_id") or ""), frame.get("frame_index"))
+            for frame in (result.get("frames") or [])
+            if frame.get("media_id")
+        ]
+        if extra:
+            repo.add_attachment_frames(attachment.id, extra)
         attachment.identity_state = _identity_state(attachment.kind, result)
     if state == "failed":
         attachment.safe_error = redact_sensitive_text(message or "Image generation failed.")[:500]
@@ -1410,6 +1435,6 @@ class CapabilityService:
             "completed_at": row.completed_at,
             "expires_at": row.expires_at,
             "retry_of_request_id": row.retry_of_request_id,
-            "attachment": attachment_response(repo.chat_attachment_for_capability(row.user_id, row.id)),
+            "attachment": _attachment_with_frames(repo, repo.chat_attachment_for_capability(row.user_id, row.id)),
             "media_plan": self.media_catalog.plan_for_capability(repo, row.user_id, row.id),
         }

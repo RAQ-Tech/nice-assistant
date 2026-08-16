@@ -137,7 +137,9 @@ class ConversationService:
                 return None
             attachments = {}
             for row in uow.repo.chat_attachments(user_id, chat_id):
-                attachments.setdefault(row.assistant_message_id, []).append(attachment_response(row))
+                attachments.setdefault(row.assistant_message_id, []).append(
+                    attachment_response(row, uow.repo.attachment_frames(row.id))
+                )
             # A reply produced with reduced context stays explainable after a reload, so the
             # reason travels with the message it produced rather than only with the live turn.
             degraded = {

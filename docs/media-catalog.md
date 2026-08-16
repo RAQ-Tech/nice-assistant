@@ -279,6 +279,24 @@ are distinct, and `partial` exists because a set that made four of six frames is
 neither finished nor still working, and calling it either one is something
 somebody would act on.
 
+### Sending a set into a conversation
+
+When a request matches a retained frame that belongs to a photo set, the reply
+carries that frame and the set's other frames this conversation has not already
+seen. The attachment keeps its own `media_id` as the frame shown first, and the
+rest arrive as `frames` beside it, so every reader that expects one picture
+still gets one.
+
+Bounded, and stated rather than implied: `MEDIA_SET_FRAMES_PER_REPLY` defaults
+to three frames including the first. A set of twelve arriving at once is a wall
+of pictures, not an answer.
+
+The same rule the single-picture library already uses applies per frame: a
+conversation never receives a frame it has already been sent, and never receives
+one it asked to have made. A set that is only partly generated is served from
+exactly like a finished one, because the query is over the frames that exist
+rather than over what the set intended.
+
 ### How a background picture is made
 
 An approved scene is produced through the same capability request, execution

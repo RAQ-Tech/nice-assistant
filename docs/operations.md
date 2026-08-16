@@ -589,6 +589,9 @@ through `MEDIA_JOURNAL_RETENTION_DAYS`, and a journal is always removed with the
 media it describes regardless of that setting. `MEDIA_LIBRARY_ENTRY_LIMIT`
 defaults to 200 retained pictures per owner; entries beyond it are retired, not
 deleted, so no image file disappears without an explicit decision.
+`MEDIA_SET_FRAMES_PER_REPLY` bounds how many frames of one photo set may arrive
+in a single reply, counting the first; it defaults to 3 and is clamped to
+between 1 and 6.
 
 Background picture production is off unless `PREGENERATION_ENABLED` is set.
 `PREGENERATION_START_HOUR` and `PREGENERATION_END_HOUR` bound the quiet window,

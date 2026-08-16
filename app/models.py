@@ -1055,6 +1055,26 @@ class ChatAttachment(Base):
     completed_at: Mapped[int | None] = mapped_column(Integer)
 
 
+class ChatAttachmentFrame(Base):
+    """An extra frame shown beside an attachment.
+
+    The attachment's own `media_id` stays the frame shown first, so nothing that
+    already reads an attachment has to learn a second meaning for that column.
+    """
+
+    __tablename__ = "chat_attachment_frames"
+    __table_args__ = (
+        UniqueConstraint("attachment_id", "media_id", name="uq_attachment_frames_media"),
+        Index("idx_attachment_frames_attachment", "attachment_id", "position"),
+    )
+    id: Mapped[str] = mapped_column(Text, primary_key=True)
+    attachment_id: Mapped[str] = mapped_column(ForeignKey("chat_attachments.id", ondelete="CASCADE"), nullable=False)
+    media_id: Mapped[str] = mapped_column(ForeignKey("media_files.id", ondelete="CASCADE"), nullable=False)
+    frame_index: Mapped[int | None] = mapped_column(Integer)
+    position: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    created_at: Mapped[int] = mapped_column(Integer, nullable=False)
+
+
 class AsyncJob(Base):
     __tablename__ = "async_jobs"
     __table_args__ = (

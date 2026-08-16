@@ -194,8 +194,17 @@ export class ChatRenderer {
             el('span', { class: 'msg-video-play', textContent: '▶' }),
             el('span', { class: 'msg-video-label', textContent: 'Play video' }),
           ]);
+      const extraFrames = attachment.kind === 'image' ? (attachment.frames ?? []) : [];
       return el('section', { class: 'chat-attachment attachment-completed', 'data-testid': 'chat-attachment' }, [
         media,
+        extraFrames.length
+          ? el('div', { class: 'attachment-frames', 'data-testid': 'attachment-frames' }, extraFrames.map((frame) =>
+              el('img', {
+                class: 'msg-inline-image attachment-image attachment-frame',
+                src: frame.content_url,
+                alt: `Frame ${(frame.frame_index ?? 0) + 1} of the same set`,
+              })))
+          : null,
         attachment.identity_state === 'unconditioned'
           ? el('p', { class: 'attachment-identity', textContent: 'No identity reference was applied · unverified' })
           : attachment.identity_state === 'verified'

@@ -327,6 +327,12 @@ class ChatRepresentation(BaseModel):
     updated_at: int
 
 
+class AttachmentFrameRepresentation(BaseModel):
+    media_id: str
+    content_url: str
+    frame_index: int | None = None
+
+
 class ChatAttachmentRepresentation(BaseModel):
     id: str
     kind: Literal["image", "video"]
@@ -334,6 +340,9 @@ class ChatAttachmentRepresentation(BaseModel):
     capability_request_id: str
     media_id: str | None = None
     content_url: str | None = None
+    # Other frames of the same photo set, sent beside the first. Empty for an
+    # ordinary picture.
+    frames: list[AttachmentFrameRepresentation] = Field(default_factory=list)
     identity_state: Literal["not_applicable", "unconditioned", "verified", "unverified"]
     safe_error: str | None = None
     retry_available: bool

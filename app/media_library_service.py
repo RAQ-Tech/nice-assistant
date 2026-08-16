@@ -25,6 +25,10 @@ SUBJECT_WEIGHT = 3
 FIELD_WEIGHT = 1
 MATCH_THRESHOLD = 5
 DEFAULT_LIBRARY_LIMIT = 200
+# How many frames of one set may arrive together. Bounded and stated rather than
+# "however many exist": a set of twelve arriving at once is a wall of pictures,
+# not an answer.
+DEFAULT_SET_FRAME_LIMIT = 3
 
 
 def _tokens(value: str) -> set[str]:
@@ -62,11 +66,19 @@ def scene_similarity(wanted: dict, stored: dict) -> int:
 
 
 class MediaLibraryService:
-    def __init__(self, session_factory, secret_store, logger, entry_limit: int = DEFAULT_LIBRARY_LIMIT):
+    def __init__(
+        self,
+        session_factory,
+        secret_store,
+        logger,
+        entry_limit: int = DEFAULT_LIBRARY_LIMIT,
+        set_frame_limit: int = DEFAULT_SET_FRAME_LIMIT,
+    ):
         self.session_factory = session_factory
         self.secret_store = secret_store
         self.logger = logger
         self.entry_limit = max(0, int(entry_limit))
+        self.set_frame_limit = max(1, int(set_frame_limit))
 
     def _uow(self):
         return UnitOfWork(self.session_factory, self.secret_store)
@@ -134,7 +146,37 @@ class MediaLibraryService:
                     best, best_score = row, score
             if not best or best_score < MATCH_THRESHOLD:
                 return None
-            return {"id": best.id, "media_id": best.media_id, "score": best_score}
+            frames = self._set_siblings(uow.repo, best, chat_id)
+            return {
+                "id": best.id,
+                "media_id": best.media_id,
+                "score": best_score,
+                # The matched frame first, then its unsent siblings. A single
+                # picture has none, and the shape is the same either way.
+                "frames": frames,
+            }
+
+    def _set_siblings(self, repo, best, chat_id: str | None) -> list[dict]:
+        """The other frames of this picture's set that this chat has not seen.
+
+        A partly generated set is served from exactly like a finished one: the
+        query is over frames that exist, not over what the set intended.
+        """
+
+        if not best.photo_set_id:
+            return []
+        siblings = []
+        for row in repo.photo_set_frames(best.user_id, best.photo_set_id):
+            if row.id == best.id or row.state == "retired":
+                continue
+            if chat_id and chat_id in {row.last_served_chat_id, row.origin_chat_id}:
+                # The same rule a single picture uses: this conversation has
+                # already had this frame, so it is not new here.
+                continue
+            siblings.append({"id": row.id, "media_id": row.media_id, "frame_index": row.frame_index})
+            if len(siblings) >= self.set_frame_limit - 1:
+                break
+        return siblings
 
     def mark_served(self, user_id: str, entry_id: str, chat_id: str | None) -> None:
         try:

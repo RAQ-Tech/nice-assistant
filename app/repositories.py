@@ -14,6 +14,7 @@ from app.models import (
     AudioFile,
     CapabilityEvent,
     CapabilityRequest,
+    ChatAttachmentFrame,
     Chat,
     ChatAttachment,
     ConversationTurn,
@@ -1888,6 +1889,30 @@ class ApplicationRepository:
             )
             .order_by(PersonaSceneBacklogEntry.created_at, PersonaSceneBacklogEntry.id)
             .limit(max(1, int(limit)))
+        ).all()
+
+    def add_attachment_frames(self, attachment_id: str, frames: list[tuple[str, int | None]]) -> None:
+        """Record the extra frames shown beside an attachment, in order."""
+
+        stamp = now_ts()
+        for position, (media_id, frame_index) in enumerate(frames):
+            self.session.add(
+                ChatAttachmentFrame(
+                    id=secrets.token_hex(12),
+                    attachment_id=attachment_id,
+                    media_id=media_id,
+                    frame_index=frame_index,
+                    position=position,
+                    created_at=stamp,
+                )
+            )
+        self.session.flush()
+
+    def attachment_frames(self, attachment_id: str):
+        return self.session.scalars(
+            select(ChatAttachmentFrame)
+            .where(ChatAttachmentFrame.attachment_id == attachment_id)
+            .order_by(ChatAttachmentFrame.position)
         ).all()
 
     def library_entry_for_media(self, user_id: str, media_id: str):

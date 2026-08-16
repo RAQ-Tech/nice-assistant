@@ -236,6 +236,12 @@ export interface Message {
   retryChatId?: Id;
 }
 
+export interface AttachmentFrame {
+  media_id: Id;
+  content_url: string;
+  frame_index: number | null;
+}
+
 export interface ChatAttachment {
   id: Id;
   kind: 'image' | 'video';
@@ -243,6 +249,7 @@ export interface ChatAttachment {
   capability_request_id: Id;
   media_id: Id | null;
   content_url: string | null;
+  frames?: AttachmentFrame[];
   identity_state: 'not_applicable' | 'unconditioned' | 'verified' | 'unverified';
   safe_error: string | null;
   retry_available: boolean;

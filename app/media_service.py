@@ -178,13 +178,31 @@ class MediaService:
         if not media:
             return None
         self.library.mark_served(user_id, match["id"], chat_id)
+        extra = []
+        for sibling in match.get("frames") or []:
+            with self._uow() as uow:
+                frame_media = uow.repo.media_for_user(user_id, sibling["media_id"])
+            if not frame_media:
+                continue
+            self.library.mark_served(user_id, sibling["id"], chat_id)
+            extra.append({"media_id": frame_media.id, "frame_index": sibling.get("frame_index")})
+            recorder.attach_media(frame_media.id)
         recorder.record(
             "served_from_library",
-            summary="answered with a retained picture instead of generating",
-            detail={"library_entry_id": match["id"], "media_id": media.id, "match_score": match["score"]},
+            summary=(
+                f"answered with {len(extra) + 1} retained frames of one set"
+                if extra
+                else "answered with a retained picture instead of generating"
+            ),
+            detail={
+                "library_entry_id": match["id"],
+                "media_id": media.id,
+                "match_score": match["score"],
+                "extra_frames": extra,
+            },
         )
         recorder.attach_media(media.id)
-        return media
+        return media, extra
 
     def _generate_image(self, user_id, chat_id, prompt, values, settings, preferences, cancellation, recorder):
         identity = values.get("_identity_conditioning")
@@ -193,7 +211,8 @@ class MediaService:
         prompt = prompt_with_identity_description(prompt, identity)
         served = self._serve_from_library(user_id, chat_id, values, recorder)
         if served is not None:
-            return self._image_result(served, chat_id, identity)
+            media, extra_frames = served
+            return self._image_result(media, chat_id, identity, extra_frames=extra_frames)
         self._record_plan_stage(recorder, user_id, generation_plan_id)
         recorder.record(
             "identity_conditioning",
@@ -613,7 +632,7 @@ class MediaService:
         return media
 
     @staticmethod
-    def _image_result(media, chat_id, identity=None, validation=None, attempts=1):
+    def _image_result(media, chat_id, identity=None, validation=None, attempts=1, extra_frames=None):
         canonical_url = f"/api/v1/media/{media.id}"
         unconditioned = (identity or {}).get("status") == "unconditioned"
         message = "Here is your generated image."
@@ -629,6 +648,14 @@ class MediaService:
             "mediaId": media.id,
             "chatId": chat_id,
         }
+        if extra_frames:
+            # Named separately from mediaId so every existing reader keeps
+            # seeing one picture where it expects one.
+            result["frames"] = list(extra_frames)
+            result["text"] = (
+                f"{message} It is one of {len(extra_frames) + 1} frames from the same set."
+                f"\n\n![Generated image]({canonical_url})"
+            )
         validation = validation or {}
         conditioning = public_identity_conditioning(
             identity,
