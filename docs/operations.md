@@ -616,3 +616,20 @@ all unless production is enabled. `DAILY_DATABASE_BACKUP_LIMIT=14` and
 before shortening retention because deletion is permanent outside backups.
 Moving completed audio from the hot cache into the archive updates its durable
 protected replay path; replay remains available until retention expires it.
+
+## One process
+
+Nice Assistant runs as a single application process, and refuses to start when
+`WEB_CONCURRENCY`, `UVICORN_WORKERS`, `GUNICORN_WORKERS`, or
+`NICE_ASSISTANT_WORKERS` asks for more than one. The refusal names the variable
+to change.
+
+Three things are held in memory rather than in the database: turn event replay,
+login throttling, and request metrics. A second process would keep its own copy
+of each, so a browser reconnecting mid-reply could be answered by a process that
+never saw the turn, and a login lockout would be worth as many attempts as there
+are processes. See ADR 0034.
+
+Threads are unaffected: `JOB_QUEUE_INTERACTIVE_WORKERS` and
+`JOB_QUEUE_MEDIA_WORKERS` set worker threads inside the one process and share
+all of the above.

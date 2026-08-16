@@ -21,6 +21,13 @@ change that alters them.
   calls. `app/database.py` remains low-level on purpose: it runs migrations and
   the startup sweep before any session exists.
 - Separate interactive and media job lanes.
+- Turn event replay is bounded and process-local by decision, not by omission.
+  ADR 0034 records why: reconnects are correct regardless, because the snapshot
+  carries the sequence its text covers, so a subscriber neither replays deltas
+  twice nor silently misses evicted ones. A restart still ends an unfinished
+  turn rather than resuming it, and a durable log would offer replay of turns
+  that no longer exist. The single-process assumption it rests on is enforced at
+  startup rather than documented, in `app/single_process.py`.
 - One dependency-injected FastAPI application with service/unit-of-work boundaries,
   durable linked conversation turns/jobs, safe provider failures, streamed Ollama
   chat, bounded SSE replay, and cooperative cancellation.
@@ -118,10 +125,6 @@ change that alters them.
   after ADR 0032 made them redundant. They are refused when they disagree with
   the chat, so they cannot cause harm; removing them is a breaking API change
   that is not scheduled.
-- Turn event replay is bounded and process-local, not a durable event log. Reconnects
-  are correct regardless: the snapshot carries the sequence its text covers, so a
-  subscriber neither replays deltas twice nor silently misses evicted ones. A restart
-  still ends an unfinished turn rather than resuming its stream.
 - Context token counts are conservative estimates before generation; actual
   Ollama prompt counts are captured when the provider returns them.
 - Provider cancellation is cooperative; providers without interrupt support may

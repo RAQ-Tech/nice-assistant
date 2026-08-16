@@ -16,6 +16,7 @@ from app.identity_api import router as identity_api_router
 from app.provider_contracts import ProviderError
 from app.runtime import AppConfig
 from app.security import SecurityObservabilityMiddleware
+from app.single_process import require_single_process
 from app.service_errors import RateLimitError, ServiceError
 
 
@@ -78,6 +79,9 @@ def create_app(
     password_verifier=None,
 ) -> FastAPI:
     config = config or AppConfig.from_env()
+    # Before anything is built: a second process would hold its own replay
+    # buffer, its own login lockout, and its own metrics. ADR 0034.
+    require_single_process(os.environ)
     service_kwargs = {}
     if password_hasher is not None:
         service_kwargs["password_hasher"] = password_hasher
