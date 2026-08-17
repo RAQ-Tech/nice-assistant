@@ -144,6 +144,19 @@ this profile. The identity behavior card names how the face is produced, and the
 comparison threshold moved behind the advanced disclosure where
 `docs/settings-experience.md` already said it was.
 
+Stage 2 is delivered, except for the declared model architecture, which has no
+consumer until templates arrive and moves there rather than shipping as a field
+that only round-trips. A ComfyUI graph carries the checkpoint it was saved with,
+so a preset could name one base model and render another; `checkpoint_bindings`
+now writes the preset's model into the graph, guided setup binds it when there
+is exactly one such input, and a preset whose graph bakes a different checkpoint
+is refused at save time naming both files. A preset created from an existing
+model no longer claims `reference_adapter` for a catalog that cannot supply it,
+and planning proves the mechanism from the graph it selects rather than from a
+stored guess. A workflow filling an open slot must declare the operation being
+requested, so an image-to-image identity graph is no longer attached to a
+generate request and then failed at upload time.
+
 Remaining stages, in order:
 
 1. **One identity-conditioned picture, hand-bound.** PhotoMaker v2 on an SDXL
@@ -154,18 +167,7 @@ Remaining stages, in order:
     **Done when** a picture with a recognizable face exists and its generation
     log shows the conditioning stage.
 
-2. **Declared architecture and checkpoint reconciliation.** No checkpoint
-    binding exists: a bound workflow renders whatever `ckpt_name` was baked into
-    it, so a preset's base model and its workflow can disagree silently. Add
-    `checkpoint_bindings`, add an operator-declared `architecture` on a model
-    resource - it cannot be sniffed, because the application has no access to
-    the models directory - stop the preset backfill claiming `reference_adapter`
-    for every model, and stop an image-to-image-only identity workflow being
-    attached as the generate graph.
-    **Done when** a mismatched preset is refused at save time rather than at
-    render time.
-
-3. **Workflow templates, verification first.** Ship known-good graphs with fixed
+2. **Workflow templates, verification first.** Ship known-good graphs with fixed
     node IDs and bindings declared by construction, in `assets/workflow-templates/`
     with `app/workflow_template.py` as a sibling to `app/preset_bundle.py` - a
     bundle deliberately cannot carry a graph, and it is the operator-to-operator
@@ -173,10 +175,14 @@ Remaining stages, in order:
     installation? Templates state their required assets in plain language,
     because an identity model that sits behind a device combo rather than an
     asset-name input cannot be detected. Provenance in nullable columns, and
-    never an automatic rewrite of a graph somebody tuned.
+    never an automatic rewrite of a graph somebody tuned. Templates need an
+    operator-declared `architecture` on a model resource, which cannot be
+    sniffed - the application has no access to the models directory, and
+    `/object_info` does not report what family a checkpoint belongs to - so a
+    template is simply not offered for a model of a family it was not built for.
     **Done when** a persona is set up without anybody reading a node graph.
 
-4. **`identity_pass`.** Planning already accepts a second-stage identity
+3. **`identity_pass`.** Planning already accepts a second-stage identity
     workflow; execution copies its bindings to the top level and injects them
     into stage one, which has no such node, so it fails deterministically. Fix
     the four places that assume one graph per request, then offer the mechanism
@@ -184,11 +190,11 @@ Remaining stages, in order:
     stays unoffered: a control must not present a choice that can only block.
     **Done when** a two-stage preset runs with stage two doing the identity work.
 
-5. **CompreFace as a calibration aid.** Framing and documentation only. It is
+4. **CompreFace as a calibration aid.** Framing and documentation only. It is
     the tool that answers how much likeness a checkpoint family costs, with
     numbers. Independent of everything above.
 
-The durable parts of this design belong in an ADR when stage 2 lands.
+The durable parts of this design belong in an ADR when templates land.
 
 
 ## 2. Needs decision

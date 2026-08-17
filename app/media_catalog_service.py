@@ -13,7 +13,8 @@ from app.identity_conditioning import (
     public_identity_conditioning,
 )
 from app.identity_images import MAX_REFERENCE_BYTES, read_identity_image_file
-from app.media_planner import PROVIDER_DEFAULT, build_media_plan
+from app.media_clients import CHECKPOINT_INPUT_NAMES
+from app.media_planner import PROVIDER_DEFAULT, build_media_plan, workflow_mechanisms
 from app.preset_signals import PresetSignals, describe, preferred_order
 from app.media_preset import normalize_definition
 from app.preset_bundle import normalize_bundle, resolve_entry, starter_bundle
@@ -46,6 +47,13 @@ WORKFLOW_REQUEST_BINDINGS = (
     ("height_bindings", "height"),
 )
 WORKFLOW_REQUEST_BINDING_KEYS = tuple(key for key, _label in WORKFLOW_REQUEST_BINDINGS)
+# The checkpoint comes from the preset rather than the caller, but it is bound
+# the same way and for the same reason: without it a graph renders whatever
+# ckpt_name was baked into it, so the preset's base model is a label rather
+# than a fact.
+WORKFLOW_PRESET_BINDINGS = (("checkpoint_bindings", "checkpoint"),)
+WORKFLOW_BINDINGS = WORKFLOW_REQUEST_BINDINGS + WORKFLOW_PRESET_BINDINGS
+WORKFLOW_BINDING_KEYS = tuple(key for key, _label in WORKFLOW_BINDINGS)
 
 
 def needs_binding_review(row) -> bool:
@@ -299,7 +307,9 @@ class MediaCatalogService:
         covered = {_json(row.definition_json, {}).get("base_model_resource_id") for row in existing}
         taken = {row.name for row in existing}
         setting = repo.media_catalog_setting(user_id)
-        for model in repo.media_catalog_resources(user_id, enabled=True):
+        enabled_resources = repo.media_catalog_resources(user_id, enabled=True)
+        compatibility = repo.media_compatibility_map(user_id)
+        for model in enabled_resources:
             if model.resource_type != "model" or model.id in covered:
                 continue
             name = model.name
@@ -324,7 +334,14 @@ class MediaCatalogService:
                     # Likewise for attaching a feature-capable workflow, which
                     # is how identity conditioning is reached today.
                     "workflow_slot": {"enabled": True},
-                    "identity_mechanisms": ["reference_adapter"],
+                    # Only if the catalog can actually supply it. Claiming it
+                    # for every model made the mechanism filter reject nothing
+                    # and put a capability in the record that had no wiring
+                    # behind it. When a workflow arrives later, planning proves
+                    # the mechanism from the graph rather than from this list.
+                    "identity_mechanisms": sorted(
+                        MediaCatalogService._available_mechanisms(model, enabled_resources, compatibility)
+                    ),
                 }
             )
             repo.add_media_preset(
@@ -344,6 +361,19 @@ class MediaCatalogService:
                     "notes": None,
                 },
             )
+
+    @staticmethod
+    def _available_mechanisms(model, enabled_resources, compatibility) -> set[str]:
+        """Which conditioning mechanisms this model could actually reach today."""
+
+        found: set[str] = set()
+        for row in enabled_resources:
+            if row.resource_type != "workflow" or row.kind != model.kind:
+                continue
+            if model.id not in compatibility.get(row.id, set()):
+                continue
+            found |= workflow_mechanisms(row)
+        return found
 
     def _preset_values(self, repo, user_id: str, values: dict) -> dict:
         if not isinstance(values, dict):
@@ -401,6 +431,7 @@ class MediaCatalogService:
                 raise RequestError(f"preset {role} must be a catalog workflow of the same kind", 400)
             if base.id not in compatibility.get(row.id, set()):
                 raise RequestError(f"preset {role} is not marked compatible with the base model", 400)
+            MediaCatalogService._check_workflow_checkpoint(role, row, base)
         for index, stage in enumerate(definition["stages"]):
             if not index:
                 continue
@@ -417,6 +448,36 @@ class MediaCatalogService:
                 raise RequestError("preset LoRAs must be catalog LoRAs of the same kind", 400)
             if base.id not in compatibility.get(row.id, set()):
                 raise RequestError(f"preset LoRA '{row.name}' is not marked compatible with the base model", 400)
+
+    @staticmethod
+    def _check_workflow_checkpoint(role: str, workflow, base) -> None:
+        """Refuse a preset whose base model its graph would ignore.
+
+        A ComfyUI graph carries the checkpoint it was saved with. Without a
+        declared checkpoint binding the executor never touches it, so a preset
+        can name one model and render another - and the picture looks fine, so
+        nothing reports it. Either the graph takes the preset's model through a
+        binding, or the name baked into it has to agree.
+        """
+
+        if base.backend != "comfyui" or base.external_id in (PROVIDER_DEFAULT, "", None):
+            return
+        settings = _json(workflow.default_settings_json, {})
+        if settings.get("checkpoint_bindings"):
+            return
+        expected = str(base.external_id)
+        for node_id, node in (settings.get("workflow_patch") or {}).items():
+            inputs = node.get("inputs") if isinstance(node, dict) else None
+            if not isinstance(inputs, dict):
+                continue
+            for input_name in CHECKPOINT_INPUT_NAMES:
+                baked = inputs.get(input_name)
+                if isinstance(baked, str) and baked and baked != expected:
+                    raise RequestError(
+                        f"preset {role} loads '{baked}' at node {node_id}, not the preset's base model "
+                        f"'{expected}'. Bind the checkpoint input, or point the preset at that model.",
+                        400,
+                    )
 
     @staticmethod
     def _preset_response(row) -> dict:
@@ -1628,7 +1689,7 @@ class MediaCatalogService:
                 "identity_image_bindings",
                 "source_image_bindings",
                 "mask_image_bindings",
-                *WORKFLOW_REQUEST_BINDING_KEYS,
+                *WORKFLOW_BINDING_KEYS,
             }
         if set(values) - allowed:
             raise RequestError("default settings include unsupported fields", 400)
@@ -1656,7 +1717,7 @@ class MediaCatalogService:
             result["mask_image_bindings"] = MediaCatalogService._normalize_comfy_bindings(
                 patch, result.get("mask_image_bindings") or [], "mask image"
             )
-            for key, label in WORKFLOW_REQUEST_BINDINGS:
+            for key, label in WORKFLOW_BINDINGS:
                 result[key] = MediaCatalogService._normalize_comfy_bindings(patch, result.get(key) or [], label)
         if resource_type == "model":
             if "prompt_dialect" in result:

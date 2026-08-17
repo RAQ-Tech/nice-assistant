@@ -61,12 +61,22 @@ existing explicit compatibility edges still gate what can fill it. Everything
 else about a preset is a fixed, tested choice.
 
 A preset declares which identity mechanisms it implements. A persona image is
-planned only against a preset whose declared mechanism the persona's Identity
-Spec requires, and a preset that cannot honor the spec is rejected with a reason
-naming the mechanism rather than silently producing an unconditioned picture.
-Nothing is inferred: a graph either has the wiring or it does not. Presets
-derived from an existing catalog model declare `reference_adapter`, because
-attaching a reference-conditioned workflow is what the coordinator already did.
+planned only against a preset that can honor the mechanism the persona's
+Identity Spec requires, and one that cannot is rejected with a reason naming the
+mechanism rather than silently producing an unconditioned picture.
+
+Nothing is inferred from intent: a mechanism is either declared by the operator
+on the preset, or proved by the graph the plan actually selects. A workflow
+proves `reference_adapter` by declaring the `identity_control` feature and
+naming where the reference goes, because only the binding makes the reference
+reach the graph. Either is enough, which keeps a preset from being refused for a
+capability its attached workflow plainly has, and keeps a stored value from
+going stale when a workflow is added later.
+
+A preset created automatically from an existing catalog model declares a
+mechanism only when the catalog can already supply it. Claiming one for every
+model made the filter that exists to reject an incapable preset reject nothing,
+and put a capability in the record with no wiring behind it.
 
 The existing ADR 0018 fallback is unchanged. When conditioning cannot be
 completed and the saved policy allows it, the request falls back to an
@@ -75,7 +85,11 @@ the feature it belonged to.
 
 A preset may also declare an open workflow slot. That lets it reach a
 feature-capable graph it does not name itself, which is how identity
-conditioning is applied today. It is off by default, because a preset is meant
+conditioning is applied today. A graph filling that slot must declare the
+operation being requested. Covering a wanted feature is not a reason to run a
+graph that cannot do the job: an image-to-image identity workflow attached to a
+generate request has no source picture, so it used to be selected and then fail
+at upload time. It is off by default, because a preset is meant
 to be a fixed recipe; presets created from an existing catalog model turn it on,
 since attaching a feature-capable workflow at request time is exactly what the
 coordinator did before presets existed.
@@ -536,15 +550,35 @@ operator's behalf could change what an already-tested graph produces, so the
 binding is always an explicit choice.
 
 Workflow import inspection reports the candidates ComfyUI proves are writable:
-text inputs for the prompt, integer `seed` or `noise_seed` inputs, and `width`
-and `height`. Each candidate carries the value currently saved in it, which is
-how an operator tells a positive prompt input from a negative one. An input
-already fed by another node is never offered, because overwriting it would break
-the operator's own wiring.
+text inputs for the prompt, integer `seed` or `noise_seed` inputs, `width` and
+`height`, and the checkpoint input described below. Each candidate carries the
+value currently saved in it, which is how an operator tells a positive prompt
+input from a negative one. An input already fed by another node is never
+offered, because overwriting it would break the operator's own wiring.
 
 A workflow with declared prompt bindings executes as the whole graph. Its own
-sampler, checkpoint, and LoRA wiring are used as saved, and only the declared
-request inputs are replaced. A workflow saved before bindings existed still runs
+sampler and LoRA wiring are used as saved, and only the declared inputs are
+replaced.
+
+## The checkpoint a graph loads
+
+A ComfyUI graph carries the checkpoint it was saved with, so a preset could name
+one base model and render another - and the picture still came out, which made
+the mismatch invisible. Two things now stop that.
+
+`checkpoint_bindings` names a `ckpt_name`, `checkpoint_name`, or `unet_name`
+input the preset's base model is written into at run time. These are combo
+inputs rather than free text, so inspection offers them separately from the
+prompt and never confuses the two. Guided identity setup binds one
+automatically when the graph has exactly one such input, because there is then
+no ambiguity about what it loads; with a refiner there are two, and guessing
+would change what an already-tested graph produces.
+
+Without a checkpoint binding, a preset whose graph bakes a different checkpoint
+name is refused at save time, naming both files. The fix is either to bind the
+input or to point the preset at the model the graph really loads. A graph that
+loads no checkpoint by name - because a parent workflow supplies it - is
+unaffected. A workflow saved before bindings existed still runs
 through the previous merge-over-a-default-graph path, so it produces exactly
 what it produced before; it is reported with `needs_binding_review` until an
 operator opens it and chooses its prompt input. That flag is derived from the

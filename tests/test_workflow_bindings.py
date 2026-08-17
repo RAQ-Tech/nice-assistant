@@ -38,6 +38,12 @@ OBJECT_INFO = {
         "input": {"required": {"width": ["INT", {"default": 512}], "height": ["INT", {"default": 512}]}},
         "output": ["LATENT"],
     },
+    "CheckpointLoaderSimple": {
+        # A combo, not a string: the provider offers the files it has installed.
+        "input": {"required": {"ckpt_name": [["realvis.safetensors", "juggernaut.safetensors"]]}},
+        "output": ["MODEL", "CLIP", "VAE"],
+        "display_name": "Load Checkpoint",
+    },
 }
 
 
@@ -173,10 +179,74 @@ class WorkflowInspectionTests(unittest.TestCase):
         # Overwriting a linked input would silently break the operator's wiring.
         self.assertEqual(result["request_input_candidates"]["prompt"], [])
 
+    def test_the_checkpoint_input_is_offered_even_though_it_is_a_combo(self):
+        nodes = {"40": {"class_type": "CheckpointLoaderSimple", "inputs": {"ckpt_name": "juggernaut.safetensors"}}}
+        result = _inspect_comfyui_object_info(nodes, OBJECT_INFO)
+        candidates = result["request_input_candidates"]
+
+        self.assertEqual([item["node_id"] for item in candidates["checkpoint"]], ["40"])
+        self.assertEqual(candidates["checkpoint"][0]["current_value"], "juggernaut.safetensors")
+        # A combo is not free text, so it must not be offered as a prompt input.
+        self.assertEqual(candidates["prompt"], [])
+
     def test_a_graph_with_no_text_input_is_reported_as_unable_to_receive_a_prompt(self):
         nodes = {"43": {"class_type": "EmptyLatentImage", "inputs": {"width": 512, "height": 512}}}
         result = _inspect_comfyui_object_info(nodes, OBJECT_INFO)
         self.assertTrue(any("receive the request prompt" in warning for warning in result["warnings"]))
+
+
+class CheckpointBindingTests(unittest.TestCase):
+    """A graph carries the checkpoint it was saved with.
+
+    Nothing used to overwrite it, so a preset could name one model and render
+    another. The picture still came out, so the mismatch was invisible.
+    """
+
+    def _graph(self) -> dict:
+        return {
+            "40": {"class_type": "CheckpointLoaderSimple", "inputs": {"ckpt_name": "whatever-was-saved.safetensors"}},
+            "41": {"class_type": "CLIPTextEncode", "inputs": {"text": "saved text", "clip": ["40", 1]}},
+        }
+
+    def test_the_presets_model_replaces_the_one_baked_into_the_graph(self):
+        captured = {}
+        settings = {
+            "additional_parameters": json.dumps(self._graph()),
+            "prompt_bindings": [{"node_id": "41", "input_name": "text"}],
+            "checkpoint_bindings": [{"node_id": "40", "input_name": "ckpt_name"}],
+            "model": "realvis.safetensors",
+        }
+        with mock.patch("app.media_clients.urllib.request.urlopen", side_effect=comfy_transport(captured)):
+            comfyui_image("a kite", "512x512", "none", True, "http://c.invalid:8188", settings, CancellationToken())
+
+        self.assertEqual(captured["workflow"]["40"]["inputs"]["ckpt_name"], "realvis.safetensors")
+
+    def test_a_declared_binding_with_no_model_to_write_fails_loudly(self):
+        settings = {
+            "additional_parameters": json.dumps(self._graph()),
+            "prompt_bindings": [{"node_id": "41", "input_name": "text"}],
+            "checkpoint_bindings": [{"node_id": "40", "input_name": "ckpt_name"}],
+        }
+        with mock.patch("app.media_clients.urllib.request.urlopen", side_effect=comfy_transport({})):
+            with self.assertRaises(ValueError) as raised:
+                comfyui_image("a kite", "512x512", "none", True, "http://c.invalid:8188", settings, CancellationToken())
+        # Falling back to whatever the graph was saved with would defeat the
+        # point of declaring the binding.
+        self.assertIn("checkpoint binding", str(raised.exception))
+
+    def test_a_graph_with_no_checkpoint_binding_keeps_its_own(self):
+        captured = {}
+        settings = {
+            "additional_parameters": json.dumps(self._graph()),
+            "prompt_bindings": [{"node_id": "41", "input_name": "text"}],
+            "model": "realvis.safetensors",
+        }
+        with mock.patch("app.media_clients.urllib.request.urlopen", side_effect=comfy_transport(captured)):
+            comfyui_image("a kite", "512x512", "none", True, "http://c.invalid:8188", settings, CancellationToken())
+
+        # Unchanged behavior for an existing workflow; the preset rule below is
+        # what stops the two disagreeing.
+        self.assertEqual(captured["workflow"]["40"]["inputs"]["ckpt_name"], "whatever-was-saved.safetensors")
 
 
 class WorkflowInspectionOverHttpTests(unittest.TestCase):
@@ -296,6 +366,157 @@ class WorkflowSaveRuleTests(unittest.TestCase):
             refused = running.client.post("/api/v1/media-catalog/resources", json=payload)
             self.assertEqual(refused.status_code, 400, refused.text)
             self.assertIn("prompt binding", refused.text)
+
+
+class PresetCheckpointAgreementTests(unittest.TestCase):
+    """A preset's base model has to be the one its graph actually loads."""
+
+    def _model(self, running, external_id: str, name: str) -> dict:
+        created = running.client.post(
+            "/api/v1/media-catalog/resources",
+            json={
+                "resource_type": "model",
+                "kind": "image",
+                "name": name,
+                "provider_key": "local-image",
+                "backend": "comfyui",
+                "external_id": external_id,
+                "operations": ["generate"],
+            },
+        )
+        assert created.status_code == 201, created.text
+        return created.json()
+
+    def _workflow(self, running, model_id: str, graph: dict, *, bind_checkpoint=None) -> dict:
+        settings = {
+            "workflow_patch": graph,
+            "prompt_bindings": [{"node_id": "41", "input_name": "text"}],
+        }
+        if bind_checkpoint:
+            settings["checkpoint_bindings"] = [bind_checkpoint]
+        created = running.client.post(
+            "/api/v1/media-catalog/resources",
+            json={
+                "resource_type": "workflow",
+                "kind": "image",
+                "name": "Operator workflow",
+                "provider_key": "local-image",
+                "backend": "comfyui",
+                "external_id": "operator-workflow",
+                "operations": ["generate"],
+                "default_settings": settings,
+                "compatible_model_ids": [model_id],
+            },
+        )
+        assert created.status_code == 201, created.text
+        return created.json()
+
+    def _graph(self, checkpoint: str) -> dict:
+        return {
+            "40": {"class_type": "CheckpointLoaderSimple", "inputs": {"ckpt_name": checkpoint}},
+            "41": {"class_type": "CLIPTextEncode", "inputs": {"text": "saved text", "clip": ["40", 1]}},
+        }
+
+    def _preset(self, running, model_id: str, workflow_id: str):
+        return running.client.post(
+            "/api/v1/media-catalog/presets",
+            json={
+                "name": "Disagreeing recipe",
+                "routing_card": "",
+                "definition": {"base_model_resource_id": model_id, "workflow_resource_id": workflow_id},
+            },
+        )
+
+    def test_a_preset_whose_graph_loads_a_different_model_is_refused(self):
+        with tempfile.TemporaryDirectory() as tmp, TestApp(Path(tmp)) as running:
+            running.create_and_login()
+            model = self._model(running, "realvis.safetensors", "RealVis")
+            workflow = self._workflow(running, model["id"], self._graph("juggernaut.safetensors"))
+            refused = self._preset(running, model["id"], workflow["id"])
+
+            self.assertEqual(refused.status_code, 400, refused.text)
+            # Names both files, because the fix is either to bind the input or
+            # to point the preset at the model the graph really loads.
+            self.assertIn("juggernaut.safetensors", refused.text)
+            self.assertIn("realvis.safetensors", refused.text)
+
+    def test_a_bound_checkpoint_input_settles_the_disagreement(self):
+        with tempfile.TemporaryDirectory() as tmp, TestApp(Path(tmp)) as running:
+            running.create_and_login()
+            model = self._model(running, "realvis.safetensors", "RealVis")
+            workflow = self._workflow(
+                running,
+                model["id"],
+                self._graph("juggernaut.safetensors"),
+                bind_checkpoint={"node_id": "40", "input_name": "ckpt_name"},
+            )
+            created = self._preset(running, model["id"], workflow["id"])
+
+            # The graph takes the preset's model at run time, so what it was
+            # saved with no longer decides anything.
+            self.assertEqual(created.status_code, 201, created.text)
+
+    def test_agreeing_names_are_accepted(self):
+        with tempfile.TemporaryDirectory() as tmp, TestApp(Path(tmp)) as running:
+            running.create_and_login()
+            model = self._model(running, "realvis.safetensors", "RealVis")
+            workflow = self._workflow(running, model["id"], self._graph("realvis.safetensors"))
+
+            self.assertEqual(self._preset(running, model["id"], workflow["id"]).status_code, 201)
+
+
+class WorkflowSelectionTests(unittest.TestCase):
+    def _row(self, **values):
+        class Row:
+            def __init__(self, **inner):
+                self.__dict__.update(inner)
+
+        return Row(**values)
+
+    def _workflow(self, resource_id: str, operations: str, features: str):
+        return self._row(
+            id=resource_id,
+            resource_type="workflow",
+            kind="image",
+            name=resource_id,
+            priority=50,
+            operations_json=operations,
+            features_json=features,
+            domains_json="[]",
+            content_tags_json="[]",
+            default_settings_json="{}",
+        )
+
+    def test_a_workflow_that_cannot_do_the_operation_is_not_attached(self):
+        from app.media_planner import _select_workflow
+
+        edit_only = self._workflow("w1", '["image_to_image"]', '["identity_control"]')
+        selected = _select_workflow(
+            base_id="m1",
+            resources={"w1": edit_only},
+            compatibility={"w1": {"m1"}},
+            operation="generate",
+            missing_features={"identity_control"},
+        )
+
+        # It covers the wanted feature, which used to be enough. It has no
+        # source picture on a generate request, so it failed at upload time.
+        self.assertIsNone(selected)
+
+    def test_among_capable_workflows_feature_coverage_decides(self):
+        from app.media_planner import _select_workflow
+
+        plain = self._workflow("w1", '["generate"]', "[]")
+        identity = self._workflow("w2", '["generate"]', '["identity_control"]')
+        selected = _select_workflow(
+            base_id="m1",
+            resources={"w1": plain, "w2": identity},
+            compatibility={"w1": {"m1"}, "w2": {"m1"}},
+            operation="generate",
+            missing_features={"identity_control"},
+        )
+
+        self.assertEqual(selected.id, "w2")
 
 
 if __name__ == "__main__":

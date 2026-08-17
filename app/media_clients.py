@@ -375,12 +375,18 @@ def _inject_comfyui_value(workflow: dict, bindings, value, *, role: str) -> None
         inputs[input_name] = value
 
 
-def _comfyui_bound_workflow(workflow_patch, settings, *, prompt, negative, seed, width, height) -> dict:
+# Inputs that name a checkpoint file. A graph carrying one of these and no
+# checkpoint binding renders whatever it was saved with, whatever the preset
+# says its base model is.
+CHECKPOINT_INPUT_NAMES = ("ckpt_name", "checkpoint_name", "unet_name")
+
+
+def _comfyui_bound_workflow(workflow_patch, settings, *, prompt, negative, seed, width, height, checkpoint="") -> dict:
     """Build the executable graph from an operator workflow and its bindings.
 
     The workflow is the whole graph here, not a patch over a default one. Its
-    LoRA and sampler wiring belong to the operator, so only the declared request
-    inputs are replaced.
+    LoRA and sampler wiring belong to the operator, so only the declared inputs
+    are replaced.
     """
 
     workflow = json.loads(json.dumps(workflow_patch))
@@ -389,6 +395,14 @@ def _comfyui_bound_workflow(workflow_patch, settings, *, prompt, negative, seed,
     _inject_comfyui_value(workflow, settings.get("seed_bindings"), seed, role="seed")
     _inject_comfyui_value(workflow, settings.get("width_bindings"), width, role="width")
     _inject_comfyui_value(workflow, settings.get("height_bindings"), height, role="height")
+    checkpoint_bindings = settings.get("checkpoint_bindings")
+    if checkpoint_bindings:
+        if not checkpoint:
+            # The operator asked for the checkpoint to come from the preset, so
+            # falling back to whatever the graph was saved with would defeat
+            # the point of declaring the binding.
+            raise ValueError("ComfyUI checkpoint binding has no model to write, because the preset names none")
+        _inject_comfyui_value(workflow, checkpoint_bindings, checkpoint, role="checkpoint")
     return workflow
 
 
@@ -410,7 +424,8 @@ def comfyui_image(prompt, size, quality, allow_nsfw, base_url, local_settings=No
     seed = local_seed_for_backend(settings.get("seed"), "comfyui")
     sampler = str(settings.get("sampler_name") or "euler").strip()
     scheduler = str(settings.get("scheduler") or "normal").strip()
-    model = str(settings.get("model") or "v1-5-pruned-emaonly.safetensors").strip()
+    declared_model = str(settings.get("model") or "").strip()
+    model = declared_model or "v1-5-pruned-emaonly.safetensors"
     workflow_patch = parse_additional_parameters(settings.get("additional_parameters"))
     if workflow_patch and settings.get("prompt_bindings"):
         return _run_comfyui_workflow(
@@ -422,6 +437,7 @@ def comfyui_image(prompt, size, quality, allow_nsfw, base_url, local_settings=No
                 seed=seed,
                 width=width,
                 height=height,
+                checkpoint=declared_model,
             ),
             settings,
             base_url,

@@ -223,6 +223,7 @@ class ComfyUIRequestInputCandidates(BaseModel):
     seed: list[ComfyUIRequestInputCandidate] = Field(default_factory=list)
     width: list[ComfyUIRequestInputCandidate] = Field(default_factory=list)
     height: list[ComfyUIRequestInputCandidate] = Field(default_factory=list)
+    checkpoint: list[ComfyUIRequestInputCandidate] = Field(default_factory=list)
 
 
 class ComfyUIAssetCheck(BaseModel):

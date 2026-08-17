@@ -301,6 +301,7 @@ describe('Media catalog settings', () => {
       system_prompt: '', personality_details: '', traits: {}, default_model: null, voice_preferences: {}, created_at: 1,
     }];
     const workflowPatch = {
+      '40': { class_type: 'CheckpointLoaderSimple', inputs: { ckpt_name: 'whatever-was-saved.safetensors' } },
       '100': { class_type: 'LoadImage', inputs: { image: 'placeholder.png' } },
       '101': { class_type: 'IPAdapterAdvanced', inputs: { image: ['100', 0] } },
     };
@@ -344,6 +345,7 @@ describe('Media catalog settings', () => {
         request_input_candidates: {
           prompt: [{ node_id: '41', input_name: 'text', label: 'CLIP Text Encode (node 41)', current_value: 'saved text' }],
           seed: [], width: [], height: [],
+          checkpoint: [{ node_id: '40', input_name: 'ckpt_name', label: 'Load Checkpoint (node 40)', current_value: 'whatever-was-saved.safetensors' }],
         },
         detected_node_types: ['IPAdapterAdvanced'], missing_node_types: [], asset_checks: [], warnings: [],
       }),
@@ -419,11 +421,14 @@ describe('Media catalog settings', () => {
         identity_image_bindings: [{ node_id: '100', input_name: 'image' }],
         // Without this the workflow would render the text saved inside it.
         prompt_bindings: [{ node_id: '41', input_name: 'text' }],
+        // And without this it would render whatever checkpoint it was saved
+        // with, not the catalog model it is being paired with here.
+        checkpoint_bindings: [{ node_id: '40', input_name: 'ckpt_name' }],
       },
     }));
     await vi.waitFor(() => expect(localDialogs.info).toHaveBeenCalledWith(
       'Identity control added',
-      expect.stringContaining('recorded your selected catalog model as an explicit pairing'),
+      expect.stringContaining('will load the catalog model you paired it with'),
     ));
     expect(localDialogs.info).not.toHaveBeenCalledWith(
       'Identity control added',

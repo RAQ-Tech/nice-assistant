@@ -14,6 +14,8 @@ from __future__ import annotations
 
 import json
 
+from app.identity_conditioning import IDENTITY_CONTROL_FEATURE
+
 
 PROVIDER_DEFAULT = "provider-default"
 MAX_CONSIDERED_PRESETS = 12
@@ -34,6 +36,7 @@ WORKFLOW_SETTING_KEYS = (
     "seed_bindings",
     "width_bindings",
     "height_bindings",
+    "checkpoint_bindings",
 )
 
 
@@ -297,7 +300,8 @@ def _requirement_failures(
     missing_features = sorted(required_features - coverage_features)
     if missing_features:
         reasons.append("missing required features: " + ", ".join(missing_features))
-    if required_mechanism and required_mechanism not in (definition.get("identity_mechanisms") or []):
+    mechanisms = set(definition.get("identity_mechanisms") or []) | workflow_mechanisms(workflow)
+    if required_mechanism and required_mechanism not in mechanisms:
         # Named, because "this preset cannot do reference_adapter" tells the
         # operator what to fix; a generic rejection does not.
         reasons.append(f"does not implement the '{required_mechanism}' identity mechanism this persona requires")
@@ -440,23 +444,45 @@ def _resolve_stages(definition: dict, workflow, resources) -> tuple[list, list]:
     return stages, reasons
 
 
+def workflow_mechanisms(workflow) -> set[str]:
+    """Which conditioning mechanisms the selected graph actually provides.
+
+    A preset's declared list is what the operator meant; this is what the plan
+    can demonstrably do. Either is enough, which keeps a preset from being
+    refused for a capability its attached workflow plainly has, and keeps a
+    stored guess from being the only thing that decides. A graph that declares
+    identity control and names where the reference goes conditions at
+    generation, which is `reference_adapter`.
+    """
+
+    if not workflow:
+        return set()
+    settings = _json(workflow.default_settings_json, {})
+    features = set(_json(workflow.features_json, []))
+    if IDENTITY_CONTROL_FEATURE in features and settings.get("identity_image_bindings"):
+        return {"reference_adapter"}
+    return set()
+
+
 def _select_workflow(*, base_id, resources, compatibility, operation, missing_features):
     """Pick the compatible workflow that best serves this request.
 
-    Deterministic: an operation the workflow declares outweighs feature overlap,
-    then operator priority, then name.
+    The workflow must declare the operation. Covering a wanted feature is not a
+    reason to run a graph that cannot do the job: an image-to-image identity
+    workflow attached to a generate request has no source picture to work from,
+    so it used to be selected here and then fail at upload time. Among graphs
+    that can do the job, deterministic: feature overlap, then operator priority,
+    then name.
     """
 
     candidates = []
     for row in resources.values():
         if row.resource_type != "workflow" or base_id not in compatibility.get(row.id, set()):
             continue
-        operations = set(_json(row.operations_json, []))
-        features = set(_json(row.features_json, []))
-        if operation not in operations and not (missing_features & features):
+        if operation not in set(_json(row.operations_json, [])):
             continue
-        coverage = len(missing_features & features) + (2 if operation in operations else 0)
-        candidates.append((row, coverage))
+        features = set(_json(row.features_json, []))
+        candidates.append((row, len(missing_features & features)))
     candidates.sort(key=lambda value: (-value[1], -value[0].priority, value[0].name.casefold(), value[0].id))
     return candidates[0][0] if candidates else None
 

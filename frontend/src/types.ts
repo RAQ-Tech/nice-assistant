@@ -633,6 +633,7 @@ export interface WorkflowRequestInputCandidates {
   seed: WorkflowRequestInputCandidate[];
   width: WorkflowRequestInputCandidate[];
   height: WorkflowRequestInputCandidate[];
+  checkpoint: WorkflowRequestInputCandidate[];
 }
 
 export interface IdentityWorkflowInspection {

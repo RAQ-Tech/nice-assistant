@@ -6,6 +6,7 @@ import urllib.error
 import urllib.request
 
 from app.auth import is_masked_secret
+from app.media_clients import CHECKPOINT_INPUT_NAMES
 from app.providers import (
     normalize_provider_base_url,
     provider_get_json,
@@ -113,7 +114,7 @@ def _workflow_inspection_result(
     }
 
 
-REQUEST_INPUT_ROLES = ("prompt", "seed", "width", "height")
+REQUEST_INPUT_ROLES = ("prompt", "seed", "width", "height", "checkpoint")
 _SEED_INPUT_NAMES = ("seed", "noise_seed")
 
 
@@ -122,7 +123,7 @@ def empty_request_input_candidates() -> dict:
 
 
 def _request_input_role(input_name: str, declared_type, current_value) -> str | None:
-    """Classify a literal widget input the platform could write a request into.
+    """Classify a literal widget input the platform could write into.
 
     Only literal values qualify. An input already fed by another node is driven
     by the graph, and overwriting it would silently break the operator's wiring.
@@ -131,6 +132,13 @@ def _request_input_role(input_name: str, declared_type, current_value) -> str | 
     if _link_reference(current_value) is not None:
         return None
     normalized = str(input_name).casefold().replace("-", "_")
+    if isinstance(declared_type, list):
+        # A combo: the provider offers a fixed list of installed files. The only
+        # one the platform writes is the checkpoint, from the preset's base
+        # model, so a graph and its preset cannot disagree about what ran.
+        if normalized in CHECKPOINT_INPUT_NAMES and isinstance(current_value, str):
+            return "checkpoint"
+        return None
     if declared_type == "STRING" and isinstance(current_value, str):
         return "prompt"
     if declared_type == "INT" and not isinstance(current_value, bool) and isinstance(current_value, int):
@@ -279,8 +287,7 @@ def _inspect_comfyui_object_info(nodes: dict[str, dict], object_info: dict) -> d
                         "label": f"{title} (node {node_id})",
                     }
                 )
-            declared_type = spec[0] if isinstance(spec[0], str) else None
-            role = _request_input_role(input_name, declared_type, current_value)
+            role = _request_input_role(input_name, spec[0], current_value)
             if role:
                 request_candidates[role].append(_request_candidate(node_id, input_name, title, current_value))
             allowed = spec[0] if isinstance(spec[0], list) else None

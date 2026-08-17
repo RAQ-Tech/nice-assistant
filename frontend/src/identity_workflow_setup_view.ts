@@ -335,6 +335,15 @@ export class IdentityWorkflowSetupView {
       this.renderApp();
       return;
     }
+    // Exactly one checkpoint loader means there is no ambiguity about which
+    // model this graph runs, so the paired catalog model can drive it. With a
+    // refiner there are two, and guessing would change what a tested graph
+    // produces; the preset rule then refuses a disagreement rather than
+    // rendering the wrong face and calling it the persona.
+    const checkpoints = this.inspection.request_input_candidates?.checkpoint ?? [];
+    const checkpointBindings = checkpoints.length === 1
+      ? [{ node_id: checkpoints[0]!.node_id, input_name: checkpoints[0]!.input_name }]
+      : [];
     this.appState.mediaCatalogBusy = true;
     this.appState.settingsError = '';
     this.renderApp();
@@ -358,6 +367,7 @@ export class IdentityWorkflowSetupView {
           workflow_patch: this.workflowPatch,
           identity_image_bindings: [{ node_id: candidate.node_id, input_name: candidate.input_name }],
           prompt_bindings: [{ node_id: promptCandidate.node_id, input_name: promptCandidate.input_name }],
+          ...(checkpointBindings.length ? { checkpoint_bindings: checkpointBindings } : {}),
         },
         notes: 'Imported through guided identity control setup. Provider compatibility checked; live generation not yet tested.',
         compatible_model_ids: [this.modelId],
@@ -365,7 +375,11 @@ export class IdentityWorkflowSetupView {
       await this.refreshCatalog();
       this.dialogs.info(
         'Identity control added',
-        'ComfyUI reported compatible nodes, configured workflow assets, and a reference input. Nice Assistant recorded your selected catalog model as an explicit pairing; that pairing and generation are not live-tested until the next requested persona image runs.',
+        `ComfyUI reported compatible nodes, configured workflow assets, and a reference input. ${
+          checkpointBindings.length
+            ? 'The graph will load the catalog model you paired it with, rather than the checkpoint it was saved with.'
+            : 'The graph keeps the checkpoint it was saved with, because it loads more than one; a preset that names a different base model will be refused.'
+        } That pairing and generation are not live-tested until the next requested persona image runs.`,
       );
     } catch (error) {
       this.appState.settingsError = errorMessage(error, 'Unable to save the identity workflow.');
