@@ -4,57 +4,106 @@
   "name": "PhotoMaker v2 (SDXL)",
   "template_version": 1,
   "mechanism": "reference_adapter",
-  "architectures": ["sdxl"],
-  "summary": "Conditions generation on one approved reference photo by fusing its face embedding into the text conditioning. It works on the SDXL text encoder, so an SDXL photoreal checkpoint is what it was built for; Pony and Illustrious retrain that encoder and likeness there is unmeasured.",
-  "operations": ["generate"],
-  "features": ["identity_control"],
-  "domains": ["portrait"],
+  "architectures": [
+    "sdxl"
+  ],
+  "summary": "Conditions generation on approved reference photos by fusing their face embeddings into the text conditioning. It takes up to three, and more angles hold a likeness better than one; with fewer, the photos you have fill the slots. It works on the SDXL text encoder, so an SDXL photoreal checkpoint is what it was built for; Pony and Illustrious retrain that encoder and likeness there is unmeasured.",
+  "operations": [
+    "generate"
+  ],
+  "features": [
+    "identity_control"
+  ],
+  "domains": [
+    "portrait"
+  ],
   "required_assets": [
     "photomaker-v2.bin in the ComfyUI models/photomaker folder",
     "The comfyui-photomakerv2-native custom node, which provides PhotoMaker Loader V2 and PhotoMaker Encode V2",
-    "An SDXL photoreal checkpoint paired with this workflow in the catalog"
+    "An SDXL photoreal checkpoint paired with this workflow in the catalog",
+    "Up to three approved reference photos for the persona. One works; three different angles work better."
   ],
   "required_prompt_token": "photomaker",
   "prompt_prefix": "photograph of photomaker person,",
   "workflow": {
     "1": {
       "class_type": "CheckpointLoaderSimple",
-      "_meta": { "title": "Base checkpoint" },
-      "inputs": { "ckpt_name": "sdxl-photoreal.safetensors" }
+      "_meta": {
+        "title": "Base checkpoint"
+      },
+      "inputs": {
+        "ckpt_name": "sdxl-photoreal.safetensors"
+      }
     },
     "2": {
       "class_type": "PhotoMakerLoaderV2",
-      "_meta": { "title": "PhotoMaker model" },
-      "inputs": { "photomaker_model_name": "photomaker-v2.bin" }
+      "_meta": {
+        "title": "PhotoMaker model"
+      },
+      "inputs": {
+        "photomaker_model_name": "photomaker-v2.bin"
+      }
     },
     "3": {
       "class_type": "LoadImage",
-      "_meta": { "title": "Persona reference" },
-      "inputs": { "image": "reference.png", "upload": "image" }
+      "_meta": {
+        "title": "Persona reference"
+      },
+      "inputs": {
+        "image": "reference.png",
+        "upload": "image"
+      }
     },
     "4": {
       "class_type": "PhotoMakerEncodeV2",
-      "_meta": { "title": "Positive prompt with identity" },
+      "_meta": {
+        "title": "Positive prompt with identity"
+      },
       "inputs": {
-        "photomakerv2": ["2", 0],
-        "image": ["3", 0],
-        "clip": ["1", 1],
+        "photomakerv2": [
+          "2",
+          0
+        ],
+        "image": [
+          "16",
+          0
+        ],
+        "clip": [
+          "1",
+          1
+        ],
         "text": "photograph of photomaker person"
       }
     },
     "5": {
       "class_type": "CLIPTextEncode",
-      "_meta": { "title": "Negative prompt" },
-      "inputs": { "text": "", "clip": ["1", 1] }
+      "_meta": {
+        "title": "Negative prompt"
+      },
+      "inputs": {
+        "text": "",
+        "clip": [
+          "1",
+          1
+        ]
+      }
     },
     "6": {
       "class_type": "EmptyLatentImage",
-      "_meta": { "title": "Canvas" },
-      "inputs": { "width": 1024, "height": 1024, "batch_size": 1 }
+      "_meta": {
+        "title": "Canvas"
+      },
+      "inputs": {
+        "width": 1024,
+        "height": 1024,
+        "batch_size": 1
+      }
     },
     "7": {
       "class_type": "KSampler",
-      "_meta": { "title": "Sampler" },
+      "_meta": {
+        "title": "Sampler"
+      },
       "inputs": {
         "seed": 0,
         "steps": 30,
@@ -62,30 +111,156 @@
         "sampler_name": "dpmpp_2m",
         "scheduler": "karras",
         "denoise": 1,
-        "model": ["1", 0],
-        "positive": ["4", 0],
-        "negative": ["5", 0],
-        "latent_image": ["6", 0]
+        "model": [
+          "1",
+          0
+        ],
+        "positive": [
+          "4",
+          0
+        ],
+        "negative": [
+          "5",
+          0
+        ],
+        "latent_image": [
+          "6",
+          0
+        ]
       }
     },
     "8": {
       "class_type": "VAEDecode",
-      "_meta": { "title": "Decode" },
-      "inputs": { "samples": ["7", 0], "vae": ["1", 2] }
+      "_meta": {
+        "title": "Decode"
+      },
+      "inputs": {
+        "samples": [
+          "7",
+          0
+        ],
+        "vae": [
+          "1",
+          2
+        ]
+      }
     },
     "9": {
       "class_type": "SaveImage",
-      "_meta": { "title": "Result" },
-      "inputs": { "filename_prefix": "nice-assistant", "images": ["8", 0] }
+      "_meta": {
+        "title": "Result"
+      },
+      "inputs": {
+        "filename_prefix": "nice-assistant",
+        "images": [
+          "8",
+          0
+        ]
+      }
+    },
+    "13": {
+      "class_type": "LoadImage",
+      "_meta": {
+        "title": "Persona reference 2"
+      },
+      "inputs": {
+        "image": "reference.png",
+        "upload": "image"
+      }
+    },
+    "14": {
+      "class_type": "LoadImage",
+      "_meta": {
+        "title": "Persona reference 3"
+      },
+      "inputs": {
+        "image": "reference.png",
+        "upload": "image"
+      }
+    },
+    "15": {
+      "class_type": "ImageBatch",
+      "_meta": {
+        "title": "First two references"
+      },
+      "inputs": {
+        "image1": [
+          "3",
+          0
+        ],
+        "image2": [
+          "13",
+          0
+        ]
+      }
+    },
+    "16": {
+      "class_type": "ImageBatch",
+      "_meta": {
+        "title": "All three references"
+      },
+      "inputs": {
+        "image1": [
+          "15",
+          0
+        ],
+        "image2": [
+          "14",
+          0
+        ]
+      }
     }
   },
   "bindings": {
-    "prompt_bindings": [{ "node_id": "4", "input_name": "text" }],
-    "negative_prompt_bindings": [{ "node_id": "5", "input_name": "text" }],
-    "seed_bindings": [{ "node_id": "7", "input_name": "seed" }],
-    "width_bindings": [{ "node_id": "6", "input_name": "width" }],
-    "height_bindings": [{ "node_id": "6", "input_name": "height" }],
-    "checkpoint_bindings": [{ "node_id": "1", "input_name": "ckpt_name" }],
-    "identity_image_bindings": [{ "node_id": "3", "input_name": "image" }]
+    "prompt_bindings": [
+      {
+        "node_id": "4",
+        "input_name": "text"
+      }
+    ],
+    "negative_prompt_bindings": [
+      {
+        "node_id": "5",
+        "input_name": "text"
+      }
+    ],
+    "seed_bindings": [
+      {
+        "node_id": "7",
+        "input_name": "seed"
+      }
+    ],
+    "width_bindings": [
+      {
+        "node_id": "6",
+        "input_name": "width"
+      }
+    ],
+    "height_bindings": [
+      {
+        "node_id": "6",
+        "input_name": "height"
+      }
+    ],
+    "checkpoint_bindings": [
+      {
+        "node_id": "1",
+        "input_name": "ckpt_name"
+      }
+    ],
+    "identity_image_bindings": [
+      {
+        "node_id": "3",
+        "input_name": "image"
+      },
+      {
+        "node_id": "13",
+        "input_name": "image"
+      },
+      {
+        "node_id": "14",
+        "input_name": "image"
+      }
+    ]
   }
 }

@@ -284,6 +284,40 @@ def _cancellable_pause(cancellation, seconds: float) -> None:
         remaining -= interval
 
 
+def _comfyui_upload_identity_references(base_url, settings, cancellation) -> list[str]:
+    """Upload every approved reference photo, in order.
+
+    A graph declares how many photos it can take by how many image inputs it
+    binds; a persona has however many it has. The two are reconciled by the
+    caller, which cycles the photos over the slots - three slots and one photo
+    is exactly the single-reference behaviour, and three of each fills every
+    slot with a different angle.
+    """
+
+    paths = settings.get("identity_reference_paths") or []
+    digests = settings.get("identity_reference_sha256s") or []
+    if not paths:
+        single = settings.get("identity_reference_path")
+        if not single:
+            return []
+        paths = [single]
+        digests = [settings.get("identity_reference_sha256")]
+    uploaded = []
+    for index, path_value in enumerate(paths):
+        digest = digests[index] if index < len(digests) else None
+        uploaded.append(
+            _comfyui_upload_image(
+                base_url,
+                cancellation,
+                path_value,
+                digest,
+                settings.get("api_auth"),
+                role="identity_reference",
+            )
+        )
+    return uploaded
+
+
 def _comfyui_upload_bound_image(base_url, settings, cancellation, *, role: str) -> str | None:
     path_value = settings.get(f"{role}_path")
     bindings = settings.get(f"{role}_bindings")
@@ -296,6 +330,19 @@ def _comfyui_upload_bound_image(base_url, settings, cancellation, *, role: str) 
         return None
     if not path_value:
         raise ValueError(f"ComfyUI {role.replace('_', ' ')} binding is incomplete")
+    return _comfyui_upload_image(
+        base_url,
+        cancellation,
+        path_value,
+        settings.get(f"{role}_sha256"),
+        settings.get("api_auth"),
+        role=role,
+    )
+
+
+def _comfyui_upload_image(base_url, cancellation, path_value, expected_digest, api_auth, *, role: str) -> str:
+    """Send one image to the provider and return the name it stored it under."""
+
     _cancelled(cancellation)
     path = Path(str(path_value))
     if role == "identity_reference":
@@ -304,7 +351,7 @@ def _comfyui_upload_bound_image(base_url, settings, cancellation, *, role: str) 
         content = path.read_bytes()
         if not content or len(content) > 32 * 1024 * 1024:
             raise ValueError(f"ComfyUI {role.replace('_', ' ')} must be no larger than 32 MB")
-    expected_digest = str(settings.get(f"{role}_sha256") or "")
+    expected_digest = str(expected_digest or "")
     if not expected_digest or sha256(content).hexdigest() != expected_digest:
         raise ValueError(f"ComfyUI {role.replace('_', ' ')} content changed before generation")
     boundary = f"nice-assistant-{secrets.token_hex(12)}"
@@ -328,7 +375,7 @@ def _comfyui_upload_bound_image(base_url, settings, cancellation, *, role: str) 
         data=b"".join(parts),
         headers={
             "Content-Type": f"multipart/form-data; boundary={boundary}",
-            **auth_headers(settings.get("api_auth")),
+            **auth_headers(api_auth),
         },
         method="POST",
     )
@@ -528,13 +575,20 @@ def _run_comfyui_workflow(workflow: dict, settings: dict, base_url, cancellation
     """Upload declared images, submit the graph, and return the produced bytes."""
 
     base_url = str(base_url).rstrip("/")
-    for role in ("identity_reference", "source_image", "mask_image"):
+    identity_bindings = settings.get("identity_reference_bindings") or settings.get("identity_image_bindings") or []
+    if identity_bindings:
+        names = _comfyui_upload_identity_references(base_url, settings, cancellation)
+        if names:
+            # Each slot gets its own photo where there is one, and repeats from
+            # the start where there are fewer photos than slots. A duplicate is
+            # harmless - the technique averages them - and leaving a slot
+            # pointing at a file the provider does not have is not.
+            for index, binding in enumerate(identity_bindings):
+                _inject_comfyui_bound_image(workflow, [binding], names[index % len(names)], role="identity_reference")
+    for role in ("source_image", "mask_image"):
         uploaded = _comfyui_upload_bound_image(base_url, settings, cancellation, role=role)
         if uploaded:
-            bindings = settings.get(f"{role}_bindings")
-            if role == "identity_reference" and not bindings:
-                bindings = settings.get("identity_image_bindings")
-            _inject_comfyui_bound_image(workflow, bindings, uploaded, role=role)
+            _inject_comfyui_bound_image(workflow, settings.get(f"{role}_bindings"), uploaded, role=role)
     _cancelled(cancellation)
     request = urllib.request.Request(
         f"{base_url}/prompt",

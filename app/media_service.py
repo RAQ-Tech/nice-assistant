@@ -553,6 +553,9 @@ class MediaService:
                         "loras": values.get("loras") or [],
                         "identity_reference_path": values.get("_identity_reference_path"),
                         "identity_reference_sha256": values.get("_identity_reference_sha256"),
+                        # Every approved photo, in the order they were pinned.
+                        "identity_reference_paths": values.get("_identity_reference_paths") or [],
+                        "identity_reference_sha256s": values.get("_identity_reference_sha256s") or [],
                         "identity_reference_bindings": values.get("identity_image_bindings") or [],
                         "identity_image_bindings": values.get("identity_image_bindings") or [],
                         "source_image_path": values.get("_source_image_path"),

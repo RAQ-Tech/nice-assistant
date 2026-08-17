@@ -1381,7 +1381,12 @@ class MediaCatalogService:
                 persona_id=persona_id,
                 profile=identity,
             )
-        references = repo.approved_identity_references(user_id, identity.id)
+        # A graph declares how many photos it can take by how many image inputs
+        # it binds. PhotoMaker stacks a batch into a stronger likeness;
+        # InstantID uses one. Anything beyond the slots is not pinned, because
+        # a picture's record must name what actually made it.
+        references = [row for row in repo.approved_identity_references(user_id, identity.id) if row.local_path]
+        references = references[: max(1, len(bindings))]
         reference = references[0] if references else None
         if not reference or not reference.local_path:
             return self._block_identity(
@@ -1391,24 +1396,25 @@ class MediaCatalogService:
                 persona_id=persona_id,
                 profile=identity,
             )
-        try:
-            content = read_identity_image_file(Path(reference.local_path), max_bytes=MAX_REFERENCE_BYTES)
-        except RequestError:
-            return self._block_identity(
-                built,
-                "identity_reference_unavailable",
-                "The approved identity reference file is unavailable.",
-                persona_id=persona_id,
-                profile=identity,
-            )
-        if sha256(content).hexdigest() != reference.sha256:
-            return self._block_identity(
-                built,
-                "identity_reference_changed",
-                "The approved identity reference no longer matches its reviewed content.",
-                persona_id=persona_id,
-                profile=identity,
-            )
+        for row in references:
+            try:
+                content = read_identity_image_file(Path(row.local_path), max_bytes=MAX_REFERENCE_BYTES)
+            except RequestError:
+                return self._block_identity(
+                    built,
+                    "identity_reference_unavailable",
+                    "The approved identity reference file is unavailable.",
+                    persona_id=persona_id,
+                    profile=identity,
+                )
+            if sha256(content).hexdigest() != row.sha256:
+                return self._block_identity(
+                    built,
+                    "identity_reference_changed",
+                    "The approved identity reference no longer matches its reviewed content.",
+                    persona_id=persona_id,
+                    profile=identity,
+                )
         built["identity_conditioning"] = {
             "required": True,
             "status": "ready",
@@ -1418,6 +1424,9 @@ class MediaCatalogService:
             "profile_revision": identity.revision,
             "reference_id": reference.id,
             "reference_sha256": reference.sha256,
+            # The whole set, pinned by checksum, so the record of a picture
+            # names every photo that shaped the face rather than the first one.
+            "references": [{"id": row.id, "sha256": row.sha256} for row in references],
             "workflow_resource_id": workflow["id"],
             "acceptance_threshold": float(identity.acceptance_threshold),
             "max_generation_attempts": int(identity.max_generation_attempts),
@@ -1570,30 +1579,18 @@ class MediaCatalogService:
             raise ConflictError(
                 "The persona identity profile changed after this request was planned. Retry the request before execution."
             )
-        reference = repo.identity_reference(user_id, snapshot.get("reference_id"))
-        if (
-            not reference
-            or reference.identity_id != identity.id
-            or reference.persona_id != identity.persona_id
-            or reference.review_status != "approved"
-            or reference.sha256 != snapshot.get("reference_sha256")
-            or not reference.local_path
-        ):
-            raise ConflictError(
-                "The approved identity reference changed after this request was planned. Retry the request before execution."
-            )
-        try:
-            content = read_identity_image_file(Path(reference.local_path), max_bytes=MAX_REFERENCE_BYTES)
-        except RequestError as exc:
-            raise ConflictError("The approved identity reference file is unavailable.") from exc
-        if sha256(content).hexdigest() != reference.sha256:
-            raise ConflictError("The approved identity reference no longer matches its reviewed content.")
+        # Every pinned photo is checked, not just the first. A set where one
+        # member changed is a different set, and the picture's record would
+        # otherwise name a photo that no longer made it.
+        paths, digests = MediaCatalogService._verified_reference_files(repo, user_id, identity, snapshot)
         bindings = snapshot.get("identity_image_bindings")
         if options.get("backend") != "comfyui" or not isinstance(bindings, list) or not bindings:
             raise ConflictError("The selected adapter cannot execute the identity-aware workflow.")
         MediaCatalogService._place_identity_bindings(options, snapshot, bindings)
-        options["_identity_reference_path"] = str(Path(reference.local_path))
-        options["_identity_reference_sha256"] = reference.sha256
+        options["_identity_reference_paths"] = paths
+        options["_identity_reference_sha256s"] = digests
+        options["_identity_reference_path"] = paths[0]
+        options["_identity_reference_sha256"] = digests[0]
         options["_identity_conditioning"] = snapshot
         correction_id = snapshot.get("correction_workflow_resource_id")
         if correction_id:
@@ -1633,6 +1630,44 @@ class MediaCatalogService:
         # The first pass runs from the top-level values rather than from its
         # stage entry, so it is the only one that sets them there.
         options["identity_image_bindings"] = bindings if owner is stages[0] else []
+
+    @staticmethod
+    def _verified_reference_files(repo, user_id: str, identity, snapshot: dict) -> tuple[list[str], list[str]]:
+        """Re-check every photo this plan pinned, and return where they live.
+
+        Every one, not just the first. A set where one member changed is a
+        different set, and the picture's record would otherwise name a photo
+        that no longer helped make it.
+        """
+
+        pinned = snapshot.get("references") or [
+            {"id": snapshot.get("reference_id"), "sha256": snapshot.get("reference_sha256")}
+        ]
+        paths = []
+        digests = []
+        for entry in pinned:
+            reference = repo.identity_reference(user_id, entry.get("id"))
+            if (
+                not reference
+                or reference.identity_id != identity.id
+                or reference.persona_id != identity.persona_id
+                or reference.review_status != "approved"
+                or reference.sha256 != entry.get("sha256")
+                or not reference.local_path
+            ):
+                raise ConflictError(
+                    "The approved identity reference changed after this request was planned. "
+                    "Retry the request before execution."
+                )
+            try:
+                content = read_identity_image_file(Path(reference.local_path), max_bytes=MAX_REFERENCE_BYTES)
+            except RequestError as exc:
+                raise ConflictError("The approved identity reference file is unavailable.") from exc
+            if sha256(content).hexdigest() != reference.sha256:
+                raise ConflictError("The approved identity reference no longer matches its reviewed content.")
+            paths.append(str(Path(reference.local_path)))
+            digests.append(reference.sha256)
+        return paths, digests
 
     def _ensure_imported(self, repo, user_id: str) -> None:
         setting = repo.media_catalog_setting(user_id)

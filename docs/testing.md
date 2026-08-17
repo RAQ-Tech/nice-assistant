@@ -163,6 +163,12 @@ installed-browser acceptance.
   saved values must survive it: the browser gates its Save button on them, so a
   field the response model did not name made guided setup impossible to
   complete while every service-level test passed.
+- Multi-reference tests prove three photos fill three slots, that one photo
+  fills every slot rather than leaving one pointing at a file the provider does
+  not have, that two repeat from the start, and that a workflow binding a single
+  image is untouched. They also prove every reference slot in the shipped
+  PhotoMaker graph actually reaches the encoder - a slot nothing consumes would
+  take a photo and quietly ignore it.
 - Identity pass tests prove a recipe that generates the scene and then replaces
   the face runs both passes, that the approved reference goes to the pass whose
   graph has the nodes for it rather than to the first one, that the finished

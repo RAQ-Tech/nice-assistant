@@ -262,13 +262,19 @@ a persona feel like itself, then 1F-5, then 1F-2.
     **Needs on the deployment:** `ollama pull nomic-embed-text`. Until then
     retrieval is exactly what it was, and says nothing untrue about itself.
 
-4. **Several reference photos, used together.** PhotoMaker stacks a batch into a
+4. **Several reference photos, used together - delivered 2026-08-17.** PhotoMaker stacks a batch into a
     stronger likeness; InstantID uses one. A template declares how many it can
     use, the executor uploads each and writes the right filename into the right
     binding, and the provenance record pins the whole set by checksum rather
     than a single photo.
-    **Done when** a persona with three approved photos produces a picture whose
-    log names all three.
+    A workflow declares how many photos it can take by how many image inputs it
+    binds; the photos cycle over those slots, so fewer photos than slots repeats
+    rather than leaving one pointing at a file the provider does not have. Every
+    photo used is pinned by checksum and re-checked before execution. The
+    shipped PhotoMaker graph takes three, batched into the encoder; InstantID
+    takes one.
+    **Still needs the deployment** to confirm the likeness is actually better
+    with three, which no test here can answer.
 
 5. **Local speech-to-text.** Transcription is OpenAI-only today: the service
     refuses anything else, so holding the microphone button sends audio off the

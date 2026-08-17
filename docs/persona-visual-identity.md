@@ -188,6 +188,15 @@ behavior controls and the picture library's preferred recipes - so that refusal
 is the difference between a lost preference and a visible one. Omitting
 `revision` keeps last-writer-wins for any client that predates the guard.
 
+A persona may have several approved reference photos, and they are used
+together. A workflow declares how many it can take by how many image inputs it
+binds - PhotoMaker stacks up to three into a steadier likeness than any one shot
+gives, InstantID takes one - and the photos cycle over those slots, so fewer
+photos than slots repeats rather than leaving a slot pointing at a file the
+provider does not have. The plan pins every photo it used by checksum, all of
+them are re-checked before execution, and a set where one member changed is
+treated as a different set.
+
 A persona declares how its face is produced. `reference_adapter` conditions
 generation on the approved reference; `identity_pass` generates the picture and
 then replaces the face, which is the only option for checkpoint families no
