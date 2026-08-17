@@ -221,12 +221,27 @@ The reasoning behind all of this is recorded in
 Each of these exists because an owner decision made it buildable. Nothing here
 needs the deployment or a further choice.
 
+The owner restated the goal on 2026-08-17 and it is worth having in one place,
+because several items below only make sense against it: **the persona should
+feel real, and an explicit conversation should be fully contained on this
+machine with no cloud service involved.** Chat, images, and the voice you hear
+are already local. The voice you speak is not - see item 1F-5, which is the only
+thing standing between this product and the goal as stated.
+
+Order, given that the owner mostly types today: 1F-1 first because it closes a
+hole for the price of some words, then 1F-3 and 1F-4 because they are what make
+a persona feel like itself, then 1F-5, then 1F-2.
+
 1. **Settle the local-only Task Model boundary.** The OpenAI adapter exists and
     is not selectable. Make that a stated constraint rather than an accident of
     the UI: refuse the provider at save time for every task role, say why, and
     record it where somebody would look before trying to enable it.
-    **Done when** selecting OpenAI for a task role is refused by name, and the
-    documents describe it as a decision rather than an omission.
+    Same change covers the microphone: until 1F-5 lands, the interface must say
+    where a recording goes, next to the button that sends it, rather than only
+    in a settings page nobody is reading mid-conversation.
+    **Done when** selecting OpenAI for a task role is refused by name, the
+    documents describe it as a decision rather than an omission, and nobody can
+    record a turn without having been told where the audio goes.
 
 2. **Copy a lore entry from another persona.** Same workspace only. The copy
     belongs to the persona that took it, and the interface says plainly that
@@ -235,12 +250,14 @@ needs the deployment or a further choice.
     **Done when** an entry can be copied in one action, and editing either copy
     provably leaves the other alone.
 
-3. **Expand memories into search terms overnight.** A task-model role that runs
-    in the pre-generation window and writes paraphrases and related words for
-    each memory, indexed with the memory text. Retrieval keeps its current
-    shape and its current speed.
-    **Done when** a memory is found by a question sharing none of its words, and
-    the reply path is measurably no slower than before.
+3. **Semantic memory retrieval.** A small local embedding model, memories
+    embedded on write, the question embedded on read, and keyword search kept
+    alongside so exact matches still win. It degrades to keyword-only, and says
+    so, when no embedding model is installed - a missing model must not break
+    recall.
+    **Done when** a memory is found by a question that shares none of its words,
+    an exact keyword match still ranks first, and the added time is recorded
+    rather than assumed.
 
 4. **Several reference photos, used together.** PhotoMaker stacks a batch into a
     stronger likeness; InstantID uses one. A template declares how many it can
@@ -249,6 +266,16 @@ needs the deployment or a further choice.
     than a single photo.
     **Done when** a persona with three approved photos produces a picture whose
     log names all three.
+
+5. **Local speech-to-text.** Transcription is OpenAI-only today: the service
+    refuses anything else, so holding the microphone button sends audio off the
+    machine. That is the one place the product contradicts the stated goal, and
+    for the conversations this is for it is a problem twice over - privacy, and
+    the provider's own usage policy. Whisper runs locally at roughly 250 MB,
+    smaller than the speech synthesis already installed.
+    **Done when** a spoken turn completes with no network request leaving the
+    machine, and choosing cloud transcription is a deliberate act rather than
+    the only option.
 
 ## 2. Decided
 
@@ -260,13 +287,18 @@ constraint or an item in section 1F below; none of them is open any more.
     Keeping the discard pile is deliberate: it is what shows a persona
     re-proposing something already refused. Source: `docs/memory.md`.
 
-2. **Memory retrieval gets meaning, computed overnight, with nothing added to
-    the reply path.** The local model writes paraphrases and related terms for
-    each memory during the pre-generation window, and those are indexed
-    alongside the memory text. Embedding the question at reply time was
-    considered and refused: matching by meaning is not worth a per-turn cost
-    when expanding the memories in advance catches most of the same misses.
-    Becomes item 1F-3.
+2. **Memory retrieval gets real semantic search.** Memories are embedded when
+    written, the question is embedded when asked, and keyword search stays
+    alongside so an exact match still wins.
+
+    This answer was first recorded as an overnight term-expansion scheme,
+    because the question put to the owner presented the per-turn cost as a real
+    trade-off. It is not one. An embedding model is around 275 MB against a
+    chat model of four to five gigabytes, and embedding one question takes
+    single-digit milliseconds against a turn that already takes seconds. The
+    original framing was wrong, the owner reasonably chose the conservative
+    side of a choice that should never have been offered, and the correction is
+    recorded here rather than quietly applied. Becomes item 1F-3.
 
 3. **Lore is shared by copying, not by reference.** An entry can be copied from
     another persona in the same workspace, and the copy belongs to the persona
@@ -399,8 +431,9 @@ surface.
 Deliberately absent. Listed so none of it is mistaken for a regression, and so
 no stub is ever shipped in its place. See `docs/debt-register.md`.
 
-- Local speech-to-text - the setting is retained for migration compatibility
-  but is disabled in the UI until a real adapter exists.
+- Nothing about speech-to-text belongs on this list any more. Local
+  transcription was here as deliberately absent; it is item 1F-5, because the
+  stated goal of a fully local conversation cannot be true without it.
 - Partial transcripts. Nothing is transcribed while somebody is still speaking;
   end-of-turn detection listens to loudness, not to language.
 - Speech provider fallback chains. Choosing what to fall back to is the
