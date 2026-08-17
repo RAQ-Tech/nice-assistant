@@ -288,6 +288,29 @@ class SemanticRecallTests(unittest.TestCase):
         # Recall must not quietly depend on a picture setting being on.
         self.assertEqual(memories.passes, 1)
 
+    def test_only_a_handful_of_memories_are_promoted_by_meaning(self):
+        from app.embedding import MAX_SEMANTIC_MATCHES, rank
+
+        query = normalize([1.0, 0.0])
+        # Twenty memories all comfortably above the floor.
+        candidates = [(f"m{index}", normalize([1.0, index * 0.001])) for index in range(20)]
+
+        ranked = rank(query, candidates)
+
+        # Promoting twenty guesses ahead of what is merely recent is the noise
+        # problem this feature is supposed to avoid, not cause.
+        self.assertEqual(len(ranked), MAX_SEMANTIC_MATCHES)
+
+    def test_the_floor_admits_what_a_real_model_scores_for_a_right_answer(self):
+        from app.embedding import SIMILARITY_FLOOR
+
+        # Measured against nomic-embed-text on twelve ordinary memories: right
+        # answers ran 0.42 to 0.64, wrong ones had a median of 0.36. A floor
+        # above the weakest right answer makes the feature look broken while
+        # every part of it works.
+        self.assertLessEqual(SIMILARITY_FLOOR, 0.42)
+        self.assertGreater(SIMILARITY_FLOOR, 0.36)
+
     def test_the_work_is_bounded_however_much_is_remembered(self):
         # The ceiling on comparisons is what keeps this a fixed cost rather than
         # one that grows with how much the assistant knows.
