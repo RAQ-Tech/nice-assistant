@@ -560,6 +560,55 @@ A workflow with declared prompt bindings executes as the whole graph. Its own
 sampler and LoRA wiring are used as saved, and only the declared inputs are
 replaced.
 
+## Workflow templates
+
+Nice Assistant ships known-good ComfyUI graphs with their bindings already
+declared. Setting identity conditioning up used to mean exporting a graph in API
+format, reading its nodes, and choosing which input receives the prompt and
+which receives the reference; that is a node-graph task, and it is the part a
+person should not have to do to get started.
+
+A template carries its graph with fixed node IDs, its bindings, the mechanism it
+implements, and the checkpoint families it was built for. Installing one writes a
+workflow resource paired with a chosen catalog model, so the graph takes that
+model through its checkpoint binding rather than the placeholder name inside the
+shipped file.
+
+Inspection changes role. For an imported graph it is discovery - which inputs
+could receive what. For a template it is verification: are these node types
+installed, and are the files these nodes name present? What it cannot see is
+said in plain language rather than implied. An identity model a node picks by
+device rather than by a named input does not appear in `/object_info` at all, so
+a template lists it under what you need to have installed and the check says so.
+
+Nothing here claims a template has been run on this deployment, because it has
+not been. The first requested persona image is still the live test, exactly as
+it is for a workflow an operator imported themselves.
+
+A model resource may declare its `architecture` - `sd15`, `sdxl`, `pony`,
+`illustrious`, `sd3`, `flux`, `chroma`, or `other`. It is declared, never
+sniffed: the application has no access to the models directory, and
+`/object_info` reports the filenames a provider has rather than what is inside
+them. It matters because an identity adapter is trained against one text
+encoder, and families that share a base architecture do not necessarily share
+that encoder. A mismatch is shown and marked rather than hidden - the operator
+may know something the declaration does not - and an undeclared family offers
+everything and asks for the declaration.
+
+Installing records `source_template_id` and `source_template_version` on the
+resource. A newer version of a template is offered, never applied: installing it
+writes a second workflow and leaves the first alone, because the graph in the
+catalog may have been tuned since. Null provenance is the normal state and means
+the graph did not come from a template.
+
+Some identity techniques only condition when a particular word appears in the
+prompt, and produce an ordinary picture without saying anything when it does
+not. A workflow may declare `required_prompt_token` together with the
+`prompt_prefix` that supplies it; the executor prepends the prefix when the
+compiled prompt lacks the word, and refuses to run when a workflow declares a
+word it has no prefix for. A refusal is better than an unconditioned picture
+presented as the persona.
+
 ## The checkpoint a graph loads
 
 A ComfyUI graph carries the checkpoint it was saved with, so a preset could name

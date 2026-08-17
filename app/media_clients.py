@@ -381,6 +381,29 @@ def _inject_comfyui_value(workflow: dict, bindings, value, *, role: str) -> None
 CHECKPOINT_INPUT_NAMES = ("ckpt_name", "checkpoint_name", "unet_name")
 
 
+def _with_prompt_token(settings, prompt: str) -> str:
+    """Guarantee a technique's trigger word is in the prompt it is handed.
+
+    Some identity techniques only condition when a particular word appears in
+    the prompt. Without it they return an ordinary picture and report nothing,
+    which is the exact failure this product refuses to have: a plan that claims
+    conditioning and an image that never had any. The workflow declares the word
+    and the prefix that carries it, so this is a stated property of the graph
+    rather than something invented at run time.
+    """
+
+    token = str(settings.get("required_prompt_token") or "").strip()
+    if not token or token in prompt:
+        return prompt
+    prefix = str(settings.get("prompt_prefix") or "").strip()
+    if token not in prefix:
+        raise ValueError(
+            f"This workflow needs the word '{token}' in its prompt and has no prefix that supplies it, "
+            "so it would produce an unconditioned picture."
+        )
+    return f"{prefix} {prompt}".strip()
+
+
 def _comfyui_bound_workflow(workflow_patch, settings, *, prompt, negative, seed, width, height, checkpoint="") -> dict:
     """Build the executable graph from an operator workflow and its bindings.
 
@@ -390,7 +413,9 @@ def _comfyui_bound_workflow(workflow_patch, settings, *, prompt, negative, seed,
     """
 
     workflow = json.loads(json.dumps(workflow_patch))
-    _inject_comfyui_value(workflow, settings.get("prompt_bindings"), prompt, role="prompt")
+    _inject_comfyui_value(
+        workflow, settings.get("prompt_bindings"), _with_prompt_token(settings, prompt), role="prompt"
+    )
     _inject_comfyui_value(workflow, settings.get("negative_prompt_bindings"), negative, role="negative prompt")
     _inject_comfyui_value(workflow, settings.get("seed_bindings"), seed, role="seed")
     _inject_comfyui_value(workflow, settings.get("width_bindings"), width, role="width")

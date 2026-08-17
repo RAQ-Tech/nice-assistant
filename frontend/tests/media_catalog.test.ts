@@ -351,6 +351,7 @@ describe('Media catalog settings', () => {
       }),
       createMediaCatalogResource: vi.fn().mockResolvedValue(savedWorkflow),
       retryCapability: vi.fn().mockResolvedValue(replacement),
+      workflowTemplates: vi.fn().mockResolvedValue({ model_id: 'model-1', model_architecture: '', templates: [] }),
     } as unknown as ApiClient;
     const localDialogs = { prompt: vi.fn(), confirm: vi.fn(), info: vi.fn() } as unknown as Dialogs;
     const close = vi.fn();
@@ -370,7 +371,13 @@ describe('Media catalog settings', () => {
     (root.querySelector('[data-testid="identity-workflow-setup-toggle"]') as HTMLButtonElement).click();
     expect(root.querySelector('[data-testid="identity-workflow-inspect"]')).toBeNull();
     (root.querySelector('[data-testid="identity-workflow-setup-toggle"]') as HTMLButtonElement).click();
-    expect(root.querySelector('[data-testid="identity-workflow-inspect"]')).not.toBeNull();
+    // The shipped templates lead; importing a graph of your own is still here,
+    // behind a disclosure, because reading a node graph is the part somebody
+    // should not have to do to get started.
+    expect(root.querySelector('[data-testid="workflow-templates"]')).not.toBeNull();
+    const manual = root.querySelector('[data-testid="identity-workflow-manual"]') as HTMLDetailsElement;
+    expect(manual.open).toBe(false);
+    expect(manual.contains(root.querySelector('[data-testid="identity-workflow-inspect"]'))).toBe(true);
     const oversizedFile = new File(['x'.repeat(200_001)], 'workflow.json', { type: 'application/json' });
     const fileInput = root.querySelector('[data-testid="identity-workflow-file"]') as HTMLInputElement;
     Object.defineProperty(fileInput, 'files', { configurable: true, value: [oversizedFile] });

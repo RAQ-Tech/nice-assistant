@@ -1,0 +1,112 @@
+{
+  "version": 1,
+  "id": "instantid-sdxl",
+  "name": "InstantID (SDXL)",
+  "template_version": 1,
+  "mechanism": "reference_adapter",
+  "architectures": ["sdxl"],
+  "summary": "Conditions generation on one approved reference photo using a face embedding plus a face-keypoint ControlNet, which holds the likeness harder than PhotoMaker but also holds the reference pose. Built for SDXL; it needs three separate downloads before it can run.",
+  "operations": ["generate"],
+  "features": ["identity_control"],
+  "domains": ["portrait"],
+  "required_assets": [
+    "The InstantID ip-adapter.bin in the ComfyUI models/instantid folder",
+    "The InstantID ControlNet, saved as instantid-controlnet.safetensors in models/controlnet",
+    "The antelopev2 InsightFace models in models/insightface/models/antelopev2. This one cannot be checked from here: the node picks it by device rather than by a named input, so nothing reports whether it is present until the first run fails.",
+    "The ComfyUI_InstantID custom node, which provides Load InstantID Model, InstantID Face Analysis, and Apply InstantID",
+    "An SDXL checkpoint paired with this workflow in the catalog"
+  ],
+  "workflow": {
+    "1": {
+      "class_type": "CheckpointLoaderSimple",
+      "_meta": { "title": "Base checkpoint" },
+      "inputs": { "ckpt_name": "sdxl-photoreal.safetensors" }
+    },
+    "2": {
+      "class_type": "InstantIDModelLoader",
+      "_meta": { "title": "InstantID model" },
+      "inputs": { "instantid_file": "ip-adapter.bin" }
+    },
+    "3": {
+      "class_type": "InstantIDFaceAnalysis",
+      "_meta": { "title": "Face analysis" },
+      "inputs": { "provider": "CUDA" }
+    },
+    "4": {
+      "class_type": "ControlNetLoader",
+      "_meta": { "title": "Face keypoint ControlNet" },
+      "inputs": { "control_net_name": "instantid-controlnet.safetensors" }
+    },
+    "5": {
+      "class_type": "LoadImage",
+      "_meta": { "title": "Persona reference" },
+      "inputs": { "image": "reference.png", "upload": "image" }
+    },
+    "6": {
+      "class_type": "CLIPTextEncode",
+      "_meta": { "title": "Positive prompt" },
+      "inputs": { "text": "", "clip": ["1", 1] }
+    },
+    "7": {
+      "class_type": "CLIPTextEncode",
+      "_meta": { "title": "Negative prompt" },
+      "inputs": { "text": "", "clip": ["1", 1] }
+    },
+    "8": {
+      "class_type": "ApplyInstantID",
+      "_meta": { "title": "Apply identity" },
+      "inputs": {
+        "instantid": ["2", 0],
+        "insightface": ["3", 0],
+        "control_net": ["4", 0],
+        "image": ["5", 0],
+        "model": ["1", 0],
+        "positive": ["6", 0],
+        "negative": ["7", 0],
+        "weight": 0.8,
+        "start_at": 0.0,
+        "end_at": 1.0
+      }
+    },
+    "9": {
+      "class_type": "EmptyLatentImage",
+      "_meta": { "title": "Canvas" },
+      "inputs": { "width": 1024, "height": 1024, "batch_size": 1 }
+    },
+    "10": {
+      "class_type": "KSampler",
+      "_meta": { "title": "Sampler" },
+      "inputs": {
+        "seed": 0,
+        "steps": 30,
+        "cfg": 5.0,
+        "sampler_name": "dpmpp_2m",
+        "scheduler": "karras",
+        "denoise": 1,
+        "model": ["8", 0],
+        "positive": ["8", 1],
+        "negative": ["8", 2],
+        "latent_image": ["9", 0]
+      }
+    },
+    "11": {
+      "class_type": "VAEDecode",
+      "_meta": { "title": "Decode" },
+      "inputs": { "samples": ["10", 0], "vae": ["1", 2] }
+    },
+    "12": {
+      "class_type": "SaveImage",
+      "_meta": { "title": "Result" },
+      "inputs": { "filename_prefix": "nice-assistant", "images": ["11", 0] }
+    }
+  },
+  "bindings": {
+    "prompt_bindings": [{ "node_id": "6", "input_name": "text" }],
+    "negative_prompt_bindings": [{ "node_id": "7", "input_name": "text" }],
+    "seed_bindings": [{ "node_id": "10", "input_name": "seed" }],
+    "width_bindings": [{ "node_id": "9", "input_name": "width" }],
+    "height_bindings": [{ "node_id": "9", "input_name": "height" }],
+    "checkpoint_bindings": [{ "node_id": "1", "input_name": "ckpt_name" }],
+    "identity_image_bindings": [{ "node_id": "5", "input_name": "image" }]
+  }
+}

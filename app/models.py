@@ -401,6 +401,10 @@ class MediaCatalogResource(Base):
     estimated_load_seconds: Mapped[float] = mapped_column(Float, default=0, nullable=False)
     default_settings_json: Mapped[str] = mapped_column(Text, default="{}", nullable=False)
     notes: Mapped[str | None] = mapped_column(Text)
+    # Which shipped workflow template this graph was installed from, if any.
+    # Null is the normal state and means it did not come from one.
+    source_template_id: Mapped[str | None] = mapped_column(Text)
+    source_template_version: Mapped[int | None] = mapped_column(Integer)
     revision: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
     created_at: Mapped[int] = mapped_column(Integer, nullable=False)
     updated_at: Mapped[int] = mapped_column(Integer, nullable=False)

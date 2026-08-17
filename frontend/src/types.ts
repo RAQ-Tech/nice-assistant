@@ -636,6 +636,28 @@ export interface WorkflowRequestInputCandidates {
   checkpoint: WorkflowRequestInputCandidate[];
 }
 
+export interface WorkflowTemplate {
+  id: string;
+  name: string;
+  template_version: number;
+  summary: string;
+  mechanism: 'reference_adapter' | 'identity_pass';
+  architectures: string[];
+  // Plain language, because these are the parts nothing can check from here.
+  required_assets: string[];
+  required_prompt_token: string;
+  installed_resource_id: string | null;
+  installed_version: number | null;
+  update_available: boolean;
+  architecture_matches: boolean;
+}
+
+export interface WorkflowTemplateList {
+  model_id: string;
+  model_architecture: string;
+  templates: WorkflowTemplate[];
+}
+
 export interface IdentityWorkflowInspection {
   provider: 'comfyui';
   status: 'provider_compatible' | 'incompatible' | 'invalid' | 'unreachable' | 'error';

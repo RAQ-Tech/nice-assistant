@@ -4,6 +4,7 @@ from hashlib import sha256
 import json
 from pathlib import Path
 import re
+import secrets
 from typing import Any
 
 from app.identity_conditioning import (
@@ -20,6 +21,12 @@ from app.media_preset import normalize_definition
 from app.preset_bundle import normalize_bundle, resolve_entry, starter_bundle
 from app.preset_export import export_bundle, export_entry, preview, withheld
 from app.prompt_dialect import normalize_dialect
+from app.workflow_template import (
+    MODEL_ARCHITECTURES,
+    available_templates,
+    resolve_template,
+    template_default_settings,
+)
 from app.repositories import UnitOfWork
 from app.service_errors import ConflictError, NotFoundError, RequestError
 
@@ -544,6 +551,107 @@ class MediaCatalogService:
                         )
             self._ensure_unique_external(uow.repo, user_id, normalized, exclude_id=resource_id)
             row = uow.repo.save_media_catalog_resource(row, normalized)
+            uow.repo.replace_media_resource_compatibility(row.id, compatible_ids)
+            return self._resource_response(uow.repo, row)
+
+    def workflow_templates(self, user_id: str, model_id: str = "") -> dict:
+        """Which shipped graphs could be installed, and what each one needs.
+
+        Availability against a real ComfyUI is a separate step: this answers the
+        questions that can be answered without asking the provider anything.
+        """
+
+        with self._uow() as uow:
+            self._ensure_imported(uow.repo, user_id)
+            resources = uow.repo.media_catalog_resources(user_id)
+            model = next(
+                (row for row in resources if row.id == model_id and row.resource_type == "model"),
+                None,
+            )
+            if model_id and not model:
+                raise NotFoundError("media catalog model not found")
+            installed = {
+                row.source_template_id: row
+                for row in resources
+                if row.resource_type == "workflow" and row.source_template_id
+            }
+            architecture = str(_json(model.default_settings_json, {}).get("architecture") or "") if model else ""
+            items = [
+                self._template_entry(template, installed.get(template["id"]), architecture)
+                for template in available_templates()
+            ]
+        return {"model_id": model_id, "model_architecture": architecture, "templates": items}
+
+    @staticmethod
+    def _template_entry(template: dict, existing, architecture: str) -> dict:
+        return {
+            "id": template["id"],
+            "name": template["name"],
+            "template_version": template["template_version"],
+            "summary": template["summary"],
+            "mechanism": template["mechanism"],
+            "architectures": template["architectures"],
+            "required_assets": template["required_assets"],
+            "required_prompt_token": template["required_prompt_token"],
+            "installed_resource_id": existing.id if existing else None,
+            "installed_version": existing.source_template_version if existing else None,
+            # A newer graph is offered, never applied: an operator may have
+            # tuned the installed one, and ADR 0030 refuses to overwrite that.
+            "update_available": bool(
+                existing and (existing.source_template_version or 0) < template["template_version"]
+            ),
+            # Empty means the operator has not said what family the checkpoint
+            # belongs to, which is a prompt to record it rather than a refusal.
+            "architecture_matches": (not architecture) or architecture in template["architectures"],
+        }
+
+    def install_workflow_template(self, user_id: str, template_id: str, values: dict) -> dict:
+        """Write a shipped graph into the catalog, paired with a chosen model."""
+
+        template = resolve_template(template_id)
+        model_id = str((values or {}).get("model_id") or "").strip()
+        if not model_id:
+            raise RequestError("choose the base model this workflow should run", 400)
+        with self._uow() as uow:
+            self._ensure_imported(uow.repo, user_id)
+            model = uow.repo.media_catalog_resource(user_id, model_id)
+            if not model or model.resource_type != "model":
+                raise NotFoundError("media catalog model not found")
+            if model.backend != "comfyui":
+                raise RequestError("workflow templates are ComfyUI graphs, so they need a ComfyUI model", 400)
+            architecture = str(_json(model.default_settings_json, {}).get("architecture") or "")
+            if architecture and architecture not in template["architectures"]:
+                raise RequestError(
+                    f"'{template['name']}' was built for {', '.join(template['architectures'])} checkpoints, "
+                    f"and this model is declared as {architecture}",
+                    400,
+                )
+            normalized, compatible_ids = self._normalize_resource(
+                {
+                    "resource_type": "workflow",
+                    "kind": model.kind,
+                    "name": str((values or {}).get("name") or template["name"]).strip()[:120],
+                    "provider_key": model.provider_key,
+                    "backend": "comfyui",
+                    "external_id": f"template-{template['id']}-{secrets.token_hex(4)}",
+                    "enabled": True,
+                    "priority": 60,
+                    "operations": template["operations"],
+                    "domains": template["domains"],
+                    "features": template["features"],
+                    "default_settings": template_default_settings(template),
+                    "compatible_model_ids": [model.id],
+                    "notes": (
+                        f"Installed from the shipped '{template['name']}' template. Its node types and named "
+                        "assets are checked against ComfyUI; it has not been generation-tested here."
+                    ),
+                }
+            )
+            normalized["source_template_id"] = template["id"]
+            normalized["source_template_version"] = template["template_version"]
+            self._validate_compatibility(uow.repo, user_id, normalized, compatible_ids)
+            self._ensure_unique_external(uow.repo, user_id, normalized)
+            row = uow.repo.add_media_catalog_resource(user_id, normalized)
             uow.repo.replace_media_resource_compatibility(row.id, compatible_ids)
             return self._resource_response(uow.repo, row)
 
@@ -1680,6 +1788,7 @@ class MediaCatalogService:
                 "scheduler",
                 "allow_nsfw",
                 "prompt_dialect",
+                "architecture",
             }
         elif resource_type == "lora":
             allowed = {"weight", "trigger_words"}
@@ -1689,6 +1798,8 @@ class MediaCatalogService:
                 "identity_image_bindings",
                 "source_image_bindings",
                 "mask_image_bindings",
+                "required_prompt_token",
+                "prompt_prefix",
                 *WORKFLOW_BINDING_KEYS,
             }
         if set(values) - allowed:
@@ -1719,6 +1830,16 @@ class MediaCatalogService:
             )
             for key, label in WORKFLOW_BINDINGS:
                 result[key] = MediaCatalogService._normalize_comfy_bindings(patch, result.get(key) or [], label)
+            token = str(result.get("required_prompt_token") or "").strip()[:64]
+            prefix = " ".join(str(result.get("prompt_prefix") or "").split())[:300]
+            if token and token not in prefix:
+                raise RequestError(
+                    f"a workflow that requires the prompt word '{token}' needs a prompt prefix containing it, "
+                    "otherwise it would return an unconditioned picture without saying so",
+                    400,
+                )
+            result["required_prompt_token"] = token
+            result["prompt_prefix"] = prefix
         if resource_type == "model":
             if "prompt_dialect" in result:
                 result["prompt_dialect"] = normalize_dialect(result["prompt_dialect"])
@@ -1736,6 +1857,11 @@ class MediaCatalogService:
                 raise RequestError("model numeric defaults are invalid", 400) from exc
             if "allow_nsfw" in result and not isinstance(result["allow_nsfw"], bool):
                 raise RequestError("allow_nsfw must be true or false", 400)
+            if "architecture" in result and result["architecture"] not in MODEL_ARCHITECTURES:
+                raise RequestError(
+                    "model architecture must be one of: " + ", ".join(MODEL_ARCHITECTURES),
+                    400,
+                )
             for key in ("size", "quality", "sampler_name", "scheduler", "seconds"):
                 if key in result:
                     result[key] = str(result[key]).strip()
@@ -1888,6 +2014,8 @@ class MediaCatalogService:
             "estimated_load_seconds": row.estimated_load_seconds,
             "default_settings": _json(row.default_settings_json, {}),
             "notes": row.notes or "",
+            "source_template_id": row.source_template_id or "",
+            "source_template_version": row.source_template_version,
             "needs_binding_review": needs_binding_review(row),
             "compatible_model_ids": repo.media_resource_compatible_model_ids(row.id),
             "created_at": row.created_at,

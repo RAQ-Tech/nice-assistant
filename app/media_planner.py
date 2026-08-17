@@ -37,6 +37,8 @@ WORKFLOW_SETTING_KEYS = (
     "width_bindings",
     "height_bindings",
     "checkpoint_bindings",
+    "required_prompt_token",
+    "prompt_prefix",
 )
 
 

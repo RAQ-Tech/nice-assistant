@@ -151,6 +151,28 @@ installed-browser acceptance.
   before bindings existed keeps its previous behavior; that an enabled workflow
   without a prompt binding is refused; and that inspection lists text, seed, and
   dimension candidates while never offering an input driven by another node.
+  They also prove the checkpoint binding writes the preset's base model over the
+  one baked into a graph, that declaring the binding with no model to write
+  fails loudly, that a graph without one keeps its own, that the checkpoint
+  input is offered even though it is a combo rather than free text, and that a
+  workflow declaring a required prompt word gets it from its declared prefix or
+  refuses to run. A preset whose graph loads a different checkpoint is refused
+  at save time, naming both files; a bound checkpoint input settles it.
+- Workflow inspection is also exercised over real HTTP, because the response
+  model - not the service - is the contract. The prompt candidates and their
+  saved values must survive it: the browser gates its Save button on them, so a
+  field the response model did not name made guided setup impossible to
+  complete while every service-level test passed.
+- Workflow template tests prove every shipped graph normalizes, that its
+  bindings validate against its own graph through the same code that validates
+  an operator's, that a reference binding targets the node that loads the image
+  rather than the identity node's linked input, that a template needing a
+  trigger word ships a prefix containing it, and that one promising a word it
+  cannot supply is refused. Installing writes a bound workflow paired with the
+  chosen model and records where it came from; installing twice writes a second
+  graph rather than rewriting the first; a template is refused for a declared
+  family it was not built for; and verification asks the provider rather than
+  asserting the graph works.
 - Prompt dialect tests prove two dialects render the same request differently,
   that a dialect declaring no negative support sends none and does not imply the
   safety negative was carried, that the platform safety negative stays separate

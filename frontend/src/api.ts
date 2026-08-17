@@ -49,6 +49,7 @@ import type {
   TurnAccepted,
   TurnEvent,
   VisualIdentityProfile,
+  WorkflowTemplateList,
   Workspace,
 } from './types';
 
@@ -280,6 +281,23 @@ export class ApiClient {
 
   checkIdentityProvider(): Promise<ProviderCheckResult> {
     return this.request('/identity-validation/check', { method: 'POST' });
+  }
+
+  workflowTemplates(modelId: string): Promise<WorkflowTemplateList> {
+    return this.request(`/media-catalog/workflow-templates?model_id=${encodeURIComponent(modelId)}`);
+  }
+
+  verifyWorkflowTemplate(templateId: string): Promise<IdentityWorkflowInspection> {
+    return this.request(`/media-catalog/workflow-templates/${encodeURIComponent(templateId)}/verify`, {
+      method: 'POST',
+    });
+  }
+
+  installWorkflowTemplate(templateId: string, modelId: string, name = ''): Promise<MediaCatalogResource> {
+    return this.request(`/media-catalog/workflow-templates/${encodeURIComponent(templateId)}/installations`, {
+      method: 'POST',
+      body: JSON.stringify({ model_id: modelId, name }),
+    });
   }
 
   visualIdentity(personaId: string): Promise<VisualIdentityProfile> {

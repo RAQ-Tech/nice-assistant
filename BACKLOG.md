@@ -157,32 +157,31 @@ stored guess. A workflow filling an open slot must declare the operation being
 requested, so an image-to-image identity graph is no longer attached to a
 generate request and then failed at upload time.
 
+Stage 3 is delivered. Two known-good ComfyUI graphs ship with the product -
+PhotoMaker v2 and InstantID, both SDXL, both `reference_adapter` - with their
+node IDs fixed and their bindings declared by construction, so nothing asks
+which input receives the prompt or the reference. Inspection changed role for
+them: it verifies that the node types and named files are installed, and states
+plainly what it cannot see, because an identity model chosen by device rather
+than by a named input is invisible to `/object_info`. A model resource may
+declare its family, which is what lets a mismatch be marked before it wastes a
+generation; the mismatch is shown rather than hidden. Installing pairs the graph
+with a chosen model, records where it came from, and never rewrites a graph
+somebody may have tuned. A technique that only conditions when a particular word
+is in the prompt now declares that word and the prefix that supplies it, so it
+cannot quietly return an ordinary picture. Importing a graph of your own is
+still there, behind a disclosure.
+
 Remaining stages, in order:
 
-1. **One identity-conditioned picture, hand-bound.** PhotoMaker v2 on an SDXL
-    photoreal checkpoint, converted from the operator's saved UI-format graph to
-    API format, with its class trigger token carried by the preset's prompt
-    dialect. This is the first honest end-to-end proof, and it needs the
-    deployment rather than this repository.
+1. **One identity-conditioned picture.** Install the PhotoMaker v2 template
+    against an SDXL photoreal checkpoint, add one approved reference, and ask
+    for a picture. This is the first honest end-to-end proof, and it needs the
+    deployment rather than this repository. **Blocked - deployment.**
     **Done when** a picture with a recognizable face exists and its generation
     log shows the conditioning stage.
 
-2. **Workflow templates, verification first.** Ship known-good graphs with fixed
-    node IDs and bindings declared by construction, in `assets/workflow-templates/`
-    with `app/workflow_template.py` as a sibling to `app/preset_bundle.py` - a
-    bundle deliberately cannot carry a graph, and it is the operator-to-operator
-    import path. Inspection becomes verification: are these nodes on this
-    installation? Templates state their required assets in plain language,
-    because an identity model that sits behind a device combo rather than an
-    asset-name input cannot be detected. Provenance in nullable columns, and
-    never an automatic rewrite of a graph somebody tuned. Templates need an
-    operator-declared `architecture` on a model resource, which cannot be
-    sniffed - the application has no access to the models directory, and
-    `/object_info` does not report what family a checkpoint belongs to - so a
-    template is simply not offered for a model of a family it was not built for.
-    **Done when** a persona is set up without anybody reading a node graph.
-
-3. **`identity_pass`.** Planning already accepts a second-stage identity
+2. **`identity_pass`.** Planning already accepts a second-stage identity
     workflow; execution copies its bindings to the top level and injects them
     into stage one, which has no such node, so it fails deterministically. Fix
     the four places that assume one graph per request, then offer the mechanism
@@ -190,11 +189,13 @@ Remaining stages, in order:
     stays unoffered: a control must not present a choice that can only block.
     **Done when** a two-stage preset runs with stage two doing the identity work.
 
-4. **CompreFace as a calibration aid.** Framing and documentation only. It is
+3. **CompreFace as a calibration aid.** Framing and documentation only. It is
     the tool that answers how much likeness a checkpoint family costs, with
     numbers. Independent of everything above.
 
-The durable parts of this design belong in an ADR when templates land.
+The durable parts of this design belong in an ADR: templates, declared model
+families, and the trigger-word guarantee are all decisions a later reader will
+need the reasoning for.
 
 
 ## 2. Needs decision

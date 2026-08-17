@@ -15,6 +15,7 @@ from app.runtime import SESSION_COOKIE
 from app.session_cookie import set_session_cookie
 from app.security import request_client_address
 from app.service_errors import AuthenticationError, NotFoundError, RequestError
+from app.workflow_template import resolve_template
 
 
 router = APIRouter(prefix="/api/v1")
@@ -602,6 +603,35 @@ class MediaCatalogResourceRepresentation(MediaCatalogResourceWrite):
     updated_at: int
     # Derived, not stored: a workflow that predates declared prompt bindings.
     needs_binding_review: bool = False
+    # Which shipped template this graph came from. Empty means it did not.
+    source_template_id: str = ""
+    source_template_version: int | None = None
+
+
+class WorkflowTemplateRepresentation(BaseModel):
+    id: str
+    name: str
+    template_version: int
+    summary: str
+    mechanism: str
+    architectures: list[str]
+    required_assets: list[str]
+    required_prompt_token: str
+    installed_resource_id: str | None
+    installed_version: int | None
+    update_available: bool
+    architecture_matches: bool
+
+
+class WorkflowTemplateListResponse(BaseModel):
+    model_id: str
+    model_architecture: str
+    templates: list[WorkflowTemplateRepresentation]
+
+
+class WorkflowTemplateInstall(StrictModel):
+    model_id: str = Field(min_length=1, max_length=64)
+    name: str = Field(default="", max_length=120)
 
 
 class SceneBacklogRepresentation(BaseModel):
@@ -1672,6 +1702,50 @@ def update_media_catalog_settings(
     context: AuthContext = Depends(current_user),
 ):
     return services(request).media_catalog.update_settings(context.user_id, body.model_dump())
+
+
+@router.get(
+    "/media-catalog/workflow-templates",
+    response_model=WorkflowTemplateListResponse,
+    tags=["media-catalog"],
+)
+def list_workflow_templates(
+    request: Request,
+    model_id: str = Query(default="", max_length=64),
+    context: AuthContext = Depends(current_user),
+):
+    return services(request).media_catalog.workflow_templates(context.user_id, model_id)
+
+
+@router.post(
+    "/media-catalog/workflow-templates/{template_id}/verify",
+    response_model=ComfyUIWorkflowInspectionRepresentation,
+    tags=["media-catalog"],
+)
+def verify_workflow_template(
+    template_id: str,
+    request: Request,
+    context: AuthContext = Depends(current_user),
+):
+    # Verification, not discovery: the bindings are already declared, so the
+    # only open question is whether these nodes and named files are installed.
+    template = resolve_template(template_id)
+    return services(request).provider_service.inspect_comfyui_workflow(context.user_id, template["workflow"])
+
+
+@router.post(
+    "/media-catalog/workflow-templates/{template_id}/installations",
+    response_model=MediaCatalogResourceRepresentation,
+    status_code=201,
+    tags=["media-catalog"],
+)
+def install_workflow_template(
+    template_id: str,
+    body: WorkflowTemplateInstall,
+    request: Request,
+    context: AuthContext = Depends(current_user),
+):
+    return services(request).media_catalog.install_workflow_template(context.user_id, template_id, body.model_dump())
 
 
 @router.post(

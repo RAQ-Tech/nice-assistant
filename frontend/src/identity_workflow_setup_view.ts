@@ -2,8 +2,9 @@ import type { ApiClient } from './api';
 import { el, errorMessage } from './dom';
 import { inputField, selectField, textareaField } from './settings_controls';
 import type { SettingsDialogs } from './settings_contracts';
-import { settingsCard, settingsHeading, titleCase } from './settings_ui';
+import { advancedSettings, settingsCard, settingsHeading, titleCase } from './settings_ui';
 import type { AppState, IdentityWorkflowInspection, MediaCatalogResource } from './types';
+import { WorkflowTemplateView } from './workflow_template_view';
 
 const MAX_WORKFLOW_BYTES = 200_000;
 
@@ -21,6 +22,8 @@ export class IdentityWorkflowSetupView {
   private promptBindingFieldNode: HTMLElement | null = null;
   private liveTestWarningNode: HTMLElement | null = null;
   private saveButton: HTMLButtonElement | null = null;
+  private readonly templates: WorkflowTemplateView;
+  private manualOpen = false;
 
   constructor(
     private readonly renderApp: () => void,
@@ -29,7 +32,9 @@ export class IdentityWorkflowSetupView {
     private readonly dialogs: SettingsDialogs,
     private readonly finishSetup: () => void,
     private readonly refreshCatalog: () => Promise<void>,
-  ) {}
+  ) {
+    this.templates = new WorkflowTemplateView(renderApp, appState, client, refreshCatalog);
+  }
 
   open(): void {
     this.setupOpen = true;
@@ -189,26 +194,7 @@ export class IdentityWorkflowSetupView {
       'data-testid': 'identity-workflow-save',
       onclick: () => void this.saveWorkflow(),
     }) as HTMLButtonElement;
-    return [
-      settingsHeading(
-        'Guided ComfyUI workflow setup',
-        'Export a working workflow from ComfyUI in API format. Nice Assistant checks deployed nodes and model-like inputs, then asks which exact image input receives the approved persona reference.',
-      ),
-      models.length
-        ? selectField(
-            'Catalog base model to pair with this workflow',
-            this.modelId,
-            models.map((item) => item.id),
-            (value) => { this.modelId = value; },
-            'identity-workflow-model',
-            (value) => models.find((item) => item.id === value)?.name ?? value,
-            false,
-            'This declares planning compatibility with the selected catalog model. Provider inspection does not verify that pairing; the first generation remains its live test.',
-          )
-        : el('div', {
-            class: 'settings-warning',
-            textContent: 'Add and enable a ComfyUI image base model before importing an identity workflow.',
-          }),
+    const manualFields = [
       inputField(
         'Workflow name',
         this.workflowName,
@@ -239,6 +225,35 @@ export class IdentityWorkflowSetupView {
       this.promptBindingFieldNode,
       this.liveTestWarningNode,
       this.saveButton,
+    ].filter((node): node is HTMLElement => Boolean(node));
+    const model = models.find((item) => item.id === this.modelId);
+    return [
+      models.length
+        ? selectField(
+            'Catalog base model to pair with this workflow',
+            this.modelId,
+            models.map((item) => item.id),
+            (value) => { this.modelId = value; this.renderApp(); },
+            'identity-workflow-model',
+            (value) => models.find((item) => item.id === value)?.name ?? value,
+            false,
+            'This declares planning compatibility with the selected catalog model. Provider inspection does not verify that pairing; the first generation remains its live test.',
+          )
+        : el('div', {
+            class: 'settings-warning',
+            textContent: 'Add and enable a ComfyUI image base model before adding an identity workflow.',
+          }),
+      this.templates.node(this.modelId, model?.name ?? 'This model'),
+      // Reading a node graph to choose which input receives the prompt is the
+      // part of this work a person should not have to do, so it stops being
+      // the first thing they meet. It stays available: a graph somebody has
+      // already tuned is worth more than a shipped one.
+      advancedSettings(
+        'Import a workflow of your own instead',
+        'Export it from ComfyUI in API format. Nice Assistant checks the deployed nodes and named files, then asks which input receives the request and which receives the approved reference.',
+        manualFields,
+        { open: this.manualOpen, testId: 'identity-workflow-manual', onToggle: (open) => { this.manualOpen = open; } },
+      ),
     ].filter((node): node is HTMLElement => Boolean(node));
   }
 

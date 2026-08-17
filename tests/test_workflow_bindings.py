@@ -249,6 +249,58 @@ class CheckpointBindingTests(unittest.TestCase):
         self.assertEqual(captured["workflow"]["40"]["inputs"]["ckpt_name"], "whatever-was-saved.safetensors")
 
 
+class RequiredPromptTokenTests(unittest.TestCase):
+    """A technique that only works when a word is in the prompt says so.
+
+    PhotoMaker conditions on the reference only when its trigger word appears.
+    Without it the graph returns an ordinary picture and reports nothing, which
+    is a plan claiming conditioning over an image that never had any.
+    """
+
+    def _settings(self, **extra) -> dict:
+        return {
+            "additional_parameters": json.dumps(
+                {"41": {"class_type": "CLIPTextEncode", "inputs": {"text": "saved text"}}}
+            ),
+            "prompt_bindings": [{"node_id": "41", "input_name": "text"}],
+            **extra,
+        }
+
+    def _run(self, captured, settings):
+        with mock.patch("app.media_clients.urllib.request.urlopen", side_effect=comfy_transport(captured)):
+            comfyui_image("a kite", "512x512", "none", True, "http://c.invalid:8188", settings, CancellationToken())
+
+    def test_the_declared_prefix_supplies_a_missing_trigger_word(self):
+        captured = {}
+        self._run(
+            captured,
+            self._settings(required_prompt_token="photomaker", prompt_prefix="photograph of photomaker person,"),
+        )
+
+        written = captured["workflow"]["41"]["inputs"]["text"]
+        self.assertTrue(written.startswith("photograph of photomaker person,"))
+        self.assertIn("a kite", written)
+
+    def test_a_prompt_that_already_has_it_is_left_alone(self):
+        captured = {}
+        self._run(
+            captured,
+            {
+                **self._settings(required_prompt_token="photomaker", prompt_prefix="photograph of photomaker person,"),
+                "compiled_prompt": "a photomaker woman on a beach",
+            },
+        )
+
+        self.assertEqual(captured["workflow"]["41"]["inputs"]["text"], "a photomaker woman on a beach")
+
+    def test_a_requirement_with_no_prefix_to_satisfy_it_fails_loudly(self):
+        with self.assertRaises(ValueError) as raised:
+            self._run({}, self._settings(required_prompt_token="photomaker"))
+        # Better a refusal than an unconditioned picture presented as the
+        # persona.
+        self.assertIn("photomaker", str(raised.exception))
+
+
 class WorkflowInspectionOverHttpTests(unittest.TestCase):
     """The service is not the contract; the response model is.
 

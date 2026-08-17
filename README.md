@@ -345,6 +345,7 @@ For iPhone/Android browsers, microphone capture usually requires **HTTPS** (or l
 - `GET /api/v1/media-catalog`, `PUT /api/v1/media-catalog/settings`
 - `POST /api/v1/media-catalog/resources`, `GET/PUT/DELETE /api/v1/media-catalog/resources/:id`
 - `POST /api/v1/media-catalog/identity-workflows/inspect`
+- `GET /api/v1/media-catalog/workflow-templates`, `POST /api/v1/media-catalog/workflow-templates/:id/verify`, `.../installations`
 - `POST /api/v1/media-catalog/plan-previews`, `GET /api/v1/media-plans/:id`, `GET /api/v1/media-plans/:id/attempts`
 - `GET/PUT /api/v1/identity-validation/settings`, `POST /api/v1/identity-validation/check`
 - `GET/PUT /api/v1/personas/:id/visual-identity`, consent, reference review, validation, and history routes

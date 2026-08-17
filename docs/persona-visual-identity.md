@@ -150,6 +150,9 @@ unavailability is not evidence of a mismatch, so it does not trigger retries.
 - `GET /api/v1/media-plans/{id}/attempts`
 - `POST /api/v1/capability-requests/{id}/replan`
 - `POST /api/v1/media-catalog/identity-workflows/inspect`
+- `GET /api/v1/media-catalog/workflow-templates`
+- `POST /api/v1/media-catalog/workflow-templates/{id}/verify`
+- `POST /api/v1/media-catalog/workflow-templates/{id}/installations`
 
 Every lookup is owner scoped. Reference content uses authenticated protected
 delivery and is included only in full backups.
@@ -162,6 +165,14 @@ overwriting fields it never saw. Two surfaces write this profile - the identity
 behavior controls and the picture library's preferred recipes - so that refusal
 is the difference between a lost preference and a visible one. Omitting
 `revision` keeps last-writer-wins for any client that predates the guard.
+
+Setting identity conditioning up starts from a shipped workflow template rather
+than from an exported graph. The templates carry their own bindings, so nothing
+asks which node receives the prompt or the reference; checking one asks ComfyUI
+whether its node types and named files are installed, and states plainly what it
+could not check. Importing a graph of your own remains available behind a
+disclosure, because a graph somebody has already tuned is worth more than a
+shipped one. See `docs/media-catalog.md`.
 
 `POST /api/v1/media-catalog/identity-workflows/inspect` returns both
 `identity_input_candidates`, which name where an approved reference can be bound,

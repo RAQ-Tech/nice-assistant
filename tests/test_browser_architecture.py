@@ -40,6 +40,7 @@ class BrowserArchitectureTests(unittest.TestCase):
             "task_model_settings_view.ts",
             "types.ts",
             "visualization.ts",
+            "workflow_template_view.ts",
         }
         self.assertTrue(expected.issubset({path.name for path in SOURCE.glob("*.ts")}))
         self.assertLess((SOURCE / "app.ts").read_text(encoding="utf-8").count("\n"), 650)
@@ -53,6 +54,8 @@ class BrowserArchitectureTests(unittest.TestCase):
         self.assertLess((SOURCE / "home_view.ts").read_text(encoding="utf-8").count("\n"), 300)
         self.assertLess((SOURCE / "home_controls.ts").read_text(encoding="utf-8").count("\n"), 250)
         self.assertLess((SOURCE / "operations_settings_view.ts").read_text(encoding="utf-8").count("\n"), 450)
+        self.assertLess((SOURCE / "workflow_template_view.ts").read_text(encoding="utf-8").count("\n"), 250)
+        self.assertLess((SOURCE / "identity_workflow_setup_view.ts").read_text(encoding="utf-8").count("\n"), 520)
         self.assertIn("strict", (ROOT / "tsconfig.json").read_text(encoding="utf-8"))
         self.assertIn('src="/app.js"', (ROOT / "web" / "index.html").read_text(encoding="utf-8"))
 
