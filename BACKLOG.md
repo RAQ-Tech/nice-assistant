@@ -35,7 +35,8 @@ Last full verifier run: passed, 2026-08-17.
 ## Status vocabulary
 
 - **Ready** - no external dependency; can be started in this repository now.
-- **Needs decision** - implementable, but requires an owner policy choice first.
+- **Decided** - the choice has been made and recorded; the work it created is
+  in the Ready list.
 - **Blocked - operator** - requires an approved evaluation or provider choice.
 - **Blocked - deployment** - requires the installed private-LAN deployment.
 - **Not advertised** - deliberately absent; listed so it is never mistaken for
@@ -215,35 +216,78 @@ The reasoning behind all of this is recorded in
 [ADR 0035](docs/decisions/0035-shipped-identity-workflows.md).
 
 
-## 2. Needs decision
+### 1F. Work the 2026-08-17 decisions created
 
-Implementable once an owner policy choice is recorded.
+Each of these exists because an owner decision made it buildable. Nothing here
+needs the deployment or a further choice.
 
-Nothing is parked here that the owner has not seen. The proactive-message
-question that sat here was answered on 2026-08-16: the reply stays first. See
-section 6 and item 6.
+1. **Settle the local-only Task Model boundary.** The OpenAI adapter exists and
+    is not selectable. Make that a stated constraint rather than an accident of
+    the UI: refuse the provider at save time for every task role, say why, and
+    record it where somebody would look before trying to enable it.
+    **Done when** selecting OpenAI for a task role is refused by name, and the
+    documents describe it as a decision rather than an omission.
 
-1. **Automatic expiry for rejected and forgotten memory.** Retention is durable
-    and users can permanently delete individual or bulk records, but there is no
-    administrator-approved automatic expiry policy. The code change is small;
-    the retention period and its defaults are the decision. Source:
-    `docs/debt-register.md`, `docs/memory.md`.
+2. **Copy a lore entry from another persona.** Same workspace only. The copy
+    belongs to the persona that took it, and the interface says plainly that
+    later edits to the original will not follow - otherwise somebody will expect
+    them to.
+    **Done when** an entry can be copied in one action, and editing either copy
+    provably leaves the other alone.
 
-2. **Semantic memory retrieval.** Retrieval is lexical full-text search plus
-    recency. Semantic retrieval remains an optional future interface and is
-    deliberately not implied anywhere in the product. Adding it is a scope
-    decision, not a blocked task. Source: `docs/debt-register.md`.
+3. **Expand memories into search terms overnight.** A task-model role that runs
+    in the pre-generation window and writes paraphrases and related words for
+    each memory, indexed with the memory text. Retrieval keeps its current
+    shape and its current speed.
+    **Done when** a memory is found by a question sharing none of its words, and
+    the reply path is measurably no slower than before.
 
-3. **Workspace-shared lore.** Lore is persona-scoped, so an entry used by
-    several personas in a workspace has to be authored more than once. Sharing
-    is a product decision about who owns an entry and what happens when one
-    persona edits it, not a schema problem. Source:
-    `docs/autonomous-decision-log.md` D5, `docs/debt-register.md`.
+4. **Several reference photos, used together.** PhotoMaker stacks a batch into a
+    stronger likeness; InstantID uses one. A template declares how many it can
+    use, the executor uploads each and writes the right filename into the right
+    binding, and the provenance record pins the whole set by checksum rather
+    than a single photo.
+    **Done when** a persona with three approved photos produces a picture whose
+    log names all three.
 
-4. **Whether Task Model roles may send conversation-derived text to OpenAI.**
-    The adapter exists and is deliberately not selectable in settings. Until
-    this is answered the UI stays local-only and must not advertise OpenAI as a
-    usable provider. Source: `docs/task-models.md`, open question 5 below.
+## 2. Decided
+
+Answered by the owner on 2026-08-17. Each one produced either a settled
+constraint or an item in section 1F below; none of them is open any more.
+
+1. **Rejected and forgotten memory never expires automatically.** Manual
+    deletion, individually or in bulk, stays the only way a record leaves.
+    Keeping the discard pile is deliberate: it is what shows a persona
+    re-proposing something already refused. Source: `docs/memory.md`.
+
+2. **Memory retrieval gets meaning, computed overnight, with nothing added to
+    the reply path.** The local model writes paraphrases and related terms for
+    each memory during the pre-generation window, and those are indexed
+    alongside the memory text. Embedding the question at reply time was
+    considered and refused: matching by meaning is not worth a per-turn cost
+    when expanding the memories in advance catches most of the same misses.
+    Becomes item 1F-3.
+
+3. **Lore is shared by copying, not by reference.** An entry can be copied from
+    another persona in the same workspace, and the copy belongs to the persona
+    that took it. Edits never propagate. Sharing live would mean editing for one
+    persona and silently changing another. Becomes item 1F-2.
+
+4. **Task Model roles stay local.** No conversation-derived text goes to OpenAI
+    for titles, summaries, memory extraction, picture planning, or scene
+    proposals. The adapter is not selectable and must not be advertised.
+    Becomes item 1F-1.
+
+Also settled, from the open questions:
+
+- **Memories follow the persona across workspaces.** One persona is one
+    continuous person; a memory formed in one workspace is available in every
+    workspace that persona is linked to. No migration needed.
+- **Ollama is not being replaced, and the provider seam stays.** Nothing is
+    built against it now; the indirection is kept so a second runtime later is a
+    change rather than a rewrite.
+- **A persona may have several approved reference photos, used together.**
+    Becomes item 1F-4.
 
 ## 3. Blocked - operator
 
@@ -364,7 +408,8 @@ no stub is ever shipped in its place. See `docs/debt-register.md`.
 - Speech from a provider this deployment has not evaluated. Streaming and
   interruption are built against the local Kokoro path; neither is a claim that
   any particular provider has been chosen or heard.
-- Multi-reference identity fusion and automatic mask creation.
+- Automatic mask creation. Multi-reference identity fusion was on this list and
+  is not any more: it was approved on 2026-08-17 and is item 1F-4.
 - Preset discovery, ratings, or a shared registry. Export and import deliver a file
   an operator can move deliberately; it is not a distribution channel.
 - Identity resemblance produced by resampling until a comparison passes. See
@@ -386,7 +431,11 @@ no stub is ever shipped in its place. See `docs/debt-register.md`.
   noise. Each adds a service and an embedding model to a GPU budget already
   under contention, and none provides per-persona access boundaries.
 - Semantic or vector lore retrieval, for the same reason. Keyword matching is
-  predictable and debuggable, and the preview route makes it tunable.
+  predictable and debuggable, and the preview route makes it tunable. Memory
+  retrieval takes a different route to the same goal - see item 1F-3 - which
+  adds no model to the reply path and no service at all.
+- A second chat provider. The seam that would allow one is kept deliberately;
+  nothing is built against it, and Ollama is what runs.
 - Grants, principals, and multi-tenancy for memory. One human and a handful of
   personas; persona scoping already delivers that isolation.
 - Merging the old Memory v3 branch wholesale. Its useful immutable-binding idea
@@ -419,21 +468,13 @@ Choices made where the request was ambiguous. Overturn any of these freely.
 
 For the operator, when convenient. None of these blocks the Ready list.
 
-1. Should lore be shareable across personas in a workspace, or stay
-   persona-scoped? Currently persona-scoped.
-2. After the deploy, is 8k context affordable alongside speech and image
-   generation on the 12 GB card? Measured behavior beats the estimate.
-3. Is there an appetite for a second chat provider, or is Ollama the permanent
-   local boundary?
-4. Should rejected and forgotten memories expire automatically, and after how
-   long?
-5. May Task Model roles send conversation-derived text to OpenAI, or must these
-   roles remain local-only? Until explicitly approved, the UI remains local-only
-   and must not advertise OpenAI as selectable.
-6. When the same persona is linked to multiple workspaces, should that persona's
-   approved memories follow it across workspaces, or should workspace plus persona
-   be a hard intersection? Current persona-scoped memories follow the persona;
-   changing this later would require a migration and clear UI wording.
+1. After the deploy, is 8k context affordable alongside speech and image
+   generation on the 12 GB card? Measured behavior beats the estimate, so this
+   one genuinely waits for the deployment rather than for an opinion.
+
+Six questions that sat here were answered on 2026-08-17. They are recorded as
+decisions in section 2 rather than deleted, because the reasoning is worth more
+than the answer.
 
 ## Working rules
 
