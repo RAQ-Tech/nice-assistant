@@ -207,6 +207,13 @@ server, proxy, bridge, and second listener have been removed.
 - Local STT is not implemented and cannot be selected in the UI
 - Transcribing while somebody is still speaking is not implemented
 
+### Optional: memories found by meaning
+
+`ollama pull nomic-embed-text` on the machine running Ollama turns on semantic
+memory recall, so a persona can be asked something in words it has never seen.
+It is roughly 275 MB and runs beside the chat model. Without it, retrieval is
+keyword and recency exactly as before, and nothing claims otherwise.
+
 ## Build/run
 
 ```bash

@@ -22,6 +22,12 @@ class AppConfig:
     data_dir: Path
     archive_dir: Path
     ollama_base_url: str = "http://127.0.0.1:11434"
+    # The local model that turns a memory into a vector. Small - a few hundred
+    # megabytes against several gigabytes for the chat model - and it runs on
+    # the same Ollama this already talks to. Empty turns semantic recall off and
+    # retrieval falls back to keywords, which is what happens on a deployment
+    # that has not pulled it.
+    memory_embedding_model: str = "nomic-embed-text"
     automatic1111_base_url: str = "http://127.0.0.1:7860"
     comfyui_base_url: str = "http://127.0.0.1:8188"
     session_ttl_seconds: int = 1800
@@ -74,6 +80,7 @@ class AppConfig:
             data_dir=data_dir,
             archive_dir=archive_dir,
             ollama_base_url=os.getenv("OLLAMA_BASE_URL", "http://127.0.0.1:11434").rstrip("/"),
+            memory_embedding_model=os.getenv("MEMORY_EMBEDDING_MODEL", "nomic-embed-text").strip(),
             automatic1111_base_url=os.getenv("AUTOMATIC1111_BASE_URL", "http://127.0.0.1:7860").rstrip("/"),
             comfyui_base_url=os.getenv("COMFYUI_BASE_URL", "http://127.0.0.1:8188").rstrip("/"),
             session_ttl_seconds=int(os.getenv("SESSION_TTL_SECONDS", "1800")),

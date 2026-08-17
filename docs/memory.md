@@ -4,6 +4,34 @@ Nice Assistant memory is review-first. Conversation extraction creates pending
 candidates; only active memories can enter prompts or media continuity context.
 `off` disables both retrieval and candidate extraction for that chat.
 
+## Finding a memory
+
+Retrieval puts three sources in front of the model, in priority order.
+
+An exact keyword match wins. Somebody who names a thing means that thing, and
+full-text search over the memory content is what finds it.
+
+A vector match comes next, and is what finds a memory the question shares no
+words with - "what do I drive" reaching "owns a 2019 Tacoma". A small local
+embedding model gives each memory a vector, the question gets one when it is
+asked, and the two are compared by direction. Anything below a similarity floor
+is dropped rather than ranked last: a tenuous memory in a context window is
+worse than none, because the model reads whatever is there as relevant.
+
+Recency fills whatever is left, which is what happens when neither of the other
+two has an opinion.
+
+Vectors are computed in the background, never when a memory is written -
+approving a fact should not wait on a model, and a model that is down should not
+stop somebody approving one. The reply path never goes looking for the model
+either: it asks only once a background pass has reached it, so a deployment
+without an embedding model pays nothing per turn rather than a failed connection
+or a timeout. Set `MEMORY_EMBEDDING_MODEL` to empty to turn semantic recall off
+entirely; retrieval then behaves exactly as it did before it existed.
+
+The model runs on the same machine as everything else, so no conversation text
+leaves it. See [ADR 0039](decisions/0039-memories-found-by-meaning.md).
+
 ## Lifecycle
 
 - `pending`: extracted from an explicit user statement and awaiting review.

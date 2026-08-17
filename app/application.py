@@ -244,12 +244,6 @@ def build_services(
         identity_service=identity,
         task_models=task_models,
     )
-    context = ContextService(
-        runtime.session_factory,
-        runtime.secret_store,
-        context_policy,
-        task_models,
-    )
     memory = MemoryService(
         runtime.session_factory,
         runtime.secret_store,
@@ -258,6 +252,15 @@ def build_services(
         runtime.logger,
         config.memory_candidate_limit,
         config.memory_candidate_min_confidence,
+        embedding_model=config.memory_embedding_model,
+        embedding_base_url=config.ollama_base_url,
+    )
+    context = ContextService(
+        runtime.session_factory,
+        runtime.secret_store,
+        context_policy,
+        task_models,
+        memories=memory,
     )
     conversations = ConversationService(
         runtime.session_factory,
@@ -295,6 +298,7 @@ def build_services(
         runtime.logger,
         interval_seconds=config.pregeneration_poll_seconds,
         enabled=config.pregeneration_enabled,
+        memories=memory,
     )
     return ApplicationServices(
         runtime=runtime,

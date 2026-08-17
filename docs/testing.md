@@ -453,6 +453,14 @@ installed-browser acceptance.
   recording controller is exercised with a fake level meter and a fake clock:
   hands-free stops itself and releases the meter, keeps listening when nothing
   has been said, and measures nothing at all when the button is being held.
+- Semantic memory tests prove a memory is found by a question sharing none of
+  its words, that an exact keyword match still ranks first, that a weak match is
+  dropped rather than ranked last, and that a vector from a different model
+  scores zero instead of breaking a retrieval. They also prove the costs: with
+  no embedding model configured retrieval behaves exactly as it did before, the
+  reply path never goes looking for a model that has not been proven present,
+  one failure stops it being asked again, and keeping vectors current does not
+  depend on the picture scheduler being switched on.
 - API tests use isolated temporary databases and deterministic fake providers.
 - Migration tests upgrade pre-0004/0005/0007/0008/0009/0010/0011/0012/0013/0014/0015/0016/0017/0019/0021/0022 databases and prove
   chats, messages, jobs, media, memories, turn ordering, stored artifact links,

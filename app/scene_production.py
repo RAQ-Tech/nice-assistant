@@ -20,19 +20,35 @@ DEFAULT_POLL_SECONDS = 300
 class SceneProductionRunner:
     """Asks the scene backlog to produce, on an interval, until stopped."""
 
-    def __init__(self, backlog, logger, *, interval_seconds: int = DEFAULT_POLL_SECONDS, enabled: bool = False):
+    def __init__(
+        self,
+        backlog,
+        logger,
+        *,
+        interval_seconds: int = DEFAULT_POLL_SECONDS,
+        enabled: bool = False,
+        memories=None,
+    ):
         self.backlog = backlog
         self.logger = logger
+        # Vectors for new memories are computed here rather than when a memory
+        # is written: approving a fact should not wait for a model, and a model
+        # that is down should not stop somebody approving it.
+        self.memories = memories
         self.interval_seconds = max(30, int(interval_seconds))
         self.enabled = bool(enabled)
         self._stop = threading.Event()
         self._thread: threading.Thread | None = None
 
     def start(self) -> None:
-        if not self.enabled or not self.backlog or self._thread:
+        # Two kinds of background work share this thread. Producing approved
+        # scenes needs pre-generation switched on; keeping memory vectors
+        # current does not, and tying it to a picture setting would mean recall
+        # quietly depending on something unrelated.
+        if self._thread or not (self.backlog and self.enabled) and not self.memories:
             return
         self._stop.clear()
-        self._thread = threading.Thread(target=self._loop, name="scene-production", daemon=True)
+        self._thread = threading.Thread(target=self._loop, name="background-work", daemon=True)
         self._thread.start()
 
     def stop(self) -> None:
@@ -42,6 +58,16 @@ class SceneProductionRunner:
         if thread:
             thread.join(timeout=5)
 
+    def _embed_pending(self) -> None:
+        """Catch memory vectors up, without letting that stop production."""
+
+        if not self.memories:
+            return
+        try:
+            self.memories.embed_pending()
+        except Exception:  # noqa: BLE001 - a missing model must not stop pictures
+            self.logger.warning("memory embedding pass failed", exc_info=True)
+
     def run_once(self) -> list[dict]:
         """One pass over every owner with something approved.
 
@@ -49,7 +75,10 @@ class SceneProductionRunner:
         a quiet night can be told apart from a broken one.
         """
 
+        self._embed_pending()
         results = []
+        if not (self.backlog and self.enabled):
+            return results
         for user_id in self._owners():
             try:
                 outcome = self.backlog.produce_due(user_id)

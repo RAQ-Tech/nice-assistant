@@ -249,14 +249,15 @@ a persona feel like itself, then 1F-5, then 1F-2.
     **Done when** an entry can be copied in one action, and editing either copy
     provably leaves the other alone.
 
-3. **Semantic memory retrieval.** A small local embedding model, memories
-    embedded on write, the question embedded on read, and keyword search kept
-    alongside so exact matches still win. It degrades to keyword-only, and says
-    so, when no embedding model is installed - a missing model must not break
-    recall.
-    **Done when** a memory is found by a question that shares none of its words,
-    an exact keyword match still ranks first, and the added time is recorded
-    rather than assumed.
+3. **Semantic memory retrieval - delivered 2026-08-17.** A small local
+    embedding model, vectors computed in the background, the question embedded
+    on read, and keyword search kept in front so an exact match still wins. A
+    weak match is dropped rather than ranked last. The reply path never goes
+    looking for the model: it asks only once a background pass has reached it,
+    so a deployment without one pays nothing per turn. See
+    [ADR 0039](docs/decisions/0039-memories-found-by-meaning.md).
+    **Needs on the deployment:** `ollama pull nomic-embed-text`. Until then
+    retrieval is exactly what it was, and says nothing untrue about itself.
 
 4. **Several reference photos, used together.** PhotoMaker stacks a batch into a
     stronger likeness; InstantID uses one. A template declares how many it can
@@ -522,7 +523,7 @@ done:
 - Update the product, architecture, security, testing, operations, roadmap, and
   debt documents in the same change as the behavior they describe.
 - Record durable architectural choices as ADRs in `docs/decisions/`. The next
-  free number is 0039.
+  free number is 0040.
 - Run `python scripts/audit_public_repo.py` before every public commit. This
   file must never contain deployment addresses, hostnames, user-specific paths,
   hardware inventories, or account identifiers.

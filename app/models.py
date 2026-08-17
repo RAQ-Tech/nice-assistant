@@ -1,4 +1,14 @@
-from sqlalchemy import CheckConstraint, Float, ForeignKey, Index, Integer, String, Text, UniqueConstraint
+from sqlalchemy import (
+    CheckConstraint,
+    Float,
+    ForeignKey,
+    Index,
+    Integer,
+    LargeBinary,
+    String,
+    Text,
+    UniqueConstraint,
+)
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 
@@ -212,6 +222,13 @@ class Memory(Base):
     extractor_provider: Mapped[str | None] = mapped_column(Text)
     extractor_model: Mapped[str | None] = mapped_column(Text)
     extractor_version: Mapped[str | None] = mapped_column(Text)
+    # Normalised to unit length, so comparing two is a dot product and nothing
+    # else. The model name travels with it because vectors from different models
+    # are not comparable, and that is how a stale one is recognised rather than
+    # quietly scoring as unrelated.
+    embedding: Mapped[bytes | None] = mapped_column(LargeBinary)
+    embedding_model: Mapped[str | None] = mapped_column(Text)
+    embedding_updated_at: Mapped[int | None] = mapped_column(Integer)
     created_at: Mapped[int] = mapped_column(Integer, nullable=False)
     updated_at: Mapped[int] = mapped_column(Integer, nullable=False)
     reviewed_at: Mapped[int | None] = mapped_column(Integer)

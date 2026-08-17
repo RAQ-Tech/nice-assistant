@@ -9,6 +9,12 @@ from sqlalchemy.exc import IntegrityError
 from app.auth import redact_sensitive_text
 from app.job_service import JobExecution, JobService
 from app.provider_contracts import ProviderError
+from app.embedding import EmbeddingUnavailable, ollama_embed
+
+# A local model that cannot answer this fast is not going to improve the turn,
+# and keyword recall is already waiting.
+QUESTION_EMBED_TIMEOUT_SECONDS = 2.0
+
 from app.repositories import UnitOfWork, now_ts
 from app.service_errors import ConflictError, NotFoundError, RequestError
 from app.task_contracts import MEMORY_EXTRACTION, MemoryExtractionTaskInput
@@ -111,7 +117,16 @@ class MemoryService:
         logger,
         candidate_limit: int = 5,
         candidate_min_confidence: float = 0.6,
+        embedding_model: str = "",
+        embedding_base_url: str = "",
     ):
+        self.embedding_model = str(embedding_model or "").strip()
+        self.embedding_base_url = str(embedding_base_url or "").strip()
+        # The reply path never goes looking for the embedding model. It asks
+        # only once a background pass has actually reached it, so a deployment
+        # that never pulled one pays nothing at all rather than a failed
+        # connection per turn - or, worse, a timeout per turn.
+        self._embedding_ready = False
         self.session_factory = session_factory
         self.secret_store = secret_store
         self.task_models = task_models
@@ -123,6 +138,67 @@ class MemoryService:
 
     def _uow(self):
         return UnitOfWork(self.session_factory, self.secret_store)
+
+    @property
+    def semantic_recall_configured(self) -> bool:
+        return bool(self.embedding_model and self.embedding_base_url)
+
+    def question_vector(self, text: str):
+        """A vector for what was just asked, or None.
+
+        None is an ordinary answer, not a failure: the embedding model may not
+        be pulled on this deployment, and retrieval falls back to keywords
+        rather than refusing to remember anything.
+
+        This is the one part of semantic recall on the reply path, so it is
+        bounded twice. The request gets a short timeout, because a local model
+        that cannot answer in a couple of seconds is not going to improve this
+        turn. And a failure stops it being asked again for a while, so a
+        deployment without the model pays one failed connection rather than one
+        per turn forever.
+        """
+
+        if not self._embedding_ready or not str(text or "").strip():
+            return None
+        try:
+            return ollama_embed(
+                self.embedding_base_url, self.embedding_model, str(text), timeout=QUESTION_EMBED_TIMEOUT_SECONDS
+            )
+        except EmbeddingUnavailable as exc:
+            # It was there and now is not. Stop asking until a background pass
+            # finds it again, rather than spending this on every turn.
+            self._embedding_ready = False
+            self.logger.info("semantic memory recall paused error=%s", exc)
+            return None
+
+    def embed_pending(self, limit: int = 25) -> dict:
+        """Give vectors to memories that have none, or whose text has moved on.
+
+        Runs in the background rather than when a memory is written: a person
+        approving a fact should not wait for a model, and a model that is down
+        should not stop them approving it. Returns what happened so a quiet pass
+        can be told apart from a broken one.
+        """
+
+        if not self.semantic_recall_configured:
+            return {"embedded": 0, "pending": 0, "reason": "no embedding model configured"}
+        embedded = 0
+        with self._uow() as uow:
+            pending = uow.repo.memories_needing_embedding(self.embedding_model, limit)
+            for row in pending:
+                try:
+                    vector = ollama_embed(self.embedding_base_url, self.embedding_model, row.content)
+                except EmbeddingUnavailable as exc:
+                    # The model is unreachable, so the rest of this pass would
+                    # fail the same way. Leave them for the next one.
+                    self._embedding_ready = False
+                    self.logger.info("memory embedding paused error=%s", exc)
+                    return {"embedded": embedded, "pending": len(pending) - embedded, "reason": str(exc)}
+                uow.repo.save_memory_embedding(row, vector, self.embedding_model)
+                embedded += 1
+                # Reached on this pass, so questions may use it now.
+                self._embedding_ready = True
+        return {"embedded": embedded, "pending": max(0, len(pending) - embedded), "reason": ""}
 
     def prune_discarded(self, retention_days: int) -> int:
         """Permanently remove rejected and forgotten memories older than the window.

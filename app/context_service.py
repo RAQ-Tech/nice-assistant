@@ -87,11 +87,15 @@ def _protected_sections(
 
 
 class ContextService:
-    def __init__(self, session_factory, secret_store, policy: ContextPolicy, task_models):
+    def __init__(self, session_factory, secret_store, policy: ContextPolicy, task_models, memories=None):
         self.session_factory = session_factory
         self.secret_store = secret_store
         self.policy = policy
         self.task_models = task_models
+        # Only used to turn the current message into a vector, so a memory can
+        # be found by a question that shares none of its words. Absent means
+        # retrieval stays keyword-and-recency, which is what it always was.
+        self.memories = memories
         self.estimator = TokenEstimator()
         self.capability_registry = CapabilityRegistry()
 
@@ -516,6 +520,9 @@ class ContextService:
                             persona_id=persona_id,
                             chat_id=chat_id,
                             search_query=memory_search_query(current.text),
+                            # None when no embedding model is pulled, which
+                            # leaves retrieval exactly as it was.
+                            query_vector=self.memories.question_vector(current.text) if self.memories else None,
                         )
                     )
                 ]

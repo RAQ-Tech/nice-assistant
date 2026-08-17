@@ -8,6 +8,7 @@ import time
 from sqlalchemy import and_, delete, func, or_, select, text as sql_text, update
 from sqlalchemy.exc import IntegrityError
 
+from app.embedding import MAX_CANDIDATES, pack, rank, unpack
 from app.models import (
     AppSetting,
     AsyncJob,
@@ -895,8 +896,17 @@ class ApplicationRepository:
         persona_id: str | None,
         chat_id: str,
         search_query: str | None = None,
+        query_vector=None,
         limit: int = 40,
     ):
+        """Memories worth putting in front of the model, best first.
+
+        Three sources, in priority order. An exact keyword match wins, because
+        somebody who names a thing means that thing. A vector match comes next,
+        which is what finds a memory the question shares no words with. Recency
+        fills the rest, which is what happens when neither has an opinion.
+        """
+
         scopes = [Memory.tier == "global"]
         if workspace_id:
             scopes.append(and_(Memory.tier == "workspace", Memory.tier_ref_id == workspace_id))
@@ -916,8 +926,14 @@ class ApplicationRepository:
                 .limit(limit)
             ).all()
         )
+        semantic_ids = self._semantic_memory_ids(user_id, query_vector, recent, limit)
         if not search_query:
-            return recent
+            if not semantic_ids:
+                return recent
+            by_recent = {row.id: row for row in recent}
+            ranked = [by_recent[memory_id] for memory_id in semantic_ids if memory_id in by_recent]
+            ranked.extend(row for row in recent if row.id not in set(semantic_ids))
+            return ranked[:limit]
 
         clauses = ["m.tier='global'"]
         params = {"user_id": user_id, "query": search_query, "limit": limit}
@@ -941,16 +957,62 @@ class ApplicationRepository:
                 params,
             ).all()
         )
-        if not matched_ids:
+        ordered_ids = list(matched_ids)
+        ordered_ids.extend(memory_id for memory_id in semantic_ids if memory_id not in set(matched_ids))
+        if not ordered_ids:
             return recent
         matched_rows = list(
-            self.session.scalars(select(Memory).where(Memory.user_id == user_id, Memory.id.in_(matched_ids))).all()
+            self.session.scalars(select(Memory).where(Memory.user_id == user_id, Memory.id.in_(ordered_ids))).all()
         )
         by_id = {row.id: row for row in matched_rows}
-        ranked = [by_id[memory_id] for memory_id in matched_ids if memory_id in by_id]
-        seen = set(matched_ids)
+        ranked = [by_id[memory_id] for memory_id in ordered_ids if memory_id in by_id]
+        seen = set(ordered_ids)
         ranked.extend(row for row in recent if row.id not in seen)
         return ranked[:limit]
+
+    def _semantic_memory_ids(self, user_id: str, query_vector, recent, limit: int) -> list[str]:
+        """Memory ids whose meaning is close to the question, best first.
+
+        Only the memories already in scope are considered, and only a bounded
+        number of them, so this costs the same whether the assistant remembers a
+        hundred things or ten thousand. A vector from a different model scores
+        zero rather than raising: one stale row must not break a retrieval.
+        """
+
+        if not query_vector:
+            return []
+        candidates = [(row.id, unpack(row.embedding)) for row in recent[:MAX_CANDIDATES] if row.embedding]
+        return [memory_id for memory_id, _score in rank(query_vector, candidates)][:limit]
+
+    def memories_needing_embedding(self, model: str, limit: int = 50):
+        """Active memories with no usable vector, oldest first.
+
+        A memory whose text changed, or that was embedded by a different model,
+        is included: an out-of-date vector is worse than none, because it scores
+        against the wrong text with full confidence.
+        """
+
+        return list(
+            self.session.scalars(
+                select(Memory)
+                .where(
+                    Memory.status == "active",
+                    or_(
+                        Memory.embedding.is_(None),
+                        Memory.embedding_model != model,
+                        Memory.embedding_updated_at < Memory.updated_at,
+                    ),
+                )
+                .order_by(Memory.updated_at.asc(), Memory.id.asc())
+                .limit(max(1, int(limit)))
+            ).all()
+        )
+
+    def save_memory_embedding(self, row, vector, model: str) -> None:
+        row.embedding = pack(vector)
+        row.embedding_model = model
+        row.embedding_updated_at = now_ts()
+        self.session.flush()
 
     def memory(self, user_id: str, memory_id: str):
         return self.session.scalar(select(Memory).where(Memory.id == memory_id, Memory.user_id == user_id))
