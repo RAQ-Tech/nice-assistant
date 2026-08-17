@@ -1,9 +1,16 @@
 import { api, type ApiClient, type PersonaLoreInput } from './api';
 import { el, errorMessage } from './dom';
 import { inputField, textareaField, toggleField } from './settings_controls';
+import { PersonaLoreCopyView } from './persona_lore_copy_view';
 import { advancedSettings, settingsCard } from './settings_ui';
 import { state } from './state';
-import type { AppState, Id, Persona, PersonaLoreEntry, PersonaLorePreview } from './types';
+import type {
+  AppState,
+  Id,
+  Persona,
+  PersonaLoreEntry,
+  PersonaLorePreview,
+} from './types';
 
 /**
  * Lorebook editor. Entries are collapsed by name, matching the Media Catalog and Task Model
@@ -16,11 +23,28 @@ export class PersonaLoreView {
   private readonly previewText = new Map<Id, string>();
   private readonly loaded = new Set<Id>();
 
+  private readonly copyView: PersonaLoreCopyView;
+
   constructor(
     private readonly renderApp: () => void,
     private readonly appState: AppState = state,
     private readonly client: ApiClient = api,
-  ) {}
+  ) {
+    // A copy lands in this persona's list like any other new entry, so the
+    // taking and the holding stay one list rather than two views of one.
+    this.copyView = new PersonaLoreCopyView(
+      renderApp,
+      (persona, entry) => this.adopt(persona, entry),
+      appState,
+      client,
+    );
+  }
+
+  private adopt(persona: Persona, entry: PersonaLoreEntry): void {
+    const items = this.entries.get(persona.id) ?? [];
+    items.push(entry);
+    this.entries.set(persona.id, items);
+  }
 
   node(persona: Persona): HTMLElement {
     const items = this.entries.get(persona.id) ?? [];
@@ -42,6 +66,7 @@ export class PersonaLoreView {
           }),
         ]),
         ...items.map((entry) => this.entryEditor(persona, entry)),
+        this.copyView.node(persona),
         this.previewBox(persona),
       ],
       {

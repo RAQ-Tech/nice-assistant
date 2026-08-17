@@ -349,6 +349,94 @@ class ResourceService:
                 raise NotFoundError(str(exc)) from exc
             return lore_entry_response(row, budget)
 
+    def copyable_persona_lore(self, user_id: str, persona_id: str) -> list[dict]:
+        """What this persona could take, grouped by who has it.
+
+        Only personas sharing a workspace appear, and only entries this persona
+        does not already have by that title - offering somebody a copy of
+        something they already copied is how a lore list fills up with
+        duplicates nobody meant to make.
+        """
+
+        with self._uow() as uow:
+            if not uow.repo.persona(user_id, persona_id):
+                raise NotFoundError("persona not found")
+            workspaces = set(uow.repo.persona_workspace_ids(persona_id))
+            existing = {row.title.strip().casefold() for row in uow.repo.persona_lore_entries(user_id, persona_id)}
+            groups = []
+            for persona in uow.repo.personas(user_id):
+                if persona.id == persona_id or not workspaces & set(uow.repo.persona_workspace_ids(persona.id)):
+                    continue
+                entries = [
+                    {
+                        "id": row.id,
+                        "title": row.title,
+                        "always_on": bool(row.always_on),
+                        "token_estimate": row.token_estimate,
+                    }
+                    for row in uow.repo.persona_lore_entries(user_id, persona.id)
+                    if row.title.strip().casefold() not in existing
+                ]
+                if entries:
+                    groups.append({"persona_id": persona.id, "persona_name": persona.name, "entries": entries})
+            return groups
+
+    def copy_persona_lore(self, user_id: str, persona_id: str, source_entry_id: str) -> dict:
+        """Take a copy of another persona's entry. A copy, not a link.
+
+        Shared worldbuilding is the ordinary case - two personas in the same
+        setting want the same facts about it - and retyping it is how the second
+        one ends up subtly different from the first.
+
+        What this does not do is follow the original. An entry that changed
+        under a persona because somebody edited a different persona would be a
+        surprise every time; the browser says so at the moment of copying, which
+        is the only moment anybody is thinking about it.
+        """
+
+        with self._uow() as uow:
+            target = uow.repo.persona(user_id, persona_id)
+            if not target:
+                raise NotFoundError("persona not found")
+            source = uow.repo.persona_lore_entry(user_id, source_entry_id)
+            if not source:
+                raise NotFoundError("lore entry not found")
+            if source.persona_id == persona_id:
+                raise RequestError("That entry already belongs to this persona.", 400)
+            self._require_shared_workspace(uow.repo, source.persona_id, persona_id)
+            budget = self._card_budget(uow.repo, user_id)
+            row = uow.repo.save_persona_lore_entry(
+                user_id,
+                persona_id,
+                {
+                    "title": source.title,
+                    "keys": json.loads(source.keys_json or "[]"),
+                    "secondary_keys": json.loads(source.secondary_keys_json or "[]"),
+                    "content": source.content,
+                    "always_on": bool(source.always_on),
+                    "case_sensitive": bool(source.case_sensitive),
+                    "match_word_forms": bool(source.match_word_forms),
+                    "priority": source.priority,
+                    "enabled": bool(source.enabled),
+                },
+                # Recomputed rather than copied. A stale estimate on the source
+                # would otherwise be duplicated into a budget that reports it.
+                TokenEstimator.text(source.content),
+            )
+            return lore_entry_response(row, budget)
+
+    @staticmethod
+    def _require_shared_workspace(repo, source_persona_id: str, target_persona_id: str) -> None:
+        """Copying is bounded by the workspace, because that is what a workspace is for.
+
+        A workspace is how somebody keeps unrelated work apart. Reaching across
+        one to pull in an entry would make that separation advisory.
+        """
+
+        shared = set(repo.persona_workspace_ids(source_persona_id)) & set(repo.persona_workspace_ids(target_persona_id))
+        if not shared:
+            raise RequestError("Lore can only be copied between personas in the same workspace.", 400)
+
     def delete_persona_lore(self, user_id: str, persona_id: str, entry_id: str) -> None:
         with self._uow() as uow:
             existing = uow.repo.persona_lore_entry(user_id, entry_id)

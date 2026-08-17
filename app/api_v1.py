@@ -83,6 +83,10 @@ class PersonaLoreWrite(StrictModel):
     enabled: bool = True
 
 
+class PersonaLoreCopy(StrictModel):
+    source_entry_id: str
+
+
 class PersonaLorePreview(StrictModel):
     text: str = Field(min_length=1, max_length=8000)
 
@@ -1344,6 +1348,21 @@ def delete_persona_lore(
 ):
     services(request).resources.delete_persona_lore(context.user_id, persona_id, entry_id)
     return {"ok": True}
+
+
+@router.get("/personas/{persona_id}/lore/copyable", tags=["personas"])
+def copyable_persona_lore(persona_id: str, request: Request, context: AuthContext = Depends(current_user)):
+    return {"groups": services(request).resources.copyable_persona_lore(context.user_id, persona_id)}
+
+
+@router.post("/personas/{persona_id}/lore/copies", tags=["personas"])
+def copy_persona_lore(
+    persona_id: str,
+    body: PersonaLoreCopy,
+    request: Request,
+    context: AuthContext = Depends(current_user),
+):
+    return services(request).resources.copy_persona_lore(context.user_id, persona_id, body.source_entry_id)
 
 
 @router.post("/personas/{persona_id}/lore/preview", tags=["personas"])

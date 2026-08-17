@@ -37,6 +37,7 @@ import type {
   StarterPresetInstallResult,
   StarterPresetList,
   PersonaLoreEntry,
+  PersonaLoreCopyGroup,
   PersonaLorePreview,
   ProviderCheckResult,
   ResourceCoordinationEvent,
@@ -256,6 +257,17 @@ export class ApiClient {
       `/personas/${encodeURIComponent(personaId)}/lore/${encodeURIComponent(entryId)}`,
       { method: 'DELETE' },
     );
+  }
+
+  copyablePersonaLore(personaId: string): Promise<{ groups: PersonaLoreCopyGroup[] }> {
+    return this.request(`/personas/${encodeURIComponent(personaId)}/lore/copyable`);
+  }
+
+  copyPersonaLore(personaId: string, sourceEntryId: string): Promise<PersonaLoreEntry> {
+    return this.request(`/personas/${encodeURIComponent(personaId)}/lore/copies`, {
+      method: 'POST',
+      body: JSON.stringify({ source_entry_id: sourceEntryId }),
+    });
   }
 
   previewPersonaLore(personaId: string, text: string): Promise<PersonaLorePreview> {

@@ -126,6 +126,23 @@ when it moves on.
 Use the **preview box** in the lorebook editor: paste a message, see which entries
 fire and which fit the allowance. Keyword tuning is guesswork without it.
 
+### Sharing a setting between personas
+
+Two personas in the same place should agree about that place. **Take from another
+persona** in the lorebook editor lists what everyone else in the workspace has
+written and copies an entry across in one action, with its keywords, priority and
+matching rules intact.
+
+It is a copy, not a link. Editing the original afterwards does not change the
+copy, and editing the copy does not change the original. That is deliberate - an
+entry that changed under a persona because somebody edited a different persona
+would be a surprise every time - but it does mean a fact that keeps changing is
+better kept in one persona and copied late, or written the same way twice on
+purpose.
+
+Only personas sharing a workspace appear, and an entry whose title this persona
+already has is not offered again.
+
 ## Common mistakes
 
 1. **Writing a résumé.** Facts with no behavioral consequence cost budget and

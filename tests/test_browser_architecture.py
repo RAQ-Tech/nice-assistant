@@ -26,6 +26,7 @@ class BrowserArchitectureTests(unittest.TestCase):
             "operations_settings_view.ts",
             "persona_card.ts",
             "persona_card_view.ts",
+            "persona_lore_copy_view.ts",
             "persona_lore_view.ts",
             "preset_settings_view.ts",
             "playback.ts",
@@ -53,6 +54,7 @@ class BrowserArchitectureTests(unittest.TestCase):
         self.assertLess((SOURCE / "media_catalog_settings_view.ts").read_text(encoding="utf-8").count("\n"), 600)
         self.assertLess((SOURCE / "persona_card_view.ts").read_text(encoding="utf-8").count("\n"), 150)
         self.assertLess((SOURCE / "persona_lore_view.ts").read_text(encoding="utf-8").count("\n"), 300)
+        self.assertLess((SOURCE / "persona_lore_copy_view.ts").read_text(encoding="utf-8").count("\n"), 150)
         self.assertLess((SOURCE / "preset_settings_view.ts").read_text(encoding="utf-8").count("\n"), 550)
         self.assertLess((SOURCE / "home_view.ts").read_text(encoding="utf-8").count("\n"), 300)
         self.assertLess((SOURCE / "home_controls.ts").read_text(encoding="utf-8").count("\n"), 250)
