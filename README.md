@@ -9,9 +9,12 @@ media resource catalog with deterministic execution plans, OpenAI STT, and
 consent-bound persona visual identity with a stateless CompreFace LAN adapter,
 truthful optional GPU capacity coordination across local providers,
 reviewed-reference ComfyUI persona conditioning with durable provenance, and
-completed-file OpenAI/Kokoro-compatible TTS. The
-product direction is voice-first; realtime speech and natural turn-taking are
-deliberately still later roadmap work.
+OpenAI/Kokoro-compatible TTS that starts
+speaking before synthesis finishes. The product direction is voice-first:
+speech streams, interrupting it stops the provider work rather than muting it,
+and hands-free listening decides when a turn ended. Choosing a speech provider
+on evidence, and transcribing while somebody is still speaking, are deliberately
+still later work.
 
 ## Unraid quick setup
 
@@ -196,8 +199,13 @@ server, proxy, bridge, and second listener have been removed.
 - Verified DB backups plus non-mutating archive/integrity/migration restore drills
 - Isolated async queue lanes so slow media/provider jobs do not block normal chat work
 - Admin-only backup center for restorable ZIP snapshots
-- Realtime/streaming TTS has no advertised endpoint because it is not implemented yet
+- Streaming speech that starts on the first piece of audio, with the completed
+  recording still stored for replay
+- Interrupting speech stops the provider work rather than only muting the output
+- Optional hands-free listening that decides when a turn ended, with
+  hold-to-talk unchanged and never guessed at
 - Local STT is not implemented and cannot be selected in the UI
+- Transcribing while somebody is still speaking is not implemented
 
 ## Build/run
 

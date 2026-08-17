@@ -26,7 +26,8 @@ implementation detail.
 
 Both were previously single functions carrying complexity exemptions, and both
 now satisfy the ceiling without one. This was a behaviour-preserving split, made
-before voice work has to touch streaming, interruption, and turn-taking.
+before voice work touched streaming, interruption, and turn-taking - which it
+since has, in ADRs 0036 to 0038.
 
 ## Target shape
 

@@ -107,7 +107,8 @@ and Workspaces now use the same approachable structure:
 - A shared accessible information icon reveals concise explanations on hover or
   keyboard focus without filling the page with instructional copy.
 - Speech and transcription copy describes the completed-audio and push-to-talk
-  behavior that exists today; it does not imply streaming speech or local STT.
+  behavior that exists today. Speech does stream and hands-free listening is
+  offered where it is configured; local STT is still not implemented.
 - Memory distinguishes pending, forget, and permanent delete, including atomic
   bulk actions. Persona editors remain collapsed until selected, and workspaces
   explain their organizational scope.

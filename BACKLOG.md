@@ -290,8 +290,8 @@ unverified provider support may be advertised before it exists.
     aborts the synthesis request, the server watches for that and stops reading
     the provider response mid-body, and a cancelled synthesis writes nothing.
     See [ADR 0036](docs/decisions/0036-interrupting-speech-stops-the-work.md).
-    This is manual interruption done properly; it is not turn detection, which
-    is item 6 and still open.
+    This is manual interruption done properly. It is not the product noticing
+    that somebody has started talking over it, which nothing here does.
 
 8. **Approved quality-first and local fallback chains for TTS and STT**, with
     compact user-facing degradation notices. Requires the approved provider
@@ -355,10 +355,15 @@ surface.
 Deliberately absent. Listed so none of it is mistaken for a regression, and so
 no stub is ever shipped in its place. See `docs/debt-register.md`.
 
-- Realtime and streaming TTS - no endpoint is advertised until step 15 lands.
 - Local speech-to-text - the setting is retained for migration compatibility
   but is disabled in the UI until a real adapter exists.
-- Realtime turn detection, partial transcripts, barge-in, and speech fallback.
+- Partial transcripts. Nothing is transcribed while somebody is still speaking;
+  end-of-turn detection listens to loudness, not to language.
+- Speech provider fallback chains. Choosing what to fall back to is the
+  listening decision, which has not been made.
+- Speech from a provider this deployment has not evaluated. Streaming and
+  interruption are built against the local Kokoro path; neither is a claim that
+  any particular provider has been chosen or heard.
 - Multi-reference identity fusion and automatic mask creation.
 - Preset discovery, ratings, or a shared registry. Export and import deliver a file
   an operator can move deliberately; it is not a distribution channel.

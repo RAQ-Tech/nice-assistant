@@ -103,16 +103,19 @@ non-destructive backup verification. This is a product-status statement, not a
 portable performance claim.
 
 Local STT and real visual-identity deployment acceptance remain separate future
-work. Hands-free listening decides the end of a turn from microphone loudness and
-is off by default; it is implemented but not accepted on the installed
-deployment, and it is not streaming transcription - nothing is transcribed while
-somebody is still speaking. Streaming speech is implemented against the local
-Kokoro path and is not accepted on the installed deployment: it needs the
-listening evaluation the voice items are gated on before it can be described as
-accepted. A destructive
-live restore also remains an explicitly authorized operator drill. Kokoro text
-cleanup and manual interruption are supported. Neither they nor streaming speech
-may be described as live transcription.
+work, as does a destructive live restore, which is an explicitly authorized
+operator drill.
+
+Three speech behaviours are implemented against the local Kokoro path and are
+**not accepted on the installed deployment**: speech that starts before
+synthesis finishes, interruption that stops the provider work rather than only
+the sound, and hands-free listening that decides when a turn ended. Implemented
+is not accepted; none of it has run on the real topology, and none of it selects
+a speech provider - that still needs the listening evaluation.
+
+None of it may be described as live transcription. Nothing is transcribed while
+somebody is still speaking, and the product does not notice somebody talking
+over it.
 
 Interruption now stops the provider work rather than only the sound: the browser
 aborts the request, the server stops reading the provider response, and nothing

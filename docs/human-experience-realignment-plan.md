@@ -46,8 +46,10 @@ browser workflow and published.
 
 1. **Voice-first priority is inverted.** The media catalog, coordination, and
    identity roadmap expanded while streaming speech, automatic turn detection,
-   local transcription fallback, and real barge-in remain deferred. This
-   conflicts with ADR 0001 and the product vision.
+   local transcription fallback, and real barge-in remained deferred. This
+   conflicted with ADR 0001 and the product vision. Three of those four are
+   delivered as of 2026-08-17; local transcription fallback is not, because what
+   to fall back to is the listening decision.
 2. **Speech blocks conversation in the shipped browser.** Typing, Send, and
    push-to-talk are disabled while speech plays. A local repair exists but has
    not yet completed installed-browser acceptance, and capability controls are
@@ -288,10 +290,14 @@ chat images” from one screen; identity setup is visibly optional.
 
 ### Phase 6 - restore the voice-first roadmap (deferred by operator decision)
 
-- [ ] Stream TTS audio and begin playback before a complete response file exists.
-- [ ] Implement automatic end-of-turn detection with push-to-talk retained as a
-  dependable fallback.
-- [ ] Implement true barge-in that stops playback and superseded provider work.
+- [x] Stream TTS audio and begin playback before a complete response file exists.
+  Delivered 2026-08-17; see ADR 0037. Formats that cannot be played incrementally
+  keep the completed-file path and say so.
+- [x] Implement automatic end-of-turn detection with push-to-talk retained as a
+  dependable fallback. Delivered 2026-08-17; see ADR 0038. Hands-free is a
+  setting, off by default, and holding the button measures no level at all.
+- [x] Implement true barge-in that stops playback and superseded provider work.
+  Delivered 2026-08-17; see ADR 0036. A cancelled synthesis writes nothing.
 - [ ] Add approved quality-first and local fallback chains for TTS and STT, with
   compact user-facing degradation notices.
 - [ ] Evaluate providers with repeatable latency, reliability, and blind
@@ -380,7 +386,8 @@ source directory cannot mix application revisions.
 4. Default auto-run with high-precision intent contract.
 5. Human-scale attachment UI, compact errors, and blur toggle.
 6. One-screen everyday image readiness and advanced-policy cleanup.
-7. Streaming voice, turn detection, barge-in, and provider fallback.
+7. Streaming voice, turn detection, and barge-in - delivered. Provider fallback
+   waits on the listening decision.
 8. Continuity evaluations, full installed acceptance, documentation, and
    roadmap reconciliation.
 

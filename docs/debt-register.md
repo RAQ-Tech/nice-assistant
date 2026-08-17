@@ -188,10 +188,13 @@ change that alters them.
 
 ## Placeholder or unimplemented
 
-- Realtime/streaming TTS; no endpoint is advertised until Step 11 implements it.
 - Local STT; the setting is retained for migration compatibility but disabled in
   the UI until an adapter exists.
-- Realtime turn detection, partial transcripts, barge-in, and speech fallback.
+- Partial transcripts, and speech provider fallback chains. Streaming speech
+  (ADR 0037), interruption that stops the provider work (ADR 0036), and
+  end-of-turn detection (ADR 0038) are implemented against the local Kokoro
+  path. What remains deferred is transcribing while somebody is still speaking,
+  and choosing what to fall back to - which is the listening decision.
 - Lorebook matching is literal keywords plus common English plurals over a
   three-message window, so it will still miss a paraphrase that shares no key. This is a deliberate trade for predictable,
   debuggable behavior with no embedding model or extra service; the preview route

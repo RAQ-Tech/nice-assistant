@@ -98,6 +98,15 @@ step 11 implements it.
 *Alternative:* build the provider-neutral streaming transport now and choose a
 voice later. Rejected because fallback and streaming both imply provider
 selection, and a half-built voice path is worse than an honest deferral.
+
+*Revisited 2026-08-17.* The rejected alternative turned out to be two things,
+not one. Fallback does imply provider selection - what you fall back to is the
+decision - and it stays deferred. Streaming does not: it is a property of the
+transport to whichever provider is configured, and it was built against the
+local Kokoro path with no provider claimed. The same is true of interruption and
+end-of-turn detection. See ADRs 0036, 0037, and 0038. The commitment this entry
+made - that no unevaluated provider is advertised - is unchanged and still
+holds.
 *Reverse:* nothing to reverse; no code was written.
 
 ### A9 — Dependabot configuration added

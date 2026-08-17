@@ -114,9 +114,10 @@ ADR 0038.
 The state machine deliberately exposes `recording`, `transcribing`, and
 `speaking` phases so later realtime voice can extend the contract. During `speaking`, the
 composer remains editable; sending typed text or starting hold-to-talk stops the
-current file playback before beginning the new turn. This is explicit manual
-interruption, not streaming speech or automatic turn detection - the product
-does not notice that somebody has started talking.
+current file playback before beginning the new turn. The product does not listen
+for somebody starting to speak while it is talking; interrupting is something a
+person does, not something it notices. Hands-free listening detects the end of a
+turn once recording has begun, which is a different question.
 
 What the interruption now does is complete. Playback holds the abort controller
 for the synthesis it started, so stopping aborts that request; the server sees
