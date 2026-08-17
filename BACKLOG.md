@@ -247,20 +247,20 @@ section 6 and item 6.
 
 ## 3. Blocked - operator
 
-Phase 6 of `docs/human-experience-realignment-plan.md`, deferred by operator
-decision. These are the five open voice-core items, and they are the highest
-product priority once unblocked: the roadmap states that additional catalog
-breadth does not take priority over them.
+Phase 6 of `docs/human-experience-realignment-plan.md`. These were the five open
+voice-core items and the highest product priority once unblocked, and three of
+them are now delivered.
 
-An important distinction, because it changes what can start early: items 5-7 are
-provider-neutral infrastructure and can be built against the existing Kokoro
-path. Only items 8 and 9 genuinely require the approved listening decision.
-Item 8 cannot select a provider until that decision exists, and no unverified
-provider support may be advertised in the meantime.
+What separated the three from the two is whether a thing implies choosing a
+speech provider. Streaming, interruption, and end-of-turn detection are
+properties of the transport and the browser; they were built against the
+existing Kokoro path with no provider claimed, and are recorded as ADRs 0036 to
+0038. Items 8 and 9 are the decision itself, and neither can move until an
+operator listening session has happened. No unverified provider support may be
+advertised before it exists.
 
-Items 5, 6, and 7 are all delivered on that basis. What remains in this section
-- items 8 and 9 - genuinely needs the approved listening decision, and no
-unverified provider support may be advertised before it exists.
+Everything delivered here is implemented, not accepted: none of it has run on
+the installed deployment. See `docs/deployment-acceptance.md`.
 
 5. **Streaming TTS - delivered 2026-08-17.** Playback begins on the first piece
     of audio rather than the finished file, so the silence before a persona
