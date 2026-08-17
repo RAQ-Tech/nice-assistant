@@ -129,9 +129,13 @@ operator evaluation, or the deployment.
 ### 1E. Identity-preserving picture workflows
 
 Owner-requested 2026-08-16. ADR 0031 says resemblance must come from a declared
-structural mechanism, and the record for it exists, but the feature had never
-worked end to end. Three separate faults, all now fixed, are recorded here
-because each one passed every test it had.
+structural mechanism, and the record for it existed, but the feature had never
+worked end to end. Every fault below passed the tests it had, which is why each
+is recorded rather than quietly fixed. The reasoning is in
+[ADR 0035](docs/decisions/0035-shipped-identity-workflows.md).
+
+**This section is complete in this repository.** What remains is the installed
+browser journey on the real deployment, described below.
 
 Stage 0 is delivered. The workflow inspection response no longer drops
 `request_input_candidates`, so guided identity setup can be completed over real
@@ -186,22 +190,23 @@ ReActor template ships for it, installable straight into a recipe as a second
 pass so nobody hand-edits a definition. The settings control offers exactly the
 mechanisms this catalog can apply.
 
-Remaining stages, in order:
+### 1E-a. First identity-conditioned picture - **Blocked - deployment**
 
-1. **One identity-conditioned picture.** Install the PhotoMaker v2 template
-    against an SDXL photoreal checkpoint, add one approved reference, and ask
-    for a picture. This is the first honest end-to-end proof, and it needs the
-    deployment rather than this repository. **Blocked - deployment.**
-    **Done when** a picture with a recognizable face exists and its generation
-    log shows the conditioning stage.
+Install the
+PhotoMaker v2 template against an SDXL photoreal checkpoint, add one approved
+reference, and ask for a picture. That is the first honest end-to-end proof, and
+no test here can substitute for it.
+**Done when** a picture with a recognizable face exists and its generation log
+shows the conditioning stage.
 
-2. **CompreFace as a calibration aid.** Framing and documentation only. It is
-    the tool that answers how much likeness a checkpoint family costs, with
-    numbers. Independent of everything above.
+Back in this repository, stage 5 is delivered, and it was framing rather than code. `docs/persona-visual-identity.md`
+now says what a comparison service is actually for: measuring how much likeness a
+checkpoint family costs, run deliberately and then turned off, and choosing a
+threshold from a measurement rather than from a guess with a decimal point in it.
+Leaving it on as a gate is the worse proposition it always was.
 
-The durable parts of this design belong in an ADR: templates, declared model
-families, and the trigger-word guarantee are all decisions a later reader will
-need the reasoning for.
+The reasoning behind all of this is recorded in
+[ADR 0035](docs/decisions/0035-shipped-identity-workflows.md).
 
 
 ## 2. Needs decision
@@ -408,7 +413,7 @@ done:
 - Update the product, architecture, security, testing, operations, roadmap, and
   debt documents in the same change as the behavior they describe.
 - Record durable architectural choices as ADRs in `docs/decisions/`. The next
-  free number is 0035.
+  free number is 0036.
 - Run `python scripts/audit_public_repo.py` before every public commit. This
   file must never contain deployment addresses, hostnames, user-specific paths,
   hardware inventories, or account identifiers.

@@ -36,6 +36,28 @@ ADR 0010 and ADR 0012. Turning comparison off does not turn unverified results
 into verified ones; it means results are labeled unverified, which is the
 truthful description of an unmeasured image. See ADR 0031.
 
+## What comparison is actually good for
+
+Now that resemblance comes from a declared mechanism, the useful question a
+verifier answers is not "is this picture allowed" but "how much likeness does
+this combination cost". An identity adapter is trained against one text encoder,
+so it holds a face well on the family it was built for and less well elsewhere.
+Nothing can tell you how much less without measuring it.
+
+That is calibration, and it is worth running deliberately and then turning off:
+generate the same scene against two checkpoint families, compare each result
+with the approved reference, and read the scores side by side. What comes back
+is a number for a question that would otherwise be answered by squinting. It is
+also how a threshold gets chosen honestly - a number picked before any
+measurement is a guess wearing a decimal point.
+
+Leaving a verifier switched on as a gate is a different and worse proposition. A
+comparison service is a separate deployment that has to be running, it adds a
+round trip to every persona picture, and blocking on it converts a measurement
+into a refusal for a picture that may be perfectly good. `show_unverified` is
+the default for that reason: the honest label costs nothing, and the block costs
+a picture.
+
 ## Trust boundary
 
 Nice Assistant is the source of truth for persona identity profiles, explicit
