@@ -102,9 +102,11 @@ speech, managed local-media cleanup, running cancellation, restart recovery, and
 non-destructive backup verification. This is a product-status statement, not a
 portable performance claim.
 
-Local STT and real visual-identity deployment acceptance remain separate future
-work, as does a destructive live restore, which is an explicitly authorized
-operator drill.
+Local transcription and real visual-identity deployment acceptance remain
+separate future work, as does a destructive live restore, which is an explicitly
+authorized operator drill. Local transcription is implemented and covered by
+tests here; what is unaccepted is a spoken turn completing against a Whisper
+service actually running on the private LAN.
 
 Three speech behaviours are implemented against the local Kokoro path and are
 **not accepted on the installed deployment**: speech that starts before

@@ -42,9 +42,12 @@ describe('Where a recording goes', () => {
   it('says nothing once transcription happens on this machine', () => {
     withSettings({ stt_provider: 'local' });
 
-    // Local transcription does not exist yet. When it does, the note has to
-    // disappear on its own rather than needing somebody to remember it.
+    const node = talkButton(false, () => undefined, fakeRecording());
+
+    // The note was written to disappear on its own when local transcription
+    // arrived, rather than needing somebody to remember to delete it. It did.
     expect(transcriptionDestination()).toBeNull();
+    expect(node.querySelector('[data-testid="talk-destination"]')).toBeNull();
   });
 
   it('still records when the note is showing', () => {

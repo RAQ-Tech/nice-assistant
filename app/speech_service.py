@@ -13,9 +13,12 @@ from app.service_errors import NotFoundError, RequestError
 from app.speech_clients import (
     STREAMABLE_FORMATS,
     SpeechCancelled,
+    DEFAULT_STT_MODEL,
     kokoro_list_voices,
     kokoro_speech,
     kokoro_speech_stream,
+    local_stt,
+    normalized_stt_base_url,
     openai_speech,
     openai_speech_stream,
     openai_stt,
@@ -289,12 +292,13 @@ class SpeechService:
     def transcribe(self, user_id: str, filename: str, content: bytes) -> dict:
         with self._uow() as uow:
             settings = uow.repo.settings(user_id)
-        if not settings or settings["stt_provider"] == "disabled":
+        provider = (settings or {}).get("stt_provider")
+        if not settings or provider == "disabled":
             raise RequestError("STT disabled", 400)
-        if settings["stt_provider"] != "openai":
-            raise RequestError("Local STT is not implemented. Select OpenAI or disable STT.", 501)
+        if provider not in ("openai", "local"):
+            raise RequestError("No transcription provider is selected.", 400)
         api_key = settings.get("openai_api_key")
-        if not api_key:
+        if provider == "openai" and not api_key:
             raise RequestError("OPENAI API key missing", 400)
         extension = ".webm"
         lowered = str(filename or "").lower()
@@ -313,16 +317,7 @@ class SpeechService:
             )
             if completed.returncode != 0 or not wav.exists():
                 raise RequestError("Audio conversion failed. Please try again.", 500)
-            language = settings["preferences"].get("stt_language") or "auto"
-            try:
-                result = openai_stt(str(wav), api_key, language)
-            except Exception as exc:
-                raise ProviderError(
-                    provider="openai",
-                    code="transcription_failed",
-                    user_message=user_safe_provider_error("STT", "OpenAI", exc),
-                    retryable=True,
-                ) from exc
+            result = self._transcribe_with(provider, settings, str(wav), api_key)
             if bool(settings["preferences"].get("stt_store_recordings", False)):
                 stored = self.config.stt_recordings_dir / f"{user_id}_{secrets.token_hex(6)}{extension}"
                 shutil.copy2(raw, stored)
@@ -330,6 +325,47 @@ class SpeechService:
         finally:
             raw.unlink(missing_ok=True)
             wav.unlink(missing_ok=True)
+
+    def _transcription_target(self, settings: dict) -> tuple[str, str]:
+        """The address and model of the Whisper service on this network."""
+
+        preferences = settings["preferences"]
+        base_url = normalized_stt_base_url(preferences.get("stt_local_base_url"))
+        if self.provider_url_policy:
+            base_url = self.provider_url_policy.normalize(base_url, label="Local transcription service")
+        return base_url, str(preferences.get("stt_model_local") or DEFAULT_STT_MODEL).strip()
+
+    def _transcribe_with(self, provider: str, settings: dict, wav: str, api_key) -> dict:
+        """Hand the audio to whichever service is selected, cloud or local.
+
+        The two paths differ only in where the request goes. Either failure is
+        named after the provider that had it, so somebody reading a failed turn
+        can tell whether their own Whisper service is down or somebody else's.
+        """
+
+        language = settings["preferences"].get("stt_language") or "auto"
+        label = "local transcription service" if provider == "local" else "OpenAI"
+        started = time.monotonic()
+        outcome = "error"
+        try:
+            if provider == "local":
+                base_url, model = self._transcription_target(settings)
+                result = local_stt(wav, base_url, model, language)
+            else:
+                result = openai_stt(wav, api_key, language)
+            outcome = "ok"
+            return result
+        except Exception as exc:
+            self.logger.warning("stt provider failed provider=%s error=%s", provider, exc.__class__.__name__)
+            raise ProviderError(
+                provider=provider,
+                code="transcription_failed",
+                user_message=user_safe_provider_error("STT", label, exc),
+                retryable=True,
+            ) from exc
+        finally:
+            if self.metrics:
+                self.metrics.provider(provider, "stt", outcome, int((time.monotonic() - started) * 1000))
 
     def _rotate_audio(self) -> None:
         files = sorted(

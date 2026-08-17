@@ -224,13 +224,14 @@ needs the deployment or a further choice.
 The owner restated the goal on 2026-08-17 and it is worth having in one place,
 because several items below only make sense against it: **the persona should
 feel real, and an explicit conversation should be fully contained on this
-machine with no cloud service involved.** Chat, images, and the voice you hear
-are already local. The voice you speak is not - see item 1F-5, which is the only
-thing standing between this product and the goal as stated.
+machine with no cloud service involved.** Chat, images, the voice you hear and -
+since 1F-5 landed on 2026-08-17 - the voice you speak can all run here. Every
+part of that goal is now built in this repository. What it waits on is a Whisper
+service running on the LAN, which is a deployment step rather than work here.
 
-Order, given that the owner mostly types today: 1F-1 first because it closes a
-hole for the price of some words, then 1F-3 and 1F-4 because they are what make
-a persona feel like itself, then 1F-5, then 1F-2.
+Order was: 1F-1 first because it closed a hole for the price of some words, then
+1F-3 and 1F-4 because they are what make a persona feel like itself, then 1F-5.
+**1F-2 is the only one left**, and it is the least urgent of the five.
 
 1. **Settle the local-only Task Model boundary - delivered 2026-08-17.** The OpenAI adapter exists and
     is not selectable. Make that a stated constraint rather than an accident of
@@ -259,8 +260,10 @@ a persona feel like itself, then 1F-5, then 1F-2.
     looking for the model: it asks only once a background pass has reached it,
     so a deployment without one pays nothing per turn. See
     [ADR 0039](docs/decisions/0039-memories-found-by-meaning.md).
-    **Needs on the deployment:** `ollama pull nomic-embed-text`. Until then
-    retrieval is exactly what it was, and says nothing untrue about itself.
+    `nomic-embed-text` was pulled onto the deployment on 2026-08-17, and the
+    similarity floor was then set from measurement against it rather than from
+    reasoning - the reasoned value would have dropped four of nine correct
+    matches. ADR 0039 records the numbers.
 
 4. **Several reference photos, used together - delivered 2026-08-17.** PhotoMaker stacks a batch into a
     stronger likeness; InstantID uses one. A template declares how many it can
@@ -276,15 +279,20 @@ a persona feel like itself, then 1F-5, then 1F-2.
     **Still needs the deployment** to confirm the likeness is actually better
     with three, which no test here can answer.
 
-5. **Local speech-to-text.** Transcription is OpenAI-only today: the service
-    refuses anything else, so holding the microphone button sends audio off the
-    machine. That is the one place the product contradicts the stated goal, and
-    for the conversations this is for it is a problem twice over - privacy, and
-    the provider's own usage policy. Whisper runs locally at roughly 250 MB,
-    smaller than the speech synthesis already installed.
-    **Done when** a spoken turn completes with no network request leaving the
-    machine, and choosing cloud transcription is a deliberate act rather than
-    the only option.
+5. **Local speech-to-text - delivered 2026-08-17.** Transcription was
+    OpenAI-only: the service refused anything else with a 501, so holding the
+    microphone button either sent audio off the machine or did nothing, while
+    the setting still accepted `local`. It now talks to a self-hosted Whisper
+    service over HTTP in the shape OpenAI documents, which is what speaches,
+    whisper.cpp's server and LocalAI all implement - the same arrangement the
+    local speech path already has with Kokoro, so the URL policy, connection
+    check and failure copy are the ones that already existed. No credential is
+    sent to a service on this network, the address is held to the private-LAN
+    policy at save time so "local" cannot mean a host on the internet, and a
+    `text/plain` reply is accepted as the transcript it is. See
+    [ADR 0040](docs/decisions/0040-a-spoken-turn-that-stays-here.md).
+    **Needs on the deployment:** a Whisper service running on the LAN. Until
+    there is one, transcription is OpenAI or off and the microphone says which.
 
 ## 2. Decided
 

@@ -9,10 +9,11 @@ import { state } from './state';
  * deciding when the turn ended. Held recording is unchanged and stays the
  * dependable one: the release is the decision, and it is never a guess.
  *
- * Transcription is cloud-only today, so pressing this sends audio off the
- * machine. That is said here, next to the button, rather than only on a
- * settings page nobody is reading mid-conversation - a person about to speak is
- * the one who needs to know it.
+ * If the selected provider is a cloud one, pressing this sends audio off the
+ * machine, and that is said here rather than only on a settings page nobody is
+ * reading mid-conversation - a person about to speak is the one who needs to
+ * know it. With a local transcription service selected there is nothing to say,
+ * and nothing is said.
  */
 export function talkButton(
   busy: boolean,
@@ -58,9 +59,9 @@ export function talkButton(
 /**
  * Where a recording is sent, or null when it never leaves this machine.
  *
- * Local transcription is not implemented yet, so today the only working
- * provider is a cloud one. When that changes this returns null and the note
- * disappears on its own rather than needing to be remembered.
+ * A local transcription service keeps the recording on this network, so there
+ * is no destination to warn about and the note does not appear. Only a cloud
+ * provider produces one.
  */
 export function transcriptionDestination(): string | null {
   const provider = state.settings?.stt_provider ?? 'disabled';
