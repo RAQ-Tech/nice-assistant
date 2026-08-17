@@ -169,6 +169,38 @@ class PersonaPresetPreferenceTests(unittest.TestCase):
             self.assertEqual(preview["status"], "ready", preview)
             self.assertEqual(preview["explanation"]["preset"]["source"], "deterministic")
 
+    def test_a_preference_survives_a_later_save_of_the_rest_of_the_profile(self):
+        with tempfile.TemporaryDirectory() as tmp, TestApp(Path(tmp)) as running:
+            self._ready(running)
+            persona = self._persona(running)
+            preset = self._second_preset(running)
+            saved = running.client.put(
+                f"/api/v1/personas/{persona['id']}/visual-identity",
+                json={"preferred_preset_ids": [preset["id"]]},
+            ).json()
+
+            # What a client that reads the profile and writes it back must get.
+            # A client that sends only the fields it edited resets the rest,
+            # which is how this feature used to erase itself on every save.
+            profile = running.client.get(f"/api/v1/personas/{persona['id']}/visual-identity").json()
+            again = running.client.put(
+                f"/api/v1/personas/{persona['id']}/visual-identity",
+                json={
+                    "appearance_description": "dark hair",
+                    "acceptance_threshold": profile["acceptance_threshold"],
+                    "max_generation_attempts": profile["max_generation_attempts"],
+                    "conditioning_mechanism": profile["conditioning_mechanism"],
+                    "comparison_retry_enabled": profile["comparison_retry_enabled"],
+                    "preferred_preset_ids": profile["preferred_preset_ids"],
+                    "failure_policy": profile["failure_policy"],
+                    "conditioning_fallback": profile["conditioning_fallback"],
+                    "revision": saved["revision"],
+                },
+            )
+
+            self.assertEqual(again.status_code, 200, again.text)
+            self.assertEqual(again.json()["preferred_preset_ids"], [preset["id"]])
+
     def test_a_preference_list_is_bounded(self):
         with tempfile.TemporaryDirectory() as tmp, TestApp(Path(tmp)) as running:
             self._ready(running)

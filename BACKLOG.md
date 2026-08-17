@@ -30,7 +30,7 @@ browser route is not acceptance evidence for those.
 Most items carry their own **Done when** list. Those criteria are in addition to
 the verifier, never instead of it.
 
-Last full verifier run: passed, 2026-08-15.
+Last full verifier run: passed, 2026-08-16.
 
 ## Status vocabulary
 
@@ -125,6 +125,70 @@ see ADR 0034.
 
 **This section is complete.** Everything remaining needs an owner decision, an
 operator evaluation, or the deployment.
+
+### 1E. Identity-preserving picture workflows
+
+Owner-requested 2026-08-16. ADR 0031 says resemblance must come from a declared
+structural mechanism, and the record for it exists, but the feature had never
+worked end to end. Three separate faults, all now fixed, are recorded here
+because each one passed every test it had.
+
+Stage 0 is delivered. The workflow inspection response no longer drops
+`request_input_candidates`, so guided identity setup can be completed over real
+HTTP rather than only in a service call. A profile save no longer resets the
+conditioning mechanism, the comparison retry switch, and a persona's preferred
+recipes: the browser sends the whole profile, which is what a PUT means, and
+that is pinned at the request-body level rather than at the view. A write from a
+stale copy is refused instead of silently winning, because two surfaces write
+this profile. The identity behavior card names how the face is produced, and the
+comparison threshold moved behind the advanced disclosure where
+`docs/settings-experience.md` already said it was.
+
+Remaining stages, in order:
+
+1. **One identity-conditioned picture, hand-bound.** PhotoMaker v2 on an SDXL
+    photoreal checkpoint, converted from the operator's saved UI-format graph to
+    API format, with its class trigger token carried by the preset's prompt
+    dialect. This is the first honest end-to-end proof, and it needs the
+    deployment rather than this repository.
+    **Done when** a picture with a recognizable face exists and its generation
+    log shows the conditioning stage.
+
+2. **Declared architecture and checkpoint reconciliation.** No checkpoint
+    binding exists: a bound workflow renders whatever `ckpt_name` was baked into
+    it, so a preset's base model and its workflow can disagree silently. Add
+    `checkpoint_bindings`, add an operator-declared `architecture` on a model
+    resource - it cannot be sniffed, because the application has no access to
+    the models directory - stop the preset backfill claiming `reference_adapter`
+    for every model, and stop an image-to-image-only identity workflow being
+    attached as the generate graph.
+    **Done when** a mismatched preset is refused at save time rather than at
+    render time.
+
+3. **Workflow templates, verification first.** Ship known-good graphs with fixed
+    node IDs and bindings declared by construction, in `assets/workflow-templates/`
+    with `app/workflow_template.py` as a sibling to `app/preset_bundle.py` - a
+    bundle deliberately cannot carry a graph, and it is the operator-to-operator
+    import path. Inspection becomes verification: are these nodes on this
+    installation? Templates state their required assets in plain language,
+    because an identity model that sits behind a device combo rather than an
+    asset-name input cannot be detected. Provenance in nullable columns, and
+    never an automatic rewrite of a graph somebody tuned.
+    **Done when** a persona is set up without anybody reading a node graph.
+
+4. **`identity_pass`.** Planning already accepts a second-stage identity
+    workflow; execution copies its bindings to the top level and injects them
+    into stage one, which has no such node, so it fails deterministically. Fix
+    the four places that assume one graph per request, then offer the mechanism
+    in the settings control that currently only states it. Until then the value
+    stays unoffered: a control must not present a choice that can only block.
+    **Done when** a two-stage preset runs with stage two doing the identity work.
+
+5. **CompreFace as a calibration aid.** Framing and documentation only. It is
+    the tool that answers how much likeness a checkpoint family costs, with
+    numbers. Independent of everything above.
+
+The durable parts of this design belong in an ADR when stage 2 lands.
 
 
 ## 2. Needs decision

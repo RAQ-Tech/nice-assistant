@@ -49,6 +49,44 @@ def _json_object(value: str | None) -> dict:
     return parsed if isinstance(parsed, dict) else {}
 
 
+def _validated_profile(values: dict) -> dict:
+    """Normalize a whole profile write, or name the field that is wrong.
+
+    This is a PUT: every field is written, so anything the caller leaves out
+    takes its documented default rather than keeping the stored value. Callers
+    are expected to send the profile they read back.
+    """
+
+    preferred = values.get("preferred_preset_ids")
+    if preferred is not None and (not isinstance(preferred, list) or len(preferred) > 16):
+        raise RequestError("preferred presets must be a list of at most sixteen entries", 400)
+    threshold = float(values.get("acceptance_threshold", 0.78))
+    if threshold < 0 or threshold > 1:
+        raise RequestError("Acceptance threshold must be between 0 and 1.", 400)
+    attempts = int(values.get("max_generation_attempts", 2))
+    if attempts < 1 or attempts > 10:
+        raise RequestError("Maximum generation attempts must be between 1 and 10.", 400)
+    mechanism = str(values.get("conditioning_mechanism") or "reference_adapter").strip()
+    if mechanism not in CONDITIONING_MECHANISMS:
+        raise RequestError("unsupported identity conditioning mechanism", 400)
+    policy = str(values.get("failure_policy") or "show_unverified")
+    if policy not in {"block_claim", "show_unverified"}:
+        raise RequestError("Unsupported identity failure policy.", 400)
+    fallback = str(values.get("conditioning_fallback") or "allow_unconditioned")
+    if fallback not in {"allow_unconditioned", "require_conditioning"}:
+        raise RequestError("Unsupported identity conditioning fallback.", 400)
+    return {
+        "appearance_description": str(values.get("appearance_description") or "").strip()[:8000],
+        "acceptance_threshold": threshold,
+        "max_generation_attempts": attempts,
+        "conditioning_mechanism": mechanism,
+        "preferred_preset_ids": preferred,
+        "comparison_retry_enabled": bool(values.get("comparison_retry_enabled", False)),
+        "failure_policy": policy,
+        "conditioning_fallback": fallback,
+    }
+
+
 class IdentityService:
     def __init__(self, session_factory, secret_store, config, jobs, providers: dict, logger, provider_url_policy=None):
         self.session_factory = session_factory
@@ -136,39 +174,31 @@ class IdentityService:
             return self._profile_response(uow.repo, identity)
 
     def save_profile(self, user_id: str, persona_id: str, values: dict) -> dict:
-        threshold = float(values.get("acceptance_threshold", 0.78))
-        attempts = int(values.get("max_generation_attempts", 2))
-        preferred = values.get("preferred_preset_ids")
-        if preferred is not None and (not isinstance(preferred, list) or len(preferred) > 16):
-            raise RequestError("preferred presets must be a list of at most sixteen entries", 400)
-        mechanism = str(values.get("conditioning_mechanism") or "reference_adapter").strip()
-        if mechanism not in CONDITIONING_MECHANISMS:
-            raise RequestError("unsupported identity conditioning mechanism", 400)
-        policy = str(values.get("failure_policy") or "show_unverified")
-        conditioning_fallback = str(values.get("conditioning_fallback") or "allow_unconditioned")
-        if threshold < 0 or threshold > 1:
-            raise RequestError("Acceptance threshold must be between 0 and 1.", 400)
-        if attempts < 1 or attempts > 10:
-            raise RequestError("Maximum generation attempts must be between 1 and 10.", 400)
-        if policy not in {"block_claim", "show_unverified"}:
-            raise RequestError("Unsupported identity failure policy.", 400)
-        if conditioning_fallback not in {"allow_unconditioned", "require_conditioning"}:
-            raise RequestError("Unsupported identity conditioning fallback.", 400)
-        description = str(values.get("appearance_description") or "").strip()[:8000]
+        clean = _validated_profile(values)
+        expected = values.get("revision")
         with self._uow() as uow:
-            identity = self._identity(uow.repo, user_id, persona_id, create=True)
-            identity.appearance_description = description or None
-            identity.acceptance_threshold = threshold
-            identity.max_generation_attempts = attempts
-            identity.conditioning_mechanism = mechanism
-            if preferred is not None:
+            identity = self._identity(uow.repo, user_id, persona_id, create=False)
+            # Two places write this profile — the identity settings and the
+            # picture library's preferred recipes — and a PUT writes every
+            # field, so a stale writer would overwrite what it never saw. A
+            # caller that sends no revision keeps the previous behavior.
+            if identity and expected is not None and int(expected) != identity.revision:
+                raise ConflictError(
+                    "These identity settings changed somewhere else. Reload the persona before saving again."
+                )
+            identity = identity or self._identity(uow.repo, user_id, persona_id, create=True)
+            identity.appearance_description = clean["appearance_description"] or None
+            identity.acceptance_threshold = clean["acceptance_threshold"]
+            identity.max_generation_attempts = clean["max_generation_attempts"]
+            identity.conditioning_mechanism = clean["conditioning_mechanism"]
+            if clean["preferred_preset_ids"] is not None:
                 identity.preferred_preset_ids_json = json.dumps(
-                    [str(item) for item in preferred if str(item).strip()][:16],
+                    [str(item) for item in clean["preferred_preset_ids"] if str(item).strip()][:16],
                     separators=(",", ":"),
                 )
-            identity.comparison_retry_enabled = int(bool(values.get("comparison_retry_enabled", False)))
-            identity.failure_policy = policy
-            identity.conditioning_fallback = conditioning_fallback
+            identity.comparison_retry_enabled = int(clean["comparison_retry_enabled"])
+            identity.failure_policy = clean["failure_policy"]
+            identity.conditioning_fallback = clean["conditioning_fallback"]
             identity.revision += 1
             identity.updated_at = now_ts()
             uow.repo.add_identity_event(identity, "profile_updated", detail={"revision": identity.revision})

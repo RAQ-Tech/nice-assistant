@@ -40,6 +40,9 @@ class VisualIdentityWrite(StrictModel):
         default="allow_unconditioned",
         pattern="^(allow_unconditioned|require_conditioning)$",
     )
+    # The revision the caller read. Sending it turns a lost update into a
+    # refusal; omitting it keeps the previous last-writer-wins behavior.
+    revision: int | None = Field(default=None, ge=0)
 
 
 class IdentityConsentGrant(StrictModel):

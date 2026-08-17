@@ -287,14 +287,23 @@ export class ApiClient {
   }
 
   updateVisualIdentity(personaId: string, profile: VisualIdentityProfile): Promise<VisualIdentityProfile> {
+    // Every writable field, every time. This is a PUT: the server fills in a
+    // default for anything omitted, so a partial body silently resets whatever
+    // it left out — which is how the conditioning mechanism, the comparison
+    // retry switch, and a persona's preferred recipes used to be wiped by a
+    // save of the appearance text.
     return this.request(`/personas/${encodeURIComponent(personaId)}/visual-identity`, {
       method: 'PUT',
       body: JSON.stringify({
         appearance_description: profile.appearance_description,
         acceptance_threshold: profile.acceptance_threshold,
         max_generation_attempts: profile.max_generation_attempts,
+        conditioning_mechanism: profile.conditioning_mechanism ?? 'reference_adapter',
+        comparison_retry_enabled: profile.comparison_retry_enabled ?? false,
+        preferred_preset_ids: profile.preferred_preset_ids ?? [],
         failure_policy: profile.failure_policy,
         conditioning_fallback: profile.conditioning_fallback ?? 'allow_unconditioned',
+        revision: profile.revision,
       }),
     });
   }

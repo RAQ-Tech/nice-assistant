@@ -209,6 +209,22 @@ class ComfyUIIdentityInputCandidate(BaseModel):
     label: str
 
 
+class ComfyUIRequestInputCandidate(BaseModel):
+    node_id: str
+    input_name: str
+    label: str
+    # The operator tells a positive prompt input from a negative one by what is
+    # currently in it, so the preview is part of the choice, not decoration.
+    current_value: str
+
+
+class ComfyUIRequestInputCandidates(BaseModel):
+    prompt: list[ComfyUIRequestInputCandidate] = Field(default_factory=list)
+    seed: list[ComfyUIRequestInputCandidate] = Field(default_factory=list)
+    width: list[ComfyUIRequestInputCandidate] = Field(default_factory=list)
+    height: list[ComfyUIRequestInputCandidate] = Field(default_factory=list)
+
+
 class ComfyUIAssetCheck(BaseModel):
     node_id: str
     node_type: str
@@ -224,6 +240,9 @@ class ComfyUIWorkflowInspectionRepresentation(BaseModel):
     live_tested: Literal[False]
     message: str
     identity_input_candidates: list[ComfyUIIdentityInputCandidate]
+    # Without this the browser cannot offer a prompt binding, and guided setup
+    # cannot be completed at all: a response model omits what it does not name.
+    request_input_candidates: ComfyUIRequestInputCandidates
     detected_node_types: list[str]
     missing_node_types: list[str]
     asset_checks: list[ComfyUIAssetCheck]

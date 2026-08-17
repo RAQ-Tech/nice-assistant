@@ -77,6 +77,39 @@ describe('ApiClient', () => {
     expect(new Headers(init?.headers).has('Content-Type')).toBe(false);
   });
 
+  it('puts every writable identity field, because the server defaults whatever it omits', async () => {
+    const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(new Response(JSON.stringify({ id: 'identity-1' }), {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' },
+    }));
+    vi.stubGlobal('fetch', fetchMock);
+    await new ApiClient().updateVisualIdentity('nova', {
+      appearance_description: 'Long pink hair.',
+      acceptance_threshold: 0.8,
+      max_generation_attempts: 3,
+      conditioning_mechanism: 'reference_adapter',
+      comparison_retry_enabled: true,
+      preferred_preset_ids: ['preset-a', 'preset-b'],
+      failure_policy: 'show_unverified',
+      conditioning_fallback: 'require_conditioning',
+      revision: 7,
+    } as never);
+
+    // Omitting any of these turned a save of the appearance text into a silent
+    // reset of the mechanism, the retry switch, and the preferred recipes.
+    expect(JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body))).toEqual({
+      appearance_description: 'Long pink hair.',
+      acceptance_threshold: 0.8,
+      max_generation_attempts: 3,
+      conditioning_mechanism: 'reference_adapter',
+      comparison_retry_enabled: true,
+      preferred_preset_ids: ['preset-a', 'preset-b'],
+      failure_policy: 'show_unverified',
+      conditioning_fallback: 'require_conditioning',
+      revision: 7,
+    });
+  });
+
   it('lists owner-protected media for visual pickers without exposing filesystem paths', async () => {
     const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(new Response(JSON.stringify({ items: [] }), {
       status: 200,

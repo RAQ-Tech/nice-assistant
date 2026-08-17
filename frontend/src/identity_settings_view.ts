@@ -4,6 +4,8 @@ import { IdentityMediaPicker } from './identity_media_picker';
 import { PictureLibraryView } from './picture_library_view';
 import {
   identityAuditCard,
+  identityComparisonPolicyCard,
+  identityGenerationPolicyCard,
   identityImageButton,
   identityPersonaSelector,
   identityReadinessCard,
@@ -106,12 +108,22 @@ export class IdentitySettingsView {
       identityReadinessCard(profile, name, enabled, () => this.openIdentitySetup(profile.persona_id), () => { this.advancedOpen = true; this.renderApp(); }),
       enabled ? this.referenceManager(profile, name) : this.enablementCard(profile.persona_id, name),
       enabled ? this.appearanceCard(profile, name) : null,
-      enabled ? this.generationPolicyCard(profile) : null,
+      enabled
+        ? identityGenerationPolicyCard(
+            profile,
+            this.appState.identityBusy,
+            () => void this.saveProfile(profile),
+            () => this.renderApp(),
+          )
+        : null,
       advancedSettings(
         'Advanced identity controls and diagnostics',
         `These controls tune comparison and troubleshooting. They are not required to store ${name}’s reference image, and a verifier cannot make generated images look more like the reference.`,
         [
           this.providerCard(this.appState.identitySettings),
+          enabled
+            ? identityComparisonPolicyCard(profile, this.appState.identityBusy, () => void this.saveProfile(profile))
+            : null,
           this.validationManager(profile, validations),
           identityAuditCard(events),
           enabled ? this.dangerCard(profile.persona_id, name) : null,
@@ -218,47 +230,6 @@ export class IdentitySettingsView {
         class: 'send-btn',
         textContent: 'Save appearance guidance',
         disabled: this.appState.identityBusy,
-        onclick: () => void this.saveProfile(profile),
-      }),
-    ]);
-  }
-
-  private generationPolicyCard(profile: VisualIdentityProfile): HTMLElement {
-    const fallbackLabels: Record<VisualIdentityProfile['conditioning_fallback'], string> = {
-      allow_unconditioned: 'Generate and label an unconditioned image',
-      require_conditioning: 'Block until identity control is ready',
-    };
-    const failureLabels: Record<string, string> = {
-      show_unverified: 'Show the image with an “unverified” label',
-      block_claim: 'Hide the image when comparison fails',
-    };
-    return el('div', { class: 'persona-card' }, [
-      settingsHeading(
-        'Identity generation behavior',
-        'Choose separately what happens before generation when identity control is unavailable and after generation when optional comparison fails.',
-      ),
-      field('When identity control is unavailable', select(
-        profile.conditioning_fallback ?? 'allow_unconditioned',
-        ['allow_unconditioned', 'require_conditioning'],
-        (value) => {
-          profile.conditioning_fallback = value as VisualIdentityProfile['conditioning_fallback'];
-        },
-        (value) => fallbackLabels[value as VisualIdentityProfile['conditioning_fallback']] ?? value,
-      ), 'Allowing fallback never claims a match: the resulting image is explicitly labeled unconditioned and may not resemble the persona.'),
-      field('When optional comparison fails', select(profile.failure_policy, ['show_unverified', 'block_claim'], (value) => {
-        profile.failure_policy = value as VisualIdentityProfile['failure_policy'];
-      }, (value) => failureLabels[value] ?? value), 'This applies only after a configured comparison service evaluates a generated image.'),
-      field('Maximum generation attempts', input(String(profile.max_generation_attempts), (value) => {
-        profile.max_generation_attempts = Math.round(boundedNumber(value, 1, 10, profile.max_generation_attempts));
-      }, 'number'), 'The maximum number of bounded generation or correction attempts for one request.'),
-      field('Comparison threshold', input(String(profile.acceptance_threshold), (value) => {
-        profile.acceptance_threshold = boundedNumber(value, 0, 1, profile.acceptance_threshold);
-      }, 'number'), 'A higher score is stricter. Calibrate this with representative generated images before enabling blocking.'),
-      el('button', {
-        class: 'pill-btn',
-        textContent: 'Save identity behavior',
-        disabled: this.appState.identityBusy,
-        'data-testid': 'identity-behavior-save',
         onclick: () => void this.saveProfile(profile),
       }),
     ]);
@@ -425,7 +396,14 @@ export class IdentitySettingsView {
 
   private async saveProfile(profile: VisualIdentityProfile): Promise<void> {
     await this.run(async () => {
-      this.appState.identityProfiles[profile.persona_id] = await this.client.updateVisualIdentity(profile.persona_id, profile);
+      try {
+        this.appState.identityProfiles[profile.persona_id] = await this.client.updateVisualIdentity(profile.persona_id, profile);
+      } catch (error) {
+        // A refused save means the copy on screen is behind. Reload it, or the
+        // next attempt is refused for the same reason forever.
+        await this.reloadPersona(profile.persona_id).catch(() => undefined);
+        throw error;
+      }
     });
   }
 

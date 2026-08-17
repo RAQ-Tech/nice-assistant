@@ -154,6 +154,22 @@ unavailability is not evidence of a mismatch, so it does not trigger retries.
 Every lookup is owner scoped. Reference content uses authenticated protected
 delivery and is included only in full backups.
 
+`PUT /api/v1/personas/{id}/visual-identity` writes the whole profile. A field the
+caller omits takes its documented default rather than keeping its stored value,
+so a client must send back the profile it read. The body may carry the `revision`
+it read; when it does, a write from a stale copy is refused with `409` instead of
+overwriting fields it never saw. Two surfaces write this profile - the identity
+behavior controls and the picture library's preferred recipes - so that refusal
+is the difference between a lost preference and a visible one. Omitting
+`revision` keeps last-writer-wins for any client that predates the guard.
+
+`POST /api/v1/media-catalog/identity-workflows/inspect` returns both
+`identity_input_candidates`, which name where an approved reference can be bound,
+and `request_input_candidates`, which name the literal prompt, seed, width, and
+height inputs the platform could write a request into. Guided setup needs both:
+an identity workflow that cannot receive the request prompt renders whatever text
+was saved inside it.
+
 ## Generation and correction boundary
 
 Reference-conditioned media may use an active, consented profile and reviewed

@@ -29,6 +29,9 @@ function profile(enabled = true): VisualIdentityProfile {
     appearance_description: 'Long pink hair and green eyes.',
     acceptance_threshold: 0.78,
     max_generation_attempts: 2,
+    conditioning_mechanism: 'reference_adapter',
+    comparison_retry_enabled: true,
+    preferred_preset_ids: ['preset-a'],
     failure_policy: 'block_claim',
     conditioning_fallback: 'allow_unconditioned',
     revision: enabled ? 1 : 0,
@@ -122,6 +125,26 @@ describe('Visual identity settings', () => {
       conditioning_fallback: 'require_conditioning',
       failure_policy: 'show_unverified',
     }));
+  });
+
+  it('keeps the comparison threshold behind the advanced disclosure', () => {
+    const { root } = setup();
+    const advanced = root.querySelector('[data-testid="identity-advanced-settings"]') as HTMLElement;
+    const threshold = [...root.querySelectorAll('.setting-row')]
+      .find((row) => row.textContent?.includes('Comparison threshold')) as HTMLElement;
+    // docs/settings-experience.md: thresholds and verifier plumbing are
+    // advanced. Comparison is advisory (ADR 0031), so it must not be the
+    // second thing somebody meets while setting a persona up.
+    expect(advanced.contains(threshold)).toBe(true);
+    expect(root.querySelector('[data-testid="identity-comparison-policy-save"]')).not.toBeNull();
+  });
+
+  it('names how the face is produced rather than offering a choice of one', () => {
+    const { root } = setup();
+    expect(root.textContent).toContain('Condition generation on the reference image');
+    // Only one mechanism is implemented, so there is nothing to choose between
+    // and a select would be a control that cannot do anything.
+    expect(root.querySelector('[data-testid="identity-mechanism"]')?.tagName).not.toBe('SELECT');
   });
 
   it('turns readiness summaries into direct setup actions', () => {

@@ -58,9 +58,18 @@ says the picture itself stays - removing a library entry stops reuse, it does
 not delete an image. A retired entry explains that it is past the keep limit
 rather than appearing broken.
 
-Persona preset preferences are not here yet. That needs a persona-to-preset
-record which does not exist, and it is tracked separately rather than implied by
-this screen.
+Preferred recipes sit above the kept pictures: which presets are known to work
+for this persona, best first. Routing prefers them when a request does not call
+for something else, and a preference that names a preset which can no longer run
+is ignored rather than blocking the picture. A preference is persona-specific
+knowledge that a routing score cannot represent, which is why it is recorded
+rather than inferred.
+
+The identity behavior card names how the face is produced rather than offering a
+choice, because only one mechanism is implemented and a control that can only
+block is worse than a plain statement. The comparison threshold and what to do with a below-threshold image live in the advanced
+section with the verifier they belong to: comparison measures a finished image
+and cannot make generation resemble the reference.
 
 ### Media Catalog is preset-first — delivered
 

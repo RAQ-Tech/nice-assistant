@@ -87,6 +87,9 @@ export class PictureLibraryView {
       await onSaved();
     } catch (error) {
       this.appState.settingsError = errorMessage(error, 'Unable to save preferred recipes.');
+      // The copy on screen is behind whatever refused the save. Reload it, or
+      // every later reorder is refused for the same reason.
+      await onSaved().catch(() => undefined);
     }
     this.renderApp();
   }

@@ -56,7 +56,7 @@ class Response:
     def close(self):
         return None
 
-    def read(self):
+    def read(self, *_size):
         return self.content if self.content is not None else json.dumps(self.payload).encode()
 
 
@@ -177,6 +177,54 @@ class WorkflowInspectionTests(unittest.TestCase):
         nodes = {"43": {"class_type": "EmptyLatentImage", "inputs": {"width": 512, "height": 512}}}
         result = _inspect_comfyui_object_info(nodes, OBJECT_INFO)
         self.assertTrue(any("receive the request prompt" in warning for warning in result["warnings"]))
+
+
+class WorkflowInspectionOverHttpTests(unittest.TestCase):
+    """The service is not the contract; the response model is.
+
+    Everything else here calls `_inspect_comfyui_object_info` directly, and the
+    browser test mocks the client, so a field the response model did not name
+    was computed, returned, and then thrown away by FastAPI. The browser gates
+    its Save button on that field, which made guided identity setup impossible
+    to complete on a real deployment while every test passed.
+    """
+
+    def _object_info(self, request, timeout=0):
+        if request.full_url.endswith("/object_info"):
+            return Response(OBJECT_INFO)
+        raise AssertionError(request.full_url)
+
+    def test_the_prompt_candidates_survive_the_response_model(self):
+        with tempfile.TemporaryDirectory() as tmp, TestApp(Path(tmp)) as running:
+            running.create_and_login()
+            running.client.put(
+                "/api/v1/settings",
+                json={"preferences": {"image_provider": "local", "image_local_backend": "comfyui"}},
+            )
+            with mock.patch("app.providers.urllib.request.urlopen", side_effect=self._object_info):
+                inspected = running.client.post(
+                    "/api/v1/media-catalog/identity-workflows/inspect",
+                    json={
+                        "workflow_patch": {
+                            "41": {
+                                "class_type": "CLIPTextEncode",
+                                "inputs": {"text": "a saved prompt", "clip": ["12", 1]},
+                            },
+                            "43": {"class_type": "EmptyLatentImage", "inputs": {"width": 512, "height": 512}},
+                            "44": {"class_type": "KSampler", "inputs": {"seed": 7, "steps": 20, "model": ["12", 0]}},
+                        }
+                    },
+                )
+
+            self.assertEqual(inspected.status_code, 200, inspected.text)
+            candidates = inspected.json()["request_input_candidates"]
+            self.assertEqual([item["node_id"] for item in candidates["prompt"]], ["41"])
+            # The preview is how an operator tells the positive prompt input
+            # from the negative one, so it has to survive too.
+            self.assertEqual(candidates["prompt"][0]["current_value"], "a saved prompt")
+            self.assertEqual([item["node_id"] for item in candidates["seed"]], ["44"])
+            self.assertEqual([item["node_id"] for item in candidates["width"]], ["43"])
+            self.assertEqual([item["node_id"] for item in candidates["height"]], ["43"])
 
 
 class WorkflowSaveRuleTests(unittest.TestCase):

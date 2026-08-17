@@ -127,6 +127,71 @@ class IdentitySpecTests(unittest.TestCase):
             self.assertEqual(job["status"], "completed", job)
             self.assertTrue(job["result"]["mediaId"])
 
+    def test_a_write_that_omits_a_field_resets_it_to_the_default(self):
+        with tempfile.TemporaryDirectory() as tmp, TestApp(Path(tmp)) as running:
+            self._ready(running)
+            persona = self._persona(running)
+            running.client.put(
+                f"/api/v1/personas/{persona['id']}/visual-identity",
+                json={
+                    "conditioning_mechanism": "identity_pass",
+                    "comparison_retry_enabled": True,
+                    "preferred_preset_ids": ["preset-a"],
+                },
+            )
+            partial = running.client.put(
+                f"/api/v1/personas/{persona['id']}/visual-identity",
+                json={"appearance_description": "dark hair"},
+            ).json()
+
+            # This is a PUT and it is documented as one: an omitted field takes
+            # its default. It is pinned here because the browser used to send
+            # five keys and silently reset the other three on every save.
+            self.assertEqual(partial["conditioning_mechanism"], "reference_adapter")
+            self.assertFalse(partial["comparison_retry_enabled"])
+            self.assertEqual(partial["preferred_preset_ids"], [])
+
+    def test_a_write_from_a_stale_copy_is_refused_rather_than_silently_winning(self):
+        with tempfile.TemporaryDirectory() as tmp, TestApp(Path(tmp)) as running:
+            self._ready(running)
+            persona = self._persona(running)
+            first = running.client.put(
+                f"/api/v1/personas/{persona['id']}/visual-identity",
+                json={"appearance_description": "dark hair", "preferred_preset_ids": ["preset-a"]},
+            ).json()
+            # A second writer — the picture library reorders preferred recipes
+            # from the same page the identity settings are edited on.
+            running.client.put(
+                f"/api/v1/personas/{persona['id']}/visual-identity",
+                json={"preferred_preset_ids": ["preset-b"], "revision": first["revision"]},
+            )
+            stale = running.client.put(
+                f"/api/v1/personas/{persona['id']}/visual-identity",
+                json={"appearance_description": "red hair", "revision": first["revision"]},
+            )
+
+            self.assertEqual(stale.status_code, 409, stale.text)
+            current = running.client.get(f"/api/v1/personas/{persona['id']}/visual-identity").json()
+            self.assertEqual(current["preferred_preset_ids"], ["preset-b"])
+
+    def test_a_caller_that_sends_no_revision_still_writes(self):
+        with tempfile.TemporaryDirectory() as tmp, TestApp(Path(tmp)) as running:
+            self._ready(running)
+            persona = self._persona(running)
+            running.client.put(
+                f"/api/v1/personas/{persona['id']}/visual-identity",
+                json={"appearance_description": "dark hair"},
+            )
+            again = running.client.put(
+                f"/api/v1/personas/{persona['id']}/visual-identity",
+                json={"appearance_description": "red hair"},
+            )
+
+            # The guard is opt-in, so a client written before it existed keeps
+            # working rather than being locked out.
+            self.assertEqual(again.status_code, 200, again.text)
+            self.assertEqual(again.json()["appearance_description"], "red hair")
+
     def test_nothing_polls_the_verifier_on_a_timer(self):
         source = Path("app").rglob("*.py")
         offenders = []

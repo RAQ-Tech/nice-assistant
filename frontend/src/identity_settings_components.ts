@@ -1,12 +1,29 @@
 import { el, formatDate } from './dom';
 import {
+  boundedNumber,
   readinessRow,
   selectControl as select,
   settingField as field,
   settingsHeading,
+  textControl as input,
   titleCase,
 } from './settings_ui';
 import type { AppState, VisualIdentityProfile } from './types';
+
+type Mechanism = VisualIdentityProfile['conditioning_mechanism'];
+
+// ADR 0031: resemblance comes from a declared structural mechanism, not from
+// comparing the result afterwards. The server declares two; only the first is
+// implemented, so only the first is offered. A control that lets someone pick a
+// value which can only block is worse than no control.
+const MECHANISM_LABELS: Record<Mechanism, string> = {
+  reference_adapter: 'Condition generation on the reference image',
+  identity_pass: 'Replace the face after generation',
+};
+const AVAILABLE_MECHANISMS: readonly Mechanism[] = ['reference_adapter'];
+
+const MECHANISM_HELP =
+  'How the persona’s face is produced. Conditioning applies the approved reference while the image is being made, using an identity-capable ComfyUI workflow configured in Media Catalog. Every picture records which technique produced its face.';
 
 export function identityImageButton(
   url: string,
@@ -114,6 +131,93 @@ export function identityReadinessCard(
   ]);
 }
 
+
+function mechanismField(profile: VisualIdentityProfile, changed: () => void): HTMLElement {
+  const current = profile.conditioning_mechanism ?? 'reference_adapter';
+  if (AVAILABLE_MECHANISMS.length < 2) {
+    // Say plainly what will happen rather than offering a choice of one.
+    return field(
+      'How the face is produced',
+      el('span', { class: 'meta', 'data-testid': 'identity-mechanism', textContent: MECHANISM_LABELS[current] }),
+      MECHANISM_HELP,
+    );
+  }
+  return field('How the face is produced', select(current, AVAILABLE_MECHANISMS, (value) => {
+    profile.conditioning_mechanism = value as Mechanism;
+    changed();
+  }, (value) => MECHANISM_LABELS[value as Mechanism] ?? value), MECHANISM_HELP);
+}
+
+export function identityGenerationPolicyCard(
+  profile: VisualIdentityProfile,
+  busy: boolean,
+  save: () => void,
+  changed: () => void = () => undefined,
+): HTMLElement {
+  const fallbackLabels: Record<VisualIdentityProfile['conditioning_fallback'], string> = {
+    allow_unconditioned: 'Generate and label an unconditioned image',
+    require_conditioning: 'Block until identity control is ready',
+  };
+  return el('div', { class: 'persona-card' }, [
+    settingsHeading(
+      'Identity generation behavior',
+      'How the persona’s face is produced, and what happens when that is not possible. What happens after generation, when the optional comparison service disagrees, is in the advanced section.',
+    ),
+    mechanismField(profile, changed),
+    field('When identity control is unavailable', select(
+      profile.conditioning_fallback ?? 'allow_unconditioned',
+      ['allow_unconditioned', 'require_conditioning'],
+      (value) => {
+        profile.conditioning_fallback = value as VisualIdentityProfile['conditioning_fallback'];
+      },
+      (value) => fallbackLabels[value as VisualIdentityProfile['conditioning_fallback']] ?? value,
+    ), 'Allowing fallback never claims a match: the resulting image is explicitly labeled unconditioned and may not resemble the persona.'),
+    field('Maximum generation attempts', input(String(profile.max_generation_attempts), (value) => {
+      profile.max_generation_attempts = Math.round(boundedNumber(value, 1, 10, profile.max_generation_attempts));
+    }, 'number'), 'The maximum number of bounded generation or correction attempts for one request.'),
+    el('button', {
+      class: 'pill-btn',
+      textContent: 'Save identity behavior',
+      disabled: busy,
+      'data-testid': 'identity-behavior-save',
+      onclick: save,
+    }),
+  ]);
+}
+
+// Comparison is advisory (ADR 0031) and off by default, so its policy and its
+// threshold sit with the verifier rather than in front of someone setting a
+// persona up. `docs/settings-experience.md` says thresholds are advanced; this
+// is where that becomes true.
+export function identityComparisonPolicyCard(
+  profile: VisualIdentityProfile,
+  busy: boolean,
+  save: () => void,
+): HTMLElement {
+  const failureLabels: Record<string, string> = {
+    show_unverified: 'Show the image with an “unverified” label',
+    block_claim: 'Hide the image when comparison fails',
+  };
+  return el('div', { class: 'persona-card' }, [
+    settingsHeading(
+      'Comparison outcome',
+      'What to do with a finished image when the optional comparison service scores it below the threshold. None of this runs unless a comparison service is configured.',
+    ),
+    field('When optional comparison fails', select(profile.failure_policy, ['show_unverified', 'block_claim'], (value) => {
+      profile.failure_policy = value as VisualIdentityProfile['failure_policy'];
+    }, (value) => failureLabels[value] ?? value), 'This applies only after a configured comparison service evaluates a generated image.'),
+    field('Comparison threshold', input(String(profile.acceptance_threshold), (value) => {
+      profile.acceptance_threshold = boundedNumber(value, 0, 1, profile.acceptance_threshold);
+    }, 'number'), 'A higher score is stricter. Calibrate this with representative generated images before enabling blocking.'),
+    el('button', {
+      class: 'pill-btn',
+      textContent: 'Save comparison outcome',
+      disabled: busy,
+      'data-testid': 'identity-comparison-policy-save',
+      onclick: save,
+    }),
+  ]);
+}
 
 export function identityPersonaSelector(
   selectedId: string,
