@@ -102,11 +102,16 @@ speech, managed local-media cleanup, running cancellation, restart recovery, and
 non-destructive backup verification. This is a product-status statement, not a
 portable performance claim.
 
-Provider-neutral streaming TTS, local STT, natural turn-taking, barge-in, and
-real visual-identity deployment acceptance remain separate future work. A
-destructive live restore also remains an explicitly authorized operator drill.
-Completed-file Kokoro text cleanup and manual interruption are supported and must
-not be described as streaming speech or full barge-in.
+Provider-neutral streaming TTS, local STT, natural turn-taking, and real
+visual-identity deployment acceptance remain separate future work. A destructive
+live restore also remains an explicitly authorized operator drill. Completed-file
+Kokoro text cleanup and manual interruption are supported and must not be
+described as streaming speech or as automatic turn detection.
+
+Interruption now stops the provider work rather than only the sound: the browser
+aborts the request, the server stops reading the provider response, and nothing
+is written. That is the whole of ADR 0036, and it is not a claim that the product
+detects when somebody starts speaking.
 
 The legacy restricted deployment guard completed supervised key enrollment,
 definition comparison, and three immutable-digest promotions on the accepted

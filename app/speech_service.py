@@ -10,7 +10,7 @@ from app.providers import user_safe_provider_error
 from app.persona_voice import parse as parse_voice_preferences, preference as voice_preference
 from app.repositories import UnitOfWork
 from app.service_errors import NotFoundError, RequestError
-from app.speech_clients import kokoro_list_voices, kokoro_speech, openai_speech, openai_stt
+from app.speech_clients import SpeechCancelled, kokoro_list_voices, kokoro_speech, openai_speech, openai_stt
 from app.storage import write_artifact_atomic
 
 
@@ -54,7 +54,15 @@ class SpeechService:
             if self.metrics:
                 self.metrics.provider("local", "voices", outcome, int((time.monotonic() - started) * 1000))
 
-    def synthesize(self, user_id: str, values: dict) -> dict:
+    def synthesize(self, user_id: str, values: dict, cancelled=None) -> dict:
+        """Speak this text, or stop the moment nobody is waiting for it.
+
+        `cancelled` is polled while the provider response is read. Interrupting
+        playback used to mute the browser and leave the provider generating
+        audio nobody would hear, then write and rotate a file nobody asked for.
+        A cancelled synthesis writes nothing at all.
+        """
+
         text = str(values.get("text") or "").strip()
         if not text:
             raise RequestError("text required", 400)
@@ -116,12 +124,15 @@ class SpeechService:
             if provider == "openai":
                 if not api_key:
                     raise RequestError("OPENAI API key missing", 400)
-                audio = openai_speech(text, voice, fmt, api_key, model, speed, instructions)
+                audio = openai_speech(text, voice, fmt, api_key, model, speed, instructions, cancelled)
             elif provider == "local":
-                audio = kokoro_speech(text, voice, fmt, base_url, model, speed)
+                audio = kokoro_speech(text, voice, fmt, base_url, model, speed, cancelled)
             else:
                 raise RequestError("Unknown TTS provider", 400)
             outcome = "completed"
+        except SpeechCancelled:
+            outcome = "cancelled"
+            raise
         except RequestError:
             raise
         except Exception as exc:

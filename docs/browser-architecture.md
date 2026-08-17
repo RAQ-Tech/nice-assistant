@@ -97,7 +97,14 @@ state machine deliberately exposes `recording`, `transcribing`, and `speaking`
 phases so later realtime voice can extend the contract. During `speaking`, the
 composer remains editable; sending typed text or starting hold-to-talk stops the
 current file playback before beginning the new turn. This is explicit manual
-interruption, not streaming speech, VAD, or automatic realtime barge-in.
+interruption, not streaming speech or automatic turn detection - the product
+does not notice that somebody has started talking.
+
+What the interruption now does is complete. Playback holds the abort controller
+for the synthesis it started, so stopping aborts that request; the server sees
+the disconnection, stops reading the provider response, and writes nothing. An
+abort resolves quietly rather than surfacing as a playback error, because the
+person did it on purpose. See ADR 0036.
 
 Platform-planned media capabilities never open a browser confirmation modal as
 an ephemeral side effect. The browser reloads durable attachments with each chat

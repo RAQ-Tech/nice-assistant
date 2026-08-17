@@ -716,8 +716,18 @@ export class ApiClient {
     return this.request(`/speech/voices?base_url=${encodeURIComponent(baseUrl)}`);
   }
 
-  synthesize(input: Record<string, unknown>): Promise<{ audio_id: string; audio_url: string; format: string }> {
-    return this.request('/speech/syntheses', { method: 'POST', body: JSON.stringify(input) });
+  synthesize(
+    input: Record<string, unknown>,
+    signal?: AbortSignal,
+  ): Promise<{ audio_id: string; audio_url: string; format: string }> {
+    // The signal is what makes interrupting speech stop the provider work
+    // rather than only muting the output: aborting disconnects this request,
+    // and the server stops reading the provider response.
+    return this.request('/speech/syntheses', {
+      method: 'POST',
+      body: JSON.stringify(input),
+      ...(signal ? { signal } : {}),
+    });
   }
 
   transcribe(file: Blob, filename: string): Promise<{ text: string }> {

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import json
 import mimetypes
 from pathlib import Path
@@ -10,15 +11,22 @@ from fastapi.responses import FileResponse, StreamingResponse
 from pydantic import BaseModel, ConfigDict, Field
 
 from app.application import ApplicationServices
+from app.provider_contracts import CancellationToken
 from app.resource_service import AuthContext
 from app.runtime import SESSION_COOKIE
 from app.session_cookie import set_session_cookie
 from app.security import request_client_address
 from app.service_errors import AuthenticationError, NotFoundError, RequestError
+from app.speech_clients import SpeechCancelled
 from app.workflow_template import resolve_template
 
 
 router = APIRouter(prefix="/api/v1")
+
+# How often a long provider call asks whether the browser is still waiting.
+# Short enough that an interruption stops the work while it still matters,
+# long enough not to be a busy loop.
+DISCONNECT_POLL_SECONDS = 0.2
 
 
 class StrictModel(BaseModel):
@@ -2103,13 +2111,39 @@ def voices(
     return {"voices": services(request).speech.voices(context.user_id, base_url)}
 
 
+async def _cancel_on_disconnect(request: Request, token: CancellationToken) -> None:
+    """Trip the token when the browser stops waiting for this response."""
+
+    while not token.cancelled:
+        if await request.is_disconnected():
+            token.cancel()
+            return
+        await asyncio.sleep(DISCONNECT_POLL_SECONDS)
+
+
 @router.post("/speech/syntheses", tags=["speech"])
-def synthesize(
+async def synthesize(
     body: SpeechSynthesisCreate,
     request: Request,
     context: AuthContext = Depends(current_user),
 ):
-    result = services(request).speech.synthesize(context.user_id, body.model_dump(exclude_none=True))
+    # Interrupting playback aborts this request. Synthesis runs on a worker
+    # thread so this one can watch for that and stop the provider mid-response;
+    # otherwise the speech service keeps generating audio nobody will hear and
+    # then writes a file nobody asked for. See ADR 0036.
+    speech = services(request).speech
+    values = body.model_dump(exclude_none=True)
+    token = CancellationToken()
+    watcher = asyncio.ensure_future(_cancel_on_disconnect(request, token))
+    try:
+        result = await asyncio.to_thread(speech.synthesize, context.user_id, values, lambda: token.cancelled)
+    except SpeechCancelled:
+        # Nobody is on the other end of this response, so its shape does not
+        # matter; what matters is that no artifact was written.
+        return Response(status_code=204)
+    finally:
+        token.cancel()
+        watcher.cancel()
     return {
         "audio_id": result["audio_id"],
         "audio_url": f"/api/v1/audio/{result['audio_id']}",

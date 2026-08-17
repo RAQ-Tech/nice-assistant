@@ -30,8 +30,36 @@ describe('PlaybackController', () => {
 
     await controller.synthesize('<think>hidden</think>**Hello** [friend](https://example.test) `now`.', 'message-1', 'chat-1', 'persona-1');
 
-    expect(client.synthesize).toHaveBeenCalledWith(expect.objectContaining({ text: 'Hello friend now.' }));
+    expect(client.synthesize).toHaveBeenCalledWith(
+      expect.objectContaining({ text: 'Hello friend now.' }),
+      expect.any(AbortSignal),
+    );
     expect(appState.phase).toBe('speaking');
+  });
+
+  it('aborts the synthesis request when playback is interrupted', async () => {
+    const { appState, audio, play, visualizer } = readyPlayback();
+    let seen!: AbortSignal;
+    const client = {
+      synthesize: vi.fn().mockImplementation((_input: unknown, signal: AbortSignal) => {
+        seen = signal;
+        return new Promise((_resolve, reject) => {
+          signal.addEventListener('abort', () => reject(new DOMException('Aborted', 'AbortError')));
+        });
+      }),
+    } as unknown as ApiClient;
+    const controller = new PlaybackController(audio, visualizer, appState, new ClientStateMachine(appState), client);
+
+    const synthesis = controller.synthesize('Slow reply', 'message-1', 'chat-1', 'persona-1');
+    controller.stop();
+
+    // Muting the output while the provider keeps generating is what barge-in
+    // is not. The abort is what tells the server nobody is waiting.
+    expect(seen.aborted).toBe(true);
+    // And an interruption is not a failure: it is what the person asked for.
+    await expect(synthesis).resolves.toBeUndefined();
+    expect(play).not.toHaveBeenCalled();
+    expect(appState.messageAudioErrors['message-1']).toBeUndefined();
   });
 
   it('invalidates a slow synthesis when the user interrupts playback', async () => {

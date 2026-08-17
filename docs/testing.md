@@ -430,6 +430,12 @@ installed-browser acceptance.
   refused with a reason naming the variable to change, that an absent or
   unreadable value is left alone rather than treated as a violation, and that
   the application itself refuses to build under several workers.
+- Speech interruption tests prove a provider response is read in pieces rather
+  than in one call, that reading stops and the connection closes the moment
+  nobody is waiting, that an oversized provider response is refused rather than
+  accumulated, that a cancelled synthesis writes no file, and that an ordinary
+  one still does. The browser side proves that stopping playback aborts the
+  synthesis request and that the abort resolves quietly rather than as an error.
 - API tests use isolated temporary databases and deterministic fake providers.
 - Migration tests upgrade pre-0004/0005/0007/0008/0009/0010/0011/0012/0013/0014/0015/0016/0017/0019/0021/0022 databases and prove
   chats, messages, jobs, media, memories, turn ordering, stored artifact links,

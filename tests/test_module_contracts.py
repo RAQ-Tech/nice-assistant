@@ -24,7 +24,15 @@ class RefactoredModuleContractTests(unittest.TestCase):
             def __exit__(self, *_args):
                 return False
 
-            def read(self):
+            def __init__(self):
+                self.sent = False
+
+            # Read in pieces, the way a provider actually answers, so an
+            # interruption is noticed before the whole reply is generated.
+            def read(self, _size=None):
+                if self.sent:
+                    return b""
+                self.sent = True
                 return b"audio"
 
         def fake_urlopen(request, timeout=None):

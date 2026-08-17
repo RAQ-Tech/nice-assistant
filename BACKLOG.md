@@ -30,7 +30,7 @@ browser route is not acceptance evidence for those.
 Most items carry their own **Done when** list. Those criteria are in addition to
 the verifier, never instead of it.
 
-Last full verifier run: passed, 2026-08-16.
+Last full verifier run: passed, 2026-08-17.
 
 ## Status vocabulary
 
@@ -252,11 +252,14 @@ decision. These are the five open voice-core items, and they are the highest
 product priority once unblocked: the roadmap states that additional catalog
 breadth does not take priority over them.
 
-An important distinction, because it changes what can start early: items 12-14
-are provider-neutral infrastructure and could be built against the existing
-Kokoro path behind a flag. Only items 15-16 genuinely require the approved
-listening decision. Step 15 cannot select a provider until that decision
-exists, and no unverified provider support may be advertised in the meantime.
+An important distinction, because it changes what can start early: items 5-7 are
+provider-neutral infrastructure and can be built against the existing Kokoro
+path. Only items 8 and 9 genuinely require the approved listening decision.
+Item 8 cannot select a provider until that decision exists, and no unverified
+provider support may be advertised in the meantime.
+
+Item 7 is delivered on that basis. Items 5 and 6 remain startable without the
+listening evaluation.
 
 5. **Streaming TTS.** Begin playback before a complete response file exists.
     Today synthesis must finish before audio starts.
@@ -265,8 +268,14 @@ exists, and no unverified provider support may be advertised in the meantime.
     speaking, with push-to-talk retained as a dependable fallback rather than
     replaced.
 
-7. **True barge-in.** Interrupting playback must also stop the superseded
-    provider work, not just mute the output.
+7. **True barge-in - delivered 2026-08-17.** Interrupting playback used to mute
+    the browser and leave the provider generating audio nobody would hear, then
+    write it and rotate the audio cache to make room for it. The browser now
+    aborts the synthesis request, the server watches for that and stops reading
+    the provider response mid-body, and a cancelled synthesis writes nothing.
+    See [ADR 0036](docs/decisions/0036-interrupting-speech-stops-the-work.md).
+    This is manual interruption done properly; it is not turn detection, which
+    is item 6 and still open.
 
 8. **Approved quality-first and local fallback chains for TTS and STT**, with
     compact user-facing degradation notices. Requires the approved provider
@@ -419,7 +428,7 @@ done:
 - Update the product, architecture, security, testing, operations, roadmap, and
   debt documents in the same change as the behavior they describe.
 - Record durable architectural choices as ADRs in `docs/decisions/`. The next
-  free number is 0036.
+  free number is 0037.
 - Run `python scripts/audit_public_repo.py` before every public commit. This
   file must never contain deployment addresses, hostnames, user-specific paths,
   hardware inventories, or account identifiers.

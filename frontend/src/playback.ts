@@ -8,6 +8,7 @@ export class PlaybackController {
   private onChange: () => void = () => undefined;
   private sequence = 0;
   private activePlaybackToken: number | null = null;
+  private synthesis: AbortController | null = null;
 
   constructor(
     private readonly audio: HTMLAudioElement,
@@ -29,12 +30,24 @@ export class PlaybackController {
     const cleanedText = speechText(text);
     if (!settings || settings.tts_provider === 'disabled' || !this.appState.voiceResponsesEnabled || !cleanedText) return;
     const token = this.begin(messageId);
-    const result = await this.client.synthesize({
-      text: cleanedText,
-      chat_id: chatId,
-      persona_id: personaId,
-      format: settings.tts_format || 'wav',
-    });
+    const request = new AbortController();
+    this.synthesis = request;
+    let result;
+    try {
+      result = await this.client.synthesize({
+        text: cleanedText,
+        chat_id: chatId,
+        persona_id: personaId,
+        format: settings.tts_format || 'wav',
+      }, request.signal);
+    } catch (error) {
+      // An interruption is the expected way this ends, not a failure worth
+      // reporting: the person stopped it on purpose.
+      if (request.signal.aborted) return;
+      throw error;
+    } finally {
+      if (this.synthesis === request) this.synthesis = null;
+    }
     if (token !== this.sequence) return;
     this.appState.messageAudioById[messageId] = result.audio_url;
     await this.playPrepared(messageId, result.audio_url, token);
@@ -48,6 +61,10 @@ export class PlaybackController {
   stop(render = true): void {
     this.sequence += 1;
     this.activePlaybackToken = null;
+    // Muting the output while the provider keeps generating is what barge-in
+    // is not. Aborting tells the server nobody is waiting, and it stops.
+    this.synthesis?.abort();
+    this.synthesis = null;
     this.haltAudio();
     if (this.appState.phase === 'speaking') this.stateMachine.transition('idle');
     if (render) this.onChange();
