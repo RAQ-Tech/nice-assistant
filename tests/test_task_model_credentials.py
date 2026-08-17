@@ -5,6 +5,13 @@ An OpenAI profile could be saved with no account API key and still return
 asked the account whether it had a key. The run then failed with
 `openai_api_key_missing`. Adapter installed, credentials configured, and live
 verified are three different facts; this covers reporting them as three.
+
+Saving a profile like this over the API is refused now - conversation text stays
+on this machine, decided 2026-08-17, and `tests/test_local_only_task_models.py`
+covers that refusal. These tests write the profile straight to the repository to
+reach the readiness logic behind it. That logic is kept deliberately: the adapter
+still exists so allowing a credentialled provider later is a line of wiring, and
+this is what stops that line arriving with the original bug still in it.
 """
 
 from pathlib import Path
@@ -40,13 +47,16 @@ class TaskModelCredentialTests(unittest.TestCase):
     def _ready(self, running) -> None:
         """An account with the OpenAI adapter installed and no key configured."""
 
-        running.create_and_login()
+        self.user_id = running.create_and_login()
         running.services.providers.task_providers["openai"] = OpenAITaskModelProvider()
 
     def _save(self, running, **overrides):
-        response = running.client.put(f"/api/v1/task-models/{ROLE}", json=profile(**overrides))
-        assert response.status_code == 200, response.text
-        return response
+        """Write the profile past the API, which refuses this provider by decision."""
+
+        values = profile(**overrides)
+        with running.services.task_models._uow() as uow:
+            uow.repo.save_task_model_profile(self.user_id, ROLE, values)
+        return values
 
     def _check(self, running) -> dict:
         response = running.client.post(f"/api/v1/task-models/{ROLE}/check")

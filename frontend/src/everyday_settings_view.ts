@@ -232,7 +232,7 @@ export class EverydaySettingsView {
     return [
       settingsIntro(
         'Choose how recorded speech becomes text',
-        'Push-to-talk can use OpenAI transcription. Local and live streaming transcription are not implemented yet.',
+        'Transcription is cloud-only today: what you say is sent to OpenAI. Local transcription is not implemented yet, so leaving this off is the only way a recording stays on this machine.',
       ),
       settingsCard([
         selectField(

@@ -4,6 +4,23 @@ Platform Task Models perform narrow cross-persona work. They are not personas,
 do not speak to the user, and do not receive permission to select provider URLs,
 media resources, or privileged settings.
 
+## Where task models may run
+
+Every task role reads conversation text. Memory extraction reads all of it and
+decides what is true about the person using this. The owner decided on
+2026-08-17 that none of it goes to a cloud provider, so `openai` is refused as a
+task model provider and as a task model fallback, by name and with the reason.
+
+The refusal is in the service rather than only in the settings screen. A choice
+that is merely absent from a screen is one HTTP request away from happening, and
+the fallback matters as much as the primary: it runs the same text through the
+same provider on the path taken when something has already gone wrong.
+
+The OpenAI task adapter still exists and is still tested. It is not registered,
+so there is no live path to it; allowing it later would be a line of wiring
+rather than a rewrite, and `tests/test_task_model_credentials.py` is what stops
+that line arriving with the original keyless-readiness bug still in it.
+
 ## What a readiness check knows
 
 Three separate facts, reported separately, because conflating them let a profile

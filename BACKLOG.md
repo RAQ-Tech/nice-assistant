@@ -232,16 +232,15 @@ Order, given that the owner mostly types today: 1F-1 first because it closes a
 hole for the price of some words, then 1F-3 and 1F-4 because they are what make
 a persona feel like itself, then 1F-5, then 1F-2.
 
-1. **Settle the local-only Task Model boundary.** The OpenAI adapter exists and
+1. **Settle the local-only Task Model boundary - delivered 2026-08-17.** The OpenAI adapter exists and
     is not selectable. Make that a stated constraint rather than an accident of
     the UI: refuse the provider at save time for every task role, say why, and
     record it where somebody would look before trying to enable it.
-    Same change covers the microphone: until 1F-5 lands, the interface must say
-    where a recording goes, next to the button that sends it, rather than only
-    in a settings page nobody is reading mid-conversation.
-    **Done when** selecting OpenAI for a task role is refused by name, the
-    documents describe it as a decision rather than an omission, and nobody can
-    record a turn without having been told where the audio goes.
+    `openai` is refused as a task provider and as a task fallback, by name and
+    with the reason; the adapter is no longer registered, so there is no live
+    path even for code that skips the service. The microphone now says where a
+    recording goes, next to the button that sends it, and that note disappears
+    on its own once 1F-5 lands rather than needing to be remembered.
 
 2. **Copy a lore entry from another persona.** Same workspace only. The copy
     belongs to the persona that took it, and the interface says plainly that

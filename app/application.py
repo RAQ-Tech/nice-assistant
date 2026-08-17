@@ -21,7 +21,6 @@ from app.scene_backlog_service import SceneBacklogService
 from app.scene_production import SceneProductionRunner
 from app.media_service import MediaService
 from app.ollama_provider import OllamaChatProvider
-from app.openai_task_provider import OpenAITaskModelProvider
 from app.operations_service import OperationsService
 from app.provider_registry import ProviderRegistry
 from app.provider_service import ProviderService
@@ -118,6 +117,9 @@ def build_services(
             "local-image": LocalImageProvider(),
             "openai-video": OpenAIVideoProvider(),
         },
+        # No OpenAI task provider is registered. The adapter still exists and is
+        # still tested, so a later decision to allow it is a line of wiring
+        # rather than a rewrite; what it is not is reachable today.
         task_providers={
             "ollama": OllamaChatProvider(
                 config.ollama_base_url,
@@ -125,7 +127,6 @@ def build_services(
                 health_timeout_seconds=config.provider_timeout_seconds,
                 metrics=runtime.metrics,
             ),
-            "openai": OpenAITaskModelProvider(),
         },
     )
     broker = TurnEventBroker()

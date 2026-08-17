@@ -583,6 +583,9 @@ input[type='file']::file-selector-button {
 
 .send-btn { background: linear-gradient(135deg, rgba(49,167,217,.85), rgba(137,80,255,.75)); border-color: rgba(185,230,255,.65); }
 .talk-btn.active, .talk-btn:active { background: rgba(117, 255, 201, 0.2); border-color: rgba(117, 255, 201, 0.75); color: #bfffe9; }
+/* Where a recording goes, said next to the button that sends it. */
+.talk-control { display: flex; flex-direction: column; align-items: stretch; gap: 0.25rem; }
+.talk-destination { font-size: 0.75rem; text-align: center; opacity: 0.75; }
 
 .record-indicator { font-size: .78rem; color: var(--text-dim); }
 
