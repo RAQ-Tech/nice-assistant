@@ -230,8 +230,10 @@ part of that goal is now built in this repository. What it waits on is a Whisper
 service running on the LAN, which is a deployment step rather than work here.
 
 Order was: 1F-1 first because it closed a hole for the price of some words, then
-1F-3 and 1F-4 because they are what make a persona feel like itself, then 1F-5.
-**1F-2 is the only one left**, and it is the least urgent of the five.
+1F-3 and 1F-4 because they are what make a persona feel like itself, then 1F-5,
+then 1F-2. **All five are delivered.** What is left is deployment, not code:
+a Whisper service on the LAN for 1F-5, and the installed identity journey that
+1E-a already tracks.
 
 1. **Settle the local-only Task Model boundary - delivered 2026-08-17.** The OpenAI adapter exists and
     is not selectable. Make that a stated constraint rather than an accident of
@@ -246,12 +248,15 @@ Order was: 1F-1 first because it closed a hole for the price of some words, then
     where a recording goes next to the button that sends it, and that note
     disappears on its own once 1F-5 lands.
 
-2. **Copy a lore entry from another persona.** Same workspace only. The copy
-    belongs to the persona that took it, and the interface says plainly that
-    later edits to the original will not follow - otherwise somebody will expect
-    them to.
-    **Done when** an entry can be copied in one action, and editing either copy
-    provably leaves the other alone.
+2. **Copy a lore entry from another persona - delivered 2026-08-17.** The
+    lorebook editor lists what personas sharing the workspace have written and
+    copies one across in one action, with keywords, priority and matching rules
+    intact. The copy belongs to the persona that took it: editing either one
+    provably leaves the other alone, and deleting the original leaves the copy
+    standing. The interface says so at the moment of copying, which is the only
+    moment anybody is thinking about it. An entry whose title the persona
+    already has is not offered again, so a list cannot fill with duplicates
+    nobody meant to make.
 
 3. **Semantic memory retrieval - delivered 2026-08-17.** A small local
     embedding model, vectors computed in the background, the question embedded

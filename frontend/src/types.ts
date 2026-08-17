@@ -114,6 +114,19 @@ export interface PersonaLorePreview {
   items: PersonaLoreMatch[];
 }
 
+export interface PersonaLoreCopyCandidate {
+  id: Id;
+  title: string;
+  always_on: boolean;
+  token_estimate: number;
+}
+
+export interface PersonaLoreCopyGroup {
+  persona_id: Id;
+  persona_name: string;
+  entries: PersonaLoreCopyCandidate[];
+}
+
 export interface IdentityValidationSettings {
   provider: 'disabled' | 'compreface';
   base_url: string;
