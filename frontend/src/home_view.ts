@@ -4,6 +4,7 @@ import { HomeControls } from './home_controls';
 import type {
   AppState,
   Chat,
+  DataLocality,
   Id,
   LibraryEntry,
   MediaJournalSummary,
@@ -60,6 +61,7 @@ export class HomeView {
   private production: PregenerationReadiness | null = null;
   private produced: SceneBacklogEntry | null = null;
   private readonly controls: HomeControls;
+  private locality: DataLocality | null = null;
   private loaded = false;
   private failed = '';
 
@@ -77,12 +79,14 @@ export class HomeView {
     this.loaded = false;
     this.failed = '';
     try {
-      const [journals, pictures, production, made] = await Promise.all([
+      const [journals, pictures, production, made, locality] = await Promise.all([
         this.client.mediaJournals(5).catch(() => ({ items: [] })),
         this.client.libraryEntries().catch(() => ({ items: [] })),
         this.client.productionReadiness().catch(() => null),
         this.client.sceneBacklog('done').catch(() => ({ items: [] })),
+        this.client.dataLocality().catch(() => null),
       ]);
+      this.locality = locality;
       this.journals = journals.items;
       this.pictures = pictures.items.slice(0, RECENT_PICTURES);
       this.production = production;
@@ -103,6 +107,7 @@ export class HomeView {
       this.header(),
       this.startCard(),
       this.nowCard(),
+      this.localityCard(),
       this.controls.node(this.production, this.produced),
       this.picturesCard(),
       this.recentCard(),
@@ -152,6 +157,44 @@ export class HomeView {
         this.fact('Background pictures', this.productionLabel()),
         this.fact('Last generation', this.lastGenerationLabel()),
       ]),
+    ]);
+  }
+
+  /**
+   * Where this conversation goes.
+   *
+   * Local and cloud are both fine; not knowing which one you have is not. Every
+   * line names something that happens during a conversation, so it reads for
+   * somebody deciding whether to say a thing rather than somebody debugging a
+   * provider.
+   */
+  private localityCard(): HTMLElement | null {
+    const locality = this.locality;
+    if (!locality) return null;
+    return el('section', { class: 'home-card', 'data-testid': 'home-locality' }, [
+      el('h2', { class: 'home-card-title', textContent: 'Where this goes' }),
+      el('p', {
+        class: 'meta',
+        'data-testid': 'home-locality-summary',
+        textContent: locality.everything_local
+          ? 'Everything switched on runs on this machine.'
+          : 'Some of this is sent to a service on the internet.',
+      }),
+      el('ul', { class: 'home-facts' }, locality.parts.map((part) => el('li', {
+        class: 'home-fact',
+        title: part.detail,
+        'data-testid': `home-locality-${part.locality}`,
+      }, [
+        el('span', { class: 'home-fact-label', textContent: part.label }),
+        el('span', {
+          class: `home-fact-value locality-${part.locality}`,
+          textContent: part.locality === 'off'
+            ? 'Off'
+            : part.locality === 'cloud'
+              ? `${part.provider} — leaves this machine`
+              : `${part.provider} — on this machine`,
+        }),
+      ]))),
     ]);
   }
 

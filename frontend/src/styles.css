@@ -337,9 +337,12 @@ input[type='file']::file-selector-button {
   border-radius: 999px;
 }
 
+/* Sized to the header row it sits in. It was 96px, which on a chat screen with
+   no persona picture yet rendered the app mark as a large circle rather than an
+   avatar. Tapping it still opens the full-size image. */
 .topbar-avatar {
-  width: 96px;
-  height: 96px;
+  width: 36px;
+  height: 36px;
   border-radius: 999px;
   object-fit: cover;
   border: 1px solid var(--border);
@@ -1588,7 +1591,7 @@ input[type='file']::file-selector-button {
     bottom: calc(9.5rem + var(--safe-bottom));
   }
   .compact-select { min-width: 110px; max-width: 180px; }
-  .topbar-avatar { width: 72px; height: 72px; }
+  .topbar-avatar { width: 36px; height: 36px; }
   .msg-avatar { width: 44px; height: 44px; }
   .chat-controls-menu .chip-select { min-width: 140px; }
   .settings-screen {
@@ -1658,8 +1661,8 @@ input[type='file']::file-selector-button {
   }
 
   .topbar-avatar {
-    width: 48px;
-    height: 48px;
+    width: 40px;
+    height: 40px;
     align-self: center;
   }
 
@@ -2248,6 +2251,11 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
   height: 1.4rem;
   display: block;
 }
+
+/* Where a conversation goes. Colour is a hint, never the message: the words say
+   "leaves this machine" so it reads the same to somebody who cannot see it. */
+.locality-cloud { color: var(--warning, #ffcf7f); }
+.locality-off { opacity: 0.65; }
 
 /* The facts panel. Label and value on one row so the page can be read down the
    left edge without reading every value. */

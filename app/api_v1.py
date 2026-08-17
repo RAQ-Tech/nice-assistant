@@ -11,6 +11,7 @@ from fastapi.responses import FileResponse, StreamingResponse
 from pydantic import BaseModel, ConfigDict, Field
 
 from app.application import ApplicationServices
+from app.data_locality import conversation_locality, is_cloud
 from app.provider_contracts import CancellationToken
 from app.resource_service import AuthContext
 from app.runtime import SESSION_COOKIE
@@ -2095,6 +2096,40 @@ def video_job(
         "chat_id": value["chat_id"],
         "status": value["status"],
     }
+
+
+class DataLocalityPart(BaseModel):
+    label: str
+    provider: str
+    locality: Literal["local", "cloud", "off"]
+    detail: str
+
+
+class DataLocalityResponse(BaseModel):
+    parts: list[DataLocalityPart]
+    everything_local: bool
+
+
+@router.get("/data-locality", response_model=DataLocalityResponse, tags=["settings"])
+def data_locality(request: Request, context: AuthContext = Depends(current_user)):
+    """Where each part of a conversation currently goes.
+
+    One rule, computed on the server, so the browser cannot drift from it. Local
+    and cloud are both legitimate choices here; what this exists to prevent is
+    somebody not knowing which one they are using.
+    """
+
+    services_ = services(request)
+    settings = services_.resources.get_settings(context.user_id)
+    profiles = services_.task_models.profiles(context.user_id)
+    # Roles may differ. Any cloud role makes the honest summary "cloud", because
+    # a single background job sending conversation text off the machine is the
+    # thing somebody would want to know about.
+    task_provider = next(
+        (profile["provider"] for profile in profiles if is_cloud(profile.get("provider"))),
+        profiles[0]["provider"] if profiles else "ollama",
+    )
+    return conversation_locality(settings, task_provider, services_.memory.semantic_recall_configured)
 
 
 @router.get("/speech/voices", tags=["speech"])

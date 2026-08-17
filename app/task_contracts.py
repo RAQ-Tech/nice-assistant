@@ -23,14 +23,6 @@ TASK_ROLES = (
     SCENE_PROPOSAL,
 )
 
-# Every role above reads conversation text. Memory extraction reads all of it
-# and decides what is true about the person using this. The owner decided on
-# 2026-08-17 that none of that leaves the machine, so these provider names are
-# refused for task roles by name rather than merely left out of the interface -
-# a thing that is only absent from a screen is one HTTP request away from
-# happening. See BACKLOG.md section 2.
-OFF_MACHINE_TASK_PROVIDERS = ("openai",)
-
 
 _EXPLICIT_TEXT_ONLY_PREFIX = re.compile(
     r"^\s*(?:please[\s,:-]+)?(?:reply|respond|answer|say|repeat|return)\b"

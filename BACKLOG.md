@@ -236,11 +236,14 @@ a persona feel like itself, then 1F-5, then 1F-2.
     is not selectable. Make that a stated constraint rather than an accident of
     the UI: refuse the provider at save time for every task role, say why, and
     record it where somebody would look before trying to enable it.
-    `openai` is refused as a task provider and as a task fallback, by name and
-    with the reason; the adapter is no longer registered, so there is no live
-    path even for code that skips the service. The microphone now says where a
-    recording goes, next to the button that sends it, and that note disappears
-    on its own once 1F-5 lands rather than needing to be remembered.
+    Corrected on the owner's instruction the same day: cloud providers stay
+    available, because plenty of people running this will want one and removing
+    the option decides for them. What changed instead is that no default is
+    cloud, nothing escalates to one by fallback, every provider control names
+    which kind it is in the option itself, and the homepage carries a line per
+    part of a conversation saying where it goes right now. The microphone says
+    where a recording goes next to the button that sends it, and that note
+    disappears on its own once 1F-5 lands.
 
 2. **Copy a lore entry from another persona.** Same workspace only. The copy
     belongs to the persona that took it, and the interface says plainly that
@@ -305,10 +308,12 @@ constraint or an item in section 1F below; none of them is open any more.
     that took it. Edits never propagate. Sharing live would mean editing for one
     persona and silently changing another. Becomes item 1F-2.
 
-4. **Task Model roles stay local.** No conversation-derived text goes to OpenAI
-    for titles, summaries, memory extraction, picture planning, or scene
-    proposals. The adapter is not selectable and must not be advertised.
-    Becomes item 1F-1.
+4. **Task Model roles default to local, and cloud stays available.** The owner
+    runs everything locally and wants that to be the default and never an
+    accident; he does not want the option taken away from anybody else. So no
+    default is cloud, nothing falls back to one on its own, each control names
+    which kind it is, and the homepage says where each part of a conversation
+    currently goes. Becomes item 1F-1.
 
 Also settled, from the open questions:
 

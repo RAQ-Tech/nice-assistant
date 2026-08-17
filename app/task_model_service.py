@@ -8,7 +8,6 @@ from typing import Any
 
 from app.auth import redact_sensitive_text
 from app.provider_contracts import CancellationToken, ChatRequest, ProviderError
-from app.task_contracts import OFF_MACHINE_TASK_PROVIDERS
 from app.repositories import UnitOfWork, now_ts
 from app.service_errors import NotFoundError, RequestError
 from app.task_contracts import TASK_DEFINITIONS, TaskContractError, task_definition
@@ -45,14 +44,6 @@ class TaskModelService:
         normalized = self._normalize_profile(values)
         provider = normalized.get("provider")
         fallback_provider = normalized.get("fallback_provider")
-        for name, label in ((provider, "provider"), (fallback_provider, "fallback provider")):
-            if name in OFF_MACHINE_TASK_PROVIDERS:
-                raise RequestError(
-                    f"'{name}' cannot be a task model {label}. Background jobs read your "
-                    "conversations, and this deployment keeps that text on this machine. "
-                    "Choose a local provider.",
-                    400,
-                )
         if provider and provider not in self.providers.task_providers:
             raise RequestError("task model provider is not configured", 400)
         if fallback_provider and fallback_provider not in self.providers.task_providers:

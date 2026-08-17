@@ -26,6 +26,24 @@ what to do next without reading the source code.
 - Do not erase expert control; progressive disclosure should make it available
   without making it the first thing every user must understand.
 
+## Local and cloud
+
+Both are offered, everywhere they make sense. This runs on somebody's own
+machine, and plenty of people running it will want a cloud transcription or a
+cloud image model because their hardware cannot do better. Removing that choice
+would be deciding for them.
+
+Three rules make the choice safe rather than removing it. Every default is local
+or off. Nothing escalates from a local provider to a cloud one without somebody
+having paired them. And every control that offers a provider says which kind it
+is, in the option itself - "leaves this machine" rather than a warning paragraph
+somebody has already scrolled past.
+
+The homepage carries the summary: one line per part of a conversation, saying
+where it goes right now. It is there so the answer to "is this private" is a
+thing you can look at rather than a thing you have to reconstruct from four
+settings pages.
+
 ## Delivery chunks
 
 ### 21A — Visual Identity — delivered

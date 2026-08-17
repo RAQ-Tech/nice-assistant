@@ -4,22 +4,24 @@ Platform Task Models perform narrow cross-persona work. They are not personas,
 do not speak to the user, and do not receive permission to select provider URLs,
 media resources, or privileged settings.
 
-## Where task models may run
+## Where task models run
 
-Every task role reads conversation text. Memory extraction reads all of it and
-decides what is true about the person using this. The owner decided on
-2026-08-17 that none of it goes to a cloud provider, so `openai` is refused as a
-task model provider and as a task model fallback, by name and with the reason.
+Every task role reads conversation text, and memory extraction reads all of it.
+A cloud provider is a legitimate choice for any of them and stays available:
+somebody with modest hardware may get a better result that way, and that is
+their call to make rather than this product's.
 
-The refusal is in the service rather than only in the settings screen. A choice
-that is merely absent from a screen is one HTTP request away from happening, and
-the fallback matters as much as the primary: it runs the same text through the
-same provider on the path taken when something has already gone wrong.
+What it must never be is the choice that happens by itself. Every role defaults
+to the local provider, nothing falls back from a local provider to a cloud one
+unless somebody paired them deliberately, and the settings control names each
+option as running on this machine or leaving it - so picking one is informed
+rather than incidental.
 
-The OpenAI task adapter still exists and is still tested. It is not registered,
-so there is no live path to it; allowing it later would be a line of wiring
-rather than a rewrite, and `tests/test_task_model_credentials.py` is what stops
-that line arriving with the original keyless-readiness bug still in it.
+The homepage says where each part of a conversation currently goes, computed by
+`app/data_locality.py` so the browser cannot drift from the server's answer.
+That list is the thing to keep honest when a provider is added: an unrecognised
+provider is described as local, which is right for a LAN adapter and wrong for a
+cloud one.
 
 ## What a readiness check knows
 

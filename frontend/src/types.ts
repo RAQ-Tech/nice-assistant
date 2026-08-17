@@ -171,6 +171,18 @@ export interface VisualIdentityProfile {
   references: IdentityReference[];
 }
 
+export interface DataLocalityPart {
+  label: string;
+  provider: string;
+  locality: 'local' | 'cloud' | 'off';
+  detail: string;
+}
+
+export interface DataLocality {
+  parts: DataLocalityPart[];
+  everything_local: boolean;
+}
+
 export interface MediaLibraryItem {
   id: Id;
   chat_id: Id | null;

@@ -461,6 +461,14 @@ installed-browser acceptance.
   reply path never goes looking for a model that has not been proven present,
   one failure stops it being asked again, and keeping vectors current does not
   depend on the picture scheduler being switched on.
+- Data locality tests prove a provider is named local, cloud, or off; that an
+  unrecognised one is described as local, which is right for a LAN adapter and
+  is why the cloud list is the thing to keep honest; that something switched off
+  is counted as neither; that a fresh account is entirely local; that choosing a
+  cloud provider is reported rather than prevented; and that no task role starts
+  out on one. The homepage summary is tested for saying plainly when something
+  leaves, in words rather than only in colour, and for not taking the rest of
+  the page down when it cannot be loaded.
 - API tests use isolated temporary databases and deterministic fake providers.
 - Migration tests upgrade pre-0004/0005/0007/0008/0009/0010/0011/0012/0013/0014/0015/0016/0017/0019/0021/0022 databases and prove
   chats, messages, jobs, media, memories, turn ordering, stored artifact links,

@@ -19,6 +19,7 @@ import type {
   Memory,
   MemoryEvent,
   MemoryMode,
+  DataLocality,
   MediaCatalog,
   MediaCatalogResource,
   MediaCatalogSettings,
@@ -281,6 +282,11 @@ export class ApiClient {
 
   checkIdentityProvider(): Promise<ProviderCheckResult> {
     return this.request('/identity-validation/check', { method: 'POST' });
+  }
+
+  /** Where each part of a conversation currently goes. */
+  dataLocality(): Promise<DataLocality> {
+    return this.request('/data-locality');
   }
 
   workflowTemplates(modelId: string): Promise<WorkflowTemplateList> {
