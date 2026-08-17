@@ -258,8 +258,9 @@ path. Only items 8 and 9 genuinely require the approved listening decision.
 Item 8 cannot select a provider until that decision exists, and no unverified
 provider support may be advertised in the meantime.
 
-Items 5 and 7 are delivered on that basis. Item 6 remains startable without the
-listening evaluation; items 8 and 9 do not.
+Items 5, 6, and 7 are all delivered on that basis. What remains in this section
+- items 8 and 9 - genuinely needs the approved listening decision, and no
+unverified provider support may be advertised before it exists.
 
 5. **Streaming TTS - delivered 2026-08-17.** Playback begins on the first piece
     of audio rather than the finished file, so the silence before a persona
@@ -272,9 +273,16 @@ listening evaluation; items 8 and 9 do not.
     Built against the local Kokoro path; it is not accepted on the installed
     deployment and does not choose a provider.
 
-6. **Automatic end-of-turn detection.** Detect that the user has stopped
-    speaking, with push-to-talk retained as a dependable fallback rather than
-    replaced.
+6. **Automatic end-of-turn detection - delivered 2026-08-17.** Hands-free
+    listening is a setting, off by default; with it on a tap starts the
+    microphone and the product decides when the turn ended. Holding the button
+    is unchanged and measures no level at all, because the release is the only
+    decision here that can never be wrong. Silence nobody has spoken into never
+    ends a turn, the speech and silence thresholds are separated so a voice near
+    the line cannot make the decision flap, and a minute is the ceiling. See
+    [ADR 0038](docs/decisions/0038-deciding-when-somebody-has-finished-talking.md).
+    It listens to loudness, not to language: nothing is transcribed while
+    somebody is still speaking.
 
 7. **True barge-in - delivered 2026-08-17.** Interrupting playback used to mute
     the browser and leave the provider generating audio nobody would hear, then
@@ -436,7 +444,7 @@ done:
 - Update the product, architecture, security, testing, operations, roadmap, and
   debt documents in the same change as the behavior they describe.
 - Record durable architectural choices as ADRs in `docs/decisions/`. The next
-  free number is 0038.
+  free number is 0039.
 - Run `python scripts/audit_public_repo.py` before every public commit. This
   file must never contain deployment addresses, hostnames, user-specific paths,
   hardware inventories, or account identifiers.

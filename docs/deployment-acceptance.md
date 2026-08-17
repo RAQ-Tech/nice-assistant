@@ -102,14 +102,17 @@ speech, managed local-media cleanup, running cancellation, restart recovery, and
 non-destructive backup verification. This is a product-status statement, not a
 portable performance claim.
 
-Local STT, natural turn-taking, and real visual-identity deployment acceptance
-remain separate future work. Streaming speech is implemented against the local
+Local STT and real visual-identity deployment acceptance remain separate future
+work. Hands-free listening decides the end of a turn from microphone loudness and
+is off by default; it is implemented but not accepted on the installed
+deployment, and it is not streaming transcription - nothing is transcribed while
+somebody is still speaking. Streaming speech is implemented against the local
 Kokoro path and is not accepted on the installed deployment: it needs the
 listening evaluation the voice items are gated on before it can be described as
 accepted. A destructive
 live restore also remains an explicitly authorized operator drill. Kokoro text
-cleanup and manual interruption are supported, and neither they nor streaming
-speech may be described as automatic turn detection.
+cleanup and manual interruption are supported. Neither they nor streaming speech
+may be described as live transcription.
 
 Interruption now stops the provider work rather than only the sound: the browser
 aborts the request, the server stops reading the provider response, and nothing

@@ -13,6 +13,7 @@ import { runFirstRunSetup } from './onboarding';
 import { MediaController } from './media';
 import { PlaybackController } from './playback';
 import { RecordingController } from './recording';
+import { talkButton } from './talk_button';
 import { Router } from './routing';
 import { normalizeSettings, settingsWire } from './settings';
 import { SettingsView, type Dialogs } from './settings_view';
@@ -384,15 +385,7 @@ function composer(): HTMLElement {
           'data-testid': 'chat-send',
           onclick: () => void chat.send(state.draftMessage),
         }),
-    el('button', {
-      class: `talk-btn ${state.phase === 'recording' ? 'active' : ''}`,
-      textContent: state.phase === 'recording' ? `Recording ${Math.floor((Date.now() - state.recordingStartedAt) / 1000)}s` : state.phase === 'transcribing' ? 'Transcribing…' : 'Hold to Talk',
-      disabled: busy && state.phase !== 'recording',
-      onpointerdown: () => { playback.stop(false); void recording.start(); },
-      onpointerup: () => void recording.stop(),
-      onpointercancel: () => void recording.stop(),
-      onpointerleave: (event: PointerEvent) => { if (event.buttons === 1) void recording.stop(); },
-    }),
+    talkButton(busy, () => playback.stop(false), recording),
   ]);
 }
 

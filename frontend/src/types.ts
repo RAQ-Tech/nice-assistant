@@ -811,6 +811,10 @@ export interface Settings extends Record<string, SettingScalar | Record<string, 
   tts_voice_filter_query: string;
   stt_language: string;
   stt_store_recordings: boolean;
+  // Whether a tap starts listening and the product decides when the turn ended.
+  // Off by default: holding the button is always right about when somebody
+  // finished, and this is a judgement that can be wrong.
+  stt_hands_free: boolean;
   image_provider: string;
   chat_blur_images: boolean;
   // Stored with the other preferences, so the homepage and the settings page

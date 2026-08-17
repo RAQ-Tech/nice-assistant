@@ -445,6 +445,14 @@ installed-browser acceptance.
   unstartable stream falls back to the completed file, that a stream failing
   partway does not fall back - it would say the beginning twice - and that an
   interruption aborts the stream without fetching the file instead.
+- End-of-turn tests prove silence nobody has spoken into never ends a turn, that
+  speech followed by a long enough pause does, that the pause inside a sentence
+  survives, that a level hovering between the two thresholds neither ends a
+  sentence nor cancels a pause already running, and that a turn which never goes
+  quiet is stopped at the ceiling rather than holding the microphone open. The
+  recording controller is exercised with a fake level meter and a fake clock:
+  hands-free stops itself and releases the meter, keeps listening when nothing
+  has been said, and measures nothing at all when the button is being held.
 - API tests use isolated temporary databases and deterministic fake providers.
 - Migration tests upgrade pre-0004/0005/0007/0008/0009/0010/0011/0012/0013/0014/0015/0016/0017/0019/0021/0022 databases and prove
   chats, messages, jobs, media, memories, turn ordering, stored artifact links,

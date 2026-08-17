@@ -258,6 +258,23 @@ export class EverydaySettingsView {
       ]),
       settings.stt_provider === 'openai'
         ? settingsCard([
+            settingsHeading(
+              'Hands-free listening',
+              'A tap starts listening and Nice Assistant decides when you have finished, instead of you holding the button down.',
+            ),
+            toggleField(
+              'Decide when I have finished talking',
+              settings.stt_hands_free,
+              (value) => this.change('stt_hands_free', value),
+              'Holding the microphone button always works and is never guessed at. This is a judgement, so it can be wrong: it waits for a pause after you have actually spoken, and never ends a turn on silence alone.',
+            ),
+          ])
+        : el('div', {
+            class: 'settings-empty-state',
+            textContent: 'Hands-free listening needs a transcription provider.',
+          }),
+      settings.stt_provider === 'openai'
+        ? settingsCard([
             settingsHeading('Connection check', 'Tests whether OpenAI transcription is configured and reachable.'),
             this.providerControl('openai'),
           ])

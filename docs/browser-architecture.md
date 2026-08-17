@@ -103,6 +103,14 @@ that fails before any sound falls back to the completed file; one that fails
 partway does not, because playing it would say the beginning twice. See
 ADR 0037.
 
+The microphone is hold-to-talk unless hands-free listening is switched on, in
+which case a tap starts it and the product decides when the turn ended. That
+decision works to three conservative rules: silence nobody has spoken into never
+ends a turn, the level counting as speech sits above the level counting as
+silence so a voice near the line cannot make it flap, and a minute is the
+ceiling. Holding the button is unchanged and measures no level at all. See
+ADR 0038.
+
 The state machine deliberately exposes `recording`, `transcribing`, and
 `speaking` phases so later realtime voice can extend the contract. During `speaking`, the
 composer remains editable; sending typed text or starting hold-to-talk stops the

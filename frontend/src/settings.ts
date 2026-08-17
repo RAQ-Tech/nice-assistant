@@ -27,6 +27,7 @@ export const SETTINGS_DEFAULTS: Settings = {
   tts_voice_filter_query: '',
   stt_language: 'auto',
   stt_store_recordings: false,
+  stt_hands_free: false,
   image_provider: 'disabled',
   chat_blur_images: false,
   // The deployment supplies the real starting values on first load; these
@@ -99,7 +100,7 @@ export const SETTINGS_SECTION_KEYS: Record<SettingsSection, readonly (keyof Sett
     'tts_speed_local',
     'tts_local_base_url',
   ],
-  STT: ['stt_provider', 'stt_language', 'stt_store_recordings'],
+  STT: ['stt_provider', 'stt_language', 'stt_hands_free', 'stt_store_recordings'],
   'Image Generation': [
     'image_provider',
     'chat_blur_images',
