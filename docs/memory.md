@@ -15,8 +15,11 @@ A vector match comes next, and is what finds a memory the question shares no
 words with - "what do I drive" reaching "owns a 2019 Tacoma". A small local
 embedding model gives each memory a vector, the question gets one when it is
 asked, and the two are compared by direction. Anything below a similarity floor
-is dropped rather than ranked last: a tenuous memory in a context window is
-worse than none, because the model reads whatever is there as relevant.
+is dropped rather than ranked last, and at most six memories are promoted ahead
+of merely recent ones: a tenuous memory in a context window is worse than none,
+because the model reads whatever is there as relevant. Both numbers were
+measured against a real model rather than reasoned out, and ADR 0039 records
+what was measured and what the first guess would have cost.
 
 Recency fills whatever is left, which is what happens when neither of the other
 two has an opinion.

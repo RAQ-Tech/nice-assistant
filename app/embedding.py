@@ -31,10 +31,17 @@ MAX_DIMENSIONS = 4096
 # microseconds each, so this is the ceiling on the whole added cost rather than
 # a quality limit; beyond it, recency has already decided.
 MAX_CANDIDATES = 400
-# Below this, two texts are not about the same thing and saying otherwise would
-# put noise into a context window that the whole memory design exists to keep
-# clean.
-SIMILARITY_FLOOR = 0.55
+# Measured, not guessed. Against twelve ordinary memories and nine questions on
+# a real nomic-embed-text, right answers scored 0.42 to 0.64 and wrong ones had
+# a median of 0.36. A floor of 0.55 - the value reasoned out before measuring -
+# would have dropped four of the nine right answers, including the one this
+# whole feature was described by. At 0.40 every right answer survives and about
+# one wrong answer in six gets through, which the cap below then bounds.
+SIMILARITY_FLOOR = 0.40
+# How many memories meaning alone may promote ahead of recency. The floor keeps
+# out the clearly unrelated; this keeps a handful of plausible-but-wrong ones
+# from crowding out memories that are merely recent.
+MAX_SEMANTIC_MATCHES = 6
 
 
 class EmbeddingUnavailable(Exception):
@@ -82,12 +89,19 @@ def similarity(left, right) -> float:
     return float(sum(map(mul, left, right)))
 
 
-def rank(query_vector, candidates, *, floor: float = SIMILARITY_FLOOR) -> list[tuple[str, float]]:
+def rank(
+    query_vector,
+    candidates,
+    *,
+    floor: float = SIMILARITY_FLOOR,
+    limit: int = MAX_SEMANTIC_MATCHES,
+) -> list[tuple[str, float]]:
     """Score candidates against the question, best first.
 
     `candidates` is an iterable of `(identifier, vector)`. Anything below the
-    floor is dropped rather than ranked last: a weak match in a context window
-    is worse than no match, because the model reads it as relevant.
+    floor is dropped rather than ranked last, and only the best few survive
+    that: a short list where the top entry is usually right is worth more than
+    a long one where it is buried.
     """
 
     if not query_vector:
@@ -98,11 +112,18 @@ def rank(query_vector, candidates, *, floor: float = SIMILARITY_FLOOR) -> list[t
         if score >= floor:
             scored.append((identifier, score))
     scored.sort(key=lambda item: (-item[1], item[0]))
-    return scored
+    return scored[: max(1, int(limit))]
 
 
 def ollama_embed(base_url: str, model: str, text: str, timeout: float = 30.0) -> list[float]:
-    """Ask the local model for a vector, normalised and ready to store."""
+    """Ask the local model for a vector, normalised and ready to store.
+
+    The text is sent as written. nomic-embed-text documents `search_query:` and
+    `search_document:` prefixes for exactly this use, and measuring them here
+    made recall worse - narrower margins between right and wrong answers, and
+    one question that had been answered correctly stopped being. Following the
+    documentation would have been the reasonable thing to do and the wrong one.
+    """
 
     payload = json.dumps({"model": model, "prompt": text}).encode()
     request = urllib.request.Request(
