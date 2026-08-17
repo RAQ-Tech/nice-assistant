@@ -66,6 +66,23 @@ class BrowserArchitectureTests(unittest.TestCase):
         self.assertIn("strict", (ROOT / "tsconfig.json").read_text(encoding="utf-8"))
         self.assertIn('src="/app.js"', (ROOT / "web" / "index.html").read_text(encoding="utf-8"))
 
+    def test_the_stylesheet_closes_every_rule_it_opens(self):
+        """An unclosed rule silently deletes every rule after it.
+
+        A missing brace in the middle of the file swallowed everything that
+        followed into one invalid declaration block: the home mark rendered at
+        its intrinsic 256px because the rule sizing it never applied, and the
+        whole homepage was unstyled. Nothing failed - CSS discards what it
+        cannot parse and carries on - so the only way to notice was to look.
+        """
+
+        text = (SOURCE / "styles.css").read_text(encoding="utf-8")
+        depth = 0
+        for number, line in enumerate(text.splitlines(), 1):
+            depth += line.count("{") - line.count("}")
+            self.assertGreaterEqual(depth, 0, f"styles.css:{number} closes a rule that was never opened")
+        self.assertEqual(depth, 0, f"styles.css leaves {depth} rule(s) open")
+
     def test_product_source_uses_only_the_canonical_api(self):
         source = "\n".join(path.read_text(encoding="utf-8") for path in SOURCE.glob("*.ts"))
         self.assertIn("'/api/v1'", source)

@@ -337,12 +337,9 @@ input[type='file']::file-selector-button {
   border-radius: 999px;
 }
 
-/* Sized to the header row it sits in. It was 96px, which on a chat screen with
-   no persona picture yet rendered the app mark as a large circle rather than an
-   avatar. Tapping it still opens the full-size image. */
 .topbar-avatar {
-  width: 36px;
-  height: 36px;
+  width: 96px;
+  height: 96px;
   border-radius: 999px;
   object-fit: cover;
   border: 1px solid var(--border);
@@ -1591,7 +1588,7 @@ input[type='file']::file-selector-button {
     bottom: calc(9.5rem + var(--safe-bottom));
   }
   .compact-select { min-width: 110px; max-width: 180px; }
-  .topbar-avatar { width: 36px; height: 36px; }
+  .topbar-avatar { width: 72px; height: 72px; }
   .msg-avatar { width: 44px; height: 44px; }
   .chat-controls-menu .chip-select { min-width: 140px; }
   .settings-screen {
@@ -1661,8 +1658,8 @@ input[type='file']::file-selector-button {
   }
 
   .topbar-avatar {
-    width: 40px;
-    height: 40px;
+    width: 48px;
+    height: 48px;
     align-self: center;
   }
 
@@ -2136,6 +2133,8 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
   flex-direction: column;
   flex: 1;
   min-width: 0;
+}
+
 .msg-context-notice {
   margin: .4rem 0 0;
   font-size: .82rem;

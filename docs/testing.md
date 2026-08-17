@@ -475,6 +475,10 @@ installed-browser acceptance.
   out on one. The homepage summary is tested for saying plainly when something
   leaves, in words rather than only in colour, and for not taking the rest of
   the page down when it cannot be loaded.
+- The stylesheet is checked for balanced braces. A missing one silently
+  deletes every rule after it - CSS discards what it cannot parse and carries
+  on - so nothing fails and the only symptom is something rendering at its
+  intrinsic size. That is what happened to the home mark and the whole homepage.
 - API tests use isolated temporary databases and deterministic fake providers.
 - Migration tests upgrade pre-0004/0005/0007/0008/0009/0010/0011/0012/0013/0014/0015/0016/0017/0019/0021/0022 databases and prove
   chats, messages, jobs, media, memories, turn ordering, stored artifact links,
