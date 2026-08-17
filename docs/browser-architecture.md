@@ -92,9 +92,19 @@ chat chrome shows persona and conversation essentials; an accessible details
 disclosure retains workspace, model, memory, client-state, and visualization
 controls for people who need them.
 
-Current speech playback still uses completed authenticated audio files. The
-state machine deliberately exposes `recording`, `transcribing`, and `speaking`
-phases so later realtime voice can extend the contract. During `speaking`, the
+Speech starts on the first piece of audio rather than the whole file. The
+browser asks whether it can play the configured format while it arrives; when it
+can, the reply is fed to a media source piece by piece and playback begins
+before synthesis has finished. When it cannot - a format with no incremental
+form such as WAV, or a browser without Media Source Extensions - the
+completed-file path runs exactly as before. Either way the finished recording is
+stored and replay plays that file rather than speaking the words again. A stream
+that fails before any sound falls back to the completed file; one that fails
+partway does not, because playing it would say the beginning twice. See
+ADR 0037.
+
+The state machine deliberately exposes `recording`, `transcribing`, and
+`speaking` phases so later realtime voice can extend the contract. During `speaking`, the
 composer remains editable; sending typed text or starting hold-to-talk stops the
 current file playback before beginning the new turn. This is explicit manual
 interruption, not streaming speech or automatic turn detection - the product

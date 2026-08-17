@@ -23,11 +23,6 @@ from app.workflow_template import resolve_template
 
 router = APIRouter(prefix="/api/v1")
 
-# How often a long provider call asks whether the browser is still waiting.
-# Short enough that an interruption stops the work while it still matters,
-# long enough not to be a busy loop.
-DISCONNECT_POLL_SECONDS = 0.2
-
 
 class StrictModel(BaseModel):
     model_config = ConfigDict(extra="forbid")
@@ -2111,30 +2106,22 @@ def voices(
     return {"voices": services(request).speech.voices(context.user_id, base_url)}
 
 
-async def _cancel_on_disconnect(request: Request, token: CancellationToken) -> None:
-    """Trip the token when the browser stops waiting for this response."""
-
-    while not token.cancelled:
-        if await request.is_disconnected():
-            token.cancel()
-            return
-        await asyncio.sleep(DISCONNECT_POLL_SECONDS)
-
-
 @router.post("/speech/syntheses", tags=["speech"])
 async def synthesize(
     body: SpeechSynthesisCreate,
     request: Request,
     context: AuthContext = Depends(current_user),
 ):
-    # Interrupting playback aborts this request. Synthesis runs on a worker
-    # thread so this one can watch for that and stop the provider mid-response;
-    # otherwise the speech service keeps generating audio nobody will hear and
-    # then writes a file nobody asked for. See ADR 0036.
+    # Interrupting playback aborts this request, which cancels this handler.
+    # Synthesis runs on a worker thread, so the cancellation trips a token the
+    # provider read checks between pieces; otherwise the speech service keeps
+    # generating audio nobody will hear and then writes a file nobody asked
+    # for. Asking the connection whether it is still there would be the obvious
+    # alternative and is not one: a request whose body has been read has no
+    # pending message to inspect, so the answer is a guess. See ADR 0036.
     speech = services(request).speech
     values = body.model_dump(exclude_none=True)
     token = CancellationToken()
-    watcher = asyncio.ensure_future(_cancel_on_disconnect(request, token))
     try:
         result = await asyncio.to_thread(speech.synthesize, context.user_id, values, lambda: token.cancelled)
     except SpeechCancelled:
@@ -2143,12 +2130,68 @@ async def synthesize(
         return Response(status_code=204)
     finally:
         token.cancel()
-        watcher.cancel()
     return {
         "audio_id": result["audio_id"],
         "audio_url": f"/api/v1/audio/{result['audio_id']}",
         "format": result["format"],
     }
+
+
+AUDIO_MEDIA_TYPES = {"mp3": "audio/mpeg", "aac": "audio/aac"}
+# The header that carries the id the finished audio will be stored under. It
+# goes out before the first byte, so the browser can register the recording for
+# replay while it is still listening to it.
+AUDIO_ID_HEADER = "X-Nice-Assistant-Audio-Id"
+
+
+async def _streamed_audio(pieces, token: CancellationToken):
+    """Hand pieces to the browser, and stop when it stops listening.
+
+    Each piece is pulled on a worker thread because the provider read is
+    blocking. When the browser goes away this generator is closed, which trips
+    the token; the provider read sees it at its next piece and stops, and the
+    synthesis never reaches the line that stores it.
+    """
+
+    iterator = iter(pieces)
+    try:
+        while True:
+            piece = await asyncio.to_thread(next, iterator, None)
+            if piece is None:
+                return
+            yield piece
+    finally:
+        token.cancel()
+        iterator.close()
+
+
+@router.post("/speech/streams", tags=["speech"])
+async def stream_speech(
+    body: SpeechSynthesisCreate,
+    request: Request,
+    context: AuthContext = Depends(current_user),
+):
+    # Speech that starts when the first audio exists rather than when the last
+    # one does. The completed file is still written at the end, so replay works
+    # exactly as before; a stream the browser abandons writes nothing at all.
+    # See ADR 0037.
+    speech = services(request).speech
+    values = body.model_dump(exclude_none=True)
+    token = CancellationToken()
+    audio_id, fmt, pieces = await asyncio.to_thread(
+        speech.stream_synthesis, context.user_id, values, lambda: token.cancelled
+    )
+    return StreamingResponse(
+        _streamed_audio(pieces, token),
+        media_type=AUDIO_MEDIA_TYPES.get(fmt, "application/octet-stream"),
+        headers={
+            AUDIO_ID_HEADER: audio_id,
+            # Nothing between here and the browser should hold this back
+            # waiting for a complete body.
+            "Cache-Control": "no-store",
+            "X-Accel-Buffering": "no",
+        },
+    )
 
 
 @router.post("/speech/transcriptions", tags=["speech"])

@@ -37,6 +37,7 @@ class BrowserArchitectureTests(unittest.TestCase):
             "settings_ui.ts",
             "settings_view.ts",
             "state.ts",
+            "streaming_audio.ts",
             "task_model_settings_view.ts",
             "types.ts",
             "visualization.ts",
@@ -55,6 +56,8 @@ class BrowserArchitectureTests(unittest.TestCase):
         self.assertLess((SOURCE / "home_controls.ts").read_text(encoding="utf-8").count("\n"), 250)
         self.assertLess((SOURCE / "operations_settings_view.ts").read_text(encoding="utf-8").count("\n"), 450)
         self.assertLess((SOURCE / "workflow_template_view.ts").read_text(encoding="utf-8").count("\n"), 250)
+        self.assertLess((SOURCE / "streaming_audio.ts").read_text(encoding="utf-8").count("\n"), 150)
+        self.assertLess((SOURCE / "playback.ts").read_text(encoding="utf-8").count("\n"), 250)
         self.assertLess((SOURCE / "identity_workflow_setup_view.ts").read_text(encoding="utf-8").count("\n"), 520)
         self.assertIn("strict", (ROOT / "tsconfig.json").read_text(encoding="utf-8"))
         self.assertIn('src="/app.js"', (ROOT / "web" / "index.html").read_text(encoding="utf-8"))

@@ -436,6 +436,15 @@ installed-browser acceptance.
   accumulated, that a cancelled synthesis writes no file, and that an ordinary
   one still does. The browser side proves that stopping playback aborts the
   synthesis request and that the abort resolves quietly rather than as an error.
+- Streaming speech tests prove the provider is asked to stream and its audio is
+  yielded piece by piece, that a provider answering with JSON is refused rather
+  than handed to the browser to play, that a finished stream still leaves a file
+  to replay, that an abandoned one leaves nothing behind, and that a format which
+  cannot start early is refused by name. The browser side proves the first piece
+  plays while the rest is still being made, that an unstreamable format or an
+  unstartable stream falls back to the completed file, that a stream failing
+  partway does not fall back - it would say the beginning twice - and that an
+  interruption aborts the stream without fetching the file instead.
 - API tests use isolated temporary databases and deterministic fake providers.
 - Migration tests upgrade pre-0004/0005/0007/0008/0009/0010/0011/0012/0013/0014/0015/0016/0017/0019/0021/0022 databases and prove
   chats, messages, jobs, media, memories, turn ordering, stored artifact links,

@@ -20,29 +20,40 @@ class SpeechCancelled(Exception):
     """Nobody is listening any more, so the rest of this work is waste."""
 
 
-def _read_cancellable(response, cancelled=None) -> bytes:
-    """Read a provider response in pieces, stopping the moment nobody wants it.
+# Formats a browser can begin playing before the whole file has arrived. WAV
+# carries its length in a header nothing can fill in halfway through, so a WAV
+# reply cannot start early no matter how it is delivered.
+STREAMABLE_FORMATS = ("mp3", "aac")
+
+
+def _iter_cancellable(response, cancelled=None):
+    """Yield a provider response in pieces, stopping the moment nobody wants it.
 
     Reading the whole body in one call means an interruption is only noticed
-    after the provider has finished, which is exactly the "muted the output but
-    kept the work running" behaviour barge-in is supposed to remove. The
-    connection is closed by the caller's `with` block, which tells the provider
-    to stop generating too.
+    after the provider has finished, which is the "muted the output but kept the
+    work running" behaviour barge-in exists to remove. It also means the first
+    byte of audio cannot reach the browser until the last one exists. Closing
+    the connection is what tells the provider to stop generating.
     """
 
-    chunks = []
+    # `read` waits for the full amount; `read1` returns what has arrived. That
+    # difference is the whole of progressive delivery.
+    read = getattr(response, "read1", None) or response.read
     total = 0
     while True:
         if cancelled and cancelled():
             raise SpeechCancelled()
-        piece = response.read(AUDIO_CHUNK_BYTES)
+        piece = read(AUDIO_CHUNK_BYTES)
         if not piece:
-            break
+            return
         total += len(piece)
         if total > MAX_AUDIO_BYTES:
             raise ValueError("The speech provider returned more audio than this deployment will hold.")
-        chunks.append(piece)
-    return b"".join(chunks)
+        yield piece
+
+
+def _read_cancellable(response, cancelled=None) -> bytes:
+    return b"".join(_iter_cancellable(response, cancelled))
 
 
 def normalize_tts_speed(speed) -> float:
@@ -54,6 +65,12 @@ def normalize_tts_speed(speed) -> float:
 
 
 def openai_speech(text, voice, fmt, api_key, model="gpt-4o-mini-tts", speed="1", instructions="", cancelled=None):
+    request = _openai_speech_request(text, voice, fmt, api_key, model, speed, instructions)
+    with urllib.request.urlopen(request, timeout=120) as response:
+        return _read_cancellable(response, cancelled)
+
+
+def _openai_speech_request(text, voice, fmt, api_key, model, speed, instructions):
     payload = json.dumps(
         {
             "model": model or "gpt-4o-mini-tts",
@@ -64,22 +81,29 @@ def openai_speech(text, voice, fmt, api_key, model="gpt-4o-mini-tts", speed="1",
             **({"instructions": str(instructions).strip()} if str(instructions or "").strip() else {}),
         }
     ).encode()
-    request = urllib.request.Request(
+    return urllib.request.Request(
         "https://api.openai.com/v1/audio/speech",
         data=payload,
         headers={"Content-Type": "application/json", "Authorization": f"Bearer {api_key}"},
         method="POST",
     )
+
+
+def openai_speech_stream(
+    text, voice, fmt, api_key, model="gpt-4o-mini-tts", speed="1", instructions="", cancelled=None
+):
+    """Yield OpenAI audio as it arrives rather than after it is complete."""
+
+    request = _openai_speech_request(text, voice, fmt, api_key, model, speed, instructions)
     with urllib.request.urlopen(request, timeout=120) as response:
-        return _read_cancellable(response, cancelled)
+        yield from _iter_cancellable(response, cancelled)
 
 
 def normalized_kokoro_base_url(raw_url):
     return str(raw_url or "http://127.0.0.1:8880").strip().rstrip("/")
 
 
-def kokoro_speech(text, voice, fmt, base_url, model="kokoro", speed="1", cancelled=None):
-    base_url = normalized_kokoro_base_url(base_url)
+def _kokoro_speech_request(base_url, text, voice, fmt, model, speed, stream):
     payload = json.dumps(
         {
             "model": model or "kokoro",
@@ -87,15 +111,35 @@ def kokoro_speech(text, voice, fmt, base_url, model="kokoro", speed="1", cancell
             "voice": voice or "af_heart",
             "response_format": fmt,
             "speed": normalize_tts_speed(speed),
-            "stream": False,
+            "stream": bool(stream),
         }
     ).encode()
-    request = urllib.request.Request(
+    return urllib.request.Request(
         f"{base_url}/v1/audio/speech",
         data=payload,
         headers={"Content-Type": "application/json", "x-raw-response": "true"},
         method="POST",
     )
+
+
+def kokoro_speech_stream(text, voice, fmt, base_url, model="kokoro", speed="1", cancelled=None):
+    """Yield Kokoro audio as it is generated rather than after it is complete."""
+
+    base_url = normalized_kokoro_base_url(base_url)
+    request = _kokoro_speech_request(base_url, text, voice, fmt, model, speed, True)
+    with urllib.request.urlopen(request, timeout=300) as response:
+        content_type = (response.headers.get("Content-Type") or "").lower()
+        if not content_type.startswith("audio/") and fmt != "pcm":
+            # The completed-file path knows how to follow a download link. A
+            # stream cannot, and pretending otherwise would hand the browser a
+            # JSON body to play.
+            raise ValueError(f"The speech provider answered with {content_type or 'no content type'}, not audio.")
+        yield from _iter_cancellable(response, cancelled)
+
+
+def kokoro_speech(text, voice, fmt, base_url, model="kokoro", speed="1", cancelled=None):
+    base_url = normalized_kokoro_base_url(base_url)
+    request = _kokoro_speech_request(base_url, text, voice, fmt, model, speed, False)
     with urllib.request.urlopen(request, timeout=300) as response:
         body = _read_cancellable(response, cancelled)
         content_type = (response.headers.get("Content-Type") or "").lower()

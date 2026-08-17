@@ -1,8 +1,11 @@
 import { api, type ApiClient } from './api';
 import { speechText } from './speech_text';
 import { machine, state, type ClientStateMachine } from './state';
+import { MediaSourceSink, streamableMimeType, type AudioStreamSink } from './streaming_audio';
 import type { AppState } from './types';
 import { Visualizer } from './visualization';
+
+export const AUDIO_ID_HEADER = 'X-Nice-Assistant-Audio-Id';
 
 export class PlaybackController {
   private onChange: () => void = () => undefined;
@@ -16,6 +19,7 @@ export class PlaybackController {
     private readonly appState: AppState = state,
     private readonly stateMachine: ClientStateMachine = machine,
     private readonly client: ApiClient = api,
+    private readonly createSink: () => AudioStreamSink = () => new MediaSourceSink(),
   ) {
     audio.addEventListener('ended', this.finishActive);
     audio.addEventListener('error', this.failActive);
@@ -29,6 +33,15 @@ export class PlaybackController {
     const settings = this.appState.settings;
     const cleanedText = speechText(text);
     if (!settings || settings.tts_provider === 'disabled' || !this.appState.voiceResponsesEnabled || !cleanedText) return;
+    const format = settings.tts_format || 'wav';
+    const mimeType = streamableMimeType(format);
+    if (mimeType) {
+      // Start speaking when the first audio exists rather than when the last
+      // one does. A format that cannot be played incrementally, or a browser
+      // that will not, falls through to the completed file below.
+      const streamed = await this.speakWhileArriving(cleanedText, messageId, chatId, personaId, format, mimeType);
+      if (streamed) return;
+    }
     const token = this.begin(messageId);
     const request = new AbortController();
     this.synthesis = request;
@@ -51,6 +64,62 @@ export class PlaybackController {
     if (token !== this.sequence) return;
     this.appState.messageAudioById[messageId] = result.audio_url;
     await this.playPrepared(messageId, result.audio_url, token);
+  }
+
+  /**
+   * Play a reply as the provider produces it.
+   *
+   * Returns false when the stream could not be started at all, so the caller
+   * can fall back to the completed file rather than leave somebody in silence.
+   * Once playback has begun a failure is not silently retried: the audio the
+   * person already heard would be spoken twice.
+   */
+  private async speakWhileArriving(
+    text: string,
+    messageId: string,
+    chatId: string,
+    personaId: string | null,
+    format: string,
+    mimeType: string,
+  ): Promise<boolean> {
+    const token = this.begin(messageId);
+    const request = new AbortController();
+    this.synthesis = request;
+    const sink = this.createSink();
+    let started = false;
+    try {
+      const response = await this.client.streamSpeech(
+        { text, chat_id: chatId, persona_id: personaId, format },
+        request.signal,
+      );
+      const body = response.body;
+      if (!body) return false;
+      const audioId = response.headers.get(AUDIO_ID_HEADER);
+      const url = await sink.open(mimeType);
+      if (token !== this.sequence) return true;
+      started = true;
+      // The element is given the growing source before any piece has arrived,
+      // so it begins the moment there is enough to begin with.
+      void this.playPrepared(messageId, url, token);
+      const reader = body.getReader();
+      for (;;) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        if (token !== this.sequence) return true;
+        await sink.append(value);
+      }
+      await sink.end();
+      // The completed recording is still stored, so replay uses the file
+      // rather than asking the provider to speak it again.
+      if (audioId) this.appState.messageAudioById[messageId] = `/api/v1/audio/${audioId}`;
+      return true;
+    } catch (error) {
+      if (request.signal.aborted) return true;
+      return started;
+    } finally {
+      sink.close();
+      if (this.synthesis === request) this.synthesis = null;
+    }
   }
 
   async play(messageId: string, url: string): Promise<void> {

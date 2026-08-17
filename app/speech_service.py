@@ -10,7 +10,16 @@ from app.providers import user_safe_provider_error
 from app.persona_voice import parse as parse_voice_preferences, preference as voice_preference
 from app.repositories import UnitOfWork
 from app.service_errors import NotFoundError, RequestError
-from app.speech_clients import SpeechCancelled, kokoro_list_voices, kokoro_speech, openai_speech, openai_stt
+from app.speech_clients import (
+    STREAMABLE_FORMATS,
+    SpeechCancelled,
+    kokoro_list_voices,
+    kokoro_speech,
+    kokoro_speech_stream,
+    openai_speech,
+    openai_speech_stream,
+    openai_stt,
+)
 from app.storage import write_artifact_atomic
 
 
@@ -62,6 +71,94 @@ class SpeechService:
         audio nobody would hear, then write and rotate a file nobody asked for.
         A cancelled synthesis writes nothing at all.
         """
+
+        plan = self._speech_plan(user_id, values)
+        audio = self._provider_audio(plan, cancelled)
+        return self._store_audio(user_id, plan, secrets.token_hex(8), audio)
+
+    def stream_synthesis(self, user_id: str, values: dict, cancelled=None) -> tuple[str, str, object]:
+        """Speak this text as it is produced, rather than after it is finished.
+
+        Returns the id the finished audio will be stored under, its format, and
+        an iterator of audio pieces. The id is known before the first byte so a
+        caller can name the artifact in a response header and still let the
+        browser start playing; the artifact itself is written only when the last
+        piece has been produced, so an abandoned stream leaves nothing behind.
+        """
+
+        plan = self._speech_plan(user_id, values)
+        if plan["format"] not in STREAMABLE_FORMATS:
+            raise RequestError(
+                f"'{plan['format']}' audio cannot be played before it is complete. "
+                f"Choose one of: {', '.join(STREAMABLE_FORMATS)}.",
+                400,
+            )
+        audio_id = secrets.token_hex(8)
+        return audio_id, plan["format"], self._streamed_audio(user_id, plan, audio_id, cancelled)
+
+    def _streamed_audio(self, user_id: str, plan: dict, audio_id: str, cancelled):
+        started = time.monotonic()
+        outcome = "failed"
+        collected = []
+        try:
+            for piece in self._provider_stream(plan, cancelled):
+                collected.append(piece)
+                yield piece
+            outcome = "completed"
+        except SpeechCancelled:
+            outcome = "cancelled"
+            raise
+        except RequestError:
+            raise
+        except Exception as exc:
+            raise self._provider_failure(plan["provider"], exc) from exc
+        finally:
+            if self.metrics:
+                self.metrics.provider(
+                    plan["provider"], "speech_stream", outcome, int((time.monotonic() - started) * 1000)
+                )
+        # Only a stream that finished becomes a file. One the browser walked
+        # away from leaves nothing to store and nothing to rotate for.
+        self._store_audio(user_id, plan, audio_id, b"".join(collected))
+
+    def _provider_stream(self, plan: dict, cancelled):
+        if plan["provider"] == "openai":
+            if not plan["api_key"]:
+                raise RequestError("OPENAI API key missing", 400)
+            return openai_speech_stream(
+                plan["text"],
+                plan["voice"],
+                plan["format"],
+                plan["api_key"],
+                plan["model"],
+                plan["speed"],
+                plan["instructions"],
+                cancelled,
+            )
+        if plan["provider"] == "local":
+            return kokoro_speech_stream(
+                plan["text"],
+                plan["voice"],
+                plan["format"],
+                plan["base_url"],
+                plan["model"],
+                plan["speed"],
+                cancelled,
+            )
+        raise RequestError("Unknown TTS provider", 400)
+
+    def _provider_failure(self, provider: str, exc: Exception) -> ProviderError:
+        label = "OpenAI" if provider == "openai" else "local speech service"
+        self.logger.warning("tts provider failed provider=%s error=%s", provider, exc.__class__.__name__)
+        return ProviderError(
+            provider=provider,
+            code="synthesis_failed",
+            user_message=user_safe_provider_error("TTS", label, exc),
+            retryable=True,
+        )
+
+    def _speech_plan(self, user_id: str, values: dict) -> dict:
+        """Everything a synthesis needs, resolved once from settings and persona."""
 
         text = str(values.get("text") or "").strip()
         if not text:
@@ -118,49 +215,76 @@ class SpeechService:
                     label="Local speech service",
                 )
             instructions = str(values.get("instructions") or preferences.get("tts_instructions_openai") or "").strip()
+        return {
+            "text": text,
+            "provider": provider,
+            "voice": voice,
+            "model": model,
+            "speed": speed,
+            "format": fmt,
+            "api_key": api_key,
+            "base_url": base_url,
+            "instructions": instructions,
+            "persona_id": persona_id,
+            "chat_id": chat_id,
+        }
+
+    def _provider_audio(self, plan: dict, cancelled) -> bytes:
         started = time.monotonic()
         outcome = "failed"
         try:
-            if provider == "openai":
-                if not api_key:
+            if plan["provider"] == "openai":
+                if not plan["api_key"]:
                     raise RequestError("OPENAI API key missing", 400)
-                audio = openai_speech(text, voice, fmt, api_key, model, speed, instructions, cancelled)
-            elif provider == "local":
-                audio = kokoro_speech(text, voice, fmt, base_url, model, speed, cancelled)
+                audio = openai_speech(
+                    plan["text"],
+                    plan["voice"],
+                    plan["format"],
+                    plan["api_key"],
+                    plan["model"],
+                    plan["speed"],
+                    plan["instructions"],
+                    cancelled,
+                )
+            elif plan["provider"] == "local":
+                audio = kokoro_speech(
+                    plan["text"],
+                    plan["voice"],
+                    plan["format"],
+                    plan["base_url"],
+                    plan["model"],
+                    plan["speed"],
+                    cancelled,
+                )
             else:
                 raise RequestError("Unknown TTS provider", 400)
             outcome = "completed"
+            return audio
         except SpeechCancelled:
             outcome = "cancelled"
             raise
         except RequestError:
             raise
         except Exception as exc:
-            label = "OpenAI" if provider == "openai" else "local speech service"
-            self.logger.warning("tts provider failed provider=%s error=%s", provider, exc.__class__.__name__)
-            raise ProviderError(
-                provider=provider,
-                code="synthesis_failed",
-                user_message=user_safe_provider_error("TTS", label, exc),
-                retryable=True,
-            ) from exc
+            raise self._provider_failure(plan["provider"], exc) from exc
         finally:
             if self.metrics:
-                self.metrics.provider(provider, "speech", outcome, int((time.monotonic() - started) * 1000))
-        audio_id = secrets.token_hex(8)
-        target = self.config.audio_dir / f"{audio_id}.{fmt}"
+                self.metrics.provider(plan["provider"], "speech", outcome, int((time.monotonic() - started) * 1000))
+
+    def _store_audio(self, user_id: str, plan: dict, audio_id: str, audio: bytes) -> dict:
+        target = self.config.audio_dir / f"{audio_id}.{plan['format']}"
         write_artifact_atomic(target, audio)
         with self._uow() as uow:
             uow.repo.add_audio(
                 audio_id=audio_id,
                 user_id=user_id,
-                persona_id=persona_id,
-                chat_id=chat_id,
-                fmt=fmt,
+                persona_id=plan["persona_id"],
+                chat_id=plan["chat_id"],
+                fmt=plan["format"],
                 local_path=str(target),
             )
         self._rotate_audio()
-        return {"audio_id": audio_id, "format": fmt}
+        return {"audio_id": audio_id, "format": plan["format"]}
 
     def transcribe(self, user_id: str, filename: str, content: bytes) -> dict:
         with self._uow() as uow:

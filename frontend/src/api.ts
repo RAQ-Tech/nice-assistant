@@ -730,6 +730,23 @@ export class ApiClient {
     });
   }
 
+  /**
+   * Audio as it is produced. The response is handed back unread, because the
+   * point is to start playing the first piece before the last one exists.
+   */
+  async streamSpeech(input: Record<string, unknown>, signal?: AbortSignal): Promise<Response> {
+    const headers = new Headers({ 'Content-Type': 'application/json', 'X-Nice-Assistant-CSRF': '1' });
+    const response = await fetch(`${this.base}/speech/streams`, {
+      method: 'POST',
+      credentials: 'same-origin',
+      headers,
+      body: JSON.stringify(input),
+      ...(signal ? { signal } : {}),
+    });
+    if (!response.ok) throw new ApiError(`Speech stream failed (${response.status})`, response.status, response.status);
+    return response;
+  }
+
   transcribe(file: Blob, filename: string): Promise<{ text: string }> {
     const form = new FormData();
     form.append('file', file, filename);

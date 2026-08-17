@@ -258,11 +258,19 @@ path. Only items 8 and 9 genuinely require the approved listening decision.
 Item 8 cannot select a provider until that decision exists, and no unverified
 provider support may be advertised in the meantime.
 
-Item 7 is delivered on that basis. Items 5 and 6 remain startable without the
-listening evaluation.
+Items 5 and 7 are delivered on that basis. Item 6 remains startable without the
+listening evaluation; items 8 and 9 do not.
 
-5. **Streaming TTS.** Begin playback before a complete response file exists.
-    Today synthesis must finish before audio starts.
+5. **Streaming TTS - delivered 2026-08-17.** Playback begins on the first piece
+    of audio rather than the finished file, so the silence before a persona
+    speaks is no longer the whole synthesis time. The recording is still stored
+    for replay, and a stream nobody waits for stores nothing. Formats that
+    cannot start early - WAV carries its length in a header nothing can fill in
+    halfway through - keep the completed-file path and say so rather than
+    pretending. See
+    [ADR 0037](docs/decisions/0037-speech-starts-before-it-is-finished.md).
+    Built against the local Kokoro path; it is not accepted on the installed
+    deployment and does not choose a provider.
 
 6. **Automatic end-of-turn detection.** Detect that the user has stopped
     speaking, with push-to-talk retained as a dependable fallback rather than
@@ -428,7 +436,7 @@ done:
 - Update the product, architecture, security, testing, operations, roadmap, and
   debt documents in the same change as the behavior they describe.
 - Record durable architectural choices as ADRs in `docs/decisions/`. The next
-  free number is 0037.
+  free number is 0038.
 - Run `python scripts/audit_public_repo.py` before every public commit. This
   file must never contain deployment addresses, hostnames, user-specific paths,
   hardware inventories, or account identifiers.
