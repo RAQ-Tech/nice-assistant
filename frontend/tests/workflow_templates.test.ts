@@ -37,7 +37,14 @@ function setup(templates: WorkflowTemplate[], architecture = 'sdxl') {
       request_input_candidates: { prompt: [], seed: [], width: [], height: [], checkpoint: [] },
       detected_node_types: [],
       missing_node_types: ['PhotoMakerEncodeV2'],
-      asset_checks: [{ node_id: '2', node_type: 'PhotoMakerLoaderV2', input_name: 'photomaker_model_name', value: 'photomaker-v2.bin', available: false }],
+      asset_checks: [{
+        node_id: '2',
+        node_type: 'PhotoMakerLoaderV2',
+        input_name: 'photomaker_model_name',
+        value: 'photomaker-v2.bin',
+        available: false,
+        options: ['photomaker-v1.bin', 'photomaker-v2-fp16.bin'],
+      }],
       warnings: [],
     }),
     installWorkflowTemplate: vi.fn().mockResolvedValue({ id: 'workflow-9' }),
@@ -82,6 +89,33 @@ describe('Workflow templates', () => {
     expect(root.textContent).toContain('picks by device rather than by name cannot be checked from here');
   });
 
+  it('offers the files ComfyUI does have rather than asking for a rename', async () => {
+    const { client, root, loaded } = setup([template()]);
+    await loaded();
+
+    (root.querySelector('[data-testid="workflow-template-verify-photomaker-v2-sdxl"]') as HTMLButtonElement).click();
+    await vi.waitFor(() => expect(client.verifyWorkflowTemplate).toHaveBeenCalled());
+
+    const picker = root.querySelector(
+      '[data-testid="workflow-template-asset-photomaker-v2-sdxl-photomaker_model_name"]',
+    ) as HTMLSelectElement;
+    expect([...picker.options].map((option) => option.value))
+      .toEqual(['', 'photomaker-v1.bin', 'photomaker-v2-fp16.bin']);
+    picker.value = 'photomaker-v2-fp16.bin';
+    picker.dispatchEvent(new Event('change', { bubbles: true }));
+
+    (root.querySelector('[data-testid="workflow-template-install-photomaker-v2-sdxl"]') as HTMLButtonElement).click();
+    // The graph is pointed at the file that is actually installed; a
+    // downloaded model keeps whatever name its source gave it.
+    await vi.waitFor(() => expect(client.installWorkflowTemplate).toHaveBeenCalledWith(
+      'photomaker-v2-sdxl',
+      'model-1',
+      '',
+      '',
+      [{ node_id: '2', input_name: 'photomaker_model_name', value: 'photomaker-v2-fp16.bin' }],
+    ));
+  });
+
   it('marks a family mismatch instead of hiding the template', async () => {
     const { client, root, loaded } = setup([template({ architecture_matches: false })], 'pony');
     await loaded();
@@ -115,7 +149,7 @@ describe('Workflow templates', () => {
     await loaded();
 
     (root.querySelector('[data-testid="workflow-template-install-photomaker-v2-sdxl"]') as HTMLButtonElement).click();
-    await vi.waitFor(() => expect(client.installWorkflowTemplate).toHaveBeenCalledWith('photomaker-v2-sdxl', 'model-1', '', ''));
+    await vi.waitFor(() => expect(client.installWorkflowTemplate).toHaveBeenCalledWith('photomaker-v2-sdxl', 'model-1', '', '', []));
     expect(refreshCatalog).toHaveBeenCalled();
   });
 
@@ -131,7 +165,7 @@ describe('Workflow templates', () => {
     (root.querySelector('[data-testid="workflow-template-install-reactor-face-swap"]') as HTMLButtonElement).click();
 
     await vi.waitFor(() => expect(client.installWorkflowTemplate)
-      .toHaveBeenCalledWith('reactor-face-swap', 'model-1', '', 'preset-1'));
+      .toHaveBeenCalledWith('reactor-face-swap', 'model-1', '', 'preset-1', []));
   });
 
   it('does not offer a recipe for a pass that conditions during generation', async () => {

@@ -234,6 +234,46 @@ class TemplateInstallTests(ModelFixture, unittest.TestCase):
             # Same version, so there is nothing to offer.
             self.assertFalse(entry["update_available"])
 
+    def test_the_graph_is_pointed_at_the_file_this_installation_has(self):
+        with tempfile.TemporaryDirectory() as tmp, TestApp(Path(tmp)) as running:
+            running.create_and_login()
+            model = self._model(running, "sdxl")
+            created = running.client.post(
+                "/api/v1/media-catalog/workflow-templates/instantid-sdxl/installations",
+                json={
+                    "model_id": model["id"],
+                    # An InstantID ControlNet downloads under whichever name its
+                    # source used. Renaming a file to match a graph is the hand
+                    # editing templates exist to remove.
+                    "asset_choices": [
+                        {"node_id": "4", "input_name": "control_net_name", "value": "my-instantid-cn.safetensors"}
+                    ],
+                },
+            )
+
+            self.assertEqual(created.status_code, 201, created.text)
+            graph = created.json()["default_settings"]["workflow_patch"]
+            self.assertEqual(graph["4"]["inputs"]["control_net_name"], "my-instantid-cn.safetensors")
+            # Nothing else moved.
+            self.assertEqual(graph["2"]["inputs"]["instantid_file"], "ip-adapter.bin")
+
+    def test_a_choice_must_name_a_file_input_of_this_graph(self):
+        with tempfile.TemporaryDirectory() as tmp, TestApp(Path(tmp)) as running:
+            running.create_and_login()
+            model = self._model(running, "sdxl")
+            refused = running.client.post(
+                "/api/v1/media-catalog/workflow-templates/instantid-sdxl/installations",
+                json={
+                    "model_id": model["id"],
+                    "asset_choices": [{"node_id": "8", "input_name": "weight", "value": "0.9"}],
+                },
+            )
+
+            # Node 8 exists but `weight` is a float, not a file name. A choice
+            # is for pointing at a file, not for editing the graph.
+            self.assertEqual(refused.status_code, 400, refused.text)
+            self.assertIn("file input", refused.text)
+
     def test_a_template_is_refused_for_a_family_it_was_not_built_for(self):
         with tempfile.TemporaryDirectory() as tmp, TestApp(Path(tmp)) as running:
             running.create_and_login()
@@ -272,6 +312,9 @@ class TemplateInstallTests(ModelFixture, unittest.TestCase):
             # compatible.
             self.assertFalse(body["provider_compatible"])
             self.assertIn("PhotoMakerEncodeV2", body["missing_node_types"])
+            # A graph whose node types are missing has no asset checks to make,
+            # which is a different answer from "the file is not there".
+            self.assertEqual(body["asset_checks"], [])
 
     def test_verifying_an_unknown_template_is_a_not_found(self):
         with tempfile.TemporaryDirectory() as tmp, TestApp(Path(tmp)) as running:

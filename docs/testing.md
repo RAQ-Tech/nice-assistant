@@ -178,7 +178,9 @@ installed-browser acceptance.
   chosen model and records where it came from; installing twice writes a second
   graph rather than rewriting the first; a template is refused for a declared
   family it was not built for; and verification asks the provider rather than
-  asserting the graph works.
+  asserting the graph works. A named file that is not installed is offered as a
+  choice from what ComfyUI does have, the choice is written into the graph, and
+  a choice naming anything that is not a file input of that graph is refused.
 - Prompt dialect tests prove two dialects render the same request differently,
   that a dialect declaring no negative support sends none and does not imply the
   safety negative was carried, that the platform safety negative stays separate

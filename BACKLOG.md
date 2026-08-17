@@ -190,6 +190,12 @@ ReActor template ships for it, installable straight into a recipe as a second
 pass so nobody hand-edits a definition. The settings control offers exactly the
 mechanisms this catalog can apply.
 
+A named file that is not installed is offered as a choice from what ComfyUI does
+have, and the choice is written into the graph. A downloaded model keeps
+whatever name its source gave it - several arrive as
+`diffusion_pytorch_model.safetensors` - and asking somebody to rename a file to
+match a shipped graph would be the hand-editing templates exist to remove.
+
 ### 1E-a. First identity-conditioned picture - **Blocked - deployment**
 
 Install the

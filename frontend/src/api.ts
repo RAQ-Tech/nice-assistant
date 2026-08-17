@@ -298,10 +298,11 @@ export class ApiClient {
     modelId: string,
     name = '',
     presetId = '',
+    assetChoices: { node_id: string; input_name: string; value: string }[] = [],
   ): Promise<MediaCatalogResource> {
     return this.request(`/media-catalog/workflow-templates/${encodeURIComponent(templateId)}/installations`, {
       method: 'POST',
-      body: JSON.stringify({ model_id: modelId, name, preset_id: presetId }),
+      body: JSON.stringify({ model_id: modelId, name, preset_id: presetId, asset_choices: assetChoices }),
     });
   }
 

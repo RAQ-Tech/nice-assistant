@@ -233,6 +233,9 @@ class ComfyUIAssetCheck(BaseModel):
     input_name: str
     value: str
     available: bool
+    # What the provider does have for this input, when what the graph names is
+    # missing. Empty otherwise, so a working graph does not carry a file list.
+    options: list[str] = Field(default_factory=list)
 
 
 class ComfyUIWorkflowInspectionRepresentation(BaseModel):
@@ -629,9 +632,18 @@ class WorkflowTemplateListResponse(BaseModel):
     templates: list[WorkflowTemplateRepresentation]
 
 
+class WorkflowTemplateAssetChoice(StrictModel):
+    node_id: str = Field(min_length=1, max_length=16)
+    input_name: str = Field(min_length=1, max_length=100)
+    value: str = Field(min_length=1, max_length=300)
+
+
 class WorkflowTemplateInstall(StrictModel):
     model_id: str = Field(min_length=1, max_length=64)
     name: str = Field(default="", max_length=120)
+    # A downloaded model keeps the name its source gave it, so the graph is
+    # pointed at the file rather than the file renamed to match the graph.
+    asset_choices: list[WorkflowTemplateAssetChoice] = Field(default_factory=list, max_length=16)
     # Optional: add a post-pass template to this recipe as a later pass, rather
     # than leaving somebody to hand-edit a preset's definition JSON.
     preset_id: str = Field(default="", max_length=64)

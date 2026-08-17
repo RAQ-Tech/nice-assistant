@@ -209,11 +209,42 @@ def resolve_template(template_id: str) -> dict:
     raise NotFoundError("workflow template not found")
 
 
-def template_default_settings(template: dict) -> dict:
+def apply_asset_choices(workflow: dict, choices) -> dict:
+    """Point a template's graph at the files this installation actually has.
+
+    A downloaded model keeps whatever name its source gave it, and several of
+    these arrive as `diffusion_pytorch_model.safetensors`. Asking somebody to
+    rename a file to match a graph is the hand-editing this whole module exists
+    to remove, so the graph is pointed at the file instead.
+    """
+
+    if not choices:
+        return workflow
+    if not isinstance(choices, list) or len(choices) > 16:
+        raise RequestError("asset choices must be a list of at most sixteen entries", 400)
+    for choice in choices:
+        if not isinstance(choice, dict) or set(choice) != {"node_id", "input_name", "value"}:
+            raise RequestError("each asset choice needs a node_id, an input_name, and a value", 400)
+        node = workflow.get(str(choice["node_id"]))
+        inputs = node.get("inputs") if isinstance(node, dict) else None
+        name = str(choice["input_name"])
+        if not isinstance(inputs, dict) or not isinstance(inputs.get(name), str):
+            raise RequestError(
+                "an asset choice must name a file input that exists in this template's graph",
+                400,
+            )
+        value = str(choice["value"]).strip()
+        if not value or len(value) > 300:
+            raise RequestError("an asset choice must name a file", 400)
+        inputs[name] = value
+    return workflow
+
+
+def template_default_settings(template: dict, asset_choices=None) -> dict:
     """The workflow resource default settings this template would install."""
 
     settings = {
-        "workflow_patch": json.loads(json.dumps(template["workflow"])),
+        "workflow_patch": apply_asset_choices(json.loads(json.dumps(template["workflow"])), asset_choices),
         "consumes_prompt": template["consumes_prompt"],
         **template["bindings"],
     }

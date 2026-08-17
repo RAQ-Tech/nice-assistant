@@ -642,7 +642,7 @@ class MediaCatalogService:
                     "operations": template["operations"],
                     "domains": template["domains"],
                     "features": template["features"],
-                    "default_settings": template_default_settings(template),
+                    "default_settings": template_default_settings(template, (values or {}).get("asset_choices")),
                     "compatible_model_ids": [model.id],
                     "notes": (
                         f"Installed from the shipped '{template['name']}' template. Its node types and named "

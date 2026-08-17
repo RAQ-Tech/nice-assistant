@@ -28,6 +28,10 @@ export class WorkflowTemplateView {
   private checks: Record<string, IdentityWorkflowInspection> = {};
   private presets: MediaPreset[] = [];
   private presetId = '';
+  // Keyed by template, then by `nodeId:inputName`. A downloaded model keeps the
+  // name its source gave it, so the graph is pointed at the file rather than
+  // the file renamed to match the graph.
+  private assetChoices: Record<string, Record<string, string>> = {};
 
   constructor(
     private readonly renderApp: () => void,
@@ -98,6 +102,7 @@ export class WorkflowTemplateView {
         el('ul', {}, template.required_assets.map((item) => el('li', { textContent: item }))),
       ]),
       check ? this.checkResult(check) : null,
+      ...this.assetPickers(template, check),
       // A later pass is useless on its own: something has to run it after a
       // picture exists. Choosing the recipe here is what keeps that out of a
       // hand-edited definition JSON.
@@ -125,6 +130,23 @@ export class WorkflowTemplateView {
         }),
       ]),
     ]);
+  }
+
+  private assetPickers(template: WorkflowTemplate, check?: IdentityWorkflowInspection): HTMLElement[] {
+    const missing = (check?.asset_checks ?? []).filter((item) => !item.available && (item.options?.length ?? 0) > 0);
+    return missing.map((item) => {
+      const key = `${item.node_id}:${item.input_name}`;
+      const chosen = this.assetChoices[template.id]?.[key] ?? '';
+      const control = select(chosen, ['', ...(item.options ?? [])], (value) => {
+        this.assetChoices[template.id] = { ...(this.assetChoices[template.id] ?? {}), [key]: value };
+      }, (value) => value || `Keep ${item.value}`);
+      control.dataset.testid = `workflow-template-asset-${template.id}-${item.input_name}`;
+      return field(
+        `${item.node_type} needs a file for ${item.input_name}`,
+        control,
+        `The template names ${item.value}, which ComfyUI does not report. These are the files it does have for this input. Choosing one points the graph at your file instead of asking you to rename it.`,
+      );
+    });
   }
 
   private presetSelect(): HTMLSelectElement {
@@ -198,7 +220,13 @@ export class WorkflowTemplateView {
     this.renderApp();
     try {
       const presetId = template.mechanism === 'identity_pass' ? this.presetId : '';
-      await this.client.installWorkflowTemplate(template.id, modelId, '', presetId);
+      const choices = Object.entries(this.assetChoices[template.id] ?? {})
+        .filter(([, value]) => value)
+        .map(([key, value]) => {
+          const [node_id, input_name] = key.split(':');
+          return { node_id: node_id ?? '', input_name: input_name ?? '', value };
+        });
+      await this.client.installWorkflowTemplate(template.id, modelId, '', presetId, choices);
       await this.refreshCatalog();
       this.loadedModelId = '';
     } catch (error) {

@@ -677,6 +677,8 @@ export interface IdentityWorkflowInspection {
     input_name: string;
     value: string;
     available: boolean;
+    // What the provider does have, when what the graph names is missing.
+    options?: string[];
   }[];
   warnings: string[];
 }

@@ -115,6 +115,8 @@ def _workflow_inspection_result(
 
 
 REQUEST_INPUT_ROLES = ("prompt", "seed", "width", "height", "checkpoint")
+# Enough to choose from without turning an inspection into a file listing.
+_ASSET_OPTION_LIMIT = 200
 _SEED_INPUT_NAMES = ("seed", "noise_seed")
 
 
@@ -296,14 +298,19 @@ def _inspect_comfyui_object_info(nodes: dict[str, dict], object_info: dict) -> d
                 and isinstance(current_value, (str, int, float, bool))
                 and _is_asset_input(input_name)
             ):
+                available = current_value in allowed or str(current_value) in {str(value) for value in allowed}
                 asset_checks.append(
                     {
                         "node_id": node_id,
                         "node_type": node_type,
                         "input_name": input_name,
                         "value": str(current_value),
-                        "available": current_value in allowed
-                        or str(current_value) in {str(value) for value in allowed},
+                        "available": available,
+                        # What the provider does have, so "not available" is
+                        # something an operator can act on rather than a dead
+                        # end. Only when it is missing: this is a file list, and
+                        # a catalog of checkpoints is long.
+                        "options": [] if available else [str(value) for value in allowed][:_ASSET_OPTION_LIMIT],
                     }
                 )
             link = _link_reference(current_value)

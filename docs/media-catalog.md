@@ -589,6 +589,14 @@ said in plain language rather than implied. An identity model a node picks by
 device rather than by a named input does not appear in `/object_info` at all, so
 a template lists it under what you need to have installed and the check says so.
 
+When a check reports that a file the graph names is not installed, it also
+returns the files ComfyUI does have for that input, and the template offers them
+as a choice. A downloaded model keeps whatever name its source gave it - several
+arrive as `diffusion_pytorch_model.safetensors` - so the graph is pointed at the
+file rather than the file renamed to match the graph. A choice may only name a
+file input that already exists in that template's graph; it is a way to say
+which file, not a way to edit the graph.
+
 Nothing here claims a template has been run on this deployment, because it has
 not been. The first requested persona image is still the live test, exactly as
 it is for a workflow an operator imported themselves.
