@@ -174,7 +174,7 @@ export interface VisualIdentityProfile {
 export interface DataLocalityPart {
   label: string;
   provider: string;
-  locality: 'local' | 'cloud' | 'off';
+  locality: 'local' | 'cloud' | 'unknown' | 'off';
   detail: string;
 }
 

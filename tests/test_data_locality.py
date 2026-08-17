@@ -15,7 +15,16 @@ from pathlib import Path
 import tempfile
 import unittest
 
-from app.data_locality import CLOUD, LOCAL, OFF, conversation_locality, is_cloud, locality
+from app.data_locality import (
+    CLOUD,
+    LOCAL,
+    OFF,
+    UNKNOWN,
+    conversation_locality,
+    is_cloud,
+    leaves_this_machine,
+    locality,
+)
 from app.task_contracts import TASK_ROLES
 from tests.support import TestApp
 
@@ -29,13 +38,15 @@ class LocalityNamingTests(unittest.TestCase):
         self.assertEqual(locality("disabled"), OFF)
         self.assertEqual(locality(None), OFF)
 
-    def test_an_unrecognised_provider_is_described_as_local(self):
-        # A provider added later is local until somebody puts it on the cloud
-        # list, so the list is the thing to keep honest rather than a guess
-        # about names. Being wrong this way understates nothing: an unknown
-        # local adapter is the common case.
-        self.assertEqual(locality("some-lan-service"), LOCAL)
-        self.assertFalse(is_cloud("some-lan-service"))
+    def test_an_unrecognised_provider_says_nobody_knows(self):
+        # Calling it local would be a privacy claim made on no evidence, and
+        # the person who most needs this answer is the one it would mislead.
+        self.assertEqual(locality("some-new-service"), UNKNOWN)
+        self.assertFalse(is_cloud("some-new-service"))
+        # It is not cloud, but it still counts as leaving, because nobody can
+        # say it does not.
+        self.assertTrue(leaves_this_machine("some-new-service"))
+        self.assertFalse(leaves_this_machine("ollama"))
 
 
 class LocalitySummaryTests(unittest.TestCase):
@@ -56,6 +67,15 @@ class LocalitySummaryTests(unittest.TestCase):
         self.assertFalse(summary["everything_local"])
         speech = next(part for part in summary["parts"] if part["label"] == "What you say")
         self.assertEqual(speech["locality"], CLOUD)
+
+    def test_one_unclassified_provider_is_enough_to_stop_the_claim(self):
+        summary = conversation_locality({"stt_provider": "some-new-service"}, "ollama", True)
+
+        # "Everything runs here" is a claim, and one unclassified part is
+        # enough that nobody can make it honestly.
+        self.assertFalse(summary["everything_local"])
+        speech = next(part for part in summary["parts"] if part["label"] == "What you say")
+        self.assertEqual(speech["locality"], UNKNOWN)
 
     def test_something_switched_off_is_not_counted_as_leaving(self):
         summary = conversation_locality({"stt_provider": "disabled", "tts_provider": "disabled"}, "ollama", False)

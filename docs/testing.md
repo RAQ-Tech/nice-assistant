@@ -461,10 +461,10 @@ installed-browser acceptance.
   reply path never goes looking for a model that has not been proven present,
   one failure stops it being asked again, and keeping vectors current does not
   depend on the picture scheduler being switched on.
-- Data locality tests prove a provider is named local, cloud, or off; that an
-  unrecognised one is described as local, which is right for a LAN adapter and
-  is why the cloud list is the thing to keep honest; that something switched off
-  is counted as neither; that a fresh account is entirely local; that choosing a
+- Data locality tests prove a provider is named local, cloud, unknown, or off;
+  that an unrecognised one reads as unknown rather than local, and that one
+  unclassified part is enough to stop the summary claiming everything stays
+  here; that something switched off is counted as neither; that a fresh account is entirely local; that choosing a
   cloud provider is reported rather than prevented; and that no task role starts
   out on one. The homepage summary is tested for saying plainly when something
   leaves, in words rather than only in colour, and for not taking the rest of

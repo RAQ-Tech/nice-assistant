@@ -11,7 +11,7 @@ from fastapi.responses import FileResponse, StreamingResponse
 from pydantic import BaseModel, ConfigDict, Field
 
 from app.application import ApplicationServices
-from app.data_locality import conversation_locality, is_cloud
+from app.data_locality import conversation_locality, leaves_this_machine
 from app.provider_contracts import CancellationToken
 from app.resource_service import AuthContext
 from app.runtime import SESSION_COOKIE
@@ -2101,7 +2101,7 @@ def video_job(
 class DataLocalityPart(BaseModel):
     label: str
     provider: str
-    locality: Literal["local", "cloud", "off"]
+    locality: Literal["local", "cloud", "unknown", "off"]
     detail: str
 
 
@@ -2126,7 +2126,7 @@ def data_locality(request: Request, context: AuthContext = Depends(current_user)
     # a single background job sending conversation text off the machine is the
     # thing somebody would want to know about.
     task_provider = next(
-        (profile["provider"] for profile in profiles if is_cloud(profile.get("provider"))),
+        (profile["provider"] for profile in profiles if leaves_this_machine(profile.get("provider"))),
         profiles[0]["provider"] if profiles else "ollama",
     )
     return conversation_locality(settings, task_provider, services_.memory.semantic_recall_configured)

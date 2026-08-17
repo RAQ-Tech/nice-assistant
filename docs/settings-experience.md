@@ -39,6 +39,10 @@ having paired them. And every control that offers a provider says which kind it
 is, in the option itself - "leaves this machine" rather than a warning paragraph
 somebody has already scrolled past.
 
+A provider nobody has classified reads as unknown, not as local. A privacy
+claim should fail closed, and an unknown part stops the page claiming everything
+stays here.
+
 The homepage carries the summary: one line per part of a conversation, saying
 where it goes right now. It is there so the answer to "is this private" is a
 thing you can look at rather than a thing you have to reconstruct from four

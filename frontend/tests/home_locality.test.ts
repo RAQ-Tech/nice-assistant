@@ -61,11 +61,27 @@ describe('Where this goes', () => {
     render();
 
     const card = root.querySelector('[data-testid="home-locality"]');
-    expect(card?.textContent).toContain('Some of this is sent to a service on the internet.');
+    expect(card?.textContent).toContain('Some of this leaves this machine');
     // The words carry it, not the colour, so it reads the same to somebody who
     // cannot see the colour.
     expect(card?.textContent).toContain('openai — leaves this machine');
     expect(root.querySelector('[data-testid="home-locality-cloud"]')).not.toBeNull();
+  });
+
+  it('admits when nobody has said where something runs', async () => {
+    const { view, root, render } = setup(locality({
+      everything_local: false,
+      parts: [
+        { label: 'Pictures', provider: 'some-new-service', locality: 'unknown', detail: 'Images are generated.' },
+      ],
+    }));
+    await view.refresh();
+    render();
+
+    const card = root.querySelector('[data-testid="home-locality"]');
+    // Better to say nobody knows than to claim it stays here on no evidence.
+    expect(card?.textContent).toContain('nobody has said where this runs');
+    expect(card?.textContent).toContain('or nobody has said whether it does');
   });
 
   it('shows the rest of the page when this one thing cannot be loaded', async () => {

@@ -14,10 +14,11 @@ plain words, where each part of a conversation currently goes.
 from __future__ import annotations
 
 
-# Provider keys that send data to somebody else's computer. Names, not
-# guesswork: a provider added later is off this list until somebody puts it on,
-# and being absent means it is described as local, so the list is the thing to
-# keep honest.
+# Both lists are explicit, and anything on neither is unknown. Guessing in
+# either direction is wrong, but they are not equally wrong: calling an
+# unrecognised provider local is a privacy claim made on no evidence, and the
+# person who most needs this answer is the one who would be misled by it. So a
+# provider nobody has classified says so, and adding one means adding it here.
 CLOUD_PROVIDERS = frozenset(
     {
         "openai",
@@ -25,23 +26,47 @@ CLOUD_PROVIDERS = frozenset(
         "openai-video",
     }
 )
+LOCAL_PROVIDERS = frozenset(
+    {
+        "ollama",
+        # The settings call their own on-machine option "local"; the catalog
+        # calls its ComfyUI and Automatic1111 backends "local-image".
+        "local",
+        "local-image",
+        "kokoro",
+        # A LAN face-comparison service. Not this machine, but not the internet
+        # either, and it is the owner's own box either way.
+        "compreface",
+    }
+)
 
 LOCAL = "local"
 CLOUD = "cloud"
+UNKNOWN = "unknown"
 OFF = "off"
 
 
 def locality(provider: str | None) -> str:
-    """Where a provider sends what it is given."""
+    """Where a provider sends what it is given, or that nobody has said."""
 
     name = str(provider or "").strip().lower()
     if not name or name == "disabled":
         return OFF
-    return CLOUD if name in CLOUD_PROVIDERS else LOCAL
+    if name in CLOUD_PROVIDERS:
+        return CLOUD
+    if name in LOCAL_PROVIDERS:
+        return LOCAL
+    return UNKNOWN
 
 
 def is_cloud(provider: str | None) -> bool:
     return locality(provider) == CLOUD
+
+
+def leaves_this_machine(provider: str | None) -> bool:
+    """True when it goes out, or when nobody can say it does not."""
+
+    return locality(provider) in (CLOUD, UNKNOWN)
 
 
 def _entry(label: str, provider: str | None, detail: str) -> dict:
@@ -77,5 +102,8 @@ def conversation_locality(settings: dict, task_provider: str | None, embedding_c
     ]
     return {
         "parts": parts,
-        "everything_local": all(part["locality"] != CLOUD for part in parts),
+        # An unknown provider counts against this. Claiming everything stays
+        # here while one part is unclassified is exactly the mistake this
+        # summary exists to prevent.
+        "everything_local": all(part["locality"] in (LOCAL, OFF) for part in parts),
     }

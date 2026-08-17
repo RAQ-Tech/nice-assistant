@@ -19,9 +19,11 @@ rather than incidental.
 
 The homepage says where each part of a conversation currently goes, computed by
 `app/data_locality.py` so the browser cannot drift from the server's answer.
-That list is the thing to keep honest when a provider is added: an unrecognised
-provider is described as local, which is right for a LAN adapter and wrong for a
-cloud one.
+Both lists there are explicit, and a provider on neither reads as unknown rather
+than as local. Guessing either way is wrong, but not equally wrong: calling an
+unrecognised provider local is a privacy claim made on no evidence, and the
+person who most needs the answer is the one it would mislead. An unknown part
+also stops the summary claiming everything stays on this machine.
 
 ## What a readiness check knows
 

@@ -178,7 +178,7 @@ export class HomeView {
         'data-testid': 'home-locality-summary',
         textContent: locality.everything_local
           ? 'Everything switched on runs on this machine.'
-          : 'Some of this is sent to a service on the internet.',
+          : 'Some of this leaves this machine, or nobody has said whether it does.',
       }),
       el('ul', { class: 'home-facts' }, locality.parts.map((part) => el('li', {
         class: 'home-fact',
@@ -192,7 +192,11 @@ export class HomeView {
             ? 'Off'
             : part.locality === 'cloud'
               ? `${part.provider} — leaves this machine`
-              : `${part.provider} — on this machine`,
+              : part.locality === 'unknown'
+                // Saying "on this machine" here would be a privacy claim
+                // nobody has checked, which is worse than admitting ignorance.
+                ? `${part.provider} — nobody has said where this runs`
+                : `${part.provider} — on this machine`,
         }),
       ]))),
     ]);

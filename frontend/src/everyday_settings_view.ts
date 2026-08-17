@@ -537,6 +537,7 @@ export class EverydaySettingsView {
 // Providers that send data to somebody else's computer. Kept in step with
 // `app/data_locality.py`, which is what the homepage summary reads.
 const CLOUD_PROVIDERS = new Set(['openai', 'openai-image', 'openai-video']);
+const LOCAL_PROVIDERS = new Set(['ollama', 'local', 'local-image', 'kokoro', 'compreface']);
 
 /**
  * A provider name with where it runs attached.
@@ -549,7 +550,9 @@ function providerLabel(value: string): string {
   if (value === 'disabled') return 'Off';
   if (value === 'local') return 'Local service — on this machine';
   if (CLOUD_PROVIDERS.has(value)) return `${titleCase(value)} — leaves this machine`;
-  return `${titleCase(value)} — on this machine`;
+  if (LOCAL_PROVIDERS.has(value)) return `${titleCase(value)} — on this machine`;
+  // Neither list claims it, so neither does this.
+  return `${titleCase(value)} — nobody has said where this runs`;
 }
 
 function languageLabel(value: string): string {
