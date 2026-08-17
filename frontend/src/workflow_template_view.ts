@@ -1,7 +1,13 @@
 import type { ApiClient } from './api';
 import { el, errorMessage } from './dom';
-import { settingsHeading, titleCase } from './settings_ui';
-import type { AppState, IdentityWorkflowInspection, WorkflowTemplate, WorkflowTemplateList } from './types';
+import { selectControl as select, settingField as field, settingsHeading, titleCase } from './settings_ui';
+import type {
+  AppState,
+  IdentityWorkflowInspection,
+  MediaPreset,
+  WorkflowTemplate,
+  WorkflowTemplateList,
+} from './types';
 
 const MECHANISM_LABELS: Record<string, string> = {
   reference_adapter: 'Conditions generation on the reference',
@@ -20,6 +26,8 @@ export class WorkflowTemplateView {
   private loadedModelId = '';
   private busy = false;
   private checks: Record<string, IdentityWorkflowInspection> = {};
+  private presets: MediaPreset[] = [];
+  private presetId = '';
 
   constructor(
     private readonly renderApp: () => void,
@@ -90,6 +98,16 @@ export class WorkflowTemplateView {
         el('ul', {}, template.required_assets.map((item) => el('li', { textContent: item }))),
       ]),
       check ? this.checkResult(check) : null,
+      // A later pass is useless on its own: something has to run it after a
+      // picture exists. Choosing the recipe here is what keeps that out of a
+      // hand-edited definition JSON.
+      template.mechanism === 'identity_pass' && this.presets.length
+        ? field(
+            'Add it to this recipe as a second pass',
+            this.presetSelect(),
+            'The recipe generates the picture, and this pass replaces the face in it afterwards.',
+          )
+        : null,
       el('div', { class: 'chips' }, [
         el('button', {
           class: 'pill-btn',
@@ -107,6 +125,17 @@ export class WorkflowTemplateView {
         }),
       ]),
     ]);
+  }
+
+  private presetSelect(): HTMLSelectElement {
+    const control = select(
+      this.presetId,
+      ['', ...this.presets.map((item) => item.id)],
+      (value) => { this.presetId = value; },
+      (value) => this.presets.find((item) => item.id === value)?.name ?? 'Do not add it to a recipe yet',
+    );
+    control.dataset.testid = 'workflow-template-preset';
+    return control;
   }
 
   private checkResult(check: IdentityWorkflowInspection): HTMLElement {
@@ -135,7 +164,12 @@ export class WorkflowTemplateView {
   private async load(modelId: string): Promise<void> {
     this.busy = true;
     try {
-      this.list = await this.client.workflowTemplates(modelId);
+      const [list, presets] = await Promise.all([
+        this.client.workflowTemplates(modelId),
+        this.client.mediaPresets(),
+      ]);
+      this.list = list;
+      this.presets = presets.items.filter((item) => item.kind === 'image');
     } catch (error) {
       this.appState.settingsError = errorMessage(error, 'Workflow templates could not be loaded.');
     } finally {
@@ -163,7 +197,8 @@ export class WorkflowTemplateView {
     this.appState.settingsError = '';
     this.renderApp();
     try {
-      await this.client.installWorkflowTemplate(template.id, modelId);
+      const presetId = template.mechanism === 'identity_pass' ? this.presetId : '';
+      await this.client.installWorkflowTemplate(template.id, modelId, '', presetId);
       await this.refreshCatalog();
       this.loadedModelId = '';
     } catch (error) {

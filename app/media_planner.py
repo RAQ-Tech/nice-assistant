@@ -288,6 +288,7 @@ def _requirement_failures(
     coverage_ops: set[str],
     coverage_content: set[str],
     coverage_features: set[str],
+    stage_workflows: list | None = None,
 ) -> list[str]:
     """Every reason this preset cannot serve the request, named individually."""
 
@@ -302,7 +303,9 @@ def _requirement_failures(
     missing_features = sorted(required_features - coverage_features)
     if missing_features:
         reasons.append("missing required features: " + ", ".join(missing_features))
-    mechanisms = set(definition.get("identity_mechanisms") or []) | workflow_mechanisms(workflow)
+    mechanisms = set(definition.get("identity_mechanisms") or [])
+    for row in [workflow, *(stage_workflows or [])]:
+        mechanisms |= workflow_mechanisms(row)
     if required_mechanism and required_mechanism not in mechanisms:
         # Named, because "this preset cannot do reference_adapter" tells the
         # operator what to fix; a generic rejection does not.
@@ -341,11 +344,18 @@ def _evaluate_preset(
         required_features=required_features,
     )
 
+    # Resolved before coverage, not after: a preset may do the identity work in
+    # a later pass, and a capability only a later pass provides is still a
+    # capability this preset has.
+    stages, stage_reasons = _resolve_stages(definition, workflow, resources)
+    reasons.extend(stage_reasons)
+    stage_workflows = [row for _name, row in stages if row]
+
     coverage_domains = set(_json(preset.domains_json, [])) | set(_json(base.domains_json, []))
     coverage_content = set(_json(preset.content_tags_json, [])) | set(_json(base.content_tags_json, []))
     coverage_features = set(_json(preset.features_json, [])) | set(_json(base.features_json, []))
     coverage_ops = set(_json(preset.operations_json, [])) | set(_json(base.operations_json, []))
-    for row in [workflow, *[lora for lora, _weight in fixed_loras]]:
+    for row in [workflow, *stage_workflows, *[lora for lora, _weight in fixed_loras]]:
         if not row:
             continue
         coverage_domains.update(_json(row.domains_json, []))
@@ -385,13 +395,11 @@ def _evaluate_preset(
             coverage_ops=coverage_ops,
             coverage_content=coverage_content,
             coverage_features=coverage_features,
+            stage_workflows=stage_workflows,
         )
     )
 
     loras = fixed_loras + slot_loras
-    stages, stage_reasons = _resolve_stages(definition, workflow, resources)
-    reasons.extend(stage_reasons)
-    stage_workflows = [row for _name, row in stages if row]
     selected = [base] + ([workflow] if workflow else []) + [row for row, _weight in loras]
     for row in stage_workflows:
         if row not in selected:
@@ -452,17 +460,26 @@ def workflow_mechanisms(workflow) -> set[str]:
     A preset's declared list is what the operator meant; this is what the plan
     can demonstrably do. Either is enough, which keeps a preset from being
     refused for a capability its attached workflow plainly has, and keeps a
-    stored guess from being the only thing that decides. A graph that declares
-    identity control and names where the reference goes conditions at
-    generation, which is `reference_adapter`.
+    stored guess from being the only thing that decides.
+
+    A graph that declares identity control, names where the reference goes, and
+    can generate conditions during generation - `reference_adapter`. One that
+    can only be handed a finished picture applies the face afterwards -
+    `identity_pass`.
     """
 
     if not workflow:
         return set()
     settings = _json(workflow.default_settings_json, {})
     features = set(_json(workflow.features_json, []))
-    if IDENTITY_CONTROL_FEATURE in features and settings.get("identity_image_bindings"):
+    if IDENTITY_CONTROL_FEATURE not in features or not settings.get("identity_image_bindings"):
+        return set()
+    if "generate" in set(_json(workflow.operations_json, [])):
         return {"reference_adapter"}
+    if settings.get("source_image_bindings"):
+        # It cannot make a picture, only change one it is handed. That is a
+        # pass over a finished image rather than conditioning during one.
+        return {"identity_pass"}
     return set()
 
 
@@ -631,6 +648,9 @@ def _execution_options(preset, winner: dict, snapshots: list[dict]) -> dict:
         options["stages"] = [
             {
                 "name": name,
+                # Which graph this pass runs, so a snapshot taken at planning
+                # time can say which pass owns the identity bindings.
+                "workflow_resource_id": row.id,
                 **{
                     key: _json(row.default_settings_json, {}).get(key)
                     for key in WORKFLOW_SETTING_KEYS

@@ -150,9 +150,12 @@ export interface VisualIdentityProfile {
   appearance_description: string;
   acceptance_threshold: number;
   max_generation_attempts: number;
-  // How resemblance is produced. `identity_pass` is declared by the server but
-  // nothing implements it yet, so the settings view does not offer it.
+  // How resemblance is produced.
   conditioning_mechanism: 'reference_adapter' | 'identity_pass';
+  // Which mechanisms this catalog could actually apply. The settings control
+  // offers these rather than everything the server can name, because a value
+  // that can only block is worse than no choice.
+  available_mechanisms?: ('reference_adapter' | 'identity_pass')[];
   comparison_retry_enabled: boolean;
   failure_policy: 'block_claim' | 'show_unverified';
   conditioning_fallback: 'allow_unconditioned' | 'require_conditioning';

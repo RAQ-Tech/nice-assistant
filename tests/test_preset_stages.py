@@ -157,6 +157,34 @@ class PresetStageTests(unittest.TestCase):
             self.assertEqual(provider.requests[1].options["operation"], "image_to_image")
             self.assertTrue(provider.requests[1].options["local_settings"]["source_image_path"])
 
+    def test_a_binding_a_later_pass_does_not_declare_does_not_survive_into_it(self):
+        with tempfile.TemporaryDirectory() as tmp, TestApp(Path(tmp), chat_provider=chat_provider()) as running:
+            provider = self._ready(running)
+            model = self._model(running)
+            base = self._workflow(running, model["id"], name="Base pass", node="100", source=False)
+            detail = self._workflow(running, model["id"], name="Detail pass", node="101", source=True)
+            # Only the first graph has node 900 bound for width, so if the
+            # second inherited it the injection would target a node that is not
+            # in its graph and the pass would fail at submit time.
+            self._preset(
+                running,
+                model["id"],
+                [
+                    {"name": "base", "workflow_resource_id": base["id"]},
+                    {"name": "detail", "workflow_resource_id": detail["id"]},
+                ],
+            )
+
+            self._generate(running)
+
+            first, second = (request.options["local_settings"] for request in provider.requests)
+            self.assertEqual(first["prompt_bindings"], [{"node_id": "900", "input_name": "text"}])
+            self.assertEqual(second["prompt_bindings"], [{"node_id": "900", "input_name": "text"}])
+            # Assigned per pass, never merged: the second graph has no source
+            # binding of the first's, and the first has none of the second's.
+            self.assertEqual(first["source_image_bindings"], [])
+            self.assertEqual(second["source_image_bindings"], [{"node_id": "101", "input_name": "image"}])
+
     def test_each_stage_records_its_own_journal_entry(self):
         with tempfile.TemporaryDirectory() as tmp, TestApp(Path(tmp), chat_provider=chat_provider()) as running:
             self._ready(running)

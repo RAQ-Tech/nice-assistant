@@ -16,6 +16,7 @@ from app.identity_images import (
     read_identity_image_file,
 )
 from app.job_service import JobExecution, job_response
+from app.media_planner import workflow_mechanisms
 from app.provider_contracts import CancellationToken, ProviderError, ProviderStatus
 from app.repositories import UnitOfWork, now_ts
 from app.service_errors import ConflictError, NotFoundError, RequestError
@@ -170,6 +171,7 @@ class IdentityService:
                     persona_id,
                     generation_workflow_configured=generation_configured,
                     verification_configured=verification_configured,
+                    available_mechanisms=self._available_mechanisms(uow.repo, user_id),
                 )
             return self._profile_response(uow.repo, identity)
 
@@ -810,6 +812,7 @@ class IdentityService:
         approved = sum(row.review_status == "approved" for row in references)
         generation_workflow_configured, verification_configured = self._configuration_readiness(repo, identity.user_id)
         return {
+            "available_mechanisms": self._available_mechanisms(repo, identity.user_id),
             "id": identity.id,
             "persona_id": identity.persona_id,
             "status": identity.status,
@@ -838,6 +841,28 @@ class IdentityService:
             ),
             "references": [self._reference_response(row) for row in references],
         }
+
+    @staticmethod
+    def _available_mechanisms(repo, user_id: str) -> list[str]:
+        """Which conditioning mechanisms this catalog could actually apply.
+
+        The settings control offers these rather than everything the server can
+        name, because a value that can only block is worse than no choice.
+        """
+
+        enabled_resources = repo.media_catalog_resources(user_id, enabled=True)
+        model_ids = {
+            row.id
+            for row in enabled_resources
+            if row.resource_type == "model" and row.kind == "image" and row.backend == "comfyui"
+        }
+        compatibility = repo.media_compatibility_map(user_id)
+        found: set[str] = set()
+        for row in enabled_resources:
+            if row.resource_type != "workflow" or not (compatibility.get(row.id, set()) & model_ids):
+                continue
+            found |= workflow_mechanisms(row)
+        return sorted(found)
 
     @staticmethod
     def _configuration_readiness(repo, user_id: str) -> tuple[bool, bool]:
@@ -873,8 +898,10 @@ class IdentityService:
         *,
         generation_workflow_configured: bool = False,
         verification_configured: bool = False,
+        available_mechanisms: list[str] | None = None,
     ) -> dict:
         return {
+            "available_mechanisms": available_mechanisms or [],
             "id": None,
             "persona_id": persona_id,
             "status": "draft",

@@ -142,9 +142,20 @@ describe('Visual identity settings', () => {
   it('names how the face is produced rather than offering a choice of one', () => {
     const { root } = setup();
     expect(root.textContent).toContain('Condition generation on the reference image');
-    // Only one mechanism is implemented, so there is nothing to choose between
-    // and a select would be a control that cannot do anything.
+    // This catalog can apply one technique, so there is nothing to choose
+    // between and a select would be a control that cannot do anything.
     expect(root.querySelector('[data-testid="identity-mechanism"]')?.tagName).not.toBe('SELECT');
+  });
+
+  it('offers a choice once the catalog can apply more than one technique', () => {
+    const { appState, root, render } = setup();
+    appState.identityProfiles.nova!.available_mechanisms = ['identity_pass', 'reference_adapter'];
+    render();
+
+    const control = root.querySelector('[data-testid="identity-mechanism"]') as HTMLSelectElement;
+    expect(control.tagName).toBe('SELECT');
+    expect([...control.options].map((option) => option.value)).toEqual(['identity_pass', 'reference_adapter']);
+    expect(root.textContent).toContain('Replace the face after generation');
   });
 
   it('turns readiness summaries into direct setup actions', () => {

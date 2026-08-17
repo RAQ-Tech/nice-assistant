@@ -78,6 +78,9 @@ def needs_binding_review(row) -> bool:
     settings = _json(getattr(row, "default_settings_json", None), {})
     if not isinstance(settings, dict):
         return False
+    if not settings.get("consumes_prompt", True):
+        # It takes no text, so there is no prompt input to go back and choose.
+        return False
     return bool(settings.get("workflow_patch")) and not settings.get("prompt_bindings")
 
 
@@ -653,7 +656,42 @@ class MediaCatalogService:
             self._ensure_unique_external(uow.repo, user_id, normalized)
             row = uow.repo.add_media_catalog_resource(user_id, normalized)
             uow.repo.replace_media_resource_compatibility(row.id, compatible_ids)
+            preset_id = str((values or {}).get("preset_id") or "").strip()
+            if preset_id:
+                self._attach_stage_to_preset(uow.repo, user_id, preset_id, template, row)
             return self._resource_response(uow.repo, row)
+
+    def _attach_stage_to_preset(self, repo, user_id: str, preset_id: str, template: dict, workflow) -> None:
+        """Add an installed post-pass to a recipe as a second pass.
+
+        Otherwise the only way to use one is to hand-edit a preset's definition
+        JSON, which is the node-graph problem again in a different costume.
+        """
+
+        preset = repo.media_preset(user_id, preset_id)
+        if not preset:
+            raise NotFoundError("generation preset not found")
+        if "generate" in template["operations"]:
+            raise RequestError(
+                "only a workflow that runs over a finished picture can be added to a recipe as a later pass",
+                400,
+            )
+        definition = _json(preset.definition_json, {})
+        stages = list(definition.get("stages") or [])
+        if not stages:
+            stages = [{"name": "base", "workflow_resource_id": definition.get("workflow_resource_id") or ""}]
+        name = template["mechanism"]
+        suffix = 2
+        while any(stage.get("name") == name for stage in stages):
+            name = f"{template['mechanism']}{suffix}"
+            suffix += 1
+        stages.append({"name": name, "workflow_resource_id": workflow.id})
+        definition["stages"] = stages
+        mechanisms = sorted({*(definition.get("identity_mechanisms") or []), template["mechanism"]})
+        definition["identity_mechanisms"] = mechanisms
+        definition = normalize_definition(definition)
+        self._check_preset_references(repo, user_id, preset.kind, definition)
+        repo.update_media_preset(preset, {"definition_json": _wire_json(definition)})
 
     def delete_resource(self, user_id: str, resource_id: str) -> bool:
         with self._uow() as uow:
@@ -1553,7 +1591,7 @@ class MediaCatalogService:
         bindings = snapshot.get("identity_image_bindings")
         if options.get("backend") != "comfyui" or not isinstance(bindings, list) or not bindings:
             raise ConflictError("The selected adapter cannot execute the identity-aware workflow.")
-        options["identity_image_bindings"] = bindings
+        MediaCatalogService._place_identity_bindings(options, snapshot, bindings)
         options["_identity_reference_path"] = str(Path(reference.local_path))
         options["_identity_reference_sha256"] = reference.sha256
         options["_identity_conditioning"] = snapshot
@@ -1568,6 +1606,33 @@ class MediaCatalogService:
                 raise ConflictError(
                     "The identity correction workflow changed after this request was planned. Create a new request."
                 )
+
+    @staticmethod
+    def _place_identity_bindings(options: dict, snapshot: dict, bindings: list) -> None:
+        """Give the bindings to the pass whose graph actually has those nodes.
+
+        A preset may do the identity work in a later pass - generate the scene,
+        then apply the face. Writing the bindings at the top level put that
+        pass's node IDs into the first pass's graph, where they do not exist,
+        so every multi-pass identity preset failed at upload time.
+        """
+
+        stages = options.get("stages") or []
+        if not stages:
+            options["identity_image_bindings"] = bindings
+            return
+        owner = next(
+            (stage for stage in stages if stage.get("workflow_resource_id") == snapshot.get("workflow_resource_id")),
+            None,
+        )
+        if owner is None:
+            raise ConflictError(
+                "The identity workflow is no longer one of this preset's passes. Retry the request before execution."
+            )
+        owner["identity_image_bindings"] = bindings
+        # The first pass runs from the top-level values rather than from its
+        # stage entry, so it is the only one that sets them there.
+        options["identity_image_bindings"] = bindings if owner is stages[0] else []
 
     def _ensure_imported(self, repo, user_id: str) -> None:
         setting = repo.media_catalog_setting(user_id)
@@ -1727,13 +1792,27 @@ class MediaCatalogService:
                     "identity image bindings require the identity_control feature",
                     400,
                 )
-            if enabled and patch and not default_settings.get("prompt_bindings"):
-                # A workflow that cannot receive the request renders the text
-                # saved inside it and still returns a picture, so the failure is
-                # invisible. Refusing is the only honest option; see ADR 0030.
+            if (
+                enabled
+                and patch
+                and default_settings.get("consumes_prompt", True)
+                and not default_settings.get("prompt_bindings")
+            ):
+                # A workflow that renders from a prompt but cannot receive the
+                # request renders the text saved inside it and still returns a
+                # picture, so the failure is invisible. Refusing is the only
+                # honest option; see ADR 0030. A graph that takes no text at all
+                # - a face swap over a finished picture - says so instead, and
+                # binding a prompt into its face-index widget would be worse
+                # than having no binding.
                 raise RequestError(
                     "enabled ComfyUI workflows require at least one prompt binding so the request reaches the "
                     "graph. Import the workflow and choose its positive prompt input.",
+                    400,
+                )
+            if not default_settings.get("consumes_prompt", True) and "generate" in set(operations):
+                raise RequestError(
+                    "a workflow that takes no prompt cannot generate a picture; it can only change one it is handed",
                     400,
                 )
             if enabled and set(operations) & {"image_to_image", "inpaint", "outpaint"} and not source_bindings:
@@ -1800,6 +1879,7 @@ class MediaCatalogService:
                 "mask_image_bindings",
                 "required_prompt_token",
                 "prompt_prefix",
+                "consumes_prompt",
                 *WORKFLOW_BINDING_KEYS,
             }
         if set(values) - allowed:
@@ -1840,6 +1920,7 @@ class MediaCatalogService:
                 )
             result["required_prompt_token"] = token
             result["prompt_prefix"] = prefix
+            result["consumes_prompt"] = bool(result.get("consumes_prompt", True))
         if resource_type == "model":
             if "prompt_dialect" in result:
                 result["prompt_dialect"] = normalize_dialect(result["prompt_dialect"])

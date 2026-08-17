@@ -172,6 +172,20 @@ is in the prompt now declares that word and the prefix that supplies it, so it
 cannot quietly return an ordinary picture. Importing a graph of your own is
 still there, behind a disclosure.
 
+Stage 4 is delivered. `identity_pass` - generate the picture, then replace the
+face - now runs. It failed deterministically before: the second pass's bindings
+were written at the top level and injected into the first pass's graph, where
+those nodes do not exist, and a recipe whose identity capability lived in a
+later pass could not satisfy the requirement at all because coverage ignored
+later passes. Bindings are now assigned per pass rather than merged, the
+reference goes to the pass whose graph has the nodes for it, and a capability a
+later pass provides counts. A workflow may declare that it takes no prompt,
+which a face swap genuinely does not - its only string widgets are face indexes,
+and binding the request into one would be worse than having no binding. A
+ReActor template ships for it, installable straight into a recipe as a second
+pass so nobody hand-edits a definition. The settings control offers exactly the
+mechanisms this catalog can apply.
+
 Remaining stages, in order:
 
 1. **One identity-conditioned picture.** Install the PhotoMaker v2 template
@@ -181,15 +195,7 @@ Remaining stages, in order:
     **Done when** a picture with a recognizable face exists and its generation
     log shows the conditioning stage.
 
-2. **`identity_pass`.** Planning already accepts a second-stage identity
-    workflow; execution copies its bindings to the top level and injects them
-    into stage one, which has no such node, so it fails deterministically. Fix
-    the four places that assume one graph per request, then offer the mechanism
-    in the settings control that currently only states it. Until then the value
-    stays unoffered: a control must not present a choice that can only block.
-    **Done when** a two-stage preset runs with stage two doing the identity work.
-
-3. **CompreFace as a calibration aid.** Framing and documentation only. It is
+2. **CompreFace as a calibration aid.** Framing and documentation only. It is
     the tool that answers how much likeness a checkpoint family costs, with
     numbers. Independent of everything above.
 

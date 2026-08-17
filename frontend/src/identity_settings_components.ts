@@ -13,17 +13,24 @@ import type { AppState, VisualIdentityProfile } from './types';
 type Mechanism = VisualIdentityProfile['conditioning_mechanism'];
 
 // ADR 0031: resemblance comes from a declared structural mechanism, not from
-// comparing the result afterwards. The server declares two; only the first is
-// implemented, so only the first is offered. A control that lets someone pick a
-// value which can only block is worse than no control.
+// comparing the result afterwards. Which of them can be picked is what the
+// catalog can actually apply, reported by the server: a control that lets
+// someone choose a value which can only block is worse than no control.
 const MECHANISM_LABELS: Record<Mechanism, string> = {
   reference_adapter: 'Condition generation on the reference image',
   identity_pass: 'Replace the face after generation',
 };
-const AVAILABLE_MECHANISMS: readonly Mechanism[] = ['reference_adapter'];
 
 const MECHANISM_HELP =
-  'How the persona’s face is produced. Conditioning applies the approved reference while the image is being made, using an identity-capable ComfyUI workflow configured in Media Catalog. Every picture records which technique produced its face.';
+  'How the persona’s face is produced. Conditioning applies the approved reference while the image is being made. A later pass generates the picture first and then replaces the face, which works with checkpoints no adapter can condition but cannot change pose or lighting. Both are configured in Media Catalog, and every picture records which one produced its face.';
+
+function offeredMechanisms(profile: VisualIdentityProfile): Mechanism[] {
+  const available = profile.available_mechanisms ?? [];
+  const current = profile.conditioning_mechanism ?? 'reference_adapter';
+  // What is stored stays selectable even if its workflow was since removed, so
+  // opening this screen cannot silently change what a persona is set to.
+  return available.includes(current) ? [...available] : [current, ...available];
+}
 
 export function identityImageButton(
   url: string,
@@ -134,7 +141,8 @@ export function identityReadinessCard(
 
 function mechanismField(profile: VisualIdentityProfile, changed: () => void): HTMLElement {
   const current = profile.conditioning_mechanism ?? 'reference_adapter';
-  if (AVAILABLE_MECHANISMS.length < 2) {
+  const offered = offeredMechanisms(profile);
+  if (offered.length < 2) {
     // Say plainly what will happen rather than offering a choice of one.
     return field(
       'How the face is produced',
@@ -142,10 +150,12 @@ function mechanismField(profile: VisualIdentityProfile, changed: () => void): HT
       MECHANISM_HELP,
     );
   }
-  return field('How the face is produced', select(current, AVAILABLE_MECHANISMS, (value) => {
+  const control = select(current, offered, (value) => {
     profile.conditioning_mechanism = value as Mechanism;
     changed();
-  }, (value) => MECHANISM_LABELS[value as Mechanism] ?? value), MECHANISM_HELP);
+  }, (value) => MECHANISM_LABELS[value as Mechanism] ?? value);
+  control.dataset.testid = 'identity-mechanism';
+  return field('How the face is produced', control, MECHANISM_HELP);
 }
 
 export function identityGenerationPolicyCard(

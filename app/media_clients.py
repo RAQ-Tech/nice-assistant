@@ -289,9 +289,12 @@ def _comfyui_upload_bound_image(base_url, settings, cancellation, *, role: str) 
     bindings = settings.get(f"{role}_bindings")
     if role == "identity_reference" and not bindings:
         bindings = settings.get("identity_image_bindings")
-    if not path_value and not bindings:
+    if not isinstance(bindings, list) or not bindings:
+        # Nothing in this graph receives the image, so there is nothing to
+        # upload. A path with no binding means another pass of this preset owns
+        # the reference, not that this pass is misconfigured.
         return None
-    if not path_value or not isinstance(bindings, list) or not bindings:
+    if not path_value:
         raise ValueError(f"ComfyUI {role.replace('_', ' ')} binding is incomplete")
     _cancelled(cancellation)
     path = Path(str(path_value))

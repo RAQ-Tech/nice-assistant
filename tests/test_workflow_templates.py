@@ -46,8 +46,16 @@ class ShippedTemplateTests(unittest.TestCase):
             # bindings, so a template cannot ship something a person could not
             # have saved by hand.
             normalized = MediaCatalogService._normalize_default_settings("workflow", "local-image", "comfyui", settings)
-            self.assertTrue(normalized["prompt_bindings"], template["id"])
             self.assertTrue(normalized["identity_image_bindings"], template["id"])
+            # A graph that renders from a prompt must be able to receive the
+            # request. One that only changes a picture it is handed says so,
+            # and binding a prompt into its face-index widget would be worse
+            # than having no binding at all.
+            if template["consumes_prompt"]:
+                self.assertTrue(normalized["prompt_bindings"], template["id"])
+            else:
+                self.assertFalse(normalized["prompt_bindings"], template["id"])
+                self.assertTrue(normalized["source_image_bindings"], template["id"])
 
     def test_a_reference_binding_targets_the_node_that_loads_the_image(self):
         for template in available_templates():
@@ -58,6 +66,20 @@ class ShippedTemplateTests(unittest.TestCase):
                 # something on a loader. Writing it into the identity node's
                 # own IMAGE input would replace a link with a string.
                 self.assertEqual(node["class_type"], "LoadImage", template["id"])
+
+    def test_a_pass_over_a_finished_picture_declares_what_it_receives(self):
+        template = resolve_template("reactor-face-swap")
+
+        self.assertEqual(template["mechanism"], "identity_pass")
+        self.assertEqual(template["operations"], ["image_to_image"])
+        self.assertFalse(template["consumes_prompt"])
+        # It is handed the previous pass's picture and the approved reference,
+        # and both must land on the nodes that load them.
+        self.assertTrue(template["bindings"]["source_image_bindings"])
+        self.assertTrue(template["bindings"]["identity_image_bindings"])
+        for role in ("source_image_bindings", "identity_image_bindings"):
+            for binding in template["bindings"][role]:
+                self.assertEqual(template["workflow"][binding["node_id"]]["class_type"], "LoadImage")
 
     def test_a_template_that_needs_a_trigger_word_ships_a_prefix_containing_it(self):
         for template in available_templates():
@@ -143,11 +165,15 @@ class TemplateOfferTests(ModelFixture, unittest.TestCase):
             ).json()
 
             self.assertEqual(listed["model_architecture"], "pony")
-            self.assertTrue(listed["templates"])
+            by_id = {item["id"]: item for item in listed["templates"]}
             # SDXL templates operate on the SDXL text encoder, which Pony
             # retrains. They are shown and marked, not hidden: the operator may
             # know something the declaration does not.
-            self.assertTrue(all(not item["architecture_matches"] for item in listed["templates"]))
+            self.assertFalse(by_id["photomaker-v2-sdxl"]["architecture_matches"])
+            self.assertFalse(by_id["instantid-sdxl"]["architecture_matches"])
+            # A pass over a finished picture never touches the text encoder, so
+            # the family it was rendered with does not matter.
+            self.assertTrue(by_id["reactor-face-swap"]["architecture_matches"])
 
     def test_an_undeclared_family_is_a_prompt_to_record_one_rather_than_a_refusal(self):
         with tempfile.TemporaryDirectory() as tmp, TestApp(Path(tmp)) as running:

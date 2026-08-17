@@ -166,6 +166,15 @@ behavior controls and the picture library's preferred recipes - so that refusal
 is the difference between a lost preference and a visible one. Omitting
 `revision` keeps last-writer-wins for any client that predates the guard.
 
+A persona declares how its face is produced. `reference_adapter` conditions
+generation on the approved reference; `identity_pass` generates the picture and
+then replaces the face, which is the only option for checkpoint families no
+adapter was trained against, and which cannot change pose or lighting. The
+settings control offers exactly the mechanisms this catalog can apply, reported
+with the profile, plus whatever the persona is already set to - a choice that
+can only block is worse than no choice. Every picture records which technique
+produced its face.
+
 Setting identity conditioning up starts from a shipped workflow template rather
 than from an exported graph. The templates carry their own bindings, so nothing
 asks which node receives the prompt or the reference; checking one asks ComfyUI

@@ -83,6 +83,14 @@ completed and the saved policy allows it, the request falls back to an
 explicitly unconditioned picture, and the mechanism requirement is dropped with
 the feature it belonged to.
 
+Presets are evaluated with their later passes included. A capability that only a
+second pass provides is still a capability the recipe has, so a preset that
+generates the scene and then applies the face covers `identity_control` even
+though its first graph does not. Each pass carries its own bindings: they are
+assigned per pass, never merged, because a binding a pass does not declare must
+not stay pointing at the previous graph's node IDs. The approved reference goes
+to the pass whose graph actually has the nodes for it.
+
 A preset may also declare an open workflow slot. That lets it reach a
 feature-capable graph it does not name itself, which is how identity
 conditioning is applied today. A graph filling that slot must declare the
@@ -595,11 +603,23 @@ that encoder. A mismatch is shown and marked rather than hidden - the operator
 may know something the declaration does not - and an undeclared family offers
 everything and asks for the declaration.
 
+A template whose mechanism is `identity_pass` can be installed straight into a
+recipe as a later pass. Otherwise the only way to use one would be to hand-edit
+a preset's definition JSON, which is the node-graph problem again in a different
+costume.
+
 Installing records `source_template_id` and `source_template_version` on the
 resource. A newer version of a template is offered, never applied: installing it
 writes a second workflow and leaves the first alone, because the graph in the
 catalog may have been tuned since. Null provenance is the normal state and means
 the graph did not come from a template.
+
+A workflow may declare `consumes_prompt: false`. A pass that only changes a
+picture it is handed - a face swap over a finished image - has no text input at
+all, and its only string widgets are face indexes; binding the request into one
+of those would be worse than having no binding. Such a workflow is exempt from
+the prompt-binding rule and refused if it also claims it can generate, because
+a graph that takes no prompt cannot make a picture from one.
 
 Some identity techniques only condition when a particular word appears in the
 prompt, and produce an ordinary picture without saying anything when it does

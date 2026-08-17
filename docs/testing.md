@@ -163,6 +163,12 @@ installed-browser acceptance.
   saved values must survive it: the browser gates its Save button on them, so a
   field the response model did not name made guided setup impossible to
   complete while every service-level test passed.
+- Identity pass tests prove a recipe that generates the scene and then replaces
+  the face runs both passes, that the approved reference goes to the pass whose
+  graph has the nodes for it rather than to the first one, that the finished
+  picture records which technique produced its face, that a persona is offered
+  only the mechanisms the catalog can apply, and that a graph declaring it takes
+  no prompt cannot also claim it can generate.
 - Workflow template tests prove every shipped graph normalizes, that its
   bindings validate against its own graph through the same code that validates
   an operator's, that a reference binding targets the node that loads the image

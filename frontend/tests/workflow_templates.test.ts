@@ -41,6 +41,7 @@ function setup(templates: WorkflowTemplate[], architecture = 'sdxl') {
       warnings: [],
     }),
     installWorkflowTemplate: vi.fn().mockResolvedValue({ id: 'workflow-9' }),
+    mediaPresets: vi.fn().mockResolvedValue({ items: [{ id: 'preset-1', name: 'Portrait recipe', kind: 'image' }] }),
   } as unknown as ApiClient;
   const refreshCatalog = vi.fn().mockResolvedValue(undefined);
   const root = document.createElement('div');
@@ -48,13 +49,17 @@ function setup(templates: WorkflowTemplate[], architecture = 'sdxl') {
   const render = () => root.replaceChildren(view.node('model-1', 'RealVis XL'));
   view = new WorkflowTemplateView(render, appState, client, refreshCatalog);
   render();
-  return { appState, client, refreshCatalog, root, render };
+  // The panel loads on its first render, so every test waits for the cards
+  // rather than for the call, which returns before the render that shows them.
+  const loaded = () => vi.waitFor(() => expect(root.querySelector('.workflow-template-card')).not.toBeNull());
+  return { appState, client, refreshCatalog, root, render, loaded };
 }
 
 describe('Workflow templates', () => {
   it('offers a shipped graph with what it needs, without claiming it has been run', async () => {
-    const { client, root } = setup([template()]);
-    await vi.waitFor(() => expect(client.workflowTemplates).toHaveBeenCalledWith('model-1'));
+    const { client, root, loaded } = setup([template()]);
+    await loaded();
+    expect(client.workflowTemplates).toHaveBeenCalledWith('model-1');
 
     expect(root.textContent).toContain('PhotoMaker v2 (SDXL)');
     expect(root.textContent).toContain('Conditions generation on the reference');
@@ -66,8 +71,8 @@ describe('Workflow templates', () => {
   });
 
   it('says what a check could not see rather than implying it checked everything', async () => {
-    const { client, root } = setup([template()]);
-    await vi.waitFor(() => expect(client.workflowTemplates).toHaveBeenCalled());
+    const { client, root, loaded } = setup([template()]);
+    await loaded();
 
     (root.querySelector('[data-testid="workflow-template-verify-photomaker-v2-sdxl"]') as HTMLButtonElement).click();
     await vi.waitFor(() => expect(client.verifyWorkflowTemplate).toHaveBeenCalledWith('photomaker-v2-sdxl'));
@@ -78,8 +83,8 @@ describe('Workflow templates', () => {
   });
 
   it('marks a family mismatch instead of hiding the template', async () => {
-    const { client, root } = setup([template({ architecture_matches: false })], 'pony');
-    await vi.waitFor(() => expect(client.workflowTemplates).toHaveBeenCalled());
+    const { client, root, loaded } = setup([template({ architecture_matches: false })], 'pony');
+    await loaded();
 
     const warning = root.querySelector('[data-testid="workflow-template-mismatch-photomaker-v2-sdxl"]');
     expect(warning?.textContent).toContain('declared as pony');
@@ -89,16 +94,16 @@ describe('Workflow templates', () => {
   });
 
   it('asks for the model family when none is declared', async () => {
-    const { client, root } = setup([template()], '');
-    await vi.waitFor(() => expect(client.workflowTemplates).toHaveBeenCalled());
+    const { client, root, loaded } = setup([template()], '');
+    await loaded();
 
     expect(root.querySelector('[data-testid="workflow-template-architecture-unknown"]')?.textContent)
       .toContain('RealVis XL has no declared model family');
   });
 
   it('says a newer version adds a graph rather than rewriting the installed one', async () => {
-    const { client, root } = setup([template({ installed_resource_id: 'workflow-1', installed_version: 1, update_available: true, template_version: 2 })]);
-    await vi.waitFor(() => expect(client.workflowTemplates).toHaveBeenCalled());
+    const { client, root, loaded } = setup([template({ installed_resource_id: 'workflow-1', installed_version: 1, update_available: true, template_version: 2 })]);
+    await loaded();
 
     expect(root.textContent).toContain('Installed');
     expect(root.querySelector('[data-testid="workflow-template-update-photomaker-v2-sdxl"]')?.textContent)
@@ -106,17 +111,43 @@ describe('Workflow templates', () => {
   });
 
   it('installs against the chosen model and refreshes the catalog', async () => {
-    const { client, refreshCatalog, root } = setup([template()]);
-    await vi.waitFor(() => expect(client.workflowTemplates).toHaveBeenCalled());
+    const { client, refreshCatalog, root, loaded } = setup([template()]);
+    await loaded();
 
     (root.querySelector('[data-testid="workflow-template-install-photomaker-v2-sdxl"]') as HTMLButtonElement).click();
-    await vi.waitFor(() => expect(client.installWorkflowTemplate).toHaveBeenCalledWith('photomaker-v2-sdxl', 'model-1'));
+    await vi.waitFor(() => expect(client.installWorkflowTemplate).toHaveBeenCalledWith('photomaker-v2-sdxl', 'model-1', '', ''));
     expect(refreshCatalog).toHaveBeenCalled();
+  });
+
+  it('offers to add a later pass to a recipe, so nobody edits a definition by hand', async () => {
+    const swap = template({ id: 'reactor-face-swap', name: 'ReActor face swap', mechanism: 'identity_pass', required_prompt_token: '' });
+    const { client, root, loaded } = setup([swap]);
+    await loaded();
+
+    expect(root.textContent).toContain('Replaces the face after generation');
+    const preset = root.querySelector('[data-testid="workflow-template-preset"]') as HTMLSelectElement;
+    preset.value = 'preset-1';
+    preset.dispatchEvent(new Event('change', { bubbles: true }));
+    (root.querySelector('[data-testid="workflow-template-install-reactor-face-swap"]') as HTMLButtonElement).click();
+
+    await vi.waitFor(() => expect(client.installWorkflowTemplate)
+      .toHaveBeenCalledWith('reactor-face-swap', 'model-1', '', 'preset-1'));
+  });
+
+  it('does not offer a recipe for a pass that conditions during generation', async () => {
+    const { client, root, loaded } = setup([template()]);
+    await loaded();
+
+    // It is the first pass, so there is nothing to add it after.
+    expect(root.querySelector('[data-testid="workflow-template-preset"]')).toBeNull();
   });
 
   it('does not retry a failed load on every render', async () => {
     const appState = createState();
-    const client = { workflowTemplates: vi.fn().mockRejectedValue(new Error('nope')) } as unknown as ApiClient;
+    const client = {
+      workflowTemplates: vi.fn().mockRejectedValue(new Error('nope')),
+      mediaPresets: vi.fn().mockResolvedValue({ items: [] }),
+    } as unknown as ApiClient;
     const root = document.createElement('div');
     let view!: WorkflowTemplateView;
     const render = () => root.replaceChildren(view.node('model-1', 'RealVis XL'));

@@ -293,10 +293,15 @@ export class ApiClient {
     });
   }
 
-  installWorkflowTemplate(templateId: string, modelId: string, name = ''): Promise<MediaCatalogResource> {
+  installWorkflowTemplate(
+    templateId: string,
+    modelId: string,
+    name = '',
+    presetId = '',
+  ): Promise<MediaCatalogResource> {
     return this.request(`/media-catalog/workflow-templates/${encodeURIComponent(templateId)}/installations`, {
       method: 'POST',
-      body: JSON.stringify({ model_id: modelId, name }),
+      body: JSON.stringify({ model_id: modelId, name, preset_id: presetId }),
     });
   }
 

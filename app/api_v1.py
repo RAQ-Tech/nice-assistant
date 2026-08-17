@@ -632,6 +632,9 @@ class WorkflowTemplateListResponse(BaseModel):
 class WorkflowTemplateInstall(StrictModel):
     model_id: str = Field(min_length=1, max_length=64)
     name: str = Field(default="", max_length=120)
+    # Optional: add a post-pass template to this recipe as a later pass, rather
+    # than leaving somebody to hand-edit a preset's definition JSON.
+    preset_id: str = Field(default="", max_length=64)
 
 
 class SceneBacklogRepresentation(BaseModel):

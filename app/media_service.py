@@ -383,8 +383,8 @@ class MediaService:
                 stage_values["_operation"] = "image_to_image"
                 stage_values["_source_image_path"] = str(scratch)
                 stage_values["_source_image_sha256"] = sha256(artifact.content).hexdigest()
+                stage_values["workflow_patch"] = stage.get("workflow_patch") or stage_values.get("workflow_patch")
                 for key in (
-                    "workflow_patch",
                     "source_image_bindings",
                     "mask_image_bindings",
                     "identity_image_bindings",
@@ -393,9 +393,15 @@ class MediaService:
                     "seed_bindings",
                     "width_bindings",
                     "height_bindings",
+                    "checkpoint_bindings",
                 ):
-                    if stage.get(key):
-                        stage_values[key] = stage[key]
+                    # Assigned, never merged. A binding this pass does not
+                    # declare must not stay pointing at the previous graph's
+                    # node IDs, which is a failure at upload time rather than a
+                    # picture that came out slightly wrong.
+                    stage_values[key] = stage.get(key) or []
+                for key in ("required_prompt_token", "prompt_prefix"):
+                    stage_values[key] = stage.get(key) or ""
                 with recorder.timed(f"stage_{index}") as handle:
                     artifact = self._generate_image_artifact(
                         prompt, stage_values, settings, preferences, identity, cancellation, recorder
@@ -560,6 +566,12 @@ class MediaService:
                         "seed_bindings": values.get("seed_bindings") or [],
                         "width_bindings": values.get("width_bindings") or [],
                         "height_bindings": values.get("height_bindings") or [],
+                        # Without these the graph renders the checkpoint baked
+                        # into it, and a technique needing a trigger word
+                        # silently returns an unconditioned picture.
+                        "checkpoint_bindings": values.get("checkpoint_bindings") or [],
+                        "required_prompt_token": values.get("required_prompt_token") or "",
+                        "prompt_prefix": values.get("prompt_prefix") or "",
                         "compiled_prompt": compiled["positive"],
                         "compiled_negative": compiled["negative"],
                     },

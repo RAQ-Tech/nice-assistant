@@ -1,0 +1,59 @@
+{
+  "version": 1,
+  "id": "reactor-face-swap",
+  "name": "ReActor face swap (second pass)",
+  "template_version": 1,
+  "mechanism": "identity_pass",
+  "architectures": ["sd15", "sdxl", "pony", "illustrious", "sd3", "flux", "chroma", "other"],
+  "summary": "Takes a finished picture and replaces the face with the approved reference, then restores it. It runs after generation rather than during it, so it works with any checkpoint family - including the ones an adapter cannot condition. What it cannot do is change pose, lighting, or anything but the face.",
+  "operations": ["image_to_image"],
+  "features": ["identity_control"],
+  "domains": ["portrait"],
+  "consumes_prompt": false,
+  "required_assets": [
+    "The ComfyUI-ReActor custom node, which provides ReActor Fast Face Swap",
+    "inswapper_128.onnx in the ComfyUI models/insightface folder",
+    "The buffalo_l InsightFace models in models/insightface/models/buffalo_l. This one cannot be checked from here: the node loads it without naming it as an input, so nothing reports whether it is present until the first run fails.",
+    "A face restoration model such as codeformer-v0.1.0.pth in models/facerestore_models"
+  ],
+  "workflow": {
+    "1": {
+      "class_type": "LoadImage",
+      "_meta": { "title": "Picture from the previous pass" },
+      "inputs": { "image": "source.png", "upload": "image" }
+    },
+    "2": {
+      "class_type": "LoadImage",
+      "_meta": { "title": "Persona reference" },
+      "inputs": { "image": "reference.png", "upload": "image" }
+    },
+    "3": {
+      "class_type": "ReActorFaceSwap",
+      "_meta": { "title": "Swap the face" },
+      "inputs": {
+        "enabled": true,
+        "input_image": ["1", 0],
+        "source_image": ["2", 0],
+        "swap_model": "inswapper_128.onnx",
+        "facedetection": "retinaface_resnet50",
+        "face_restore_model": "codeformer-v0.1.0.pth",
+        "face_restore_visibility": 1,
+        "codeformer_weight": 0.5,
+        "detect_gender_input": "no",
+        "detect_gender_source": "no",
+        "input_faces_index": "0",
+        "source_faces_index": "0",
+        "console_log_level": 1
+      }
+    },
+    "4": {
+      "class_type": "SaveImage",
+      "_meta": { "title": "Result" },
+      "inputs": { "filename_prefix": "nice-assistant", "images": ["3", 0] }
+    }
+  },
+  "bindings": {
+    "source_image_bindings": [{ "node_id": "1", "input_name": "image" }],
+    "identity_image_bindings": [{ "node_id": "2", "input_name": "image" }]
+  }
+}

@@ -75,6 +75,7 @@ _ALLOWED_FIELDS = {
     "required_assets",
     "required_prompt_token",
     "prompt_prefix",
+    "consumes_prompt",
     "workflow",
     "bindings",
 }
@@ -118,6 +119,7 @@ def normalize_template(values) -> dict:
     workflow = values.get("workflow")
     if not isinstance(workflow, dict) or not workflow:
         raise RequestError(f"workflow template '{identifier}' has no graph", 500)
+    consumes_prompt = bool(values.get("consumes_prompt", True))
     token = _text(values.get("required_prompt_token"), "prompt token", limit=64)
     prefix = _text(values.get("prompt_prefix"), "prompt prefix", limit=300)
     _check_prompt_token(identifier, token, prefix)
@@ -139,8 +141,9 @@ def normalize_template(values) -> dict:
         # in the prompt fails silently without it, and still returns a picture.
         "required_prompt_token": token,
         "prompt_prefix": prefix,
+        "consumes_prompt": consumes_prompt,
         "workflow": workflow,
-        "bindings": _normalize_bindings(identifier, values.get("bindings")),
+        "bindings": _normalize_bindings(identifier, values.get("bindings"), consumes_prompt=consumes_prompt),
     }
 
 
@@ -155,7 +158,7 @@ def _check_prompt_token(identifier: str, token: str, prefix: str) -> None:
         )
 
 
-def _normalize_bindings(identifier: str, values) -> dict:
+def _normalize_bindings(identifier: str, values, *, consumes_prompt: bool = True) -> dict:
     if not isinstance(values, dict):
         raise RequestError(f"workflow template '{identifier}' has no bindings", 500)
     unknown = sorted(set(values) - set(BINDING_ROLES))
@@ -173,11 +176,13 @@ def _normalize_bindings(identifier: str, values) -> dict:
             bindings[role] = [
                 {"node_id": str(entry["node_id"]), "input_name": str(entry["input_name"])} for entry in entries
             ]
-    if not bindings.get("prompt_bindings"):
-        # The rule every workflow already lives under: a graph that cannot
-        # receive the request renders the text saved inside it and still
-        # returns a picture, so the failure would be invisible.
+    if consumes_prompt and not bindings.get("prompt_bindings"):
+        # The rule every workflow already lives under: a graph that renders
+        # from a prompt but cannot receive the request renders the text saved
+        # inside it and still returns a picture, so the failure is invisible.
         raise RequestError(f"workflow template '{identifier}' must bind the request prompt", 500)
+    if not consumes_prompt and bindings.get("prompt_bindings"):
+        raise RequestError(f"workflow template '{identifier}' says it takes no prompt but binds one", 500)
     return bindings
 
 
@@ -207,7 +212,11 @@ def resolve_template(template_id: str) -> dict:
 def template_default_settings(template: dict) -> dict:
     """The workflow resource default settings this template would install."""
 
-    settings = {"workflow_patch": json.loads(json.dumps(template["workflow"])), **template["bindings"]}
+    settings = {
+        "workflow_patch": json.loads(json.dumps(template["workflow"])),
+        "consumes_prompt": template["consumes_prompt"],
+        **template["bindings"],
+    }
     if template["required_prompt_token"]:
         settings["required_prompt_token"] = template["required_prompt_token"]
         settings["prompt_prefix"] = template["prompt_prefix"]
