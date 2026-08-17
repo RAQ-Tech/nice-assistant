@@ -204,8 +204,22 @@ server, proxy, bridge, and second listener have been removed.
 - Interrupting speech stops the provider work rather than only muting the output
 - Optional hands-free listening that decides when a turn ended, with
   hold-to-talk unchanged and never guessed at
-- Local STT is not implemented and cannot be selected in the UI
+- Local transcription against a self-hosted Whisper service, so a spoken turn
+  can complete without leaving this network
 - Transcribing while somebody is still speaking is not implemented
+
+### Optional: a spoken turn that stays on this network
+
+Transcription can run against a self-hosted Whisper service instead of OpenAI.
+Deploy one that speaks the OpenAI transcription API - `speaches`, whisper.cpp's
+bundled server, or LocalAI all do - then set the transcription provider to Local
+and give it the address. The connection check on the same page says whether it
+answered.
+
+The address is held to the same private-LAN policy as every other local
+provider, so "local" cannot be pointed at a host on the internet. No API key is
+sent to it. Without such a service, transcription is OpenAI or off, and the
+microphone says which.
 
 ### Optional: memories found by meaning
 

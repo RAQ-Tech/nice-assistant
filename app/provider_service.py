@@ -15,6 +15,7 @@ from app.providers import (
     voice_ids_from_payload,
 )
 from app.repositories import UnitOfWork
+from app.speech_clients import DEFAULT_STT_BASE_URL
 
 
 _WORKFLOW_NODE_LIMIT = 2048
@@ -506,11 +507,105 @@ class ProviderService:
         effective.update({key: value for key, value in incoming.items() if key != "preferences"})
         return effective
 
+    def _probe(self, provider: str, label: str, effective: dict) -> dict:
+        """Ask one provider whether it is there. Failures are the caller's.
+
+        Every provider fails the same six ways and answers differently, so
+        the answering lives here and the failing stays in check().
+        """
+
+        if provider == "ollama":
+            health = self.registry.chat("ollama").health()
+            return provider_test_response(
+                provider,
+                health.ok,
+                health.status.value,
+                health.message,
+                health.detail,
+            )
+        elif provider == "openai":
+            api_key = str(effective.get("openai_api_key") or "").strip()
+            if not api_key or is_masked_secret(api_key):
+                return provider_test_response(provider, False, "missing", "OpenAI API key is not configured.")
+            request = urllib.request.Request(
+                "https://api.openai.com/v1/models",
+                headers={"Authorization": f"Bearer {api_key}"},
+                method="GET",
+            )
+            with urllib.request.urlopen(request, timeout=self.config.provider_timeout_seconds) as response:
+                import json
+
+                payload = json.loads(response.read().decode())
+            models = payload.get("data", []) if isinstance(payload, dict) else []
+            return provider_test_response(
+                provider,
+                True,
+                "ready",
+                "OpenAI is reachable.",
+                f"{len(models)} model(s) visible.",
+            )
+        elif provider == "kokoro":
+            base = normalize_provider_base_url(
+                effective.get("tts_local_base_url"),
+                "http://127.0.0.1:8880",
+            )
+            if self.provider_url_policy:
+                base = self.provider_url_policy.normalize(base, label="Kokoro")
+            payload = provider_get_json(
+                f"{base}/v1/audio/voices",
+                timeout=self.config.provider_timeout_seconds,
+            )
+            voices = voice_ids_from_payload(payload)
+            return provider_test_response(
+                provider,
+                True,
+                "ready",
+                "Kokoro is reachable.",
+                f"{len(voices)} voice(s) available.",
+            )
+        elif provider == "whisper":
+            base = normalize_provider_base_url(
+                effective.get("stt_local_base_url"),
+                DEFAULT_STT_BASE_URL,
+            )
+            if self.provider_url_policy:
+                base = self.provider_url_policy.normalize(base, label=label)
+            # The models listing is the cheapest thing an OpenAI-shaped
+            # transcription server answers. Posting audio would be a better
+            # test and a worse thing to do to somebody pressing a button.
+            payload = provider_get_json(
+                f"{base}/v1/models",
+                timeout=self.config.provider_timeout_seconds,
+            )
+            data = payload.get("data") if isinstance(payload, dict) else None
+            count = len(data) if isinstance(data, list) else 0
+            return provider_test_response(
+                provider,
+                True,
+                "ready",
+                "The local transcription service is reachable.",
+                f"{count} model(s) visible.",
+            )
+        else:
+            default = (
+                self.config.automatic1111_base_url if provider == "automatic1111" else self.config.comfyui_base_url
+            )
+            base = normalize_provider_base_url(effective.get("image_local_base_url"), default)
+            if self.provider_url_policy:
+                base = self.provider_url_policy.normalize(base, label=label)
+            endpoint = "/sdapi/v1/options" if provider == "automatic1111" else "/system_stats"
+            provider_get_json(
+                f"{base}{endpoint}",
+                headers=basic_auth_headers(effective.get("image_local_api_auth")),
+                timeout=self.config.provider_timeout_seconds,
+            )
+            return provider_test_response(provider, True, "ready", f"{label} is reachable.")
+
     def check(self, user_id: str, provider: str, overrides: dict | None = None) -> dict | None:
         provider = str(provider or "").strip().lower()
         if provider == "a1111":
             provider = "automatic1111"
-        if provider not in {"ollama", "openai", "kokoro", "automatic1111", "comfyui"}:
+        if provider not in {"ollama", "openai", "kokoro", "whisper", "automatic1111", "comfyui"}:
             return None
         effective = self._effective_settings(user_id, overrides)
         incoming = overrides or {}
@@ -521,73 +616,12 @@ class ProviderService:
             "ollama": "Ollama",
             "openai": "OpenAI",
             "kokoro": "Kokoro",
+            "whisper": "Local transcription",
             "automatic1111": "Automatic1111",
             "comfyui": "ComfyUI",
         }[provider]
         try:
-            if provider == "ollama":
-                health = self.registry.chat("ollama").health()
-                result = provider_test_response(
-                    provider,
-                    health.ok,
-                    health.status.value,
-                    health.message,
-                    health.detail,
-                )
-            elif provider == "openai":
-                api_key = str(effective.get("openai_api_key") or "").strip()
-                if not api_key or is_masked_secret(api_key):
-                    return provider_test_response(provider, False, "missing", "OpenAI API key is not configured.")
-                request = urllib.request.Request(
-                    "https://api.openai.com/v1/models",
-                    headers={"Authorization": f"Bearer {api_key}"},
-                    method="GET",
-                )
-                with urllib.request.urlopen(request, timeout=self.config.provider_timeout_seconds) as response:
-                    import json
-
-                    payload = json.loads(response.read().decode())
-                models = payload.get("data", []) if isinstance(payload, dict) else []
-                result = provider_test_response(
-                    provider,
-                    True,
-                    "ready",
-                    "OpenAI is reachable.",
-                    f"{len(models)} model(s) visible.",
-                )
-            elif provider == "kokoro":
-                base = normalize_provider_base_url(
-                    effective.get("tts_local_base_url"),
-                    "http://127.0.0.1:8880",
-                )
-                if self.provider_url_policy:
-                    base = self.provider_url_policy.normalize(base, label="Kokoro")
-                payload = provider_get_json(
-                    f"{base}/v1/audio/voices",
-                    timeout=self.config.provider_timeout_seconds,
-                )
-                voices = voice_ids_from_payload(payload)
-                result = provider_test_response(
-                    provider,
-                    True,
-                    "ready",
-                    "Kokoro is reachable.",
-                    f"{len(voices)} voice(s) available.",
-                )
-            else:
-                default = (
-                    self.config.automatic1111_base_url if provider == "automatic1111" else self.config.comfyui_base_url
-                )
-                base = normalize_provider_base_url(effective.get("image_local_base_url"), default)
-                if self.provider_url_policy:
-                    base = self.provider_url_policy.normalize(base, label=label)
-                endpoint = "/sdapi/v1/options" if provider == "automatic1111" else "/system_stats"
-                provider_get_json(
-                    f"{base}{endpoint}",
-                    headers=basic_auth_headers(effective.get("image_local_api_auth")),
-                    timeout=self.config.provider_timeout_seconds,
-                )
-                result = provider_test_response(provider, True, "ready", f"{label} is reachable.")
+            result = self._probe(provider, label, effective)
         except ValueError as exc:
             result = provider_test_response(provider, False, "invalid", f"{label} configuration is invalid.", str(exc))
         except urllib.error.HTTPError as exc:

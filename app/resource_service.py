@@ -222,6 +222,7 @@ class ResourceService:
         preferences = normalize_media_preferences(values.get("preferences") or {})
         for key, label in (
             ("tts_local_base_url", "Local speech service"),
+            ("stt_local_base_url", "Local transcription service"),
             ("image_local_base_url", "Local image service"),
         ):
             if preferences.get(key) and self.provider_url_policy:

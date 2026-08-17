@@ -56,6 +56,15 @@ def _read_cancellable(response, cancelled=None) -> bytes:
     return b"".join(_iter_cancellable(response, cancelled))
 
 
+# Where a self-hosted Whisper service is expected unless one is configured.
+# speaches - the maintained successor to faster-whisper-server - serves here.
+DEFAULT_STT_BASE_URL = "http://127.0.0.1:8000"
+# OpenAI's own transcription model name. Most self-hosted servers accept it as
+# an alias for whatever they loaded; the ones that want a real identifier say
+# so plainly, which is why this is a setting rather than a constant.
+DEFAULT_STT_MODEL = "whisper-1"
+
+
 def normalize_tts_speed(speed) -> float:
     try:
         parsed = float(speed)
@@ -182,7 +191,9 @@ def kokoro_list_voices(base_url):
     return sorted({voice for voice in voices if voice})
 
 
-def openai_stt(filepath, api_key, language="auto"):
+def _transcription_body(filepath, model, language) -> tuple[bytes, str]:
+    """The multipart body every OpenAI-shaped transcription endpoint takes."""
+
     boundary = "----NiceAssistantBoundary" + secrets.token_hex(8)
     audio = Path(filepath).read_bytes()
     parts = []
@@ -196,14 +207,19 @@ def openai_stt(filepath, api_key, language="auto"):
         else:
             parts.append(f'Content-Disposition: form-data; name="{name}"\r\n\r\n{value}\r\n'.encode())
 
-    add("model", "whisper-1")
+    add("model", str(model or "whisper-1"))
     if language and language != "auto":
         add("language", str(language))
     add("file", audio, filename="audio.wav", content_type="audio/wav")
     parts.append(f"--{boundary}--\r\n".encode())
+    return b"".join(parts), boundary
+
+
+def openai_stt(filepath, api_key, language="auto"):
+    body, boundary = _transcription_body(filepath, "whisper-1", language)
     request = urllib.request.Request(
         "https://api.openai.com/v1/audio/transcriptions",
-        data=b"".join(parts),
+        data=body,
         headers={
             "Content-Type": f"multipart/form-data; boundary={boundary}",
             "Authorization": f"Bearer {api_key}",
@@ -212,3 +228,40 @@ def openai_stt(filepath, api_key, language="auto"):
     )
     with urllib.request.urlopen(request, timeout=120) as response:
         return json.loads(response.read().decode())
+
+
+def normalized_stt_base_url(raw_url):
+    return str(raw_url or DEFAULT_STT_BASE_URL).strip().rstrip("/")
+
+
+def local_stt(filepath, base_url, model=DEFAULT_STT_MODEL, language="auto"):
+    """Transcribe against a Whisper service on this network, not OpenAI's.
+
+    The request is the shape OpenAI documents, because that is what the
+    self-hosted Whisper servers implement - speaches, whisper.cpp's own
+    server, LocalAI. Speaking the shape rather than binding to one of them
+    keeps this a configuration choice instead of a dependency, exactly as
+    the local speech path already does for Kokoro.
+
+    No API key is sent. A service on the private LAN that wanted one would
+    be a different kind of thing than this is for.
+    """
+
+    body, boundary = _transcription_body(filepath, model, language)
+    request = urllib.request.Request(
+        f"{normalized_stt_base_url(base_url)}/v1/audio/transcriptions",
+        data=body,
+        headers={"Content-Type": f"multipart/form-data; boundary={boundary}"},
+        method="POST",
+    )
+    with urllib.request.urlopen(request, timeout=120) as response:
+        payload = response.read().decode("utf-8", errors="replace")
+    try:
+        parsed = json.loads(payload)
+    except ValueError:
+        # whisper.cpp answers text/plain unless asked otherwise. A transcript
+        # is a transcript; refusing it over its content type would be pedantry.
+        return {"text": payload.strip(), "language": None}
+    if not isinstance(parsed, dict):
+        return {"text": "", "language": None}
+    return parsed

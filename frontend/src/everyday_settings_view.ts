@@ -232,18 +232,18 @@ export class EverydaySettingsView {
     return [
       settingsIntro(
         'Choose how recorded speech becomes text',
-        'Transcription is cloud-only today: what you say is sent to OpenAI. Local transcription is not implemented yet, so leaving this off is the only way a recording stays on this machine.',
+        'A local Whisper service keeps a recording on this network. OpenAI is the cloud alternative, and uploads every recording it transcribes.',
       ),
       settingsCard([
         selectField(
           'Transcription provider',
           settings.stt_provider,
-          ['disabled', 'openai'],
+          ['disabled', 'local', 'openai'],
           (value) => this.change('stt_provider', value),
           'stt-provider',
           providerLabel,
           true,
-          'OpenAI uploads each completed push-to-talk recording for transcription.',
+          'A local service transcribes on this network. OpenAI uploads each completed push-to-talk recording.',
         ),
         selectField(
           'Language',
@@ -255,8 +255,28 @@ export class EverydaySettingsView {
           true,
           'Automatic detection is convenient; a fixed language can improve consistency.',
         ),
+        ...(settings.stt_provider === 'local'
+          ? [
+              inputField(
+                'Transcription service address',
+                settings.stt_local_base_url,
+                (value) => this.change('stt_local_base_url', value),
+                'url',
+                true,
+                'The private-LAN address of a separately deployed Whisper service that speaks the OpenAI transcription API.',
+              ),
+              inputField(
+                'Model',
+                settings.stt_model_local,
+                (value) => this.change('stt_model_local', value),
+                'text',
+                true,
+                'What to ask that service to load. Most accept whisper-1; some want their own identifier.',
+              ),
+            ]
+          : []),
       ]),
-      settings.stt_provider === 'openai'
+      settings.stt_provider !== 'disabled'
         ? settingsCard([
             settingsHeading(
               'Hands-free listening',
@@ -273,10 +293,10 @@ export class EverydaySettingsView {
             class: 'settings-empty-state',
             textContent: 'Hands-free listening needs a transcription provider.',
           }),
-      settings.stt_provider === 'openai'
+      settings.stt_provider !== 'disabled'
         ? settingsCard([
-            settingsHeading('Connection check', 'Tests whether OpenAI transcription is configured and reachable.'),
-            this.providerControl('openai'),
+            settingsHeading('Connection check', 'Tests whether the chosen transcription service is configured and reachable.'),
+            this.providerControl(settings.stt_provider === 'local' ? 'whisper' : 'openai'),
           ])
         : el('div', { class: 'settings-empty-state', textContent: 'Voice transcription is off.' }),
       advancedSettings(
