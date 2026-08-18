@@ -831,6 +831,7 @@ export interface Settings extends Record<string, SettingScalar | Record<string, 
   tts_model_local: string;
   tts_speed_local: string;
   tts_local_base_url: string;
+  stt_streaming: boolean;
   stt_local_base_url: string;
   stt_model_local: string;
   stt_local_backend: string;
@@ -1084,6 +1085,8 @@ export interface AppState {
   memorySections: Record<string, boolean>;
   personaAvatarPreview: string;
   chatImagePreview: string;
+  /** What has been transcribed so far while somebody is still talking. */
+  partialTranscript: string;
   /** Message notes a person has asked to read, by message id. */
   expandedMessageNotes: Record<string, boolean>;
   /** Every picture in the open chat, in the order they appear, for stepping through. */

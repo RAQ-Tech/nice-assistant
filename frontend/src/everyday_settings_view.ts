@@ -269,6 +269,12 @@ export class EverydaySettingsView {
               (value) => this.change('stt_hands_free', value),
               'Holding the microphone button always works and is never guessed at. This is a judgement, so it can be wrong: it waits for a pause after you have actually spoken, and never ends a turn on silence alone.',
             ),
+            toggleField(
+              'Transcribe while I am still talking',
+              settings.stt_streaming,
+              (value) => this.change('stt_streaming', value),
+              'Starts transcribing at each natural pause, so the wait after you stop is one sentence rather than the whole turn. It transcribes more audio in total, so it suits a fast transcription model and not a large one on a busy machine.',
+            ),
           ])
         : el('div', {
             class: 'settings-empty-state',

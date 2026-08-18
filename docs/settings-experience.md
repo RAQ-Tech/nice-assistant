@@ -132,8 +132,9 @@ and Workspaces now use the same approachable structure:
   today. Speech does stream, hands-free listening is offered where it is
   configured, and transcription can run against a self-hosted Whisper service on
   this network - over Wyoming or an OpenAI-compatible HTTP API - or against
-  OpenAI. What is still not implemented is transcribing while somebody is still
-  speaking.
+  OpenAI. Transcription can optionally begin at each natural pause rather than
+  at the end of a turn; what is still not implemented is refining a partial
+  result as more audio arrives.
 - Memory distinguishes pending, forget, and permanent delete, including atomic
   bulk actions. Persona editors remain collapsed until selected, and workspaces
   explain their organizational scope.

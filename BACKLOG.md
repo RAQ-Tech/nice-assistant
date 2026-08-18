@@ -458,8 +458,13 @@ no stub is ever shipped in its place. See `docs/debt-register.md`.
 - Nothing about speech-to-text belongs on this list any more. Local
   transcription was here as deliberately absent; it is item 1F-5, because the
   stated goal of a fully local conversation cannot be true without it.
-- Partial transcripts. Nothing is transcribed while somebody is still speaking;
-  end-of-turn detection listens to loudness, not to language.
+- Partial results that are refined as more audio arrives - the strict reading of
+  streaming transcription. Not available: `wyoming-faster-whisper` transcribes on
+  `audio-stop` rather than incrementally, and the OpenAI transcription API is
+  request-and-response. What did ship on 2026-08-18 is cutting the recording at
+  its pauses and transcribing each piece while the next is still being spoken,
+  which is off by default because it does more total work. See
+  [ADR 0041](docs/decisions/0041-transcribing-before-somebody-has-finished.md).
 - Speech provider fallback chains. Choosing what to fall back to is the
   listening decision, which has not been made.
 - Speech from a provider this deployment has not evaluated. Streaming and

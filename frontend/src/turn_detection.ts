@@ -88,6 +88,58 @@ export class EndOfTurnDetector {
   }
 }
 
+/**
+ * Where a long utterance can be cut so its earlier part can be transcribed
+ * while its later part is still being spoken.
+ *
+ * A pause is not an ending. This looks for the gap between sentences - shorter
+ * than the silence that ends a turn, long enough that cutting there loses
+ * nothing - and reports it once, so a single pause produces one cut rather
+ * than one on every sample while the room stays quiet.
+ *
+ * Deliberately separate from `EndOfTurnDetector`. That one decides whether
+ * somebody has finished, which must stay conservative because getting it wrong
+ * cuts a person off. This one only decides where to start work early, and
+ * getting it wrong costs a little duplicated effort and nothing else.
+ */
+export class PauseDetector {
+  private readonly pauseMs: number;
+  private readonly silenceLevel: number;
+  private readonly speechLevel: number;
+  private heardSpeech = false;
+  private quietSince = 0;
+  private cutAlready = false;
+
+  constructor(options: { pauseMs?: number; silenceLevel?: number; speechLevel?: number } = {}) {
+    // Shorter than the end-of-turn silence on purpose: this has to fire while
+    // somebody is still mid-utterance to be worth anything at all.
+    this.pauseMs = options.pauseMs ?? 450;
+    this.silenceLevel = options.silenceLevel ?? TURN_DETECTION_DEFAULTS.silenceLevel;
+    this.speechLevel = options.speechLevel ?? TURN_DETECTION_DEFAULTS.speechLevel;
+  }
+
+  begin(): void {
+    this.heardSpeech = false;
+    this.quietSince = 0;
+    this.cutAlready = false;
+  }
+
+  /** True exactly once per pause, and never before anybody has spoken. */
+  observe(level: number, atMs: number): boolean {
+    if (level >= this.speechLevel) {
+      this.heardSpeech = true;
+      this.quietSince = 0;
+      this.cutAlready = false;
+      return false;
+    }
+    if (!this.heardSpeech || level > this.silenceLevel) return false;
+    if (!this.quietSince) this.quietSince = atMs;
+    if (this.cutAlready || atMs - this.quietSince < this.pauseMs) return false;
+    this.cutAlready = true;
+    return true;
+  }
+}
+
 /** Something that reports how loud the microphone is, right now. */
 export interface LevelMeter {
   level(): number;

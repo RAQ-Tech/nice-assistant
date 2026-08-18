@@ -3,10 +3,12 @@ import { errorMessage } from './dom';
 import { machine, state, type ClientStateMachine } from './state';
 import {
   EndOfTurnDetector,
+  PauseDetector,
   createLevelMeter,
   type LevelMeter,
   type TurnDetectorOptions,
 } from './turn_detection';
+import { TranscriptSegments } from './transcript_segments';
 import type { AppState } from './types';
 
 // How often the microphone level is sampled while listening hands-free. Fine
@@ -31,6 +33,8 @@ export class RecordingController {
   private meter: LevelMeter | null = null;
   private listener: ReturnType<typeof setInterval> | null = null;
   private readonly detector: EndOfTurnDetector;
+  private readonly pauses: PauseDetector;
+  private readonly segments = new TranscriptSegments();
 
   constructor(
     private readonly appState: AppState = state,
@@ -41,6 +45,12 @@ export class RecordingController {
     detection: TurnDetectorOptions = {},
   ) {
     this.detector = new EndOfTurnDetector(detection);
+    this.pauses = new PauseDetector(detection);
+  }
+
+  /** Whether to transcribe at pauses instead of waiting for the whole turn. */
+  private get streaming(): boolean {
+    return Boolean(this.appState.settings?.stt_streaming);
   }
 
   configure(onChange: () => void, onTranscript: (text: string) => Promise<void>): void {
@@ -82,6 +92,8 @@ export class RecordingController {
         if (event.data.size) this.chunks.push(event.data);
       });
       this.recorder.start(250);
+      this.segments.begin();
+      this.appState.partialTranscript = '';
       this.appState.recordingStartedAt = this.now();
       this.stateMachine.transition('recording');
       if (handsFree) this.listenForTheEnd();
@@ -105,6 +117,7 @@ export class RecordingController {
     if (!stream) return;
     this.meter = this.openMeter(stream);
     this.detector.begin(this.now());
+    this.pauses.begin();
     this.listener = setInterval(() => {
       const meter = this.meter;
       if (!meter || !this.recording) return;
@@ -114,8 +127,59 @@ export class RecordingController {
         void this.stop();
         return;
       }
-      if (verdict === 'ended') void this.stop();
+      if (verdict === 'ended') {
+        void this.stop();
+        return;
+      }
+      // A pause is where the earlier part of a long answer can start being
+      // transcribed while the rest is still being said. It never ends a turn;
+      // that decision stays with the detector above, unchanged.
+      if (this.streaming && this.pauses.observe(meter.level(), this.now())) void this.cutSegment();
     }, LEVEL_SAMPLE_MS);
+  }
+
+  /**
+   * Close the piece just spoken, start the next, and transcribe the closed one.
+   *
+   * Stopping and restarting the recorder is what makes each piece a complete
+   * file rather than a slice of a stream nothing can decode on its own. The
+   * few milliseconds lost at the boundary fall inside the pause that caused
+   * the cut, so no speech goes with them.
+   */
+  private async cutSegment(): Promise<void> {
+    const recorder = this.recorder;
+    if (!recorder || recorder.state !== 'recording' || !this.stream) return;
+    const blob = await this.closeRecorder(recorder);
+    if (this.recording) this.openRecorder();
+    if (!blob.size) return;
+    this.segments.claim(
+      async () => (await this.client.transcribe(blob, recordingFilename(blob.type))).text,
+      (joined) => {
+        this.appState.partialTranscript = joined;
+        this.onChange();
+      },
+    );
+  }
+
+  private openRecorder(): void {
+    if (!this.stream) return;
+    this.chunks = [];
+    this.recorder = this.mimeType
+      ? new MediaRecorder(this.stream, { mimeType: this.mimeType })
+      : new MediaRecorder(this.stream);
+    this.recorder.addEventListener('dataavailable', (event: BlobEvent) => {
+      if (event.data.size) this.chunks.push(event.data);
+    });
+    this.recorder.start(250);
+  }
+
+  private closeRecorder(recorder: MediaRecorder): Promise<Blob> {
+    const type = recorder.mimeType || this.mimeType || 'audio/webm';
+    const chunks = this.chunks;
+    return new Promise<Blob>((resolve) => {
+      recorder.addEventListener('stop', () => resolve(new Blob(chunks, { type })), { once: true });
+      recorder.stop();
+    });
   }
 
   async stop(): Promise<void> {
@@ -131,7 +195,8 @@ export class RecordingController {
       recorder.stop();
     });
     this.cleanup();
-    if (!blob.size) {
+    if (!blob.size && this.segments.empty) {
+      this.appState.partialTranscript = '';
       this.stateMachine.transition('idle');
       this.onChange();
       return;
@@ -140,7 +205,10 @@ export class RecordingController {
     this.onChange();
     try {
       const result = await this.client.transcribe(blob, recordingFilename(blob.type));
-      const transcript = result.text.trim();
+      // Whatever was cut at pauses is already transcribed or on its way; this
+      // is only the tail, and it is the sole part anybody waited for.
+      const transcript = await this.segments.finish(result.text);
+      this.appState.partialTranscript = '';
       if (transcript) await this.onTranscript(transcript);
       else if (this.appState.phase === 'transcribing') this.stateMachine.transition('idle');
     } catch (error) {
@@ -153,6 +221,7 @@ export class RecordingController {
 
   cancel(): void {
     if (this.recorder?.state === 'recording') this.recorder.stop();
+    this.appState.partialTranscript = '';
     this.stopListening();
     this.cleanup();
     if (this.appState.phase === 'recording') this.stateMachine.transition('idle');
