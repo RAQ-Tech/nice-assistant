@@ -56,7 +56,7 @@ export const SETTINGS_DEFAULTS: Settings = {
   video_model: 'sora-2',
   video_size: '720x1280',
   video_duration: '4',
-  models_context_window_tokens: '4096',
+  models_context_window_tokens: '8192',
   user_display_name: '',
   user_profile: '',
   user_timezone: 'local',
@@ -246,7 +246,7 @@ export function modelSettings(settings: Settings, model: string): Record<string,
     num_predict: integer(override.num_predict ?? settings.models_num_predict, 512),
     presence_penalty: numeric(override.presence_penalty ?? settings.models_presence_penalty, 0),
     frequency_penalty: numeric(override.frequency_penalty ?? settings.models_frequency_penalty, 0),
-    context_window_tokens: integer(override.context_window_tokens ?? settings.models_context_window_tokens, 4096),
+    context_window_tokens: integer(override.context_window_tokens ?? settings.models_context_window_tokens, 8192),
   };
 }
 

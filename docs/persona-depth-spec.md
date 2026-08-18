@@ -186,7 +186,12 @@ persona instructions + card → example dialogue → lore → saved memory → s
 This is the part that decides whether the feature is worth building at the
 current settings.
 
-At `DEFAULT_CONTEXT_WINDOW_TOKENS=4096`:
+At the shipped `DEFAULT_CONTEXT_WINDOW_TOKENS=8192`, the prompt budget is 7270
+and a card, its example dialogue, lore and memories all fit alongside a real
+conversation. The arithmetic below is kept at the old 4096 default because it is
+what the decision was made against, and because 4096 is still what a small model
+or a crowded GPU wants - it shows what the feature costs when the window is
+tight:
 
 ```
 context window                4096

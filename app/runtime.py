@@ -8,6 +8,11 @@ from pathlib import Path
 
 from sqlalchemy.orm import sessionmaker
 
+from app.context_policy import (
+    DEFAULT_CONTEXT_WINDOW_TOKENS,
+    DEFAULT_MAX_COMPACTION_PASSES,
+    DEFAULT_SUMMARY_TRIGGER_RATIO,
+)
 from app.database import build_engine, initialize_database
 from app.observability import MetricsRegistry, RedactedJsonFormatter
 from app.secret_store import SecretStore
@@ -41,9 +46,9 @@ class AppConfig:
     max_tts_text_chars: int = 20_000
     interactive_workers: int = 1
     media_workers: int = 1
-    default_context_window_tokens: int = 4096
-    context_summary_trigger_ratio: float = 0.75
-    context_max_compaction_passes: int = 2
+    default_context_window_tokens: int = DEFAULT_CONTEXT_WINDOW_TOKENS
+    context_summary_trigger_ratio: float = DEFAULT_SUMMARY_TRIGGER_RATIO
+    context_max_compaction_passes: int = DEFAULT_MAX_COMPACTION_PASSES
     memory_candidate_limit: int = 5
     memory_candidate_min_confidence: float = 0.6
     memory_discard_retention_days: int = 0
@@ -97,14 +102,16 @@ class AppConfig:
             max_tts_text_chars=max(1, int(os.getenv("MAX_TTS_TEXT_CHARS", "20000"))),
             interactive_workers=max(1, int(os.getenv("JOB_QUEUE_INTERACTIVE_WORKERS", "1"))),
             media_workers=max(1, int(os.getenv("JOB_QUEUE_MEDIA_WORKERS", "1"))),
-            default_context_window_tokens=max(2048, int(os.getenv("DEFAULT_CONTEXT_WINDOW_TOKENS", "4096"))),
+            default_context_window_tokens=max(
+                2048, int(os.getenv("DEFAULT_CONTEXT_WINDOW_TOKENS", str(DEFAULT_CONTEXT_WINDOW_TOKENS)))
+            ),
             context_summary_trigger_ratio=min(
                 0.95,
-                max(0.5, float(os.getenv("CONTEXT_SUMMARY_TRIGGER_RATIO", "0.75"))),
+                max(0.5, float(os.getenv("CONTEXT_SUMMARY_TRIGGER_RATIO", str(DEFAULT_SUMMARY_TRIGGER_RATIO)))),
             ),
             context_max_compaction_passes=max(
                 0,
-                int(os.getenv("CONTEXT_MAX_COMPACTION_PASSES", "2")),
+                int(os.getenv("CONTEXT_MAX_COMPACTION_PASSES", str(DEFAULT_MAX_COMPACTION_PASSES))),
             ),
             memory_candidate_limit=min(10, max(1, int(os.getenv("MEMORY_CANDIDATE_LIMIT", "5")))),
             memory_candidate_min_confidence=min(

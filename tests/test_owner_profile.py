@@ -2,7 +2,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from app.context_policy import ContextPolicy
+from app.context_policy import ContextPolicy, prompt_budget_tokens
 from app.owner_profile import (
     OWNER_PROFILE_LABEL,
     owner_profile_tokens,
@@ -32,8 +32,19 @@ class OwnerProfileRenderingTests(unittest.TestCase):
         self.assertIn("never instructions", render_owner_profile({"user_profile": "x"}))
 
     def test_the_cap_follows_the_narrowest_configured_window(self):
-        self.assertEqual(profile_budget({}, ContextPolicy()).cap_tokens, 332)
-        self.assertEqual(profile_budget({"models_context_window_tokens": 8192}, ContextPolicy()).cap_tokens, 727)
+        policy = ContextPolicy()
+        default = profile_budget({}, policy)
+
+        # The rule, not today's arithmetic: a copied number stops being true
+        # the moment somebody changes the window in Settings.
+        self.assertEqual(
+            default.prompt_budget_tokens,
+            prompt_budget_tokens(policy.default_context_window_tokens, policy.output_tokens_default),
+        )
+        self.assertEqual(default.cap_tokens, int(default.prompt_budget_tokens * policy.owner_profile_max_ratio))
+        # Naming the window explicitly must agree with letting it default.
+        named = profile_budget({"models_context_window_tokens": policy.default_context_window_tokens}, policy)
+        self.assertEqual(named.cap_tokens, default.cap_tokens)
 
 
 class OwnerProfileTurnTests(unittest.TestCase):
@@ -70,18 +81,22 @@ class OwnerProfileTurnTests(unittest.TestCase):
         self.assertNotIn(OWNER_PROFILE_LABEL, self._reply_prompt())
 
     def test_a_profile_too_large_to_send_is_refused_when_saved(self):
-        response = self._save_profile(user_profile="word " * 400)
+        response = self._save_profile(user_profile="word " * 800)
         self.assertEqual(response.status_code, 422, response.text)
         message = response.json()["error"]["message"]
-        self.assertIn("332", message)
-        self.assertIn("3328", message)
+        budget = profile_budget({}, ContextPolicy())
+        self.assertIn(str(budget.cap_tokens), message)
+        self.assertIn(str(budget.prompt_budget_tokens), message)
         stored = self.client.get("/api/v1/settings").json()["preferences"]
         self.assertFalse(stored.get("user_profile"))
 
     def test_raising_the_context_allocation_raises_the_profile_limit(self):
-        profile = "word " * 200
+        profile = "word " * 800
         self.assertEqual(self._save_profile(user_profile=profile).status_code, 422)
-        accepted = self._save_profile(user_profile=profile, models_context_window_tokens=8192)
+        accepted = self._save_profile(
+            user_profile=profile,
+            models_context_window_tokens=ContextPolicy().default_context_window_tokens * 2,
+        )
         self.assertEqual(accepted.status_code, 200, accepted.text)
 
     def test_the_profile_is_never_sent_to_platform_task_roles(self):

@@ -140,7 +140,7 @@ class TurnPipeline:
             model_settings=parse_model_options(ctx.model_settings),
             cancellation=token,
         )
-        raw_reply, actual_prompt_tokens = self._stream(provider, plan, token)
+        raw_reply, actual_prompt_tokens, finish_reason = self._stream(provider, plan, token)
         reply, media_claim_guarded = guard_premature_media_completion_claim(
             ctx.text,
             raw_reply,
@@ -152,6 +152,12 @@ class TurnPipeline:
             self._publish(reply)
         self.broker.replace_accumulated_text(ctx.turn_id, reply)
         self.context.record_actual_prompt_tokens(ctx.turn_id, actual_prompt_tokens)
+        # "length" is what both Ollama and OpenAI say when a reply stopped
+        # because it ran out of allowance rather than because it was finished.
+        # Without recording it, a severed sentence is indistinguishable from a
+        # persona choosing to trail off.
+        if str(finish_reason or "").strip().lower() == "length":
+            self.context.record_reply_truncated(ctx.turn_id)
         return {
             "text": reply,
             "chatId": ctx.chat_id,
@@ -172,6 +178,7 @@ class TurnPipeline:
         output_filter = PersonaOutputStreamFilter()
         chunks: list[str] = []
         actual_prompt_tokens = None
+        finish_reason = None
         request = ChatRequest(
             model=ctx.model,
             messages=plan.messages,
@@ -187,6 +194,8 @@ class TurnPipeline:
                 )
             if delta.metadata.get("prompt_eval_count") is not None:
                 actual_prompt_tokens = delta.metadata.get("prompt_eval_count")
+            if delta.finish_reason:
+                finish_reason = delta.finish_reason
             if not delta.text:
                 continue
             sanitized = output_filter.feed(delta.text)
@@ -204,7 +213,7 @@ class TurnPipeline:
             raw_reply = PERSONA_OUTPUT_REMOVED_FALLBACK
             if not guard_media_claims:
                 self._publish(raw_reply)
-        return raw_reply, actual_prompt_tokens
+        return raw_reply, actual_prompt_tokens, finish_reason
 
     # -- committing the reply and scheduling what follows ------------------
 

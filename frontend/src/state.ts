@@ -96,6 +96,7 @@ export function createState(): AppState {
     },
     personaAvatarPreview: '',
     chatImagePreview: '',
+    expandedMessageNotes: {},
     chatImageGallery: [],
     chatVideoPreview: '',
     revealedImages: {},
