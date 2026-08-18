@@ -2,7 +2,7 @@ import { api, ApiError } from './api';
 import { AuthView } from './auth_view';
 import { ChatController } from './chat';
 import { ChatDrawer } from './chat_drawer';
-import { ChatRenderer, modelNickname } from './chat_rendering';
+import { coverNewestImage, ChatRenderer, modelNickname } from './chat_rendering';
 import { CapabilityController } from './capabilities';
 import { composerState } from './composer_state';
 import { DEFAULT_PERSONA_AVATAR } from './constants';
@@ -169,7 +169,14 @@ async function applyCurrentRoute(): Promise<void> {
 }
 
 const homeView = new HomeView(state, api, {
-  startChat: () => void chat.create(state.selectedPersonaId),
+  // Opening the app is not the same as wanting a new conversation. The most
+  // recent one is almost always what somebody came back for; a new chat is
+  // still one tap away in the drawer.
+  startChat: () => {
+    const recent = state.chats[0];
+    if (recent) router.chat(recent.id);
+    else void chat.create(state.selectedPersonaId);
+  },
   openChat: (chatId) => router.chat(chatId),
   openSettings: () => router.settings(),
 }, render);
@@ -200,6 +207,8 @@ function render(): void {
   if (state.chatVideoPreview) root.append(videoOverlay(state, render));
   if (state.modal) root.append(modalNode(state.modal));
   restoreFocus(root, focus, Boolean(state.modal));
+  const pane = document.querySelector<HTMLElement>(MESSAGES_PANE);
+  if (pane) coverNewestImage(pane, state.revealedImages);
   requestAnimationFrame(() => restoreMessageScroll(messageScroll));
 }
 
@@ -249,12 +258,28 @@ function shell(): HTMLElement {
   );
   return el('div', { class: 'app-shell' }, [
     chatDrawer.node(),
-    el('main', { class: 'main-pane glass' }, [
+    el('main', {
+      class: 'main-pane glass',
+      // Touching the conversation is as clear a way of saying "not the list" as
+      // finding the close button, and it is the one people reach for first.
+      onclick: () => {
+        if (!state.drawerOpen) return;
+        state.drawerOpen = false;
+        render();
+      },
+    }, [
       topbar(persona?.name ?? 'Persona', persona?.avatar_url || DEFAULT_PERSONA_AVATAR),
       state.showChatControlsMenu ? chatControls(workspaceName, model, memoryMode) : null,
       pane,
       state.showJumpBottom
-        ? el('button', { id: 'jumpBtn', class: 'jump-bottom show', textContent: '↓ Latest', onclick: () => scrollBottom(true) })
+        ? el('button', {
+            id: 'jumpBtn',
+            class: 'jump-bottom show',
+            textContent: '↓',
+            title: 'Go to the newest message',
+            'aria-label': 'Go to the newest message',
+            onclick: () => scrollBottom(true),
+          })
         : null,
       state.uiError
         ? el('div', { class: 'error-banner' }, [
@@ -520,7 +545,10 @@ function statusClass(): string {
 
 function onMessageScroll(event: Event): void {
   const pane = event.currentTarget as HTMLElement;
-  state.showJumpBottom = pane.scrollTop + pane.clientHeight < pane.scrollHeight - 130;
+  // A small tolerance for the fractional pixel a browser leaves at the end of a
+  // scroll, and nothing more: the arrow is meant to appear as soon as the
+  // newest message is off screen, not once somebody has scrolled a long way.
+  state.showJumpBottom = pane.scrollTop + pane.clientHeight < pane.scrollHeight - 8;
   state.stickMessagesToBottom = !state.showJumpBottom;
 }
 

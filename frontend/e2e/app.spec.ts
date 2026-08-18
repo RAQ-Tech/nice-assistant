@@ -364,6 +364,12 @@ test('avatar and chat pictures use the shared layered viewer with every close pa
   await page.getByTitle('Generate an image from this reply').first().click();
   const chatImage = page.locator('img.msg-inline-image');
   await expect(chatImage).toHaveAttribute('src', '/api/v1/media/media-1');
+  // The newest picture in a conversation starts covered, whatever the blur
+  // setting says, so nobody standing behind the reader sees it just because a
+  // chat was opened. The first click uncovers it; the second opens it.
+  await expect(chatImage).toHaveClass(/image-blurred/);
+  await chatImage.click();
+  await expect(chatImage).not.toHaveClass(/image-blurred/);
   await chatImage.click();
   await expect(page.getByRole('dialog', { name: 'Image preview' })).toBeVisible();
   await expect(page.getByRole('dialog', { name: 'Image preview' }).locator('.media-preview-image')).toHaveAttribute(
