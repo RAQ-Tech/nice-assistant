@@ -168,9 +168,14 @@ test('the homepage says what is true right now', async ({ page }) => {
   await expect(now).toContainText('demo');
   // Read from the readiness endpoint, not assumed from the provider being set.
   await expect(now).toContainText('02:00-06:00');
-  await expect(now).toContainText('outside the window now');
+  // Once. This read "On, 02:00-06:00, outside the window now - outside the
+  // 02:00-06:00 quiet window", which is one fact said three ways.
+  await expect(now).not.toContainText('outside the window now');
   await expect(now).toContainText('Ready');
-  await expect(now).toContainText('Last picture: finished');
+  // The label already says "Last generation"; the value used to repeat the
+  // subject and then give a timestamp to the second.
+  await expect(now).toContainText('4.2s');
+  await expect(now).not.toContainText('Last picture:');
 
   await expect(page.getByTestId('home-pictures').locator('img')).toHaveCount(1);
 });
@@ -198,12 +203,15 @@ test('the homepage carries the pre-generation control and says what it is doing'
   await page.goto('/');
 
   const status = page.getByTestId('home-pregeneration-status');
-  await expect(status).toContainText('Outside the window now');
-  await expect(status).toContainText('2 approved scenes waiting');
-  // The refusal in the platform's own words: a quiet night and a broken one
-  // are different things.
-  await expect(status).toContainText('outside the 02:00-06:00 quiet window');
-  await expect(status).toContainText('Last made: nova reading');
+  // One line where there were four, two of which said the same thing about a
+  // window whose hours are in the controls directly above it.
+  await expect(status).toContainText('2 scenes waiting');
+  await expect(status).toContainText('last made');
+  await expect(status.locator('p')).toHaveCount(1);
+  // Outside the window, the hours are the reason and repeating them tells
+  // nobody anything. The refusal is kept for when it is a fault rather than a
+  // schedule - inside the window and still not running.
+  await expect(status).not.toContainText('quiet window');
 
   await expect(page.getByTestId('home-pregeneration-start-hour')).toBeVisible();
   await page.getByTestId('home-pregeneration-toggle').click();

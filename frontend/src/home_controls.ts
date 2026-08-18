@@ -24,7 +24,9 @@ function hourLabel(hour: number): string {
 }
 
 function whenLabel(seconds: number): string {
-  return new Date(seconds * 1000).toLocaleString();
+  // A day, not a timestamp to the second. Nobody reading a dashboard needs to
+  // know that the last picture landed at 5:21:40 PM.
+  return new Date(seconds * 1000).toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
 }
 
 export class HomeControls {
@@ -117,16 +119,16 @@ export class HomeControls {
     if (!readiness) {
       return el('p', { class: 'meta', textContent: 'Not known — the readiness check did not answer.' });
     }
-    const lines = [
-      readiness.inside_window ? 'Inside the window now.' : 'Outside the window now.',
-      `${readiness.approved_waiting} approved ${readiness.approved_waiting === 1 ? 'scene' : 'scenes'} waiting.`,
-      // The reason is the refusal, in the platform's own words. It is the
-      // difference between a quiet night and a broken one.
-      `Right now: ${readiness.reason}.`,
-      produced
-        ? `Last made: ${produced.summary || 'a picture'}, ${whenLabel(produced.updated_at)}.`
-        : 'Nothing made in the background yet.',
-    ];
+    // One line. This was four, and two of them said the same thing: that it was
+    // outside a window whose hours are in the controls directly above.
+    const waiting = readiness.approved_waiting
+      ? `${readiness.approved_waiting} ${readiness.approved_waiting === 1 ? 'scene' : 'scenes'} waiting`
+      : 'Nothing waiting';
+    const made = produced ? `last made ${whenLabel(produced.updated_at)}` : 'none made yet';
+    const lines = [`${waiting.charAt(0).toUpperCase()}${waiting.slice(1)} · ${made}.`];
+    // Being inside the window and still not running is a fault rather than a
+    // schedule, and that is the only time the reason tells anybody anything.
+    if (readiness.inside_window && readiness.reason) lines.push(readiness.reason);
     return el('div', { class: 'home-control-status', 'data-testid': 'home-pregeneration-status' },
       lines.map((line) => el('p', { class: 'meta', textContent: line })));
   }
