@@ -53,12 +53,25 @@ export class MediaController {
       const accepted = kind === 'image' ? await this.client.imageJob(input) : await this.client.videoJob(input);
       durableRequest = await this.client.capabilityRequest(accepted.capability_request_id);
       await this.refreshChat(input.chat_id ?? null);
+      // Show the work, and the way to cancel it, as soon as there is a request
+      // to cancel. This used to fall out of the first poll a third of a second
+      // later, which meant the affordance depended on the polling rate.
+      this.upsert(durableRequest);
+      this.onChange();
       while (['queued', 'running'].includes(durableRequest.status)) {
         await new Promise((resolve) => window.setTimeout(resolve, 350));
-        durableRequest = await this.client.capabilityRequest(durableRequest.id);
-        this.upsert(durableRequest);
-        await this.refreshChat(input.chat_id ?? null, false);
-        this.onChange();
+        const next = await this.client.capabilityRequest(durableRequest.id);
+        // A request that is still running looks exactly the same as it did a
+        // third of a second ago. Re-fetching the chat and rebuilding the whole
+        // tree for that was making the page hostile to use while it waited,
+        // and asking the server for a conversation that had not changed.
+        const changed = next.status !== durableRequest.status;
+        durableRequest = next;
+        this.upsert(next);
+        if (changed) {
+          await this.refreshChat(input.chat_id ?? null, false);
+          this.onChange();
+        }
       }
       await this.refreshChat(input.chat_id ?? null);
       if (durableRequest.status !== 'completed') return null;
