@@ -7,7 +7,7 @@ from alembic.config import Config
 
 from app import database
 from app.chat import persona_instruction_block
-from app.context_policy import ContextPolicy, TokenEstimator
+from app.context_policy import ContextPolicy, prompt_budget_tokens, TokenEstimator
 from app.context_service import ContextService
 from app.persona_card import (
     CARD_FIELDS,
@@ -74,15 +74,27 @@ class PersonaCardRenderingTests(unittest.TestCase):
 
 class PersonaCardBudgetTests(unittest.TestCase):
     def test_budget_uses_the_same_reserves_as_turn_planning(self):
-        budget = card_budget({}, ContextPolicy())
-        self.assertEqual(budget.context_window_tokens, 4096)
-        self.assertEqual(budget.prompt_budget_tokens, 3328)
-        self.assertEqual(budget.cap_tokens, 998)
+        policy = ContextPolicy()
+        budget = card_budget({}, policy)
+
+        # Stated as the rule rather than as today's arithmetic. A number copied
+        # from a run is a number that silently stops being true when somebody
+        # changes the window in Settings.
+        self.assertEqual(budget.context_window_tokens, policy.default_context_window_tokens)
+        self.assertEqual(
+            budget.prompt_budget_tokens,
+            prompt_budget_tokens(policy.default_context_window_tokens, policy.output_tokens_default),
+        )
+        self.assertEqual(budget.cap_tokens, int(budget.prompt_budget_tokens * policy.card_max_ratio))
 
     def test_raising_the_context_allocation_raises_the_cap(self):
-        budget = card_budget({"models_context_window_tokens": 8192}, ContextPolicy())
-        self.assertEqual(budget.prompt_budget_tokens, 7270)
-        self.assertEqual(budget.cap_tokens, 2181)
+        policy = ContextPolicy()
+        wider = policy.default_context_window_tokens * 2
+        budget = card_budget({"models_context_window_tokens": wider}, policy)
+
+        self.assertEqual(budget.context_window_tokens, wider)
+        self.assertEqual(budget.prompt_budget_tokens, prompt_budget_tokens(wider, policy.output_tokens_default))
+        self.assertGreater(budget.cap_tokens, card_budget({}, policy).cap_tokens)
 
     def test_cap_follows_the_narrowest_configured_model_window(self):
         preferences = {
@@ -205,8 +217,9 @@ class PersonaCardApiTests(unittest.TestCase):
     def test_new_persona_starts_with_an_empty_card_and_a_stated_budget(self):
         self.assertIsNone(self.persona["card_definition"])
         self.assertEqual(self.persona["card_token_estimate"], 0)
-        self.assertEqual(self.persona["card_cap_tokens"], 998)
-        self.assertEqual(self.persona["card_prompt_budget_tokens"], 3328)
+        budget = card_budget({}, ContextPolicy())
+        self.assertEqual(self.persona["card_cap_tokens"], budget.cap_tokens)
+        self.assertEqual(self.persona["card_prompt_budget_tokens"], budget.prompt_budget_tokens)
 
     def test_saving_a_card_stores_it_and_reports_its_cost(self):
         response = self.client.put(f"/api/v1/personas/{self.persona['id']}/card", json=SHARED_CARD_FIXTURE)
@@ -229,30 +242,35 @@ class PersonaCardApiTests(unittest.TestCase):
     def test_an_oversized_card_is_rejected_with_a_message_naming_the_budget(self):
         response = self.client.put(
             f"/api/v1/personas/{self.persona['id']}/card",
-            json={"card_definition": "She bakes bread every morning. " * 200},
+            json={"card_definition": "She bakes bread every morning. " * 400},
         )
         self.assertEqual(response.status_code, 422, response.text)
         error = response.json()["error"]
         self.assertEqual(error["code"], "persona_card_too_large")
-        self.assertIn("998", error["message"])
-        self.assertIn("3328", error["message"])
-        self.assertIn("4096", error["message"])
+        budget = card_budget({}, ContextPolicy())
+        self.assertIn(str(budget.cap_tokens), error["message"])
+        self.assertIn(str(budget.prompt_budget_tokens), error["message"])
+        self.assertIn(str(budget.context_window_tokens), error["message"])
         unchanged = self.client.get(f"/api/v1/personas/{self.persona['id']}").json()
         self.assertIsNone(unchanged["card_definition"])
         self.assertEqual(unchanged["card_token_estimate"], 0)
 
-    def test_a_card_rejected_at_4096_saves_once_the_allocation_is_raised(self):
-        card = {"card_definition": "She bakes bread every morning. " * 120}
+    def test_a_card_rejected_at_the_default_saves_once_the_allocation_is_raised(self):
+        card = {"card_definition": "She bakes bread every morning. " * 400}
         rejected = self.client.put(f"/api/v1/personas/{self.persona['id']}/card", json=card)
         self.assertEqual(rejected.status_code, 422, rejected.text)
         settings = self.client.get("/api/v1/settings").json()
         preferences = dict(settings["preferences"])
-        preferences["models_context_window_tokens"] = 8192
+        wider = ContextPolicy().default_context_window_tokens * 2
+        preferences["models_context_window_tokens"] = wider
         saved_settings = self.client.put("/api/v1/settings", json={**settings, "preferences": preferences})
         self.assertEqual(saved_settings.status_code, 200, saved_settings.text)
         accepted = self.client.put(f"/api/v1/personas/{self.persona['id']}/card", json=card)
         self.assertEqual(accepted.status_code, 200, accepted.text)
-        self.assertEqual(accepted.json()["card_cap_tokens"], 2181)
+        self.assertEqual(
+            accepted.json()["card_cap_tokens"],
+            card_budget({"models_context_window_tokens": wider}, ContextPolicy()).cap_tokens,
+        )
 
     def test_the_general_persona_route_cannot_set_card_fields(self):
         response = self.client.put(

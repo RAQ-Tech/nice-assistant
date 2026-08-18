@@ -172,6 +172,31 @@ Migration `0029_scene_proposal_role` widens the role vocabulary. The profile and
 run tables constrain it with a CHECK, and SQLite cannot alter one in place, so
 both are rebuilt with existing rows copied verbatim.
 
+## One number, one place
+
+Values a person can change in Settings exist once in the code, and everything
+else derives from them: `DEFAULT_CONTEXT_WINDOW_TOKENS`, `DEFAULT_OUTPUT_TOKENS`
+and `safety_reserve_tokens()` in `app/context_policy.py`.
+
+They did not start that way. The context window default was written twice, in
+`ContextPolicy` and again in `AppConfig`, and the safety reserve was written
+three times in three modules - once as integer arithmetic that only happened to
+agree with the other two. Raising the default from 4096 to 8192 then meant
+editing a dozen numbers across code, tests and docs, and missing one produced a
+deployment that disagreed with itself about how much room a persona had.
+
+Tests assert the rule rather than the arithmetic. `card_budget` is checked
+against `prompt_budget_tokens(window, output) * card_max_ratio`, not against
+the number that produces today. The browser keeps its own copy of the defaults
+because TypeScript cannot import a Python constant, and a test reads
+`SETTINGS_DEFAULTS` out of `frontend/src/settings.ts` and fails the build if the
+two ever disagree.
+
+The exception is a migration. `0039_wider_default_context_window` writes 4096
+and 8192 out in full, because a migration records what happened on the day it
+ran; following a constant would silently change what an already-applied
+migration claims to have done.
+
 ## Pictures of a message
 
 A sixth role turns a passage somebody asked to see into one typed scene. It runs

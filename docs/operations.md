@@ -497,7 +497,7 @@ edit graphs require `source_image_bindings`; inpaint/outpaint graphs also requir
 checks each stage and closes active responses where possible, but ComfyUI retains
 control of uploaded-input cleanup and an in-flight request may last until timeout.
 
-Context defaults are `DEFAULT_CONTEXT_WINDOW_TOKENS=4096`,
+Context defaults are `DEFAULT_CONTEXT_WINDOW_TOKENS=8192`,
 `CONTEXT_SUMMARY_TRIGGER_RATIO=0.75`, and
 `CONTEXT_MAX_COMPACTION_PASSES=2`. Per-model UI settings override the window and
 are sent to Ollama as `num_ctx`; larger allocations increase provider memory use.

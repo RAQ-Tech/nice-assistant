@@ -6,7 +6,7 @@ import json
 import math
 
 from app.capability_contracts import CapabilityRegistry, capability_tool_result
-from app.context_policy import ContextPolicy, TokenEstimator
+from app.context_policy import ContextPolicy, TokenEstimator, prompt_budget_tokens, safety_reserve_tokens
 from app.memory_service import memory_search_query, normalize_memory_content
 from app.persona_card import EXAMPLE_DIALOGUE_LABEL, select_example_dialogue
 from app.persona_lore import lore_section, select_lore
@@ -23,6 +23,11 @@ SCOPE_PRIORITY = {"global": 0, "workspace": 1, "persona": 2, "chat": 3}
 # floor. The summary goes first because it is history at lower fidelity: trading it for
 # verbatim recent turns loses the least.
 DROPPABLE_SECTION_ORDER = ("summary", "memory", "lore", "example_dialogue")
+
+
+# A reply that ran out of allowance rather than finishing. Carried on the same
+# field as the context degradations because it is the same kind of fact.
+REPLY_TRUNCATED = "reply_truncated"
 
 
 @dataclass(frozen=True)
@@ -245,8 +250,8 @@ class ContextService:
         )
         output_tokens = self._integer_setting(output_value, self.policy.output_tokens_default)
         output_tokens = min(max(1, output_tokens), max(1, context_window // 2))
-        safety_tokens = max(256, math.ceil(context_window * 0.05))
-        prompt_budget = context_window - output_tokens - safety_tokens
+        safety_tokens = safety_reserve_tokens(context_window)
+        prompt_budget = prompt_budget_tokens(context_window, output_tokens)
         if prompt_budget < 512:
             raise ProviderError(
                 provider="application",
@@ -386,6 +391,25 @@ class ContextService:
             turn = uow.repo.turn_by_id(turn_id)
             if turn:
                 turn.prompt_tokens_actual = max(0, int(count))
+
+    def record_reply_truncated(self, turn_id: str) -> None:
+        """Note that a reply stopped because it ran out of room.
+
+        Recorded beside the context degradations because it is the same kind of
+        fact - something the platform did to the turn that the person reading it
+        would otherwise have to guess at - and it travels to the browser on the
+        same field.
+        """
+
+        with self._uow() as uow:
+            turn = uow.repo.turn_by_id(turn_id)
+            if not turn:
+                return
+            reasons = [piece for piece in str(turn.context_degraded_reason or "").split(";") if piece.strip()]
+            if any(piece.strip() == REPLY_TRUNCATED for piece in reasons):
+                return
+            reasons.append(REPLY_TRUNCATED)
+            turn.context_degraded_reason = "; ".join(piece.strip() for piece in reasons)
 
     def chat_context(self, user_id: str, chat_id: str) -> dict | None:
         with self._uow() as uow:

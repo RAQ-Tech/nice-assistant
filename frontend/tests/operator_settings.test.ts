@@ -34,7 +34,7 @@ describe('operator settings progressive disclosure', () => {
     const node = new SettingsView(vi.fn(), vi.fn(), dialogs, appState, {} as ApiClient).node();
 
     expect(node.textContent).toContain('2 reported by Ollama');
-    expect(node.textContent).toContain('4096 tokens for primary-model');
+    expect(node.textContent).toContain('8192 tokens for primary-model');
     expect((node.querySelector('[data-testid="models-advanced-settings"]') as HTMLDetailsElement).open).toBe(false);
     expect((node.querySelector('[data-testid="model-overrides-settings"]') as HTMLDetailsElement).open).toBe(false);
   });

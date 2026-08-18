@@ -1084,6 +1084,8 @@ export interface AppState {
   memorySections: Record<string, boolean>;
   personaAvatarPreview: string;
   chatImagePreview: string;
+  /** Message notes a person has asked to read, by message id. */
+  expandedMessageNotes: Record<string, boolean>;
   /** Every picture in the open chat, in the order they appear, for stepping through. */
   chatImageGallery: string[];
   chatVideoPreview: string;

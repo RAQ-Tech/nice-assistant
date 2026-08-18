@@ -1,6 +1,6 @@
 import { api, type ApiClient } from './api';
 import { DEFAULT_PERSONA_AVATAR } from './constants';
-import { degradationSuggestsMoreContext, describeContextDegradation } from './context_notice';
+import { degradationSuggestsMoreContext, describeContextDegradation, replyWasTruncated } from './context_notice';
 import { copyText, downloadUrl, el, markdown } from './dom';
 import { extractImageUrl, extractVideoUrl, illustratedPassage, speechText, stripVideoLinks } from './media';
 import { state } from './state';
@@ -82,16 +82,7 @@ export class ChatRenderer {
           : null,
         message.isTyping && !message.text ? null : body,
         attachmentNodes.length ? mediaRoot : null,
-        degradation
-          ? el('p', {
-              class: 'msg-context-notice',
-              'data-testid': `context-notice-${message.id}`,
-              title: degradationSuggestsMoreContext(message.degraded_reason)
-                ? 'Raise the model context allocation in Settings to fit more.'
-                : undefined,
-              textContent: degradation,
-            })
-          : null,
+        degradation ? this.quietNote(message, degradation) : null,
         audioError ? el('p', { class: 'message-audio-error', textContent: audioError }) : null,
         videoUrl
           ? el('button', { class: 'msg-video-preview', onclick: () => { this.appState.chatVideoPreview = videoUrl; this.renderApp(); } }, [
@@ -136,6 +127,50 @@ export class ChatRenderer {
     const persona = this.appState.personas.find((item) => item.id === personaId);
     if (!persona?.system_prompt) return [];
     return [{ id: `system-${persona.id}`, role: 'system', text: persona.system_prompt, created_at: persona.created_at }];
+  }
+
+  /**
+   * Something the platform did to this turn, said as quietly as possible.
+   *
+   * This used to be a sentence sitting under the reply. A conversation that
+   * keeps interrupting itself to report on its own machinery reads like a
+   * computer, which is the opposite of the point - so it is a small mark at
+   * the edge of the message now, and it only becomes a sentence if somebody
+   * asks it to.
+   *
+   * The mark itself carries the explanation as its label, so a screen reader
+   * and a desktop hover both get it without anything expanding.
+   */
+  private quietNote(message: Message, note: string): HTMLElement {
+    const expanded = Boolean(this.appState.expandedMessageNotes[message.id]);
+    const suggestion = degradationSuggestsMoreContext(message.degraded_reason)
+      ? ' Raise the model context allocation in Settings to fit more.'
+      : '';
+    const truncated = replyWasTruncated(message.degraded_reason);
+    return el('div', { class: 'msg-note' }, [
+      el('button', {
+        class: `msg-note-mark ${truncated ? 'truncated' : ''}`,
+        type: 'button',
+        // A cut-off reply gets the ellipsis somebody is already looking for;
+        // anything else gets a dot that does not read as punctuation.
+        textContent: truncated ? '…' : '·',
+        title: `${note}${suggestion}`,
+        'aria-label': `${note}${suggestion}`,
+        'aria-expanded': String(expanded),
+        'data-testid': `context-notice-${message.id}`,
+        onclick: () => {
+          this.appState.expandedMessageNotes[message.id] = !expanded;
+          this.renderApp();
+        },
+      }),
+      expanded
+        ? el('p', {
+            class: 'msg-note-detail',
+            'data-testid': `context-notice-detail-${message.id}`,
+            textContent: `${note}${suggestion}`,
+          })
+        : null,
+    ]);
   }
 
   private bindImagePreviews(root: HTMLElement): void {

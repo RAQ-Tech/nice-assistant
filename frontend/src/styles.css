@@ -2167,13 +2167,37 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
   min-width: 0;
 }
 
-.msg-context-notice {
-  margin: .4rem 0 0;
-  font-size: .82rem;
-  line-height: 1.45;
-  color: var(--text-dim);
-  border-left: 2px solid color-mix(in srgb, #ffc76a 55%, var(--border));
-  padding: .1rem 0 .1rem .55rem;
+/* Something the platform did to a turn, said as quietly as it can be said.
+   The conversation is meant to read like a conversation, so this is a mark at
+   the edge of a message rather than a sentence inside it. */
+.msg-note {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: .2rem;
+}
+
+.msg-note-mark {
+  align-self: flex-end;
+  background: none;
+  border: 0;
+  padding: 0 .25rem;
+  cursor: pointer;
+  line-height: 1;
+  font-size: .95rem;
+  color: var(--muted, #8a8a8a);
+  opacity: .45;
+}
+
+.msg-note-mark:hover,
+.msg-note-mark:focus-visible {
+  opacity: 1;
+}
+
+.msg-note-detail {
+  margin: 0;
+  font-size: .8rem;
+  color: var(--muted, #8a8a8a);
 }
 
 /* Frames of one photo set, shown beside the first. Smaller than the leading

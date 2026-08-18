@@ -42,7 +42,7 @@ class DatabaseFoundationTests(unittest.TestCase):
             journal_mode = conn.execute("PRAGMA journal_mode").fetchone()[0]
             conn.close()
 
-            self.assertEqual(version, "0038_scene_from_message_role")
+            self.assertEqual(version, "0039_wider_default_context_window")
             self.assertIn("setting_values", tables)
             self.assertIn("conversation_turns", tables)
             self.assertIn("conversation_summaries", tables)

@@ -10,7 +10,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 import math
 
-from app.context_policy import ContextPolicy, TokenEstimator
+from app.context_policy import ContextPolicy, TokenEstimator, safety_reserve_tokens
 
 
 # The four capped fields. Example dialogue is stored alongside them but budgeted separately:
@@ -117,7 +117,7 @@ def _prompt_budget_tokens(context_window_tokens: int, policy: ContextPolicy) -> 
     """The same output and safety reserves ContextService.plan() subtracts."""
 
     output_tokens = min(max(1, policy.output_tokens_default), max(1, context_window_tokens // 2))
-    safety_tokens = max(256, math.ceil(context_window_tokens * 0.05))
+    safety_tokens = safety_reserve_tokens(context_window_tokens)
     return context_window_tokens - output_tokens - safety_tokens
 
 

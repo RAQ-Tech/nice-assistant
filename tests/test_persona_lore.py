@@ -20,6 +20,7 @@ from app.persona_lore import (
     scan_window,
     select_lore,
 )
+from app.persona_card import card_budget
 from tests.support import TestApp
 
 
@@ -181,7 +182,10 @@ class LoreApiTests(unittest.TestCase):
         entry_id = created.json()["id"]
         self.assertEqual(created.json()["keys"], ["sister", "Nell"])
         self.assertGreater(created.json()["token_estimate"], 0)
-        self.assertEqual(created.json()["budget_tokens"], 399)
+        # Derived from the account's context window, so it is read from the
+        # same place the product reads it rather than copied as a number
+        # that a settings change silently falsifies.
+        self.assertEqual(created.json()["budget_tokens"], card_budget({}, ContextPolicy()).lore_tokens)
 
         listed = self.client.get(f"/api/v1/personas/{self.persona['id']}/lore").json()["items"]
         self.assertEqual([item["id"] for item in listed], [entry_id])

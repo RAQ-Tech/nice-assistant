@@ -6,6 +6,8 @@
  * applies. `history_floor_dropped` carries the section names that yielded.
  */
 
+const REPLY_TRUNCATED = 'reply_truncated';
+
 const SECTION_NAMES: Record<string, string> = {
   summary: 'the conversation summary',
   memory: 'saved memories',
@@ -38,6 +40,9 @@ function describeOne(reason: string): string | null {
   if (trimmed === 'summary_catchup_limited') {
     return 'the conversation summary is still catching up on earlier messages.';
   }
+  if (trimmed === REPLY_TRUNCATED) {
+    return 'this reply reached its length limit and stopped early.';
+  }
   return null;
 }
 
@@ -51,6 +56,17 @@ export function describeContextDegradation(reason: string | null | undefined): s
   if (!parts.length) return null;
   const sentence = listPhrase(parts);
   return `Replied with less context than usual: ${sentence}`;
+}
+
+/**
+ * Whether a reply was cut off rather than finished.
+ *
+ * Worth separating from the rest because it is the one a person notices without
+ * being told - the sentence just stops - and the only one where the marker
+ * answers a question they are already asking.
+ */
+export function replyWasTruncated(reason: string | null | undefined): boolean {
+  return Boolean(reason && reason.split(';').some((piece) => piece.trim() === REPLY_TRUNCATED));
 }
 
 /** Whether raising the model context allocation is the fix worth suggesting. */

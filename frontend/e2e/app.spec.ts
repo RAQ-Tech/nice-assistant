@@ -1,5 +1,7 @@
 import { expect, type Page, test } from '@playwright/test';
 
+import { SETTINGS_DEFAULTS } from '../src/settings';
+
 const session = { user_id: 'user-1', expires_at: 4_000_000_000, ttl_seconds: 1800, is_admin: true };
 const workspace = { id: 'workspace-1', name: 'Main Workspace', created_at: 100 };
 const persona = {
@@ -289,7 +291,11 @@ test('typed chat streams a turn and persists the canonical result', async ({ pag
   await expect(page.getByText('Hello from stream')).toBeVisible();
   await expect(page.getByTestId('client-phase')).toHaveText('Idle');
   expect(fixture.turnBody?.text).toBe('Hello there');
-  expect(fixture.turnBody?.model_settings.context_window_tokens).toBe(4096);
+  // Read from the same default the page uses rather than restated here. A
+  // number copied into a test stops being true the moment somebody moves
+  // the setting, and then the test is the thing that is wrong.
+  expect(fixture.turnBody?.model_settings.context_window_tokens)
+    .toBe(Number(SETTINGS_DEFAULTS.models_context_window_tokens));
   // ADR 0032: the chat owns its workspace and persona, so a turn no longer
   // repeats them. Sending different values would be refused anyway.
   expect(fixture.turnBody).not.toHaveProperty('workspace_id');
