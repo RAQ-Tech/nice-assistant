@@ -2221,8 +2221,9 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
   flex-direction: column;
   gap: 0.75rem;
   padding: 1rem 1.25rem 1.25rem;
-  max-width: 64rem;
-  margin: 0 auto;
+  /* The whole screen, whatever the screen is. This was capped at 64rem out of
+     a prose habit - readable line length matters inside a card, and the cards
+     already bound their own contents, so the cap only wasted an ultrawide. */
   width: 100%;
   /* The body hides its overflow because the conversation scrolls its own
      message pane. The front page is an ordinary document, so without this it
@@ -2235,25 +2236,22 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
 /* Everything below the hero is a reference panel rather than a step, so on a
    wide screen they sit beside each other instead of making somebody scroll
    past one to reach the next. */
+/* A wrapping row of panels, and no breakpoint at all: each panel wants 24rem
+   and grows to share the leftover, so a phone stacks them, a laptop seats two
+   or three across, and an ultrawide seats them all in one row spanning the
+   screen. CSS multicolumn was tried first and packed everything to the left,
+   leaving most of a wide monitor empty; a grid before that left a hole under
+   every short panel. Panels in the same row stretch to the same height, which
+   is what makes unequal content look composed rather than ragged. */
 .home-columns {
   display: flex;
-  flex-direction: column;
-  gap: 1rem;
+  flex-wrap: wrap;
+  gap: 0.75rem;
 }
 
-@media (min-width: 52rem) {
-  /* Columns rather than a grid, so a short panel beside a tall one does not
-     leave a hole the height of the difference. These flow to fill. */
-  .home-columns {
-    display: block;
-    column-count: 2;
-    column-gap: 0.75rem;
-  }
-
-  .home-columns > * {
-    break-inside: avoid;
-    margin-bottom: 0.75rem;
-  }
+.home-columns > * {
+  flex: 1 1 24rem;
+  min-width: 0;
 }
 
 .home-header {

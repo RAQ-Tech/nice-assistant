@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 
 import { coverNewestImage } from '../src/chat_rendering';
+import { clickDismissesDrawer } from '../src/chat_drawer';
 import { ChatDrawer } from '../src/chat_drawer';
 import type { ApiClient } from '../src/api';
 import type { ChatController } from '../src/chat';
@@ -71,6 +72,42 @@ describe('hiding a chat', () => {
 
     expect(calls.goHome).toBe(1);
     expect(calls.openChat).toEqual([]);
+  });
+});
+
+describe('putting the chat list away', () => {
+  function paneWithToggle(): { pane: HTMLElement; toggle: HTMLElement; message: HTMLElement } {
+    document.body.innerHTML =
+      '<main id="pane"><button id="toggle" data-drawer-toggle="true">☰</button><p id="message">Hello</p></main>';
+    return {
+      pane: document.querySelector('#pane') as HTMLElement,
+      toggle: document.querySelector('#toggle') as HTMLElement,
+      message: document.querySelector('#message') as HTMLElement,
+    };
+  }
+
+  it('a tap on the conversation dismisses it', () => {
+    const { pane, message } = paneWithToggle();
+    let dismisses: boolean | null = null;
+    pane.addEventListener('click', (event) => { dismisses = clickDismissesDrawer(event); });
+
+    message.dispatchEvent(new Event('click', { bubbles: true }));
+
+    expect(dismisses).toBe(true);
+  });
+
+  it('the tap that opens it is not also the tap that closes it', () => {
+    const { pane, toggle } = paneWithToggle();
+    let dismisses: boolean | null = null;
+    pane.addEventListener('click', (event) => { dismisses = clickDismissesDrawer(event); });
+
+    // The toggle lives inside the pane, so its own click bubbles up to the
+    // dismiss handler. Without the exemption, one tap opened the list and
+    // immediately closed it - which read as the button doing nothing, and left
+    // no way to reach any existing chat.
+    toggle.dispatchEvent(new Event('click', { bubbles: true }));
+
+    expect(dismisses).toBe(false);
   });
 });
 
