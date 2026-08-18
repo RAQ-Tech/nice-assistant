@@ -20,10 +20,11 @@ export class MediaController {
     this.onChange = handler;
   }
 
-  async generateImage(prompt: string, chatId: string | null): Promise<Message | null> {
+  async generateImage(prompt: string, chatId: string | null, passage?: string): Promise<Message | null> {
     const settings = this.requiredSettings();
     const input: MediaJobInput = {
       prompt: prompt.trim(),
+      ...(passage?.trim() ? { illustrate_text: passage.trim() } : {}),
       chat_id: chatId,
       provider: settings.image_provider,
       size: settings.image_size,
@@ -162,9 +163,18 @@ export function stripVideoLinks(text: string): string {
 
 export { speechText } from './speech_text';
 
-export function imagePromptFromMessage(message: Message): string {
-  const source = speechText(message.text).slice(0, 1200);
-  return source
-    ? `Create a coherent image inspired by this assistant response. Preserve named people, places, objects, mood, and visual style: ${source}`
-    : 'Create a coherent image for this conversation.';
+/**
+ * The passage somebody asked to see a picture of.
+ *
+ * This used to wrap the message in an English instruction - "create a coherent
+ * image inspired by this assistant response, preserve named people..." - and
+ * send the whole thing as the prompt. Nothing downstream removed it, so a
+ * diffusion model was handed the words "assistant response" and asked to draw
+ * them, along with several hundred words of prose.
+ *
+ * It is sent as a passage now. The platform turns it into a typed scene and
+ * renders that into whichever syntax the selected checkpoint wants.
+ */
+export function illustratedPassage(message: Message): string {
+  return speechText(message.text).slice(0, 4000);
 }

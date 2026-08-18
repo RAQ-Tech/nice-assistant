@@ -2,7 +2,7 @@ import { api, type ApiClient } from './api';
 import { DEFAULT_PERSONA_AVATAR } from './constants';
 import { degradationSuggestsMoreContext, describeContextDegradation } from './context_notice';
 import { copyText, downloadUrl, el, markdown } from './dom';
-import { extractImageUrl, extractVideoUrl, imagePromptFromMessage, speechText, stripVideoLinks } from './media';
+import { extractImageUrl, extractVideoUrl, illustratedPassage, speechText, stripVideoLinks } from './media';
 import { state } from './state';
 import type { AppState, ChatAttachment, CapabilityRequest, Message } from './types';
 import type { MediaController } from './media';
@@ -322,7 +322,12 @@ export class ChatRenderer {
   }
 
   private async generateImage(message: Message): Promise<void> {
-    await this.media.generateImage(imagePromptFromMessage(message), this.appState.currentChat?.id ?? null);
+    const passage = illustratedPassage(message);
+    await this.media.generateImage(
+      passage || 'a picture for this conversation',
+      this.appState.currentChat?.id ?? null,
+      passage,
+    );
   }
 
   private async replayAudio(messageId: string, audioUrl: string): Promise<void> {
