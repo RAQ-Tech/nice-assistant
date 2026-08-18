@@ -48,14 +48,19 @@ function chatLabel(chat: Chat): string {
   return (chat.title ?? '').trim() || 'Untitled conversation';
 }
 
+/**
+ * The outcome, without repeating the label above it.
+ *
+ * This read "Last picture: finished in 4.2s, 11/14/2023, 5:13:20 PM" beneath a
+ * label already saying "Last generation" - the subject twice and a timestamp to
+ * the second, for a fact nobody needs to the second.
+ */
 function outcomeLabel(journal: MediaJournalSummary): string {
-  const when = new Date(journal.started_at * 1000).toLocaleString();
-  if (journal.status === 'completed') {
-    const seconds = journal.duration_ms ? ` in ${(journal.duration_ms / 1000).toFixed(1)}s` : '';
-    return `Last picture: finished${seconds}, ${when}`;
-  }
-  if (journal.status === 'running') return `Last picture: still running, started ${when}`;
-  return `Last picture: ${journal.status}, ${when}`;
+  const when = new Date(journal.started_at * 1000).toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+  if (journal.status === 'running') return `Running since ${when}`;
+  if (journal.status !== 'completed') return `${journal.status} · ${when}`;
+  const seconds = journal.duration_ms ? `${(journal.duration_ms / 1000).toFixed(1)}s` : 'done';
+  return `${seconds} · ${when}`;
 }
 
 export class HomeView {
@@ -210,8 +215,10 @@ export class HomeView {
     if (!production) return 'Not known — the readiness check did not answer';
     if (production.deployment_forbids) return 'Turned off for this deployment';
     if (!production.enabled) return 'Off';
-    const where = production.inside_window ? 'inside the window now' : 'outside the window now';
-    return `On, ${production.window}, ${where} — ${production.reason}`;
+    // Said once. This used to read "On, 02:00-06:00, outside the window now -
+    // outside the 02:00-06:00 quiet window", which is the same fact three
+    // times. Whether it is the right hour is obvious from the hours.
+    return `On, ${production.window}`;
   }
 
   private lastGenerationLabel(): string {
