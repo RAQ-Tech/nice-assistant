@@ -11,6 +11,7 @@ subtly wrong is how this fails against a real service while passing against a
 mock that agrees with the mistake.
 """
 
+from contextlib import closing
 import json
 from pathlib import Path
 import socket
@@ -194,10 +195,17 @@ class ProtocolTests(unittest.TestCase):
         self.assertIn("the model is not loaded", str(caught.exception))
 
     def test_nothing_listening_is_a_failure_rather_than_a_hang(self):
-        self.server.close()
+        # A port nothing ever listened on, rather than one whose server was
+        # closed. Closing a listening socket does not wake a thread already
+        # blocked in accept() on POSIX, so the fake server carried on answering
+        # and this passed on Windows while failing every Linux build.
+        with closing(socket.socket()) as spare:
+            spare.bind(("127.0.0.1", 0))
+            address = f"127.0.0.1:{spare.getsockname()[1]}"
+
         with tempfile.TemporaryDirectory() as folder:
             with self.assertRaises(WyomingUnavailable):
-                wyoming_transcribe(self.server.address, a_wav(folder), "en", timeout=3.0)
+                wyoming_transcribe(address, a_wav(folder), "en", timeout=3.0)
 
     def test_silence_transcribes_to_nothing_without_a_round_trip(self):
         with tempfile.TemporaryDirectory() as folder:
