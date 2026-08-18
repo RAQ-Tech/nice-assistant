@@ -177,8 +177,19 @@ const homeView = new HomeView(state, api, {
     if (recent) router.chat(recent.id);
     else void chat.create(state.selectedPersonaId);
   },
+  startChatWith: (personaId) => {
+    if (personaId) state.selectedPersonaId = personaId;
+    void chat.create(personaId ?? state.selectedPersonaId);
+  },
   openChat: (chatId) => router.chat(chatId),
-  openSettings: () => router.settings(),
+  openSettings: (section) => router.settings(section),
+  openPicture: (url, gallery) => {
+    state.chatImagePreview = url;
+    // The same stepping the conversation viewer has: arrows, swipe, and a
+    // count. A gallery of four that only opens one is a worse gallery.
+    state.chatImageGallery = gallery;
+    render();
+  },
 }, render);
 
 function render(): void {

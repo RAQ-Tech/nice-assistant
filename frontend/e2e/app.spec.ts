@@ -273,11 +273,15 @@ test('the logo is reachable by keyboard and says where it goes', async ({ page }
   await expect(page.getByTestId('home')).toBeVisible();
 });
 
-test('the homepage opens a recent conversation', async ({ page }) => {
+test('the homepage continues the conversation you were last in', async ({ page }) => {
   await installAuthenticatedFixture(page);
   await page.goto('/');
 
-  await page.getByTestId('home-recent').getByRole('button').first().click();
+  // The most recent conversation leads the page, because opening the app is
+  // almost always coming back to it rather than wanting a new one. It used to
+  // start a new chat on arrival, which made hidden chats impossible to clear.
+  await expect(page.getByTestId('home-hero')).toContainText('Existing chat');
+  await page.getByTestId('home-start-chat').click();
 
   await expect(page.getByText('Earlier reply')).toBeVisible();
 });
