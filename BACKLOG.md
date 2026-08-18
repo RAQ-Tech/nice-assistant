@@ -524,10 +524,28 @@ Choices made where the request was ambiguous. Overturn any of these freely.
 ## 8. Open questions
 
 For the operator, when convenient. None of these blocks the Ready list.
+Nothing is open here right now.
 
-1. After the deploy, is 8k context affordable alongside speech and image
-   generation on the 12 GB card? Measured behavior beats the estimate, so this
-   one genuinely waits for the deployment rather than for an opinion.
+1. ~~After the deploy, is 8k context affordable alongside speech and image
+   generation on the 12 GB card?~~ **Answered by measurement on 2026-08-18.**
+   Yes, and it is free - but the answer turned out to be about the quantisation
+   rather than the context.
+
+   On a 12B at Q4_K_M the model sits entirely in VRAM and 8192 tokens runs at
+   the same speed as 4096: 95.1 against 94.5 tokens per second, both fully on
+   the GPU. On a 12B at Q5_K_M the model does not fit at *any* context size -
+   the GPU holds a fixed share and the rest spills to the CPU, so 4096 already
+   ran with 0.92 GB off-card and 8192 with 1.65 GB, dropping 54.8 tokens per
+   second to 36.5.
+
+   So the context window was never the expensive choice. Reading the 33% drop
+   as the cost of 8k would have been the obvious conclusion and the wrong one;
+   what it measures is a model that was already half a gigabyte too big. A Q4
+   quant of the same size model is roughly 2.6x faster at 8k than a Q5, and
+   leaves headroom for the image and speech services besides.
+
+   Still untested with SDXL generating at the same moment, which is the only
+   remaining part of the original question.
 
 Six questions that sat here were answered on 2026-08-17. They are recorded as
 decisions in section 2 rather than deleted, because the reasoning is worth more
