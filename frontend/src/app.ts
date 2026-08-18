@@ -7,6 +7,7 @@ import { CapabilityController } from './capabilities';
 import { composerState } from './composer_state';
 import { DEFAULT_PERSONA_AVATAR } from './constants';
 import { captureFocus, captureScroll, el, errorMessage, restoreFocus, restoreScroll } from './dom';
+import { imageOverlay, stepChatImage, videoOverlay } from './media_overlays';
 import { generationLogOverlay } from './generation_log_view';
 import { HomeView } from './home_view';
 import { runFirstRunSetup } from './onboarding';
@@ -188,9 +189,15 @@ function render(): void {
   else root.append(shell());
   if (state.showNewChatPersonaModal) root.append(newChatModal());
   if (state.personaAvatarPreview) root.append(imageOverlay(state.personaAvatarPreview, 'Persona avatar', () => { state.personaAvatarPreview = ''; render(); }));
-  if (state.chatImagePreview) root.append(imageOverlay(state.chatImagePreview, 'Image', () => { state.chatImagePreview = ''; render(); }));
+  if (state.chatImagePreview) {
+    root.append(imageOverlay(state.chatImagePreview, 'Image', () => { state.chatImagePreview = ''; render(); }, {
+      total: state.chatImageGallery.length,
+      position: Math.max(0, state.chatImageGallery.indexOf(state.chatImagePreview)),
+      step: (delta: number) => { stepChatImage(state, delta); render(); },
+    }));
+  }
   if (state.generationLog) root.append(generationLogOverlay(state.generationLog, api.mediaJournalExportUrl(state.generationLog.id), () => { state.generationLog = null; render(); }));
-  if (state.chatVideoPreview) root.append(videoOverlay(state.chatVideoPreview));
+  if (state.chatVideoPreview) root.append(videoOverlay(state, render));
   if (state.modal) root.append(modalNode(state.modal));
   restoreFocus(root, focus, Boolean(state.modal));
   requestAnimationFrame(() => restoreMessageScroll(messageScroll));
@@ -429,55 +436,6 @@ function modalNode(modal: ModalState): HTMLElement {
   ]);
 }
 
-function imageOverlay(url: string, alt: string, close: () => void): HTMLElement {
-  return el('div', { class: 'modal-backdrop media-preview-backdrop', 'data-testid': 'image-preview', onclick: close }, [
-    el('div', {
-      class: 'media-preview-frame',
-      role: 'dialog',
-      'aria-modal': 'true',
-      'aria-label': `${alt} preview`,
-      onclick: (event: Event) => event.stopPropagation(),
-    }, [
-      el('button', {
-        class: 'icon-btn media-preview-close',
-        textContent: '✕',
-        title: 'Close preview',
-        'aria-label': 'Close preview',
-        onclick: close,
-      }),
-      el('img', {
-        class: 'media-preview-image',
-        src: url,
-        alt,
-        title: 'Close preview',
-        onclick: close,
-      }),
-    ]),
-  ]);
-}
-
-function videoOverlay(url: string): HTMLElement {
-  const close = () => { state.chatVideoPreview = ''; render(); };
-  return el('div', { class: 'modal-backdrop media-preview-backdrop', 'data-testid': 'video-preview', onclick: close }, [
-    el('div', {
-      class: 'media-preview-frame video-preview-frame',
-      role: 'dialog',
-      'aria-modal': 'true',
-      'aria-label': 'Video preview',
-      onclick: (event: Event) => event.stopPropagation(),
-    }, [
-      el('button', {
-        class: 'icon-btn media-preview-close',
-        textContent: '✕',
-        title: 'Close preview',
-        'aria-label': 'Close preview',
-        onclick: close,
-      }),
-      el('video', { class: 'video-preview-media', src: url, controls: true, autoplay: true }),
-    ]),
-  ]);
-}
-
 function closeSettings(): void {
   clearIdentitySetupContext(state);
   state.showSettings = false;
@@ -596,6 +554,13 @@ function autoResize(target: HTMLTextAreaElement): void {
 }
 
 function handleKeydown(event: KeyboardEvent): void {
+  if (state.chatImagePreview && (event.key === 'ArrowLeft' || event.key === 'ArrowRight')) {
+    // The overlay covers everything, so the arrows belong to it while it is up.
+    event.preventDefault();
+    stepChatImage(state, event.key === 'ArrowLeft' ? -1 : 1);
+    render();
+    return;
+  }
   if (event.key !== 'Escape') return;
   if (state.modal) {
     const cancel = state.modal.actions.find((action) => action.label === 'Cancel') ?? state.modal.actions[0];
@@ -605,6 +570,7 @@ function handleKeydown(event: KeyboardEvent): void {
     render();
   } else if (state.chatImagePreview || state.chatVideoPreview || state.personaAvatarPreview) {
     state.chatImagePreview = '';
+    state.chatImageGallery = [];
     state.chatVideoPreview = '';
     state.personaAvatarPreview = '';
     render();

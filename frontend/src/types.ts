@@ -1084,6 +1084,8 @@ export interface AppState {
   memorySections: Record<string, boolean>;
   personaAvatarPreview: string;
   chatImagePreview: string;
+  /** Every picture in the open chat, in the order they appear, for stepping through. */
+  chatImageGallery: string[];
   chatVideoPreview: string;
   revealedImages: Record<string, boolean>;
   showNewChatPersonaModal: boolean;

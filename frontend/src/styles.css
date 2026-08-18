@@ -1529,6 +1529,38 @@ input[type='file']::file-selector-button {
   z-index: 1;
 }
 
+/* Stepping between the pictures in a conversation. Sized for a thumb, and
+   held clear of the close button so neither is hit by accident. */
+.media-preview-step {
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  z-index: 1;
+  min-width: 2.75rem;
+  min-height: 2.75rem;
+  font-size: 1.75rem;
+  line-height: 1;
+}
+
+.media-preview-step-previous {
+  left: .35rem;
+}
+
+.media-preview-step-next {
+  right: .35rem;
+}
+
+.media-preview-count {
+  position: absolute;
+  bottom: .35rem;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 1;
+  padding: .15rem .5rem;
+  border-radius: 999px;
+  background: var(--surface-raised, rgba(0, 0, 0, .55));
+}
+
 
 .status {
   position: fixed;
