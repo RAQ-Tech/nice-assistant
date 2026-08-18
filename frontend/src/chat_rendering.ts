@@ -139,7 +139,11 @@ export class ChatRenderer {
   }
 
   private bindImagePreviews(root: HTMLElement): void {
-    root.querySelectorAll<HTMLImageElement>('.msg-inline-image').forEach((image) => {
+    const rendered = [...root.querySelectorAll<HTMLImageElement>('.msg-inline-image')];
+    // Built from what is on screen rather than from the messages, so the order
+    // and the URLs are exactly the ones a person is looking at and clicking.
+    const gallery = rendered.map((image) => image.src);
+    rendered.forEach((image) => {
       const key = image.src;
       const blur = Boolean(this.appState.settings?.chat_blur_images);
       const activate = () => {
@@ -151,6 +155,7 @@ export class ChatRenderer {
           return;
         }
         this.appState.chatImagePreview = key;
+        this.appState.chatImageGallery = gallery;
         this.renderApp();
       };
       image.tabIndex = 0;
