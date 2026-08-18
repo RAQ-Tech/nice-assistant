@@ -23,6 +23,8 @@ export const SETTINGS_DEFAULTS: Settings = {
   tts_speed_local: '1',
   tts_local_base_url: '',
   stt_local_base_url: '',
+  stt_local_backend: 'openai_api',
+  stt_wyoming_address: '',
   stt_model_local: '',
   tts_voice_filter_regions: [],
   tts_voice_filter_genders: [],
@@ -109,6 +111,8 @@ export const SETTINGS_SECTION_KEYS: Record<SettingsSection, readonly (keyof Sett
     'stt_store_recordings',
     'stt_local_base_url',
     'stt_model_local',
+    'stt_local_backend',
+    'stt_wyoming_address',
   ],
   'Image Generation': [
     'image_provider',

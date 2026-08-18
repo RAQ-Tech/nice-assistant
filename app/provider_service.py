@@ -16,6 +16,11 @@ from app.providers import (
 )
 from app.repositories import UnitOfWork
 from app.speech_clients import DEFAULT_STT_BASE_URL
+from app.wyoming_client import (
+    WyomingUnavailable,
+    parse_address as parse_wyoming_address,
+    wyoming_describe,
+)
 
 
 _WORKFLOW_NODE_LIMIT = 2048
@@ -563,6 +568,23 @@ class ProviderService:
                 "Kokoro is reachable.",
                 f"{len(voices)} voice(s) available.",
             )
+        elif provider == "whisper" and str(effective.get("stt_local_backend") or "") == "wyoming":
+            address = str(effective.get("stt_wyoming_address") or "").strip()
+            host, port = parse_wyoming_address(address)
+            if self.provider_url_policy:
+                self.provider_url_policy.normalize(f"http://{host}:{port}", label=label)
+            described = wyoming_describe(f"{host}:{port}", timeout=self.config.provider_timeout_seconds)
+            # Which Whisper is loaded is the difference between a transcript
+            # that arrives before you have stopped thinking and one that does
+            # not, so the check says which rather than only that it answered.
+            loaded = ", ".join(described["models"]) or "no model reported"
+            return provider_test_response(
+                provider,
+                True,
+                "ready",
+                f"{described['name']} answered over Wyoming.",
+                f"Model: {loaded}.",
+            )
         elif provider == "whisper":
             base = normalize_provider_base_url(
                 effective.get("stt_local_base_url"),
@@ -622,6 +644,10 @@ class ProviderService:
         }[provider]
         try:
             result = self._probe(provider, label, effective)
+        except WyomingUnavailable as exc:
+            # Authored sentences, not response bodies. Repeating a vaguer one
+            # over the top would tell somebody less than it already says.
+            result = provider_test_response(provider, False, "unreachable", f"{label} is not ready.", str(exc))
         except ValueError as exc:
             result = provider_test_response(provider, False, "invalid", f"{label} configuration is invalid.", str(exc))
         except urllib.error.HTTPError as exc:

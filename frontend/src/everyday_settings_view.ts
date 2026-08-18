@@ -255,26 +255,7 @@ export class EverydaySettingsView {
           true,
           'Automatic detection is convenient; a fixed language can improve consistency.',
         ),
-        ...(settings.stt_provider === 'local'
-          ? [
-              inputField(
-                'Transcription service address',
-                settings.stt_local_base_url,
-                (value) => this.change('stt_local_base_url', value),
-                'url',
-                true,
-                'The private-LAN address of a separately deployed Whisper service that speaks the OpenAI transcription API.',
-              ),
-              inputField(
-                'Model',
-                settings.stt_model_local,
-                (value) => this.change('stt_model_local', value),
-                'text',
-                true,
-                'What to ask that service to load. Most accept whisper-1; some want their own identifier.',
-              ),
-            ]
-          : []),
+        ...(settings.stt_provider === 'local' ? this.localTranscription(settings) : []),
       ]),
       settings.stt_provider !== 'disabled'
         ? settingsCard([
@@ -310,6 +291,59 @@ export class EverydaySettingsView {
         )],
         { testId: 'stt-advanced-settings' },
       ),
+    ];
+  }
+
+  /**
+   * The two shapes a local Whisper service comes in.
+   *
+   * They are different protocols, not different vendors, and somebody who
+   * already runs Home Assistant voice has the second one without knowing the
+   * word for it - so the option names the thing they would recognise.
+   */
+  private localTranscription(settings: Settings): HTMLElement[] {
+    const wyoming = settings.stt_local_backend === 'wyoming';
+    return [
+      selectField(
+        'How it connects',
+        settings.stt_local_backend,
+        ['openai_api', 'wyoming'],
+        (value) => this.change('stt_local_backend', value),
+        'stt-local-backend',
+        sttBackendLabel,
+        true,
+        'Wyoming is what Home Assistant voice uses. If you already run faster-whisper for it, choose that.',
+      ),
+      wyoming
+        ? inputField(
+            'Service address',
+            settings.stt_wyoming_address,
+            (value) => this.change('stt_wyoming_address', value),
+            'text',
+            true,
+            'The private-LAN host and port of the Wyoming service, port 10300 unless it was changed. '
+            + 'The model is whatever that service has loaded.',
+          )
+        : inputField(
+            'Service address',
+            settings.stt_local_base_url,
+            (value) => this.change('stt_local_base_url', value),
+            'url',
+            true,
+            'The private-LAN address of a Whisper service that speaks the OpenAI transcription API.',
+          ),
+      ...(wyoming
+        ? []
+        : [
+            inputField(
+              'Model',
+              settings.stt_model_local,
+              (value) => this.change('stt_model_local', value),
+              'text',
+              true,
+              'What to ask that service to load. Most accept whisper-1; some want their own identifier.',
+            ),
+          ]),
     ];
   }
 
@@ -573,6 +607,11 @@ function providerLabel(value: string): string {
   if (LOCAL_PROVIDERS.has(value)) return `${titleCase(value)} — on this machine`;
   // Neither list claims it, so neither does this.
   return `${titleCase(value)} — nobody has said where this runs`;
+}
+
+function sttBackendLabel(value: string): string {
+  if (value === 'wyoming') return 'Wyoming — Home Assistant voice services';
+  return 'OpenAI-compatible — speaches, whisper.cpp, LocalAI';
 }
 
 function languageLabel(value: string): string {

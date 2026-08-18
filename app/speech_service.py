@@ -8,6 +8,11 @@ import time
 from app.provider_contracts import ProviderError
 from app.providers import user_safe_provider_error
 from app.persona_voice import parse as parse_voice_preferences, preference as voice_preference
+from app.wyoming_client import (
+    WyomingUnavailable,
+    parse_address as parse_wyoming_address,
+    wyoming_transcribe,
+)
 from app.repositories import UnitOfWork
 from app.service_errors import NotFoundError, RequestError
 from app.speech_clients import (
@@ -335,6 +340,29 @@ class SpeechService:
             base_url = self.provider_url_policy.normalize(base_url, label="Local transcription service")
         return base_url, str(preferences.get("stt_model_local") or DEFAULT_STT_MODEL).strip()
 
+    def _wyoming_address(self, settings: dict) -> str:
+        """A host and port, held to the same private-LAN policy as every URL.
+
+        Wyoming is a socket rather than a URL, so the policy - which reads
+        URLs - is given one built from the host. Skipping the check because the
+        protocol is unusual would leave one local provider able to point at the
+        internet while every other one cannot.
+        """
+
+        address = str(settings["preferences"].get("stt_wyoming_address") or "").strip()
+        if not address:
+            raise RequestError("No transcription service address is configured.", 400)
+        try:
+            host, port = parse_wyoming_address(address)
+            if self.provider_url_policy:
+                self.provider_url_policy.normalize(f"http://{host}:{port}", label="Local transcription service")
+        except (WyomingUnavailable, ValueError) as exc:
+            # A stored address that no longer passes - the allowlist narrowed,
+            # or it predates this check - is a settings problem, and saying so
+            # is what sends somebody to the page that can fix it.
+            raise RequestError(str(exc), 400) from exc
+        return f"{host}:{port}"
+
     def _transcribe_with(self, provider: str, settings: dict, wav: str, api_key) -> dict:
         """Hand the audio to whichever service is selected, cloud or local.
 
@@ -345,27 +373,47 @@ class SpeechService:
 
         language = settings["preferences"].get("stt_language") or "auto"
         label = "local transcription service" if provider == "local" else "OpenAI"
+
         started = time.monotonic()
         outcome = "error"
         try:
-            if provider == "local":
+            if provider == "local" and self._local_backend(settings) == "wyoming":
+                result = wyoming_transcribe(self._wyoming_address(settings), wav, language)
+            elif provider == "local":
                 base_url, model = self._transcription_target(settings)
                 result = local_stt(wav, base_url, model, language)
             else:
                 result = openai_stt(wav, api_key, language)
             outcome = "ok"
             return result
+        except RequestError:
+            # Nothing was configured to fail. Reporting a provider failure would
+            # send somebody looking at a service that was never contacted.
+            raise
         except Exception as exc:
             self.logger.warning("stt provider failed provider=%s error=%s", provider, exc.__class__.__name__)
             raise ProviderError(
                 provider=provider,
                 code="transcription_failed",
-                user_message=user_safe_provider_error("STT", label, exc),
+                # Wyoming failures are already sentences somebody can act on -
+                # wrong kind of service, no answer in time - and they are
+                # authored here rather than echoed from a response body, so
+                # there is nothing in them to leak. Every other failure goes
+                # through the generic phrasing that assumes there might be.
+                user_message=(
+                    f"STT failed in the {label}. {exc}"
+                    if isinstance(exc, WyomingUnavailable)
+                    else user_safe_provider_error("STT", label, exc)
+                ),
                 retryable=True,
             ) from exc
         finally:
             if self.metrics:
                 self.metrics.provider(provider, "stt", outcome, int((time.monotonic() - started) * 1000))
+
+    @staticmethod
+    def _local_backend(settings: dict) -> str:
+        return str(settings["preferences"].get("stt_local_backend") or "openai_api").strip().lower()
 
     def _rotate_audio(self) -> None:
         files = sorted(

@@ -56,6 +56,43 @@ most self-hosted servers accept OpenAI's name as an alias for whatever they
 loaded. The ones that want their own identifier say so plainly, and this is a
 text field, so they can have it.
 
+## Amended the same day: Wyoming as well
+
+The reasoning above assumed somebody wanting local transcription would deploy a
+server for it. On the first deployment this was tried against, they already had
+one and it was not an HTTP server at all - a `faster-whisper` service running
+`large-v3`, reached over **Wyoming**, the protocol Home Assistant's voice stack
+uses. It had been running for months, for a different purpose.
+
+That is not a coincidence worth ignoring. The overlap between "runs a private-LAN
+AI assistant" and "runs Home Assistant" is large, and Wyoming is what that half
+of the world already has. Telling them to install a second Whisper beside the
+working one is not a deployment step, it is a reason not to bother.
+
+So local transcription has two backends, the way local image generation already
+has two. They are different protocols, not different vendors, and the setting
+says so in the words somebody would recognise: *OpenAI-compatible* for speaches,
+whisper.cpp and LocalAI, *Wyoming* for Home Assistant voice services.
+
+Wyoming is a line of JSON over a TCP socket, optionally followed by a block of
+JSON and a block of binary. Speaking it takes no dependency.
+
+Three things this settles that the HTTP path did not have to:
+
+**The address is a socket, not a URL, and is still held to the private-LAN
+policy.** The check is given a URL built from the host. Letting it past because
+the protocol is unusual would leave one local provider able to reach the internet
+while every other one cannot, under a label saying it does not.
+
+**Audio goes at the rate it was recorded at.** The server resamples with a real
+audio library; resampling first here, without one, could only lose something.
+The rate travels with the audio in every event, because declaring 16 kHz while
+sending 24 kHz makes a service transcribe chipmunks.
+
+**The connection check reports which model is loaded**, not merely that something
+answered. Which Whisper it is decides whether a spoken turn is usable, and that
+is a property of a service this product does not own and cannot choose for.
+
 ## Alternatives considered
 
 **`faster-whisper` or `openai-whisper` inside the application process.** The
@@ -86,10 +123,19 @@ provider rather than a hard-coded list, and the note beside the microphone that
 said where a recording was going now shows nothing - it was written to disappear
 on its own when this landed, and it did.
 
-What this does not do is run a Whisper service. Somebody still has to deploy one,
-the same way they deployed Kokoro. Until they do, the connection check says so
-and the microphone reports a provider failure naming the local service rather
-than a generic one, so it is possible to tell whose box is down.
+What this does not do is run a Whisper service. Somebody still has to have one,
+the same way they have Kokoro - though as the amendment above found, they more
+often already do than not. Until then, the connection check says so and the
+microphone reports a provider failure naming the local service rather than a
+generic one, so it is possible to tell whose box is down.
+
+Nor does it choose the model or the hardware it runs on. `large-v3` on a CPU
+measured at roughly twice realtime on the deployment this was built against -
+eight seconds for a four-second utterance, and perfect accuracy. That is a
+usable transcription and a poor conversation, and the fix is a smaller model or
+a GPU on the service side. This product cannot make that trade on somebody's
+behalf, so the connection check names the model and leaves the choice where the
+hardware is.
 
 Transcribing while somebody is still speaking remains unimplemented and is still
 listed as such.

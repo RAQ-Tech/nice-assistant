@@ -833,6 +833,8 @@ export interface Settings extends Record<string, SettingScalar | Record<string, 
   tts_local_base_url: string;
   stt_local_base_url: string;
   stt_model_local: string;
+  stt_local_backend: string;
+  stt_wyoming_address: string;
   tts_voice_filter_regions: string[];
   tts_voice_filter_genders: string[];
   tts_voice_filter_query: string;
