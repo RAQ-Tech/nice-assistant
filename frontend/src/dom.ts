@@ -81,6 +81,26 @@ interface FocusSnapshot {
   end: number | null;
 }
 
+/**
+ * Where a scrolling region was, so a re-render can put it back.
+ *
+ * Sits beside focus capture because it is the same problem: rendering replaces
+ * the tree, and anything the browser was holding on the reader's behalf goes
+ * with it.
+ */
+export function captureScroll(selector: string): number | null {
+  const pane = document.querySelector<HTMLElement>(selector);
+  return pane ? pane.scrollTop : null;
+}
+
+export function restoreScroll(selector: string, top: number | null): void {
+  // Zero is where a fresh pane already is, so restoring it is a no-op worth
+  // skipping rather than a position worth forcing.
+  if (top === null || top <= 0) return;
+  const pane = document.querySelector<HTMLElement>(selector);
+  if (pane) pane.scrollTop = top;
+}
+
 export function captureFocus(root: HTMLElement): FocusSnapshot | null {
   const active = document.activeElement;
   if (!(active instanceof HTMLInputElement || active instanceof HTMLTextAreaElement) || !root.contains(active)) {

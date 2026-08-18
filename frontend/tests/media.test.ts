@@ -61,4 +61,46 @@ describe('media presentation', () => {
     expect(appState.uiError).toBe('');
     expect(appState.pendingRequest).toBeNull();
   });
+
+  it('leaves the conversation alone while a picture is still generating', async () => {
+    const appState = createState();
+    const stateMachine = new ClientStateMachine(appState);
+    stateMachine.transition('idle');
+    appState.currentChat = { id: 'chat-1' } as AppState['currentChat'];
+    appState.settings = {
+      image_provider: 'local',
+      image_size: '1024x1024',
+      image_quality: 'none',
+      image_local_backend: 'comfyui',
+      image_local_base_url: 'http://comfyui.test',
+    } as AppState['settings'];
+
+    let polls = 0;
+    let chatFetches = 0;
+    const client = {
+      imageJob: async () => ({ job_id: 'job-1', capability_request_id: 'request-1', chat_id: 'chat-1', status: 'running' }),
+      capabilityRequest: async () => {
+        polls += 1;
+        // Four polls at the same status, then it finishes.
+        return { id: 'request-1', status: polls < 5 ? 'running' : 'completed' };
+      },
+      chat: async () => {
+        chatFetches += 1;
+        return { chat: { id: 'chat-1' }, messages: [] };
+      },
+      capabilityRequests: async () => ({ items: [] }),
+    } as unknown as ApiClient;
+    let renders = 0;
+    const media = new MediaController(appState, stateMachine, client);
+    media.setChangeHandler(() => { renders += 1; });
+
+    await media.generateImage('a kite', 'chat-1');
+
+    // A request that has not changed looks exactly as it did a third of a
+    // second ago. Rebuilding the page for that made it hostile to use while it
+    // waited, and asked the server for a conversation nobody had touched.
+    expect(polls).toBe(5);
+    expect(chatFetches).toBeLessThanOrEqual(3);
+    expect(renders).toBeLessThanOrEqual(3);
+  });
 });

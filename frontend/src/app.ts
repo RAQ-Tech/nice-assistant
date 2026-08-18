@@ -6,7 +6,7 @@ import { ChatRenderer, modelNickname } from './chat_rendering';
 import { CapabilityController } from './capabilities';
 import { composerState } from './composer_state';
 import { DEFAULT_PERSONA_AVATAR } from './constants';
-import { captureFocus, el, errorMessage, restoreFocus } from './dom';
+import { captureFocus, captureScroll, el, errorMessage, restoreFocus, restoreScroll } from './dom';
 import { generationLogOverlay } from './generation_log_view';
 import { HomeView } from './home_view';
 import { runFirstRunSetup } from './onboarding';
@@ -175,6 +175,7 @@ const homeView = new HomeView(state, api, {
 
 function render(): void {
   const focus = captureFocus(root);
+  const messageScroll = captureScroll(MESSAGES_PANE);
   visualizer.setEnabled(state.showViz);
   root.replaceChildren();
   if (!state.session) {
@@ -192,7 +193,7 @@ function render(): void {
   if (state.chatVideoPreview) root.append(videoOverlay(state.chatVideoPreview));
   if (state.modal) root.append(modalNode(state.modal));
   restoreFocus(root, focus, Boolean(state.modal));
-  requestAnimationFrame(restoreMessageScroll);
+  requestAnimationFrame(() => restoreMessageScroll(messageScroll));
 }
 
 function shell(): HTMLElement {
@@ -549,6 +550,9 @@ function createDialogs(): Dialogs {
   };
 }
 
+// The scrolling region a reader is actually reading.
+const MESSAGES_PANE = '#messagesPane';
+
 function statusClass(): string {
   if (state.phase === 'recording') return 'status-recording';
   if (state.phase === 'speaking') return 'status-speaking';
@@ -562,12 +566,25 @@ function onMessageScroll(event: Event): void {
   state.stickMessagesToBottom = !state.showJumpBottom;
 }
 
-function restoreMessageScroll(): void {
-  if (state.stickMessagesToBottom) scrollBottom(false);
+/**
+ * Put the reader back where they were reading.
+ *
+ * Rendering replaces the whole tree, so the new messages pane starts at the
+ * top. Sticking to the bottom was handled; having scrolled up to look at
+ * something was not, and the pane silently jumped to the top on every render -
+ * three times a second while a picture generated, which is exactly when
+ * somebody is scrolling back through the conversation to wait.
+ */
+function restoreMessageScroll(previous: number | null): void {
+  if (state.stickMessagesToBottom) {
+    scrollBottom(false);
+    return;
+  }
+  restoreScroll(MESSAGES_PANE, previous);
 }
 
 function scrollBottom(smooth: boolean): void {
-  const pane = document.querySelector<HTMLElement>('#messagesPane');
+  const pane = document.querySelector<HTMLElement>(MESSAGES_PANE);
   pane?.scrollTo({ top: pane.scrollHeight, behavior: smooth ? 'smooth' : 'auto' });
   state.stickMessagesToBottom = true;
   state.showJumpBottom = false;
