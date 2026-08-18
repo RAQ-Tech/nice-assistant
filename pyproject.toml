@@ -14,15 +14,15 @@ dependencies = [
   "fastapi==0.141.1",
   "Pillow==12.3.0",
   "python-multipart==0.0.32",
-  "SQLAlchemy==2.0.51",
-  "uvicorn==0.52.1",
+  "SQLAlchemy==2.0.52",
+  "uvicorn==0.52.3",
 ]
 
 [project.optional-dependencies]
 dev = [
   "coverage==7.15.4",
   "httpx==0.28.1",
-  "ruff==0.16.2",
+  "ruff==0.16.3",
 ]
 
 [tool.setuptools.packages.find]
