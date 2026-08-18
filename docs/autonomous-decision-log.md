@@ -18,7 +18,7 @@ Nothing below blocks further development.
 | # | Needs | Why it needs a person | Consequence of waiting |
 |---|---|---|---|
 | D1 | Update the Unraid container to `ghcr.io/raq-tech/nice-assistant:latest` | Live system change on hardware the assistant cannot reach | None of the merged work is running yet |
-| D2 | Settings → Models → context allocation → `8192` | Live setting; costs ~0.5GB VRAM | Character card plus lore fit poorly at 4096 |
+| D2 | ~~Settings → Models → context allocation → `8192`~~ **done 2026-08-18**, and now the shipped default | Was a live setting; measured cost is zero on a model that fits | Character card plus lore fit poorly at 4096 |
 | D3 | Settings → Task Models → point roles at a small clean instruct model | Requires knowing which models are installed | Memory extraction and capability planning stay less reliable on an abliterated model |
 | D4 | Persona card content | Authored character material; nobody else knows the persona | The persona-depth features are mechanism with nothing in them |
 | D5 | Whether lore should be shareable across personas in a workspace | Product scope question | Shared background must be authored per persona |
