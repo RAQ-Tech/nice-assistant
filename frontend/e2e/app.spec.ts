@@ -281,6 +281,31 @@ test('the logo is reachable by keyboard and says where it goes', async ({ page }
   await expect(page.getByTestId('home')).toBeVisible();
 });
 
+test('the chat list opens from its toggle and yields to the conversation', async ({ page }) => {
+  await installAuthenticatedFixture(page);
+  await page.goto('/#/chats/chat-1');
+  const drawer = page.locator('aside.drawer');
+  await expect(drawer).not.toHaveClass(/open/);
+
+  // Through the real page, where the toggle's own click bubbles into the pane
+  // it sits in. The unit test checks the guard; this checks the wiring that
+  // once opened the list and closed it again in the same tap.
+  await page.getByTestId('drawer-toggle').click();
+  await expect(drawer).toHaveClass(/open/);
+
+  // Tap the conversation where it is actually visible beside the open list -
+  // a wide region on desktop, a sliver on a phone - computed from the real
+  // geometry rather than guessed, because the guess landed in the gutter.
+  const paneBox = await page.locator('main.main-pane').boundingBox();
+  const drawerBox = await drawer.boundingBox();
+  if (!paneBox || !drawerBox) throw new Error('layout boxes unavailable');
+  await page.mouse.click(
+    (drawerBox.x + drawerBox.width + paneBox.x + paneBox.width) / 2,
+    paneBox.y + paneBox.height / 2,
+  );
+  await expect(drawer).not.toHaveClass(/open/);
+});
+
 test('the homepage continues the conversation you were last in', async ({ page }) => {
   await installAuthenticatedFixture(page);
   await page.goto('/');

@@ -1,7 +1,7 @@
 import { api, ApiError } from './api';
 import { AuthView } from './auth_view';
 import { ChatController } from './chat';
-import { ChatDrawer } from './chat_drawer';
+import { clickDismissesDrawer, ChatDrawer } from './chat_drawer';
 import { coverNewestImage, ChatRenderer, modelNickname } from './chat_rendering';
 import { CapabilityController } from './capabilities';
 import { composerState } from './composer_state';
@@ -273,8 +273,8 @@ function shell(): HTMLElement {
       class: 'main-pane glass',
       // Touching the conversation is as clear a way of saying "not the list" as
       // finding the close button, and it is the one people reach for first.
-      onclick: () => {
-        if (!state.drawerOpen) return;
+      onclick: (event: Event) => {
+        if (!state.drawerOpen || !clickDismissesDrawer(event)) return;
         state.drawerOpen = false;
         render();
       },
@@ -320,7 +320,7 @@ function topbar(personaName: string, avatar: string): HTMLElement {
     }, [
       el('img', { class: 'topbar-home-mark', src: '/favicon.svg', alt: '' }),
     ]),
-    el('button', { class: 'icon-btn', textContent: '☰', onclick: () => { state.drawerOpen = !state.drawerOpen; render(); } }),
+    el('button', { class: 'icon-btn', textContent: '☰', title: 'Chats', 'aria-label': 'Open the chat list', 'data-drawer-toggle': 'true', 'data-testid': 'drawer-toggle', onclick: () => { state.drawerOpen = !state.drawerOpen; render(); } }),
     el('div', { class: 'header-meta' }, [
       el('button', {
         class: 'image-preview-trigger topbar-avatar-trigger',

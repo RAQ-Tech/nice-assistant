@@ -11,6 +11,20 @@ interface ChatDrawerCallbacks {
   goHome: () => void;
 }
 
+/**
+ * Whether a click in the conversation pane should put the chat list away.
+ *
+ * The control that opens the list sits inside that pane, so its own tap
+ * bubbles up to the dismiss handler. Without this exemption the toggle opened
+ * the list and the same tap immediately closed it - one gesture, no visible
+ * effect, and no way to reach any existing chat.
+ */
+export function clickDismissesDrawer(event: Event): boolean {
+  const target = event.target;
+  if (!(target instanceof Element)) return true;
+  return !target.closest('[data-drawer-toggle]');
+}
+
 export class ChatDrawer {
   private readonly selectedIds = new Set<string>();
   private selectionMode = false;
