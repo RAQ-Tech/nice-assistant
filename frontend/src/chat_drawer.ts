@@ -160,10 +160,23 @@ export class ChatDrawer {
     if (title?.trim()) await this.chat.rename(item, title);
   }
 
+  /**
+   * Hiding a chat leaves you where you were, unless you were in it.
+   *
+   * This used to go home no matter which chat was hidden, and the homepage
+   * opened a new chat on arrival - so tidying up created conversations faster
+   * than it removed them, and the last few could not be reached at all.
+   */
   private async hide(item: Chat): Promise<void> {
     if (!(await this.dialogs.confirm('Hide chat', `Hide ${item.title || 'this chat'}?`, 'Hide'))) return;
+    const wasOpen = this.appState.currentChat?.id === item.id;
     await this.chat.hide(item);
-    this.callbacks.goHome();
+    if (!wasOpen) return;
+    // The chat under the cursor is gone, so go to whatever is now most recent
+    // rather than throwing somebody out to the homepage.
+    const next = this.appState.chats[0];
+    if (next) this.callbacks.openChat(next.id);
+    else this.callbacks.goHome();
   }
 
   private async bulkAction(action: 'hide' | 'delete'): Promise<void> {

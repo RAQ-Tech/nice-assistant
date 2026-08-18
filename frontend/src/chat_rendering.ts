@@ -182,7 +182,10 @@ export class ChatRenderer {
       const key = image.src;
       const blur = Boolean(this.appState.settings?.chat_blur_images);
       const activate = () => {
-        if (blur && !this.appState.revealedImages[key]) {
+        // The class is the truth, not the setting that usually sets it: the
+        // newest picture is covered after this runs, and a tap on it has to
+        // uncover rather than open.
+        if (image.classList.contains('image-blurred')) {
           this.appState.revealedImages[key] = true;
           image.classList.remove('image-blurred');
           image.title = 'Open image preview';
@@ -412,4 +415,24 @@ export function splitThinking(text: string): { thinking: string; visibleText: st
 export function modelNickname(model: string): string {
   const leaf = model.split('/').pop() ?? model;
   return leaf.replace(/:latest$/, '').replace(/[-_]/g, ' ');
+}
+
+/**
+ * Cover the newest picture in the conversation.
+ *
+ * Whatever the blur setting says. That setting is about scrolling back through
+ * a conversation; this is about the picture that is already on screen when
+ * somebody opens one, which is the moment another person can see it over their
+ * shoulder. One tap uncovers it, the same as any blurred picture.
+ *
+ * Decided here, after the whole conversation is on the page, because the
+ * per-message binding cannot see which picture is last.
+ */
+export function coverNewestImage(root: HTMLElement, revealed: Record<string, boolean>): void {
+  const images = [...root.querySelectorAll<HTMLImageElement>('.msg-inline-image, .attachment-image')];
+  const newest = images[images.length - 1];
+  if (!newest || revealed[newest.src]) return;
+  newest.classList.add('image-blurred');
+  newest.title = 'Tap to reveal image';
+  newest.setAttribute('aria-label', 'Reveal image');
 }
