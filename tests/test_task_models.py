@@ -99,6 +99,7 @@ class TaskModelTests(unittest.TestCase):
                     "memory_extraction",
                     "capability_planning",
                     "scene_proposal",
+                    "scene_from_message",
                 },
             )
             saved = updated_profile(

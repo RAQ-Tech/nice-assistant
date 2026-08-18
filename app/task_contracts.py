@@ -15,12 +15,14 @@ CONVERSATION_SUMMARY = "conversation_summary"
 MEMORY_EXTRACTION = "memory_extraction"
 CAPABILITY_PLANNING = "capability_planning"
 SCENE_PROPOSAL = "scene_proposal"
+SCENE_FROM_MESSAGE = "scene_from_message"
 TASK_ROLES = (
     TITLE_GENERATION,
     CONVERSATION_SUMMARY,
     MEMORY_EXTRACTION,
     CAPABILITY_PLANNING,
     SCENE_PROPOSAL,
+    SCENE_FROM_MESSAGE,
 )
 
 
@@ -437,6 +439,18 @@ class CapabilityPlanningTaskInput:
     recent_user_messages: tuple[str, ...] = ()
 
 
+@dataclass(frozen=True)
+class SceneFromMessageTaskInput:
+    """A passage somebody asked to see a picture of."""
+
+    passage: str
+
+
+@dataclass(frozen=True)
+class SceneFromMessageTaskOutput:
+    scene: dict
+
+
 SCENE_SOURCES = ("persona_card", "lorebook", "conversation")
 
 
@@ -562,6 +576,16 @@ def _system_prompt(role: str) -> str:
             "mood, leaving a field empty when nothing implies it. Do not repeat anything in "
             "already_proposed_or_made. Do not write prompt text, tags, or style words, and never name a provider, "
             "model, LoRA, workflow, or generation setting."
+        )
+    if role == SCENE_FROM_MESSAGE:
+        return shared + (
+            "Somebody read the passage and asked to see it. Find the single most depictable moment in it and "
+            "describe that moment as a scene: subject, action, setting, wardrobe, framing, lighting, camera, and "
+            "mood. Leave a field empty when the passage does not imply it, and invent nothing it does not support. "
+            "Prefer what is physically present over what is stated, felt, or discussed - a passage about a decision "
+            "depicts the person deciding, in the place they are, not the decision. Keep the passage's own named "
+            "people, places, and objects. Do not write prompt text, tags, quality words, or style boilerplate, and "
+            "never name a provider, model, LoRA, workflow, or generation setting."
         )
     if role == CAPABILITY_PLANNING:
         return shared + (
@@ -1048,6 +1072,30 @@ def _parse_capabilities(
     return CapabilityPlanningTaskOutput(tuple(requests))
 
 
+def _scene_from_message_schema(_task_input: SceneFromMessageTaskInput) -> dict:
+    return {
+        "type": "object",
+        "additionalProperties": False,
+        "required": ["scene"],
+        # A typed scene, not prompt text: prompt syntax belongs to the
+        # checkpoint, and the platform renders the scene into it.
+        "properties": {"scene": scene_schema()},
+    }
+
+
+def _scene_from_message_payload(task_input: SceneFromMessageTaskInput) -> dict:
+    return {"passage": task_input.passage}
+
+
+def _parse_scene_from_message(
+    raw: str, _task_input: SceneFromMessageTaskInput, _max_output_tokens: int
+) -> SceneFromMessageTaskOutput:
+    scene = normalize_scene(_strict_object(raw, {"scene"})["scene"])
+    if not scene_summary(scene):
+        raise TaskContractError("task model returned a scene with no subject, action, or setting")
+    return SceneFromMessageTaskOutput(scene)
+
+
 def _title_payload(task_input: TitleTaskInput) -> dict:
     return {"user_text": task_input.user_text}
 
@@ -1145,6 +1193,24 @@ TASK_DEFINITIONS = {
         _capability_payload,
         _parse_capabilities,
         lambda _value: CapabilityPlanningTaskOutput(tuple()),
+    ),
+    SCENE_FROM_MESSAGE: TaskDefinition(
+        SCENE_FROM_MESSAGE,
+        "Pictures of a message",
+        "Turns a passage somebody asked to see into a typed scene; it never selects media models or workflows.",
+        SceneFromMessageTaskInput,
+        2048,
+        384,
+        60.0,
+        0.2,
+        # Falling back to an empty scene is what the platform wants here: the
+        # compiler then uses the passage as written, which is exactly the
+        # behaviour this replaced, rather than failing the picture outright.
+        "skip",
+        _scene_from_message_schema,
+        _scene_from_message_payload,
+        _parse_scene_from_message,
+        lambda _value: SceneFromMessageTaskOutput(dict(EMPTY_SCENE)),
     ),
     SCENE_PROPOSAL: TaskDefinition(
         SCENE_PROPOSAL,

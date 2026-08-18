@@ -261,6 +261,10 @@ class ComfyUIWorkflowInspectionRepresentation(BaseModel):
 
 class MediaJobCreate(StrictModel):
     prompt: str = Field(min_length=1, max_length=100_000)
+    # A passage somebody asked to see, rather than a prompt they wrote. It gets
+    # turned into a typed scene before anything reaches an image model, because
+    # prose is not prompt syntax and the two must not be confused.
+    illustrate_text: str | None = Field(default=None, max_length=100_000)
     chat_id: str | None = None
     provider: str | None = None
     model: str | None = None

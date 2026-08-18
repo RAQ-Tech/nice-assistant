@@ -171,3 +171,36 @@ decision.
 Migration `0029_scene_proposal_role` widens the role vocabulary. The profile and
 run tables constrain it with a CHECK, and SQLite cannot alter one in place, so
 both are rebuilt with existing rows copied verbatim.
+
+## Pictures of a message
+
+A sixth role turns a passage somebody asked to see into one typed scene. It runs
+when a person uses the button on a message rather than typing a prompt of their
+own.
+
+That button used to wrap the message in an English instruction - "create a
+coherent image inspired by this assistant response, preserve named people,
+places, objects, mood, and visual style" - and send the whole thing as the
+prompt. Nothing downstream removed it, so an image model received the words
+"assistant response" alongside several hundred words of prose and was asked to
+draw them. Prose is not prompt syntax, and the platform already knew how to
+render a typed scene into whichever syntax the selected checkpoint wants; what
+was missing was anything producing the scene.
+
+The role is told to find the single most depictable moment and prefer what is
+physically present over what is stated, felt, or discussed - a passage about a
+decision depicts the person deciding, in the place they are, not the decision.
+Like every other role it never writes prompt text and never names a provider,
+model, LoRA, workflow, or setting.
+
+A failure here is not a failure of the picture. The fallback is an empty scene,
+and an empty scene means the compiler uses the passage as written, which is what
+happened before this role existed.
+
+**A prompt somebody typed is never sent through it.** Their words are the
+request; rewriting them would be taking the request away from them. The role
+runs only for a passage, and when a passage is present it is the intent - a
+prompt sent beside it can only disagree with it.
+
+Migration `0038_scene_from_message_role` widens the role vocabulary again, by
+the same table rebuild as `0029`.

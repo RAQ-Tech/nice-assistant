@@ -17,6 +17,8 @@ from app.provider_contracts import CancellationToken, ProviderError
 from app.service_errors import ConflictError, NotFoundError, RequestError, ServiceError
 from app.task_contracts import (
     CAPABILITY_PLANNING,
+    SCENE_FROM_MESSAGE,
+    SceneFromMessageTaskInput,
     CapabilityPlanningTaskInput,
     TaskContractError,
     MAX_OFFERED_PRESETS,
@@ -151,6 +153,11 @@ def _sync_attachment(repo, request, state: str, *, message: str | None = None, r
         attachment.retry_available = 0
     if state in CAPABILITY_TERMINAL_STATES:
         attachment.completed_at = now_ts()
+
+
+# How much of a passage the scene task reads. A picture comes from a moment,
+# and a moment is near the start of what somebody just read and reacted to.
+MAX_ILLUSTRATED_PASSAGE = 4000
 
 
 class InvalidCapabilityTransition(RuntimeError):
@@ -995,6 +1002,36 @@ class CapabilityService:
                 )
             return self._response(uow.repo, row)
 
+    def _scene_for_passage(self, user_id: str, passage: str) -> dict:
+        """Turn a passage somebody asked to see into a scene the compiler can render.
+
+        Asking for a picture of a message used to send the message itself to the
+        image model, wrapped in an English sentence telling it what to do with
+        it - so a diffusion model was handed the words "assistant response" and
+        asked to draw them. Prose is not a prompt, and the platform already
+        knows how to render a typed scene into whichever syntax the selected
+        checkpoint wants. This produces the scene.
+
+        A failure here is not a failure of the picture. The role falls back to
+        an empty scene, and an empty scene means the compiler uses the passage
+        as written - exactly what happened before this existed.
+        """
+
+        try:
+            outcome = self.task_models.run(
+                user_id,
+                SCENE_FROM_MESSAGE,
+                SceneFromMessageTaskInput(passage=passage[:MAX_ILLUSTRATED_PASSAGE]),
+                CancellationToken(),
+            )
+        except Exception:  # noqa: BLE001 - every failure means "use the passage"
+            self.logger.warning("scene_from_message failed; falling back to the passage as written")
+            return {}
+        if outcome.fallback_used:
+            return {}
+        scene = dict(getattr(outcome.value, "scene", {}) or {})
+        return {key: value for key, value in scene.items() if value}
+
     def start_explicit(
         self,
         kind: str,
@@ -1013,8 +1050,18 @@ class CapabilityService:
                 )
             except ValueError as exc:
                 raise RequestError(str(exc), 400) from exc
-        requirements = self.registry.requirements(definition, {"prompt": values.get("prompt")})
+        illustrate = str(values.get("illustrate_text") or "").strip()
+        scene = self._scene_for_passage(user_id, illustrate) if illustrate else {}
+        # A passage is what somebody asked to see, so it is the intent. Any
+        # prompt sent beside it can only disagree with it, and this is the
+        # fallback when the scene task could not run: the compiler cleans the
+        # passage the way it cleans anything typed, rather than the picture
+        # failing outright.
+        prompt = illustrate or values.get("prompt")
+        requirements = self.registry.requirements(definition, {"prompt": prompt})
         execution_arguments = requirements.as_arguments()
+        if scene:
+            execution_arguments["scene"] = tuple(sorted(scene.items()))
         allowed_options = {
             "provider",
             "model",

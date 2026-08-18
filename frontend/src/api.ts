@@ -123,6 +123,8 @@ export interface TurnInput {
 
 export interface MediaJobInput {
   prompt: string;
+  /** A passage to make a picture of, rather than a prompt somebody wrote. */
+  illustrate_text?: string;
   chat_id?: string | null;
   provider?: string;
   model?: string;
