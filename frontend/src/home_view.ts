@@ -1,5 +1,6 @@
 import type { ApiClient } from './api';
 import { el } from './dom';
+import { continueCard, type HomeFact, personaStrip, pictureGrid, statusCard } from './home_cards';
 import { HomeControls } from './home_controls';
 import type {
   AppState,
@@ -37,8 +38,10 @@ const RECENT_PICTURES = 4;
 
 export interface HomeActions {
   startChat: () => void;
+  startChatWith: (personaId: Id | null) => void;
   openChat: (chatId: Id) => void;
-  openSettings: () => void;
+  openSettings: (section?: string) => void;
+  openPicture: (url: string, gallery: string[]) => void;
 }
 
 function chatLabel(chat: Chat): string {
@@ -103,71 +106,40 @@ export class HomeView {
   }
 
   node(): HTMLElement {
+    const recent = this.appState.chats.filter((chat) => !chat.hidden_in_ui);
+    const latest = recent[0] ?? null;
     return el('main', { class: 'home', 'data-testid': 'home' }, [
       this.header(),
-      this.startCard(),
-      this.nowCard(),
-      this.localityCard(),
-      this.controls.node(this.production, this.produced),
-      this.picturesCard(),
-      this.recentCard(),
+      continueCard(latest, this.appState.personas.find((item) => item.id === latest?.persona_id), this.actions),
+      pictureGrid(this.pictures, this.loaded, this.actions),
+      el('div', { class: 'home-columns' }, [
+        personaStrip(this.appState.personas, this.actions),
+        this.recentCard(),
+        statusCard(this.facts(), this.actions),
+        this.localityCard(),
+        this.controls.node(this.production, this.produced),
+      ]),
       this.failed ? el('p', { class: 'meta', textContent: this.failed }) : null,
     ]);
   }
 
+  /** Everything the page reports, each pointing at the setting behind it. */
+  private facts(): HomeFact[] {
+    return [
+      { label: 'New chat uses', value: this.bindingLabel(), section: 'Personas' },
+      { label: 'Chat model', value: this.chatModelLabel(), section: 'Models' },
+      { label: 'Images', value: this.imagesLabel(), section: 'Image Generation' },
+      { label: 'Background pictures', value: this.productionLabel(), section: 'Persona Pictures' },
+      { label: 'Last generation', value: this.lastGenerationLabel() },
+    ];
+  }
+
   private header(): HTMLElement {
-    const personaCount = this.appState.personas.length;
     return el('header', { class: 'home-header' }, [
       el('h1', { class: 'home-title', textContent: 'Nice Assistant' }),
-      el('p', {
-        class: 'home-subtitle',
-        textContent: personaCount
-          ? `${personaCount} ${personaCount === 1 ? 'persona' : 'personas'} ready.`
-          : 'No personas yet.',
-      }),
     ]);
   }
 
-  private startCard(): HTMLElement {
-    return el('section', { class: 'home-card' }, [
-      el('div', { class: 'chips' }, [
-        el('button', {
-          class: 'send-btn',
-          textContent: 'Start a conversation',
-          'data-testid': 'home-start-chat',
-          onclick: () => this.actions.startChat(),
-        }),
-        el('button', {
-          class: 'pill-btn',
-          textContent: 'Settings',
-          'data-testid': 'home-settings',
-          onclick: () => this.actions.openSettings(),
-        }),
-      ]),
-    ]);
-  }
-
-  private nowCard(): HTMLElement {
-    return el('section', { class: 'home-card', 'data-testid': 'home-now' }, [
-      el('h2', { class: 'home-card-title', textContent: 'Right now' }),
-      el('ul', { class: 'home-facts' }, [
-        this.fact('New chat uses', this.bindingLabel()),
-        this.fact('Chat model', this.chatModelLabel()),
-        this.fact('Images', this.imagesLabel()),
-        this.fact('Background pictures', this.productionLabel()),
-        this.fact('Last generation', this.lastGenerationLabel()),
-      ]),
-    ]);
-  }
-
-  /**
-   * Where this conversation goes.
-   *
-   * Local and cloud are both fine; not knowing which one you have is not. Every
-   * line names something that happens during a conversation, so it reads for
-   * somebody deciding whether to say a thing rather than somebody debugging a
-   * provider.
-   */
   private localityCard(): HTMLElement | null {
     const locality = this.locality;
     if (!locality) return null;
@@ -249,29 +221,11 @@ export class HomeView {
     return outcomeLabel(newest);
   }
 
-  private picturesCard(): HTMLElement {
-    return el('section', { class: 'home-card' }, [
-      el('h2', { class: 'home-card-title', textContent: 'Recent pictures' }),
-      this.pictures.length
-        ? el('div', { class: 'home-pictures', 'data-testid': 'home-pictures' }, this.pictures.map((entry) =>
-            el('img', {
-              class: 'home-picture',
-              src: entry.content_url,
-              alt: entry.scene.subject || 'A retained picture',
-              title: entry.scene.subject || '',
-            })))
-        : el('p', {
-            class: 'meta',
-            'data-testid': 'home-pictures-empty',
-            textContent: this.loaded
-              ? 'None kept yet. Ask a persona for a picture and it will be kept for reuse.'
-              : 'Checking…',
-          }),
-    ]);
-  }
-
-  private recentCard(): HTMLElement {
-    const recent = this.appState.chats.filter((chat) => !chat.hidden_in_ui).slice(0, RECENT_CHATS);
+  private recentCard(): HTMLElement | null {
+    // The hero is already the most recent one. Repeating it directly underneath
+    // was the page telling somebody the same thing twice.
+    const recent = this.appState.chats.filter((chat) => !chat.hidden_in_ui).slice(1, RECENT_CHATS + 1);
+    if (!recent.length) return null;
     return el('section', { class: 'home-card' }, [
       el('h2', { class: 'home-card-title', textContent: 'Recent conversations' }),
       recent.length
@@ -283,11 +237,7 @@ export class HomeView {
                 onclick: () => this.actions.openChat(chat.id),
               }),
             ])))
-        : el('p', {
-            class: 'meta',
-            'data-testid': 'home-recent-empty',
-            textContent: 'Nothing yet. Starting a conversation is the way in.',
-          }),
+        : null,
     ]);
   }
 }

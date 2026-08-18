@@ -13,6 +13,7 @@ class BrowserArchitectureTests(unittest.TestCase):
             "app.ts",
             "chat.ts",
             "chat_drawer.ts",
+            "home_cards.ts",
             "home_controls.ts",
             "home_view.ts",
             "onboarding.ts",
@@ -60,6 +61,7 @@ class BrowserArchitectureTests(unittest.TestCase):
         self.assertLess((SOURCE / "persona_lore_copy_view.ts").read_text(encoding="utf-8").count("\n"), 150)
         self.assertLess((SOURCE / "preset_settings_view.ts").read_text(encoding="utf-8").count("\n"), 550)
         self.assertLess((SOURCE / "home_view.ts").read_text(encoding="utf-8").count("\n"), 300)
+        self.assertLess((SOURCE / "home_cards.ts").read_text(encoding="utf-8").count("\n"), 220)
         self.assertLess((SOURCE / "home_controls.ts").read_text(encoding="utf-8").count("\n"), 250)
         self.assertLess((SOURCE / "operations_settings_view.ts").read_text(encoding="utf-8").count("\n"), 450)
         self.assertLess((SOURCE / "workflow_template_view.ts").read_text(encoding="utf-8").count("\n"), 250)
