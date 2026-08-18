@@ -25,6 +25,7 @@ from app.persona_card import (
     example_dialogue_fit,
 )
 from app.repositories import UnitOfWork, now_ts
+from app.wyoming_client import WyomingUnavailable, parse_address as parse_wyoming_address
 from app.settings import (
     normalize_media_preferences,
     validate_media_preferences,
@@ -230,6 +231,21 @@ class ResourceService:
                     preferences[key] = self.provider_url_policy.normalize(preferences[key], label=label)
                 except ValueError as exc:
                     raise RequestError(str(exc), 400) from exc
+        # Wyoming is a socket rather than a URL, so the policy is given one
+        # built from its host. Letting it past because the protocol is unusual
+        # would leave one local provider able to reach the internet while every
+        # other one cannot, under a label that says it does not.
+        if preferences.get("stt_wyoming_address"):
+            try:
+                host, port = parse_wyoming_address(preferences["stt_wyoming_address"])
+            except WyomingUnavailable as exc:
+                raise RequestError(str(exc), 400) from exc
+            if self.provider_url_policy:
+                try:
+                    self.provider_url_policy.normalize(f"http://{host}:{port}", label="Local transcription service")
+                except ValueError as exc:
+                    raise RequestError(str(exc), 400) from exc
+            preferences["stt_wyoming_address"] = f"{host}:{port}"
         values = dict(values)
         values["preferences"] = preferences
         with self._uow() as uow:

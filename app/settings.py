@@ -45,6 +45,12 @@ def normalize_media_preferences(value):
         backend = str(preferences.get("image_local_backend") or "").strip().lower()
         if backend in {"automatic1111", "comfyui"}:
             preferences["image_local_backend"] = backend
+    # Two kinds of local transcription service, the way there are two kinds of
+    # local image backend. They are different protocols, not different vendors.
+    if "stt_local_backend" in preferences:
+        backend = str(preferences.get("stt_local_backend") or "").strip().lower()
+        if backend in {"openai_api", "wyoming"}:
+            preferences["stt_local_backend"] = backend
     return preferences
 
 
@@ -57,6 +63,7 @@ def _accepted_video_sizes() -> set[str]:
 MEDIA_PREFERENCE_CHOICES: dict[str, set[str]] = {
     "image_provider": {"disabled", "local", "openai", "local/automatic1111", "local/comfyui"},
     "image_local_backend": {"automatic1111", "comfyui"},
+    "stt_local_backend": {"openai_api", "wyoming"},
     "image_size": set(SUPPORTED_IMAGE_SIZES),
     "image_quality": set(IMAGE_QUALITY_VALUES) | set(IMAGE_QUALITY_ALIASES),
     "video_provider": {"disabled", "openai"},

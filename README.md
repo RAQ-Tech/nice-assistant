@@ -211,15 +211,24 @@ server, proxy, bridge, and second listener have been removed.
 ### Optional: a spoken turn that stays on this network
 
 Transcription can run against a self-hosted Whisper service instead of OpenAI.
-Deploy one that speaks the OpenAI transcription API - `speaches`, whisper.cpp's
-bundled server, or LocalAI all do - then set the transcription provider to Local
-and give it the address. The connection check on the same page says whether it
-answered.
+Set the transcription provider to Local and choose how it connects:
 
-The address is held to the same private-LAN policy as every other local
-provider, so "local" cannot be pointed at a host on the internet. No API key is
-sent to it. Without such a service, transcription is OpenAI or off, and the
-microphone says which.
+- **Wyoming** - the protocol Home Assistant's voice services use. If you already
+  run `faster-whisper` for Home Assistant, this is what you have, and nothing new
+  needs installing. Give it the host and port, port 10300 unless it was changed.
+- **OpenAI-compatible** - `speaches`, whisper.cpp's bundled server, or LocalAI.
+  Give it a base URL and a model name.
+
+The connection check on the same page says whether it answered, and for Wyoming
+it also names the model that is loaded - which decides whether a spoken turn
+arrives quickly enough to hold a conversation. A large model on a CPU is
+accurate and slow; a small one or a GPU is how that gets fixed, on the service
+side.
+
+Either address is held to the same private-LAN policy as every other local
+provider, so "local" cannot be pointed at a host on the internet, and no API key
+is sent to either. Without such a service, transcription is OpenAI or off, and
+the microphone says which.
 
 ### Optional: memories found by meaning
 
