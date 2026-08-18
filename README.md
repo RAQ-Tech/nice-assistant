@@ -13,8 +13,8 @@ OpenAI/Kokoro-compatible TTS that starts
 speaking before synthesis finishes. The product direction is voice-first:
 speech streams, interrupting it stops the provider work rather than muting it,
 and hands-free listening decides when a turn ended. Choosing a speech provider
-on evidence, and transcribing while somebody is still speaking, are deliberately
-still later work.
+on evidence is deliberately still later work. Transcription can optionally begin
+at each natural pause rather than at the end of a turn.
 
 ## Unraid quick setup
 
@@ -206,7 +206,9 @@ server, proxy, bridge, and second listener have been removed.
   hold-to-talk unchanged and never guessed at
 - Local transcription against a self-hosted Whisper service, so a spoken turn
   can complete without leaving this network
-- Transcribing while somebody is still speaking is not implemented
+- Optional transcription at natural pauses, so the wait after you stop is one
+  sentence rather than the whole turn. Off by default: it transcribes more
+  audio in total, so it suits a fast transcription model
 
 ### Optional: a spoken turn that stays on this network
 

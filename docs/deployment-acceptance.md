@@ -115,9 +115,11 @@ the sound, and hands-free listening that decides when a turn ended. Implemented
 is not accepted; none of it has run on the real topology, and none of it selects
 a speech provider - that still needs the listening evaluation.
 
-None of it may be described as live transcription. Nothing is transcribed while
-somebody is still speaking, and the product does not notice somebody talking
-over it.
+None of it may be described as live transcription. Transcription can now begin
+at a pause rather than at the end of a turn (ADR 0041), but nothing is refined
+as more audio arrives, and the product does not notice somebody talking over it.
+The pause-cutting path is unaccepted on the installed deployment: it is off by
+default and has not been heard against a real microphone.
 
 Interruption now stops the provider work rather than only the sound: the browser
 aborts the request, the server stops reading the provider response, and nothing
