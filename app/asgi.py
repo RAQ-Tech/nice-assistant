@@ -7,7 +7,7 @@ from pathlib import Path
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.exceptions import RequestValidationError
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import FileResponse, JSONResponse, Response
 import uvicorn
 
 from app.api_v1 import router as api_v1_router
@@ -66,6 +66,44 @@ class RequestBodyLimitMiddleware:
     async def _reject(scope, receive, send, _path, limit, message="request body too large"):
         content = {"error": {"code": 413, "message": message, "maxBytes": limit}}
         return await JSONResponse(status_code=413, content=content)(scope, receive, send)
+
+
+BROWSER_FILE_SUFFIXES = frozenset({".html", ".js", ".css", ".svg", ".png", ".ico", ".webp"})
+
+
+def _browser_file(web_dir, path: str, request: Request):
+    """One file from the built browser bundle, with an honest cache header.
+
+    These filenames never change, so a browser given no instruction applies its
+    own heuristic freshness and can keep running a build from days ago while the
+    container serves a new one. That made every update invisible until somebody
+    thought to hard-refresh.
+
+    "no-cache" is revalidate-before-use, not do-not-store. The stat is passed in
+    so the ETag exists now rather than when the body is sent, which is what lets
+    an unchanged bundle cost a header instead of a download - FileResponse does
+    not answer If-None-Match by itself.
+    """
+
+    relative = path or "index.html"
+    if Path(relative).suffix.lower() not in BROWSER_FILE_SUFFIXES:
+        raise HTTPException(status_code=404, detail="not found")
+    target = (web_dir / relative).resolve()
+    web_root = web_dir.resolve()
+    if target != web_root and web_root not in target.parents:
+        raise HTTPException(status_code=404, detail="not found")
+    if not target.exists() or not target.is_file():
+        raise HTTPException(status_code=404, detail="not found")
+    response = FileResponse(
+        target,
+        media_type=mimetypes.guess_type(target.name)[0] or "application/octet-stream",
+        stat_result=target.stat(),
+        headers={"Cache-Control": "no-cache"},
+    )
+    etag = response.headers.get("etag")
+    if etag and request.headers.get("if-none-match") == etag:
+        return Response(status_code=304, headers={"Cache-Control": "no-cache", "ETag": etag})
+    return response
 
 
 def create_app(
@@ -180,17 +218,8 @@ def create_app(
         return JSONResponse(status_code=200 if value["ready"] else 503, content=value)
 
     @application.get("/{path:path}", include_in_schema=False)
-    def browser_files(path: str):
-        relative = path or "index.html"
-        if Path(relative).suffix.lower() not in {".html", ".js", ".css", ".svg", ".png", ".ico", ".webp"}:
-            raise HTTPException(status_code=404, detail="not found")
-        target = (config.web_dir / relative).resolve()
-        web_root = config.web_dir.resolve()
-        if target != web_root and web_root not in target.parents:
-            raise HTTPException(status_code=404, detail="not found")
-        if not target.exists() or not target.is_file():
-            raise HTTPException(status_code=404, detail="not found")
-        return FileResponse(target, media_type=mimetypes.guess_type(target.name)[0] or "application/octet-stream")
+    def browser_files(path: str, request: Request):
+        return _browser_file(config.web_dir, path, request)
 
     return application
 
