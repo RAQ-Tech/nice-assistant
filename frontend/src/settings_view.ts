@@ -1,4 +1,5 @@
 import { api, type ApiClient, type PersonaInput } from './api';
+import { settingsNav } from './settings_nav';
 import { el, errorMessage, formatDate } from './dom';
 import { EverydaySettingsView, type EverydaySettingsSection } from './everyday_settings_view';
 import { IdentitySettingsView } from './identity_settings_view';
@@ -11,6 +12,7 @@ import {
   resetSettingsSection,
   SETTINGS_DEFAULTS,
   SETTINGS_SECTIONS,
+  sectionLabel,
   settingsWire,
   type SettingsSection,
 } from './settings';
@@ -39,6 +41,8 @@ const PROVIDERS: readonly [string, string][] = [
 export type Dialogs = SettingsDialogs;
 
 export class SettingsView {
+  private searchQuery = '';
+
   private readonly identityView: IdentitySettingsView;
   private readonly everydayView: EverydaySettingsView;
   private readonly modelView: ModelSettingsView;
@@ -150,32 +154,18 @@ export class SettingsView {
         ? el('div', { class: 'error-banner', textContent: this.appState.settingsError })
         : null,
       el('div', { class: 'settings-layout' }, [
-        el(
-          'aside',
-          { class: 'settings-nav glass' },
-          SETTINGS_SECTIONS.map((name) =>
-            el('button', {
-              class: `settings-nav-item ${name === section ? 'active' : ''}`,
-              textContent: name,
-              'data-testid': `settings-nav-${slug(name)}`,
-              onclick: () => {
-                this.appState.settingsSection = name;
-                if (name === 'Memory') void this.refreshMemories();
-                if (name === 'Task Models') void this.taskModelView.refresh();
-                if (name === 'Media Catalog') void this.mediaCatalogView.refresh();
-                if (name === 'Persona Pictures') void this.identityView.refresh();
-                if (name === 'GPU Coordination' && this.appState.session?.is_admin) {
-                  void this.operationsView.refreshCoordination();
-                }
-                if (name === 'Data' && this.appState.session?.is_admin) void this.operationsView.refreshBackups();
-                this.renderApp();
-              },
-            }),
-          ),
-        ),
+        settingsNav({
+          section,
+          query: this.searchQuery,
+          onQuery: (value) => {
+            this.searchQuery = value;
+            this.renderApp();
+          },
+          onOpen: (name) => this.openSection(name),
+        }),
         el('section', { class: 'settings-detail glass' }, [
           el('div', { class: 'settings-section-head' }, [
-            el('h3', { textContent: section }),
+            el('h3', { textContent: sectionLabel(section) }),
             !usesDedicatedActions
               ? el('button', {
                   class: 'pill-btn',
@@ -191,6 +181,20 @@ export class SettingsView {
         ]),
       ]),
     ]);
+  }
+
+  /** Switch sections, and load whatever that section reads on arrival. */
+  private openSection(name: SettingsSection): void {
+    this.appState.settingsSection = name;
+    if (name === 'Memory') void this.refreshMemories();
+    if (name === 'Task Models') void this.taskModelView.refresh();
+    if (name === 'Media Catalog') void this.mediaCatalogView.refresh();
+    if (name === 'Persona Pictures') void this.identityView.refresh();
+    if (name === 'GPU Coordination' && this.appState.session?.is_admin) {
+      void this.operationsView.refreshCoordination();
+    }
+    if (name === 'Data' && this.appState.session?.is_admin) void this.operationsView.refreshBackups();
+    this.renderApp();
   }
 
   private section(section: SettingsSection, settings: Settings): HTMLElement[] {

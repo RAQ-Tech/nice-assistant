@@ -38,6 +38,7 @@ class BrowserArchitectureTests(unittest.TestCase):
             "settings.ts",
             "settings_contracts.ts",
             "settings_controls.ts",
+            "settings_nav.ts",
             "settings_ui.ts",
             "settings_view.ts",
             "state.ts",
@@ -55,6 +56,7 @@ class BrowserArchitectureTests(unittest.TestCase):
         self.assertLess((SOURCE / "media_overlays.ts").read_text(encoding="utf-8").count("\n"), 200)
         self.assertLess((SOURCE / "identity_settings_view.ts").read_text(encoding="utf-8").count("\n"), 550)
         self.assertLess((SOURCE / "settings_view.ts").read_text(encoding="utf-8").count("\n"), 800)
+        self.assertLess((SOURCE / "settings_nav.ts").read_text(encoding="utf-8").count("\n"), 100)
         self.assertLess((SOURCE / "task_model_settings_view.ts").read_text(encoding="utf-8").count("\n"), 350)
         self.assertLess((SOURCE / "media_catalog_settings_view.ts").read_text(encoding="utf-8").count("\n"), 600)
         self.assertLess((SOURCE / "persona_card_view.ts").read_text(encoding="utf-8").count("\n"), 150)

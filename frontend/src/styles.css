@@ -743,6 +743,50 @@ input[type='file']::file-selector-button {
   overflow: auto;
 }
 
+.settings-search {
+  width: 100%;
+  padding: .5rem .65rem;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  background: var(--control-bg);
+  color: var(--control-text);
+}
+
+.settings-search::placeholder {
+  color: var(--control-placeholder);
+}
+
+.settings-nav-list {
+  display: flex;
+  flex-direction: column;
+  gap: .45rem;
+  min-height: 0;
+  overflow: auto;
+}
+
+/* A group is a heading over its pages, not a page itself. */
+.settings-nav-group {
+  display: flex;
+  flex-direction: column;
+  gap: .3rem;
+}
+
+.settings-nav-group + .settings-nav-group {
+  margin-top: .45rem;
+}
+
+.settings-nav-group-title {
+  font-size: .72rem;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+  padding: 0 .2rem;
+}
+
+.settings-search-empty {
+  padding: .3rem .2rem;
+}
+
 .settings-nav-item {
   width: 100%;
   text-align: left;
@@ -1631,7 +1675,7 @@ input[type='file']::file-selector-button {
       max(.6rem, var(--safe-left));
   }
   .settings-layout { grid-template-columns: 1fr; }
-  .settings-nav { max-height: 180px; }
+  .settings-nav { max-height: 240px; }
 }
 
 @media (max-width: 640px) {
@@ -1864,13 +1908,27 @@ input[type='file']::file-selector-button {
     gap: .6rem;
   }
 
+  /* On a phone the pages are one scrolling chip row under the search box.
+     The groups dissolve rather than render as clipped columns: on a strip the
+     headings cost more width than they explain, and search does that job. */
   .settings-nav {
+    max-height: none;
+    padding: .45rem;
+  }
+
+  .settings-nav-list {
     flex-direction: row;
     overflow-x: auto;
     overflow-y: hidden;
-    max-height: none;
-    padding: .45rem;
     scrollbar-width: thin;
+  }
+
+  .settings-nav-group {
+    display: contents;
+  }
+
+  .settings-nav-group-title {
+    display: none;
   }
 
   .settings-nav-item {

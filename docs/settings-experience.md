@@ -122,7 +122,19 @@ if it is still there when routing is trusted, it is clutter.
 ### 21B — Everyday settings — delivered
 
 General, TTS, STT, Image Generation, Video Generation, Memory, User, Personas,
-and Workspaces now use the same approachable structure:
+and Workspaces now use the same approachable structure.
+
+Navigation is five groups named for intent - Conversation, Voice, Pictures,
+Personas, System - rather than fifteen flat tabs named after subsystems, and
+the jargon ids wear plain labels: TTS is "Spoken replies", STT is
+"Transcription", Task Models is "Background models". Section ids are unchanged,
+so every deep link still lands. A search box above the groups matches the words
+a person actually thinks - "blur", "microphone", "backup" - against a curated
+vocabulary per section, narrows the list live, and opens the best match on
+Enter. On a phone the groups dissolve into one scrolling chip row beneath the
+search box.
+
+The sections themselves:
 
 - Common choices appear first in goal-oriented cards; diagnostics, credentials,
   retention, tuning payloads, and new-persona defaults begin closed.
