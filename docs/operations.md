@@ -16,6 +16,16 @@ The publish workflow derives its small tag set and required OCI provenance
 labels directly from the immutable GitHub ref and SHA. Release publication does
 not depend on a secondary repository-metadata API call before the image build.
 
+The workflow runs the full verifier and publishes only from `main` and `v*`
+tags; pull requests get the same verifier minus the browser journeys in a
+separate fast gate, so a merge is checked without paying for a build nobody
+pulls. Jobs carry explicit timeouts - a run past thirty minutes is stuck, not
+slow, and the platform default it would otherwise run to is six hours - and a
+newer push to the same ref cancels the run it superseded, because the image
+that run would publish is already nobody's. A weekly job retires `sha-` images
+beyond the newest fifteen; anything tagged `latest`, `main`, or `v*` is never
+touched, and every retired image remains rebuildable from its commit.
+
 Routine production promotion uses the restricted scripts under
 `scripts/deployment`; it does not use a general-purpose remote shell. During one
 supervised root session, generate a dedicated laptop key, confirm the server SSH

@@ -1,0 +1,50 @@
+# Retire old sha- images from the registry.
+#
+# Every publish tags the image with its commit sha alongside latest and main,
+# which is right - a bad latest can be rolled back to an exact commit - but
+# nobody rolls back a month, and the registry otherwise grows one image per
+# push forever. This keeps the newest fifteen sha- images and deletes older
+# ones. It never touches anything tagged latest, main, or v*, and it never
+# touches untagged versions, which can be layers a live tag still references.
+#
+# Every deleted image remains rebuildable from its commit; git is the archive.
+
+name: Registry hygiene
+
+on:
+  schedule:
+    - cron: "17 6 * * 1"
+  workflow_dispatch:
+
+permissions:
+  packages: write
+
+jobs:
+  prune:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Delete sha- images beyond the newest fifteen
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          base="users/${GITHUB_REPOSITORY_OWNER}/packages/container/nice-assistant/versions"
+          gh api "${base}?per_page=100" > versions.json
+          jq -r '
+            [ .[]
+              | select((.metadata.container.tags | length) > 0)
+              | select([.metadata.container.tags[] | startswith("sha-")] | all)
+            ]
+            | sort_by(.updated_at) | reverse | .[15:] | .[]
+            | "\(.id) \(.metadata.container.tags | join(","))"
+          ' versions.json > stale.txt
+          if [[ ! -s stale.txt ]]; then
+            echo "Nothing to retire."
+            exit 0
+          fi
+          while read -r id tags; do
+            echo "retiring version ${id} (${tags})"
+            gh api -X DELETE "${base}/${id}"
+          done < stale.txt
