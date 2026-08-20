@@ -1,3 +1,4 @@
+import { avatarErrorFallback, avatarSource } from './avatar';
 import { el, formatDate } from './dom';
 import type { Chat, Id, LibraryEntry, Persona } from './types';
 
@@ -13,8 +14,6 @@ import type { Chat, Id, LibraryEntry, Persona } from './types';
  * are most likely to want is the largest and nearest the top; everything else
  * is something they can act on rather than read.
  */
-
-export const DEFAULT_AVATAR = '/assets/persona-default.svg';
 
 export interface HomeCardActions {
   openChat: (chatId: Id) => void;
@@ -49,7 +48,8 @@ export function continueCard(
   return el('section', { class: 'home-hero', 'data-testid': 'home-hero' }, [
     el('img', {
       class: 'home-hero-avatar',
-      src: persona?.avatar_url || DEFAULT_AVATAR,
+      src: avatarSource(persona?.name ?? 'Conversation', persona?.avatar_url),
+      onerror: avatarErrorFallback(persona?.name ?? 'Conversation'),
       alt: '',
       ariaHidden: true,
     }),
@@ -86,7 +86,12 @@ export function personaStrip(personas: Persona[], actions: HomeCardActions): HTM
         'data-testid': `home-persona-${persona.id}`,
         onclick: () => actions.startChatWith(persona.id),
       }, [
-        el('img', { class: 'home-persona-avatar', src: persona.avatar_url || DEFAULT_AVATAR, alt: '' }),
+        el('img', {
+          class: 'home-persona-avatar',
+          src: avatarSource(persona.name, persona.avatar_url),
+          onerror: avatarErrorFallback(persona.name),
+          alt: '',
+        }),
         el('span', { class: 'home-persona-name', textContent: persona.name }),
       ]))),
   ]);

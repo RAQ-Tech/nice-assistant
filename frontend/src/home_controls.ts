@@ -1,5 +1,6 @@
 import type { ApiClient } from './api';
 import { el, errorMessage } from './dom';
+import { providerLabel } from './everyday_settings_view';
 import { normalizeSettings, settingsWire } from './settings';
 import type { AppState, PregenerationReadiness, SceneBacklogEntry } from './types';
 
@@ -41,9 +42,68 @@ export class HomeControls {
   node(readiness: PregenerationReadiness | null, produced: SceneBacklogEntry | null): HTMLElement {
     return el('section', { class: 'home-card', 'data-testid': 'home-controls' }, [
       el('h2', { class: 'home-card-title', textContent: 'Quick settings' }),
+      this.chatModel(),
+      this.images(),
       this.pregeneration(readiness, produced),
       this.speech(),
       this.memory(),
+    ]);
+  }
+
+  /**
+   * The model conversations use, changed here rather than found in Settings.
+   *
+   * This was a read-only fact that opened the Models page. Anything on the
+   * front page that is one choice among a known few is set on the front page;
+   * both surfaces write the same stored settings, so they cannot disagree.
+   */
+  private chatModel(): HTMLElement {
+    const settings = this.appState.settings;
+    const current = settings?.global_default_model || '';
+    return el('div', { class: 'home-control-row', 'data-testid': 'home-chat-model' }, [
+      el('span', { class: 'meta', textContent: 'Chat model' }),
+      el(
+        'select',
+        {
+          class: 'chip-select',
+          'data-testid': 'home-chat-model-select',
+          disabled: this.saving || !settings || !this.appState.models.length,
+          onchange: (event: Event) => {
+            if (!this.appState.settings) return;
+            this.appState.settings.global_default_model = (event.currentTarget as HTMLSelectElement).value;
+            void this.save();
+          },
+        },
+        [
+          el('option', { value: '', selected: !current, textContent: 'Automatic' }),
+          ...this.appState.models.map((model) =>
+            el('option', { value: model, selected: model === current, textContent: model })),
+        ],
+      ),
+    ]);
+  }
+
+  /** Where pictures come from, named the way every provider control names it. */
+  private images(): HTMLElement {
+    const settings = this.appState.settings;
+    const current = settings?.image_provider ?? 'disabled';
+    return el('div', { class: 'home-control-row', 'data-testid': 'home-image-provider' }, [
+      el('span', { class: 'meta', textContent: 'Pictures' }),
+      el(
+        'select',
+        {
+          class: 'chip-select',
+          'data-testid': 'home-image-provider-select',
+          disabled: this.saving || !settings,
+          onchange: (event: Event) => {
+            if (!this.appState.settings) return;
+            this.appState.settings.image_provider = (event.currentTarget as HTMLSelectElement).value;
+            void this.save();
+          },
+        },
+        ['disabled', 'local', 'openai'].map((value) =>
+          el('option', { value, selected: value === current, textContent: providerLabel(value) })),
+      ),
     ]);
   }
 

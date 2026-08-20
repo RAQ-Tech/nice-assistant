@@ -606,7 +606,7 @@ const LOCAL_PROVIDERS = new Set(['ollama', 'local', 'local-image', 'kokoro', 'co
  * is, is not, so the distinction travels with the name rather than living in a
  * paragraph above the control.
  */
-function providerLabel(value: string): string {
+export function providerLabel(value: string): string {
   if (value === 'disabled') return 'Off';
   if (value === 'local') return 'Local service — on this machine';
   if (CLOUD_PROVIDERS.has(value)) return `${titleCase(value)} — leaves this machine`;

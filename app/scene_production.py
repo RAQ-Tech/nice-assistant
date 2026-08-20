@@ -28,6 +28,7 @@ class SceneProductionRunner:
         interval_seconds: int = DEFAULT_POLL_SECONDS,
         enabled: bool = False,
         memories=None,
+        resources=None,
     ):
         self.backlog = backlog
         self.logger = logger
@@ -35,6 +36,7 @@ class SceneProductionRunner:
         # is written: approving a fact should not wait for a model, and a model
         # that is down should not stop somebody approving it.
         self.memories = memories
+        self.resources = resources
         self.interval_seconds = max(30, int(interval_seconds))
         self.enabled = bool(enabled)
         self._stop = threading.Event()
@@ -68,6 +70,20 @@ class SceneProductionRunner:
         except Exception:  # noqa: BLE001 - a missing model must not stop pictures
             self.logger.warning("memory embedding pass failed", exc_info=True)
 
+    def _snapshot_avatars(self) -> None:
+        """Adopt avatars the product does not own copies of yet.
+
+        Same posture as the embedding pass: it must never stop production, and
+        an avatar site being down is a wait, not an error.
+        """
+
+        if not self.resources:
+            return
+        try:
+            self.resources.snapshot_pending_avatars()
+        except Exception:  # noqa: BLE001 - a broken avatar must not stop pictures
+            self.logger.warning("avatar snapshot pass failed", exc_info=True)
+
     def run_once(self) -> list[dict]:
         """One pass over every owner with something approved.
 
@@ -76,6 +92,7 @@ class SceneProductionRunner:
         """
 
         self._embed_pending()
+        self._snapshot_avatars()
         results = []
         if not (self.backlog and self.enabled):
             return results

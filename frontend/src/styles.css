@@ -2354,12 +2354,13 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
   }
 }
 
-/* Faces, because a count of personas was never the useful part. */
+/* Faces, because a count of personas was never the useful part. They wrap
+   instead of scrolling sideways: a card with room for every face that still
+   hid some behind a scrollbar was the worst of both. */
 .home-persona-strip {
   display: flex;
+  flex-wrap: wrap;
   gap: 0.7rem;
-  overflow-x: auto;
-  padding-bottom: 0.2rem;
 }
 
 .home-persona {
@@ -2382,16 +2383,16 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
 }
 
 .home-persona-avatar {
-  width: 3rem;
-  height: 3rem;
+  width: 4rem;
+  height: 4rem;
   border-radius: 50%;
   object-fit: cover;
   border: 1px solid var(--border);
 }
 
 .home-persona-name {
-  font-size: 0.75rem;
-  max-width: 5rem;
+  font-size: 0.8rem;
+  max-width: 6rem;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;

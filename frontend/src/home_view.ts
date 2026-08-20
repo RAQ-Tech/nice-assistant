@@ -34,7 +34,7 @@ import type {
  */
 
 const RECENT_CHATS = 6;
-const RECENT_PICTURES = 4;
+const RECENT_PICTURES = 12;
 
 export interface HomeActions {
   startChat: () => void;
@@ -128,13 +128,16 @@ export class HomeView {
     ]);
   }
 
-  /** Everything the page reports, each pointing at the setting behind it. */
+  /** What is left after the controls moved into Quick settings: true status.
+   *
+   * Chat model and images are set directly there now, and the background
+   * pictures line was that card's toggle repeated in words - so the facts here
+   * are the ones somebody can only read, plus the one link that is genuinely a
+   * doorway rather than a value.
+   */
   private facts(): HomeFact[] {
     return [
       { label: 'New chat uses', value: this.bindingLabel(), section: 'Personas' },
-      { label: 'Chat model', value: this.chatModelLabel(), section: 'Models' },
-      { label: 'Images', value: this.imagesLabel(), section: 'Image Generation' },
-      { label: 'Background pictures', value: this.productionLabel(), section: 'Persona Pictures' },
       { label: 'Last generation', value: this.lastGenerationLabel() },
     ];
   }

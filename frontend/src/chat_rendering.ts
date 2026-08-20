@@ -1,5 +1,5 @@
 import { api, type ApiClient } from './api';
-import { DEFAULT_PERSONA_AVATAR } from './constants';
+import { avatarErrorFallback, avatarSource } from './avatar';
 import { degradationSuggestsMoreContext, describeContextDegradation, replyWasTruncated } from './context_notice';
 import { copyText, downloadUrl, el, markdown } from './dom';
 import { extractImageUrl, extractVideoUrl, illustratedPassage, speechText, stripVideoLinks } from './media';
@@ -53,13 +53,14 @@ export class ChatRenderer {
             title: `View ${personaName}'s full-size avatar`,
             'aria-label': `View ${personaName}'s full-size avatar`,
             onclick: () => {
-              this.appState.personaAvatarPreview = persona?.avatar_url || DEFAULT_PERSONA_AVATAR;
+              this.appState.personaAvatarPreview = avatarSource(personaName, persona?.avatar_url);
               this.renderApp();
             },
           }, [
             el('img', {
               class: 'msg-avatar',
-              src: persona?.avatar_url || DEFAULT_PERSONA_AVATAR,
+              src: avatarSource(personaName, persona?.avatar_url),
+              onerror: avatarErrorFallback(personaName),
               alt: `${personaName} avatar`,
             }),
           ])

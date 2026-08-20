@@ -369,7 +369,7 @@ export class SettingsView {
           ])
         : null,
       inputField('Name', persona.name, (value) => { persona.name = value; }, 'text', false, 'The name shown in chat and persona selectors.'),
-      inputField('Avatar image URL', persona.avatar_url ?? '', (value) => { persona.avatar_url = value; }, 'url', false, 'A reachable image URL used as this persona’s avatar.'),
+      inputField('Avatar image URL', persona.avatar_url ?? '', (value) => { persona.avatar_url = value; }, 'url', false, 'Paste any image URL; the picture is copied and kept, so it keeps working if the source moves or goes away.'),
       toggleField(
         'Allow persona to send images',
         persona.allow_image_sends !== false,
