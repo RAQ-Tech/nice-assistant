@@ -165,17 +165,15 @@ test('the homepage says what is true right now', async ({ page }) => {
 
   const now = page.getByTestId('home-now');
   await expect(now).toContainText('Nova');
-  await expect(now).toContainText('demo');
-  // Read from the readiness endpoint, not assumed from the provider being set.
-  await expect(now).toContainText('02:00-06:00');
-  // Once. This read "On, 02:00-06:00, outside the window now - outside the
-  // 02:00-06:00 quiet window", which is one fact said three ways.
-  await expect(now).not.toContainText('outside the window now');
-  await expect(now).toContainText('Ready');
   // The label already says "Last generation"; the value used to repeat the
   // subject and then give a timestamp to the second.
   await expect(now).toContainText('4.2s');
   await expect(now).not.toContainText('Last picture:');
+  // Chat model, pictures, and the overnight window are set in Quick settings
+  // now rather than read about here, so the card no longer mentions them.
+  await expect(now).not.toContainText('Background pictures');
+  await expect(page.getByTestId('home-chat-model-select')).toHaveValue('demo');
+  await expect(page.getByTestId('home-image-provider-select')).toHaveValue('local');
 
   await expect(page.getByTestId('home-pictures').locator('img')).toHaveCount(1);
 });
@@ -190,11 +188,10 @@ test('the homepage says what is missing rather than inventing it', async ({ page
     route.fulfill({ status: 500, body: '{}' }));
   await page.goto('/');
 
-  const now = page.getByTestId('home-now');
   // A panel that could not load says so. A zero, or a reassuring "Ready", would
   // be a claim the platform cannot support.
-  await expect(now).toContainText('Not known');
-  await expect(now).toContainText('Nothing generated yet');
+  await expect(page.getByTestId('home-pregeneration')).toContainText('Not known');
+  await expect(page.getByTestId('home-now')).toContainText('Nothing generated yet');
   await expect(page.getByTestId('home-pictures-empty')).toBeVisible();
 });
 

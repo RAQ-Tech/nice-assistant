@@ -1317,6 +1317,15 @@ def update_persona_card(
     return services(request).resources.save_persona_card(context.user_id, persona_id, body.model_dump())
 
 
+@router.get("/personas/{persona_id}/avatar", tags=["personas"])
+def persona_avatar(persona_id: str, request: Request, context: AuthContext = Depends(current_user)):
+    found = services(request).resources.persona_avatar_path(context.user_id, persona_id)
+    # The URL carries the content digest as ?v=, so a changed picture is a new
+    # URL and this copy can be cached hard instead of re-asked-for on every
+    # page the face appears on.
+    return FileResponse(found, headers={"Cache-Control": "public, max-age=31536000, immutable"})
+
+
 @router.get("/personas/{persona_id}/lore", tags=["personas"])
 def list_persona_lore(persona_id: str, request: Request, context: AuthContext = Depends(current_user)):
     return {"items": services(request).resources.list_persona_lore(context.user_id, persona_id)}

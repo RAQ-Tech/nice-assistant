@@ -1,11 +1,11 @@
 import { api, ApiError } from './api';
 import { AuthView } from './auth_view';
 import { ChatController } from './chat';
+import { avatarSource } from './avatar';
 import { clickDismissesDrawer, ChatDrawer } from './chat_drawer';
 import { coverNewestImage, ChatRenderer, modelNickname } from './chat_rendering';
 import { CapabilityController } from './capabilities';
 import { composerState } from './composer_state';
-import { DEFAULT_PERSONA_AVATAR } from './constants';
 import { captureFocus, captureScroll, el, errorMessage, restoreFocus, restoreScroll } from './dom';
 import { imageOverlay, stepChatImage, videoOverlay } from './media_overlays';
 import { generationLogOverlay } from './generation_log_view';
@@ -279,7 +279,7 @@ function shell(): HTMLElement {
         render();
       },
     }, [
-      topbar(persona?.name ?? 'Persona', persona?.avatar_url || DEFAULT_PERSONA_AVATAR),
+      topbar(persona?.name ?? 'Persona', avatarSource(persona?.name ?? 'Persona', persona?.avatar_url)),
       state.showChatControlsMenu ? chatControls(workspaceName, model, memoryMode) : null,
       pane,
       state.showJumpBottom

@@ -11,6 +11,7 @@ class BrowserArchitectureTests(unittest.TestCase):
         expected = {
             "api.ts",
             "app.ts",
+            "avatar.ts",
             "chat.ts",
             "chat_drawer.ts",
             "home_cards.ts",

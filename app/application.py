@@ -205,6 +205,7 @@ def build_services(
         provider_url_policy=provider_url_policy,
         media_catalog=media_catalog,
         context_policy=context_policy,
+        avatar_dir=config.data_dir / "avatars",
     )
     provider_service = ProviderService(
         runtime.session_factory,
@@ -301,6 +302,7 @@ def build_services(
         interval_seconds=config.pregeneration_poll_seconds,
         enabled=config.pregeneration_enabled,
         memories=memory,
+        resources=resources,
     )
     return ApplicationServices(
         runtime=runtime,

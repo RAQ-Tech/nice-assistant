@@ -24,6 +24,10 @@ from app.persona_card import (
     card_too_large_message,
     example_dialogue_fit,
 )
+from sqlalchemy import select
+
+from app.avatar_store import AvatarUnavailable, avatar_file, is_served, refresh_from_file, snapshot
+from app.models import Persona
 from app.repositories import UnitOfWork, now_ts
 from app.wyoming_client import WyomingUnavailable, parse_address as parse_wyoming_address
 from app.settings import (
@@ -143,6 +147,8 @@ class ResourceService:
         provider_url_policy=None,
         media_catalog=None,
         context_policy: ContextPolicy | None = None,
+        avatar_dir=None,
+        avatar_fetch=None,
     ):
         self.context_policy = context_policy or ContextPolicy()
         self.session_factory = session_factory
@@ -154,6 +160,8 @@ class ResourceService:
         self.persona_delete_hook = persona_delete_hook
         self.provider_url_policy = provider_url_policy
         self.media_catalog = media_catalog
+        self.avatar_dir = Path(avatar_dir) if avatar_dir else None
+        self.avatar_fetch = avatar_fetch
 
     def _uow(self):
         return UnitOfWork(self.session_factory, self.secret_store)
@@ -320,11 +328,89 @@ class ResourceService:
         try:
             with self._uow() as uow:
                 row = uow.repo.save_persona(user_id, values, persona_id)
+                self._adopt_avatar(row)
                 return persona_response(uow.repo, row, self._card_budget(uow.repo, user_id))
         except LookupError as exc:
             raise NotFoundError(str(exc)) from exc
         except ValueError as exc:
             raise RequestError(str(exc), 400) from exc
+
+    def _adopt_avatar(self, row) -> None:
+        """Take the product's own copy of a freshly pasted avatar URL.
+
+        Quietly, and never fatally: a save must not fail because an avatar site
+        is down at that moment, and the pasted URL is kept so the background
+        pass can keep trying. Until it succeeds the browser shows the monogram.
+        """
+
+        url = str(row.avatar_url or "").strip()
+        if not self.avatar_dir or not url or is_served(url):
+            return
+        try:
+            row.avatar_url = self._snapshot_avatar(row.id, url)
+        except AvatarUnavailable:
+            pass
+
+    def _snapshot_avatar(self, persona_id: str, url: str) -> str:
+        if self.avatar_fetch:
+            return snapshot(self.avatar_dir, persona_id, url, fetch=self.avatar_fetch)
+        return snapshot(self.avatar_dir, persona_id, url)
+
+    def persona_avatar_path(self, user_id: str, persona_id: str):
+        """The stored copy, for serving. Ownership first, then the file."""
+
+        if not self.avatar_dir:
+            raise NotFoundError("avatar not found")
+        with self._uow() as uow:
+            if not uow.repo.persona(user_id, persona_id):
+                raise NotFoundError("persona not found")
+        found = avatar_file(self.avatar_dir, persona_id)
+        if not found:
+            raise NotFoundError("avatar not found")
+        return found
+
+    def snapshot_pending_avatars(self, fetch_budget: int = 5) -> dict:
+        """Convert every avatar the product does not own a copy of yet.
+
+        Runs on the background cadence. A file already placed in the store wins
+        over fetching - that is the restore path when a source is gone for
+        good - then data URLs are decoded out of the database, then remote URLs
+        are fetched, a few per pass so one slow site cannot stall the loop.
+        An unreachable URL is left exactly as it was and retried next pass.
+        """
+
+        if not self.avatar_dir:
+            return {"converted": 0, "waiting": 0}
+        converted = 0
+        waiting = 0
+        with self._uow() as uow:
+            rows = uow.repo.session.scalars(select(Persona)).all()
+            for row in rows:
+                url = str(row.avatar_url or "").strip()
+                if not url or is_served(url):
+                    continue
+                already = refresh_from_file(self.avatar_dir, row.id)
+                if already:
+                    row.avatar_url = already
+                    converted += 1
+                    continue
+                if url.startswith("data:"):
+                    try:
+                        row.avatar_url = self._snapshot_avatar(row.id, url)
+                        converted += 1
+                    except AvatarUnavailable:
+                        waiting += 1
+                    continue
+                if fetch_budget <= 0:
+                    waiting += 1
+                    continue
+                fetch_budget -= 1
+                try:
+                    row.avatar_url = self._snapshot_avatar(row.id, url)
+                    converted += 1
+                except AvatarUnavailable:
+                    waiting += 1
+        return {"converted": converted, "waiting": waiting}
 
     def save_persona_card(self, user_id: str, persona_id: str, values: dict) -> dict:
         """Reject a card that cannot fit instead of letting the turn fail on it later."""
