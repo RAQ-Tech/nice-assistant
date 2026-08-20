@@ -91,6 +91,71 @@ export const SETTINGS_SECTIONS = [
 
 export type SettingsSection = (typeof SETTINGS_SECTIONS)[number];
 
+/**
+ * The sections, grouped by what somebody is trying to do.
+ *
+ * Fifteen flat tabs named after subsystems - TTS, STT, Task Models, GPU
+ * Coordination - were the architecture diagram wearing a settings menu as a
+ * costume. Nobody should need to know that the voice they hear and the voice
+ * they speak are different subsystems to find either one. The section ids are
+ * unchanged, so every deep link and test that names one still works; only the
+ * wayfinding is new.
+ */
+export const SETTINGS_GROUPS: readonly { name: string; sections: readonly SettingsSection[] }[] = [
+  { name: 'Conversation', sections: ['General', 'Models', 'Memory'] },
+  { name: 'Voice', sections: ['TTS', 'STT'] },
+  { name: 'Pictures', sections: ['Image Generation', 'Video Generation', 'Media Catalog', 'Persona Pictures'] },
+  { name: 'Personas', sections: ['Personas', 'Workspaces', 'User'] },
+  { name: 'System', sections: ['Task Models', 'GPU Coordination', 'Data'] },
+] as const;
+
+/** What the navigation calls a section. Ids stay; only the jargon goes. */
+export const SECTION_LABELS: Partial<Record<SettingsSection, string>> = {
+  TTS: 'Spoken replies',
+  STT: 'Transcription',
+  User: 'Your profile',
+  'Task Models': 'Background models',
+};
+
+export function sectionLabel(section: SettingsSection): string {
+  return SECTION_LABELS[section] ?? section;
+}
+
+/**
+ * What somebody might type while looking for each page.
+ *
+ * A thesaurus, not a duplicate of the controls: it carries the words a person
+ * reaches for - "blur", "microphone", "backup" - which are exactly the words
+ * that appear nowhere in the section names.
+ */
+export const SECTION_SEARCH_TERMS: Record<SettingsSection, readonly string[]> = {
+  General: ['theme', 'dark', 'appearance', 'thinking', 'system messages', 'sign out', 'logout', 'default model'],
+  Models: ['context', 'tokens', 'temperature', 'reply length', 'output', 'ollama', 'sampling', 'window'],
+  Memory: ['remember', 'forget', 'semantic', 'recall', 'saved', 'delete memories'],
+  TTS: ['voice', 'speech', 'speak', 'read aloud', 'kokoro', 'audio', 'speed', 'hear'],
+  STT: ['microphone', 'transcribe', 'whisper', 'wyoming', 'dictation', 'hands-free', 'talk', 'recording'],
+  'Image Generation': ['pictures', 'blur', 'size', 'quality', 'comfyui', 'provider', 'nsfw', 'generate'],
+  'Video Generation': ['video', 'clips', 'duration'],
+  'Media Catalog': ['presets', 'workflows', 'checkpoints', 'lora', 'recipes', 'templates'],
+  'Persona Pictures': ['identity', 'face', 'reference photos', 'likeness', 'overnight', 'scenes', 'pregeneration'],
+  Personas: ['character', 'card', 'lore', 'avatar', 'personality', 'voice preferences'],
+  Workspaces: ['organize', 'separate', 'spaces'],
+  User: ['profile', 'about me', 'name', 'owner'],
+  'Task Models': ['titles', 'summaries', 'extraction', 'capability', 'scene', 'helper models'],
+  'GPU Coordination': ['vram', 'gpu', 'contention', 'graphics'],
+  Data: ['backup', 'restore', 'export', 'retention', 'recordings', 'archive'],
+};
+
+/** The sections whose name, label, or vocabulary contains the query. */
+export function searchSettings(query: string): SettingsSection[] {
+  const needle = query.trim().toLowerCase();
+  if (!needle) return [...SETTINGS_SECTIONS];
+  return SETTINGS_SECTIONS.filter((section) => {
+    const haystack = [section, sectionLabel(section), ...SECTION_SEARCH_TERMS[section]];
+    return haystack.some((term) => term.toLowerCase().includes(needle));
+  });
+}
+
 export const SETTINGS_SECTION_KEYS: Record<SettingsSection, readonly (keyof Settings)[]> = {
   General: ['general_theme', 'general_show_system_messages', 'general_show_thinking', 'general_auto_logout', 'global_default_model'],
   TTS: [
