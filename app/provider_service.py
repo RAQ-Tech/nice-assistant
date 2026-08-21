@@ -250,7 +250,12 @@ def _bounded_warnings(messages: list[str], limit: int = 20) -> list[str]:
     return [*unique[:limit], f"{len(unique) - limit} additional workflow structure issue(s) were omitted."]
 
 
-def _inspect_comfyui_object_info(nodes: dict[str, dict], object_info: dict) -> dict:  # noqa: C901
+def _inspect_comfyui_object_info(  # noqa: C901 - one pass over one provider payload
+    nodes: dict[str, dict],
+    object_info: dict,
+    *,
+    require_identity: bool = True,
+) -> dict:
     detected_node_types = sorted({node["class_type"] for node in nodes.values()})
     missing_node_types = sorted(node_type for node_type in detected_node_types if node_type not in object_info)
     raw_candidates = []
@@ -351,7 +356,7 @@ def _inspect_comfyui_object_info(nodes: dict[str, dict], object_info: dict) -> d
 
     if not output_nodes:
         structural_issues.append("The workflow contains no provider-reported output node.")
-    if not identity_nodes:
+    if require_identity and not identity_nodes:
         structural_issues.append(
             "The workflow contains no provable identity application node that outputs MODEL or CONDITIONING."
         )
@@ -382,20 +387,36 @@ def _inspect_comfyui_object_info(nodes: dict[str, dict], object_info: dict) -> d
             "No provider-reported text input can receive the request prompt. Without one this workflow would "
             "render the text saved inside it and ignore what was asked for."
         )
-    if not raw_candidates:
+    if require_identity and not raw_candidates:
         warnings.append("No provider-reported image upload input is available for the persona reference.")
-    elif not candidates:
+    elif require_identity and not candidates:
         warnings.append(
             "No image upload input has a valid path through an identity application node to an output node."
         )
     warnings.extend(_bounded_warnings(structural_issues))
-    compatible = not missing_node_types and not unavailable_assets and not structural_issues and bool(candidates)
-    message = (
-        "ComfyUI reports installed nodes and assets, complete required inputs, valid typed links, an output path, "
-        "and a reference path through an identity application node. A live generation test is still required."
-        if compatible
-        else "The workflow remains a draft because its executable reference-conditioned path could not be proven."
-    )
+    # An identity graph must offer a reference-image path; a general graph must
+    # offer somewhere for the request prompt to land, or it would render the
+    # text saved inside it and ignore what was asked for.
+    fit_for_role = bool(candidates) if require_identity else bool(request_candidates["prompt"])
+    compatible = not missing_node_types and not unavailable_assets and not structural_issues and fit_for_role
+    if require_identity:
+        message = (
+            "ComfyUI reports installed nodes and assets, complete required inputs, valid typed links, an output "
+            "path, and a reference path through an identity application node. A live generation test is still "
+            "required."
+            if compatible
+            else "The workflow remains a draft because its executable reference-conditioned path could not be proven."
+        )
+    else:
+        # A general graph was never asked for an identity path, so neither the
+        # pass nor the fail may claim one was looked for.
+        message = (
+            "ComfyUI reports installed nodes and assets, complete required inputs, valid typed links, an output "
+            "path, and an input where the request prompt can land. A live generation test is still required."
+            if compatible
+            else "The workflow was not accepted: ComfyUI could not confirm its node types, its named files, or a "
+            "place for the request prompt to land."
+        )
     return _workflow_inspection_result(
         status="provider_compatible" if compatible else "incompatible",
         provider_compatible=compatible,
@@ -434,8 +455,16 @@ class ProviderService:
         user_id: str,
         workflow_patch: dict,
         overrides: dict | None = None,
+        *,
+        require_identity: bool = True,
     ) -> dict:
-        """Inspect provider metadata without executing or saving a workflow."""
+        """Inspect provider metadata without executing or saving a workflow.
+
+        `require_identity` decides which structural bar the graph must clear: an
+        identity workflow must route a reference image through an identity node
+        to an output, while a general workflow only needs somewhere for the
+        request prompt to land.
+        """
         try:
             nodes = _workflow_nodes(workflow_patch)
         except ValueError as exc:
@@ -448,20 +477,7 @@ class ProviderService:
         node_types = sorted({node["class_type"] for node in nodes.values()})
         try:
             effective = self._effective_settings(user_id, overrides)
-            base = normalize_provider_base_url(
-                effective.get("image_local_base_url"),
-                self.config.comfyui_base_url,
-            )
-            if self.provider_url_policy:
-                base = self.provider_url_policy.normalize(base, label="ComfyUI")
-            object_info = provider_get_json(
-                f"{base}/object_info",
-                headers=basic_auth_headers(effective.get("image_local_api_auth")),
-                timeout=self.config.provider_timeout_seconds,
-                max_bytes=_OBJECT_INFO_BYTE_LIMIT,
-            )
-            if not isinstance(object_info, dict):
-                raise ValueError("ComfyUI returned invalid object metadata.")
+            object_info = self._comfyui_object_info(effective)
         except urllib.error.HTTPError:
             result = _workflow_inspection_result(
                 status="error",
@@ -491,7 +507,7 @@ class ProviderService:
                 warnings=["No workflow was run or saved."],
             )
         else:
-            result = _inspect_comfyui_object_info(nodes, object_info)
+            result = _inspect_comfyui_object_info(nodes, object_info, require_identity=require_identity)
         self.logger.info(
             "comfyui workflow inspection status=%s nodes=%s missing_types=%s candidates=%s",
             result["status"],
@@ -500,6 +516,62 @@ class ProviderService:
             len(result["identity_input_candidates"]),
         )
         return result
+
+    def _comfyui_object_info(self, effective: dict) -> dict:
+        """ComfyUI's own catalog of nodes, inputs, and installed files."""
+
+        base = normalize_provider_base_url(
+            effective.get("image_local_base_url"),
+            self.config.comfyui_base_url,
+        )
+        if self.provider_url_policy:
+            base = self.provider_url_policy.normalize(base, label="ComfyUI")
+        object_info = provider_get_json(
+            f"{base}/object_info",
+            headers=basic_auth_headers(effective.get("image_local_api_auth")),
+            timeout=self.config.provider_timeout_seconds,
+            max_bytes=_OBJECT_INFO_BYTE_LIMIT,
+        )
+        if not isinstance(object_info, dict):
+            raise ValueError("ComfyUI returned invalid object metadata.")
+        return object_info
+
+    def list_comfyui_checkpoints(self, user_id: str, overrides: dict | None = None) -> dict:
+        """The checkpoint files ComfyUI actually has, from ComfyUI itself.
+
+        This is what lets somebody add models by ticking boxes instead of
+        typing filenames: the names come from the provider that will be asked
+        to load them, so they cannot be misspelled and cannot name files that
+        are not there.
+        """
+
+        try:
+            effective = self._effective_settings(user_id, overrides)
+            object_info = self._comfyui_object_info(effective)
+        except urllib.error.HTTPError:
+            return {
+                "ok": False,
+                "checkpoints": [],
+                "message": "ComfyUI returned an error while its models were listed.",
+            }
+        except urllib.error.URLError:
+            return {"ok": False, "checkpoints": [], "message": "ComfyUI is not reachable. Start it, then try again."}
+        except ValueError as exc:
+            return {"ok": False, "checkpoints": [], "message": str(exc)}
+        except Exception:  # noqa: BLE001 - safe, content-free provider diagnostics
+            return {"ok": False, "checkpoints": [], "message": "ComfyUI could not be asked for its models."}
+        loader = object_info.get("CheckpointLoaderSimple")
+        if not isinstance(loader, dict):
+            return {"ok": False, "checkpoints": [], "message": "ComfyUI did not report a checkpoint loader."}
+        required, optional = _input_specs(loader)
+        spec = {**optional, **required}.get("ckpt_name")
+        names = spec[0] if isinstance(spec, (list, tuple)) and spec and isinstance(spec[0], list) else []
+        checkpoints = sorted({str(name) for name in names if isinstance(name, str) and name.strip()})
+        return {
+            "ok": True,
+            "checkpoints": checkpoints,
+            "message": f"{len(checkpoints)} checkpoint file(s) reported by ComfyUI.",
+        }
 
     def _effective_settings(self, user_id: str, overrides: dict | None = None) -> dict:
         with self._uow() as uow:

@@ -207,6 +207,17 @@ class ProviderCheck(StrictModel):
 class ComfyUIWorkflowInspection(StrictModel):
     workflow_patch: dict
     settings: dict = Field(default_factory=dict)
+    # "identity" demands a reference-image path through an identity node;
+    # "general" only demands somewhere for the request prompt to land.
+    role: Literal["identity", "general"] = "identity"
+
+
+class CheckpointDiscovery(StrictModel):
+    settings: dict = Field(default_factory=dict)
+
+
+class ModelsFromCheckpoints(StrictModel):
+    names: list[str] = Field(min_length=1, max_length=200)
 
 
 class ComfyUIIdentityInputCandidate(BaseModel):
@@ -631,6 +642,7 @@ class WorkflowTemplateRepresentation(BaseModel):
     required_prompt_token: str
     installed_resource_id: str | None
     installed_version: int | None
+    installed_count: int = 0
     update_available: bool
     architecture_matches: bool
 
@@ -2033,6 +2045,27 @@ def provider_check(body: ProviderCheck, request: Request, context: AuthContext =
     return value
 
 
+@router.post("/media-catalog/comfyui-checkpoints", tags=["media-catalog"])
+def comfyui_checkpoints(
+    body: CheckpointDiscovery,
+    request: Request,
+    context: AuthContext = Depends(current_user),
+):
+    listing = services(request).provider_service.list_comfyui_checkpoints(context.user_id, body.settings)
+    cataloged = services(request).media_catalog.cataloged_checkpoints(context.user_id)
+    listing["checkpoints"] = [{"name": name, "cataloged": name in cataloged} for name in listing.get("checkpoints", [])]
+    return listing
+
+
+@router.post("/media-catalog/models/from-checkpoints", tags=["media-catalog"])
+def models_from_checkpoints(
+    body: ModelsFromCheckpoints,
+    request: Request,
+    context: AuthContext = Depends(current_user),
+):
+    return services(request).media_catalog.add_models_from_checkpoints(context.user_id, body.names)
+
+
 @router.post(
     "/media-catalog/identity-workflows/inspect",
     response_model=ComfyUIWorkflowInspectionRepresentation,
@@ -2047,6 +2080,7 @@ def inspect_comfyui_identity_workflow(
         context.user_id,
         body.workflow_patch,
         body.settings,
+        require_identity=body.role == "identity",
     )
 
 

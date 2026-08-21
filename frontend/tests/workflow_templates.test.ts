@@ -17,6 +17,7 @@ function template(overrides: Partial<WorkflowTemplate> = {}): WorkflowTemplate {
     required_prompt_token: 'photomaker',
     installed_resource_id: null,
     installed_version: null,
+    installed_count: 0,
     update_available: false,
     architecture_matches: true,
     ...overrides,
@@ -54,7 +55,7 @@ function setup(templates: WorkflowTemplate[], architecture = 'sdxl') {
   const root = document.createElement('div');
   let view!: WorkflowTemplateView;
   const render = () => root.replaceChildren(view.node('model-1', 'RealVis XL'));
-  view = new WorkflowTemplateView(render, appState, client, refreshCatalog);
+  view = new WorkflowTemplateView(render, appState, client, refreshCatalog, { confirm: async () => true, info: () => undefined } as never);
   render();
   // The panel loads on its first render, so every test waits for the cards
   // rather than for the call, which returns before the render that shows them.
@@ -185,7 +186,7 @@ describe('Workflow templates', () => {
     const root = document.createElement('div');
     let view!: WorkflowTemplateView;
     const render = () => root.replaceChildren(view.node('model-1', 'RealVis XL'));
-    view = new WorkflowTemplateView(render, appState, client, vi.fn());
+    view = new WorkflowTemplateView(render, appState, client, vi.fn(), { confirm: async () => true, info: () => undefined } as never);
     render();
 
     await vi.waitFor(() => expect(appState.settingsError).toBe('nope'));

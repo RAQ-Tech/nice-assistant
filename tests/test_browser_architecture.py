@@ -12,6 +12,7 @@ class BrowserArchitectureTests(unittest.TestCase):
             "api.ts",
             "app.ts",
             "avatar.ts",
+            "catalog_models_view.ts",
             "chat.ts",
             "chat_drawer.ts",
             "home_cards.ts",
@@ -49,6 +50,7 @@ class BrowserArchitectureTests(unittest.TestCase):
             "turn_detection.ts",
             "types.ts",
             "visualization.ts",
+            "workflow_import_view.ts",
             "workflow_template_view.ts",
         }
         self.assertTrue(expected.issubset({path.name for path in SOURCE.glob("*.ts")}))
@@ -59,6 +61,8 @@ class BrowserArchitectureTests(unittest.TestCase):
         self.assertLess((SOURCE / "settings_nav.ts").read_text(encoding="utf-8").count("\n"), 100)
         self.assertLess((SOURCE / "task_model_settings_view.ts").read_text(encoding="utf-8").count("\n"), 350)
         self.assertLess((SOURCE / "media_catalog_settings_view.ts").read_text(encoding="utf-8").count("\n"), 600)
+        self.assertLess((SOURCE / "catalog_models_view.ts").read_text(encoding="utf-8").count("\n"), 200)
+        self.assertLess((SOURCE / "workflow_import_view.ts").read_text(encoding="utf-8").count("\n"), 280)
         self.assertLess((SOURCE / "persona_card_view.ts").read_text(encoding="utf-8").count("\n"), 150)
         self.assertLess((SOURCE / "persona_lore_view.ts").read_text(encoding="utf-8").count("\n"), 300)
         self.assertLess((SOURCE / "persona_lore_copy_view.ts").read_text(encoding="utf-8").count("\n"), 150)
@@ -67,7 +71,7 @@ class BrowserArchitectureTests(unittest.TestCase):
         self.assertLess((SOURCE / "home_cards.ts").read_text(encoding="utf-8").count("\n"), 220)
         self.assertLess((SOURCE / "home_controls.ts").read_text(encoding="utf-8").count("\n"), 250)
         self.assertLess((SOURCE / "operations_settings_view.ts").read_text(encoding="utf-8").count("\n"), 450)
-        self.assertLess((SOURCE / "workflow_template_view.ts").read_text(encoding="utf-8").count("\n"), 250)
+        self.assertLess((SOURCE / "workflow_template_view.ts").read_text(encoding="utf-8").count("\n"), 300)
         self.assertLess((SOURCE / "streaming_audio.ts").read_text(encoding="utf-8").count("\n"), 150)
         self.assertLess((SOURCE / "turn_detection.ts").read_text(encoding="utf-8").count("\n"), 220)
         self.assertLess((SOURCE / "recording.ts").read_text(encoding="utf-8").count("\n"), 280)

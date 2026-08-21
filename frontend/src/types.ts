@@ -675,6 +675,7 @@ export interface WorkflowTemplate {
   required_assets: string[];
   required_prompt_token: string;
   installed_resource_id: string | null;
+  installed_count: number;
   installed_version: number | null;
   update_available: boolean;
   architecture_matches: boolean;
