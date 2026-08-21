@@ -110,7 +110,7 @@ describe('Media catalog settings', () => {
     } as unknown as ApiClient;
     const node = new SettingsView(vi.fn(), vi.fn(), dialogs, appState, client).node();
 
-    expect(node.textContent).toContain('filenames never imply fitness');
+    expect(node.textContent).toContain('A preset pairs a model (the look) with a workflow (the method)');
     const name = [...node.querySelectorAll('input')].find((input) =>
       input.parentElement?.textContent?.includes('Name'),
     ) as HTMLInputElement;

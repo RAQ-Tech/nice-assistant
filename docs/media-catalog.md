@@ -4,6 +4,37 @@ The media catalog is the operator-owned source of truth for image and video
 resource fitness. It describes exact provider resources; it never infers
 capability from a checkpoint, LoRA, or workflow filename.
 
+## Getting models in
+
+The catalog only knows the models an operator has told it about, and for a long
+time telling it meant typing a checkpoint filename exactly right into a bare
+dialog. On the deployment this was built against, one model was cataloged while
+forty-five checkpoints sat installed in ComfyUI - so every picture ran through
+one model and one recipe, and the owner noticed the sameness long before anyone
+found the cause.
+
+Discovery closes that gap. The settings page asks ComfyUI for its installed
+checkpoints - the same `/object_info` answer inspection already reads, where the
+checkpoint loader's option list is the list of files - marks which are already
+cataloged, and adds the ticked ones by exact filename. An added model arrives
+enabled with permissive content tags (one operator's private deployment; narrow
+a model's tags when it should not serve some content), and the lazy preset pass
+gives each one a recipe, so adding models is directly adding the variety the
+planner can offer.
+
+A workflow can be pasted in the same spirit: the page states the accepted format
+out loud - a ComfyUI export in API format - and the graph is inspected by
+ComfyUI before it is saved, with the prompt binding taken from the inspection's
+own candidates rather than guessed. Inspection distinguishes roles: an identity
+graph must route a reference image through an identity node to an output, while
+a general graph only needs somewhere for the request prompt to land.
+
+Installing a shipped template twice deliberately creates a second copy - a copy
+can be tuned separately - but it is now a choice rather than an accident: the
+card shows the installed state and copy count, and installing another copy asks
+first. Five identical InstantID graphs were once created by five hopeful clicks
+on a button that never said it had already worked.
+
 ## Resource metadata
 
 Each owner may register models, LoRAs, and ComfyUI workflows with:

@@ -1,6 +1,8 @@
 import type { ApiClient } from './api';
 import { el, errorMessage } from './dom';
+import { CatalogModelsView } from './catalog_models_view';
 import { IdentityWorkflowSetupView } from './identity_workflow_setup_view';
+import { WorkflowImportView } from './workflow_import_view';
 import { PresetSettingsView } from './preset_settings_view';
 import { RoutingTesterView } from './routing_tester_view';
 import { StarterPresetsView } from './starter_presets_view';
@@ -15,7 +17,24 @@ import type {
 } from './types';
 
 export class MediaCatalogSettingsView {
+  async refresh(): Promise<void> {
+    const settingsVersionAtStart = this.settingsVersion;
+    const resourceVersionsAtStart = new Map(this.resourceVersions);
+    this.appState.mediaCatalogBusy = true;
+    try {
+      const catalog = await this.client.mediaCatalog();
+      void this.presets.refresh();
+      this.appState.mediaCatalog = this.mergeSnapshot(catalog, settingsVersionAtStart, resourceVersionsAtStart);
+    } catch (error) {
+      this.appState.settingsError = errorMessage(error, 'Unable to load the media catalog.');
+    } finally {
+      this.appState.mediaCatalogBusy = false;
+      this.renderApp();
+    }
+  }
+
   private settingsDirty = false;
+  private operatorToolsOpen = false;
   private settingsVersion = 0;
   private readonly dirtyResourceIds = new Set<string>();
   private readonly resourceVersions = new Map<string, number>();
@@ -24,6 +43,8 @@ export class MediaCatalogSettingsView {
   private readonly routingTester: RoutingTesterView;
   private readonly presets: PresetSettingsView;
   private readonly starterPresets: StarterPresetsView;
+  private readonly modelsView: CatalogModelsView;
+  private readonly importView: WorkflowImportView;
   private requirements: MediaPlanRequirements = {
     kind: 'image',
     operation: 'generate',
@@ -49,6 +70,8 @@ export class MediaCatalogSettingsView {
     this.routingTester = new RoutingTesterView(appState, client, renderApp);
     this.presets = new PresetSettingsView(appState, client, renderApp);
     this.starterPresets = new StarterPresetsView(appState, client, renderApp, () => this.refresh());
+    this.modelsView = new CatalogModelsView(appState, client, renderApp, () => this.refresh());
+    this.importView = new WorkflowImportView(appState, client, renderApp, () => this.refresh());
   }
 
   openIdentitySetup(): void {
@@ -73,66 +96,74 @@ export class MediaCatalogSettingsView {
     const loras = enabled.filter((item) => item.resource_type === 'lora');
     return [
       settingsIntro(
-        'Teach the media coordinator what to use',
-        'Catalog metadata—not filenames or persona guesses—determines which models, workflows, and LoRAs are eligible for a media request.',
+        'How pictures get made',
+        'A chat picks one of your presets. A preset pairs a model (the look) with a workflow (the method), '
+          + 'and the note on each preset is how the chat knows when to pick it. More presets means more variety.',
       ),
       el('div', { class: 'settings-readiness-list' }, [
-        readinessRow('Base models', `${models.length} enabled`, models.length ? 'ready' : 'attention', 'At least one enabled model is required for coordinated image or video generation.'),
-        readinessRow('Workflows', `${workflows.length} enabled`, workflows.length ? 'ready' : 'off', 'ComfyUI workflows add explicitly declared operations such as identity conditioning, inpainting, or correction.'),
-        readinessRow('LoRAs', `${loras.length} enabled`, loras.length ? 'ready' : 'off', 'LoRAs are selected only when their metadata and explicit base-model compatibility match the request.'),
         readinessRow(
-          'Shared VRAM budget',
-          catalog.settings.vram_budget_mb ? `${catalog.settings.vram_budget_mb} MB` : 'No catalog limit',
-          catalog.settings.vram_budget_mb ? 'ready' : 'off',
-          'This is an operator estimate used during planning. Live GPU admission remains the responsibility of GPU Coordination.',
+          'Models',
+          `${models.length} enabled`,
+          models.length > 1 ? 'ready' : 'attention',
+          models.length === 0
+            ? 'Nothing can be generated until a model is enabled. Find models below.'
+            : models.length === 1
+              ? 'One model means every picture shares its look. Find more below.'
+              : 'Each enabled model gives its recipes a different look.',
+        ),
+        readinessRow('Workflows', `${workflows.length} enabled`, workflows.length ? 'ready' : 'off', 'A workflow is the method: plain generation, identity conditioning, face swap, correction.'),
+        readinessRow('LoRAs', `${loras.length} enabled`, loras.length ? 'ready' : 'off', 'LoRAs adjust a compatible model and join a recipe when their metadata matches the request.'),
+      ]),
+      this.modelsView.node(models),
+      settingsCard([
+        settingsHeading(
+          'Workflows — the method',
+          'Start from a shipped, known-good workflow below, or paste your own export. '
+            + 'Identity workflows keep a persona recognisable; the guided setup walks that end to end.',
         ),
       ]),
       this.identitySetup.node(),
-      this.policyCard(),
-      settingsCard([
-        settingsHeading(
-          `Catalog resources (${catalog.resources.length})`,
-          'Open a resource to edit its identity, compatibility, strengths, estimates, or provider payload. Names and filenames never imply fitness.',
-        ),
-        el('div', { class: 'chips' }, [
-          el('button', { class: 'pill-btn', textContent: 'Add model', onclick: () => void this.addResource('model') }),
-          el('button', { class: 'pill-btn', textContent: 'Add LoRA', onclick: () => void this.addResource('lora') }),
-          el('button', { class: 'pill-btn', textContent: 'Add workflow', onclick: () => void this.addResource('workflow') }),
-          el('button', { class: 'pill-btn', textContent: 'Refresh catalog', onclick: () => void this.refresh() }),
-        ]),
-      ]),
-      advancedSettings(
-        `Inventory (${catalog.resources.length})`,
-        'The individual models, LoRAs, and workflows presets are built from. Most work happens in a preset; this is where the parts live.',
-        catalog.resources.length
-          ? catalog.resources.map((resource) => this.resourceCard(resource))
-          : [el('div', {
-              class: 'settings-empty-state',
-              textContent: 'No resources are cataloged. Add a base model first; LoRAs and workflows require an explicitly compatible base model.',
-            })],
-        { testId: 'catalog-inventory' },
-      ),
+      this.importView.node(models),
       ...this.presets.node(),
-      this.starterPresets.node(),
-      this.routingTester.node(),
-      this.planPreview(),
+      advancedSettings(
+        'Operator tools',
+        'The machinery behind the sections above: raw inventory, manual adds, starter bundles, limits, and planner diagnostics.',
+        [
+          settingsCard([
+            settingsHeading(
+              `Inventory (${catalog.resources.length})`,
+              'Every cataloged part. Open one to edit compatibility, strengths, estimates, or the provider payload — or to delete duplicate copies.',
+            ),
+            el('div', { class: 'chips' }, [
+              el('button', { class: 'pill-btn', textContent: 'Add model manually', onclick: () => void this.addResource('model') }),
+              el('button', { class: 'pill-btn', textContent: 'Add LoRA', onclick: () => void this.addResource('lora') }),
+              el('button', { class: 'pill-btn', textContent: 'Add workflow', onclick: () => void this.addResource('workflow') }),
+              el('button', { class: 'pill-btn', textContent: 'Refresh catalog', onclick: () => void this.refresh() }),
+            ]),
+            ...(catalog.resources.length
+              ? catalog.resources.map((resource) => this.resourceCard(resource))
+              : [el('div', {
+                  class: 'settings-empty-state',
+                  textContent: 'Nothing is cataloged yet. Find models on ComfyUI above to begin.',
+                })]),
+          ]),
+          this.policyCard(),
+          this.starterPresets.node(),
+          this.routingTester.node(),
+          this.planPreview(),
+        ],
+        {
+          testId: 'catalog-inventory',
+          // Held open across re-renders: every control inside triggers a
+          // render, and a fold that snapped shut on each click would hide the
+          // buttons somebody was in the middle of using.
+          open: this.operatorToolsOpen,
+          onToggle: (open: boolean) => {
+            this.operatorToolsOpen = open;
+          },
+        },
+      ),
     ];
-  }
-
-  async refresh(): Promise<void> {
-    const settingsVersionAtStart = this.settingsVersion;
-    const resourceVersionsAtStart = new Map(this.resourceVersions);
-    this.appState.mediaCatalogBusy = true;
-    try {
-      const catalog = await this.client.mediaCatalog();
-      void this.presets.refresh();
-      this.appState.mediaCatalog = this.mergeSnapshot(catalog, settingsVersionAtStart, resourceVersionsAtStart);
-    } catch (error) {
-      this.appState.settingsError = errorMessage(error, 'Unable to load the media catalog.');
-    } finally {
-      this.appState.mediaCatalogBusy = false;
-      this.renderApp();
-    }
   }
 
   private policyCard(): HTMLElement {

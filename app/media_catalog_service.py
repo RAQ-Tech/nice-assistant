@@ -524,6 +524,68 @@ class MediaCatalogService:
             )
             return self._settings_response(row)
 
+    def cataloged_checkpoints(self, user_id: str) -> set[str]:
+        """The checkpoint filenames the catalog already knows as models."""
+
+        with self._uow() as uow:
+            self._ensure_imported(uow.repo, user_id)
+            return {
+                row.external_id
+                for row in uow.repo.media_catalog_resources(user_id)
+                if row.resource_type == "model" and row.backend == "comfyui" and row.external_id
+            }
+
+    def add_models_from_checkpoints(self, user_id: str, names: list) -> dict:
+        """Catalog checkpoint files ComfyUI reported, by exact filename.
+
+        Everything a model row needs beyond the filename gets a sensible
+        default: enabled, the estimates the legacy import used, and content
+        tags gated exactly the way that import gated them - the full set only
+        when the operator has allowed NSFW output, plain "general" otherwise.
+        Adding a model must not quietly widen what the deployment will make.
+        An auto-preset follows for each via the ordinary lazy pass, so adding
+        models is adding recipes.
+        """
+
+        with self._uow() as uow:
+            settings = uow.repo.settings(user_id) or {}
+        allow_nsfw = bool((settings.get("preferences") or {}).get("image_local_allow_nsfw", False))
+        content_tags = ["general", "adult", "nudity", "explicit"] if allow_nsfw else ["general"]
+        added = []
+        skipped = []
+        for raw in list(names)[:200]:
+            filename = str(raw or "").strip()
+            if not filename or len(filename) > 500:
+                skipped.append({"name": filename or "(empty)", "reason": "not a usable filename"})
+                continue
+            title = filename.rsplit(".", 1)[0].replace("_", " ").strip()[:160] or filename[:160]
+            try:
+                self.create_resource(
+                    user_id,
+                    {
+                        "resource_type": "model",
+                        "kind": "image",
+                        "provider_key": "local-image",
+                        "backend": "comfyui",
+                        "name": title,
+                        "external_id": filename,
+                        "enabled": True,
+                        "priority": 50,
+                        "operations": ["generate"],
+                        "domains": [],
+                        "content_tags": content_tags,
+                        "features": ["text_to_image"],
+                        "estimated_vram_mb": 7168,
+                        "notes": "Added from ComfyUI's installed checkpoint list.",
+                    },
+                )
+                added.append(filename)
+            except ConflictError:
+                skipped.append({"name": filename, "reason": "already cataloged"})
+            except RequestError as exc:
+                skipped.append({"name": filename, "reason": str(exc)})
+        return {"added": added, "skipped": skipped}
+
     def create_resource(self, user_id: str, values: dict) -> dict:
         normalized, compatible_ids = self._normalize_resource(values)
         with self._uow() as uow:
@@ -573,22 +635,37 @@ class MediaCatalogService:
             )
             if model_id and not model:
                 raise NotFoundError("media catalog model not found")
-            installed = {
-                row.source_template_id: row
-                for row in resources
-                if row.resource_type == "workflow" and row.source_template_id
-            }
+            installed = {}
+            installed_counts = {}
+            for row in resources:
+                if row.resource_type != "workflow" or not row.source_template_id:
+                    continue
+                # The newest install represents the template, so a fresh copy
+                # at the current version is not reported as still needing an
+                # update just because an older copy also exists.
+                current = installed.get(row.source_template_id)
+                if not current or (row.source_template_version or 0) > (current.source_template_version or 0):
+                    installed[row.source_template_id] = row
+                installed_counts[row.source_template_id] = installed_counts.get(row.source_template_id, 0) + 1
             architecture = str(_json(model.default_settings_json, {}).get("architecture") or "") if model else ""
             items = [
-                self._template_entry(template, installed.get(template["id"]), architecture)
+                self._template_entry(
+                    template,
+                    installed.get(template["id"]),
+                    architecture,
+                    installed_counts.get(template["id"], 0),
+                )
                 for template in available_templates()
             ]
         return {"model_id": model_id, "model_architecture": architecture, "templates": items}
 
     @staticmethod
-    def _template_entry(template: dict, existing, architecture: str) -> dict:
+    def _template_entry(template: dict, existing, architecture: str, installed_count: int = 0) -> dict:
         return {
             "id": template["id"],
+            # How many copies exist, because clicking install five times used
+            # to create five identical graphs with nothing on screen saying so.
+            "installed_count": installed_count,
             "name": template["name"],
             "template_version": template["template_version"],
             "summary": template["summary"],

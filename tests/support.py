@@ -199,7 +199,11 @@ class TestApp:
         assert logged_in.status_code == 200, logged_in.text
         return logged_in.json().get("user_id") or created.json().get("id")
 
-    def wait_job(self, job_id: str, *, timeout=5):
+    # Thirty seconds, not five: a turn-driven test chains chat generation,
+    # capability planning, and a media job, and on a loaded machine five
+    # seconds fails tests whose behavior is correct. Completion is still
+    # required; only the punishment for a busy CPU is gone.
+    def wait_job(self, job_id: str, *, timeout=30):
         deadline = time.monotonic() + timeout
         latest = None
         while time.monotonic() < deadline:

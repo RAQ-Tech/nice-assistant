@@ -546,7 +546,7 @@ test('operator settings lead with readiness and keep expert editors closed', asy
   await expect(page.getByTestId('task-model-advanced-title_generation')).not.toHaveAttribute('open', '');
 
   await page.getByTestId('settings-nav-media-catalog').click();
-  await expect(page.getByText('Teach the media coordinator what to use')).toBeVisible();
+  await expect(page.getByText('How pictures get made')).toBeVisible();
   const inventory = page.getByTestId('catalog-inventory');
   await expect(inventory).not.toHaveAttribute('open', '');
   await inventory.locator(':scope > summary').click();

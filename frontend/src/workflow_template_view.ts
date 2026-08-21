@@ -1,4 +1,5 @@
 import type { ApiClient } from './api';
+import type { SettingsDialogs } from './settings_contracts';
 import { el, errorMessage } from './dom';
 import { selectControl as select, settingField as field, settingsHeading, titleCase } from './settings_ui';
 import type {
@@ -38,6 +39,7 @@ export class WorkflowTemplateView {
     private readonly appState: AppState,
     private readonly client: ApiClient,
     private readonly refreshCatalog: () => Promise<void>,
+    private readonly dialogs: SettingsDialogs,
   ) {}
 
   node(modelId: string, modelName: string): HTMLElement {
@@ -79,7 +81,15 @@ export class WorkflowTemplateView {
         ]),
         el('span', {
           class: `provider-status ${template.installed_resource_id ? 'ok' : 'idle'}`,
-          textContent: template.installed_resource_id ? 'Installed' : 'Not installed',
+          'data-testid': `workflow-template-status-${template.id}`,
+          // The count is the tell for the click-it-again trap: five installs
+          // of one template are five identical graphs, and nothing on screen
+          // used to say so.
+          textContent: template.installed_count > 1
+            ? `Installed ✓ — ${template.installed_count} copies`
+            : template.installed_resource_id
+              ? 'Installed ✓'
+              : 'Not installed',
         }),
       ]),
       el('p', { class: 'meta', textContent: template.summary }),
@@ -122,8 +132,12 @@ export class WorkflowTemplateView {
           onclick: () => void this.verify(template.id),
         }),
         el('button', {
-          class: 'send-btn',
-          textContent: this.busy ? 'Adding…' : 'Add this workflow',
+          class: template.installed_resource_id ? 'pill-btn' : 'send-btn',
+          textContent: this.busy
+            ? 'Adding…'
+            : template.installed_resource_id
+              ? 'Install another copy'
+              : 'Add this workflow',
           disabled: this.busy || !modelId,
           'data-testid': `workflow-template-install-${template.id}`,
           onclick: () => void this.install(template, modelId),
@@ -215,6 +229,18 @@ export class WorkflowTemplateView {
   }
 
   private async install(template: WorkflowTemplate, modelId: string): Promise<void> {
+    // Reinstalling is legitimate - a copy can be tuned separately - but it has
+    // to be chosen, not stumbled into. Five identical InstantID graphs were
+    // once created by five hopeful clicks on a button that never said it had
+    // already worked.
+    if (template.installed_resource_id) {
+      const confirmed = await this.dialogs.confirm(
+        'Install another copy',
+        `"${template.name}" is already installed${template.installed_count > 1 ? ` (${template.installed_count} copies)` : ''}. Install another separate copy?`,
+        'Install another copy',
+      );
+      if (!confirmed) return;
+    }
     this.busy = true;
     this.appState.settingsError = '';
     this.renderApp();
@@ -227,6 +253,7 @@ export class WorkflowTemplateView {
           return { node_id: node_id ?? '', input_name: input_name ?? '', value };
         });
       await this.client.installWorkflowTemplate(template.id, modelId, '', presetId, choices);
+      this.appState.settingsSavedAt = Date.now();
       await this.refreshCatalog();
       this.loadedModelId = '';
     } catch (error) {

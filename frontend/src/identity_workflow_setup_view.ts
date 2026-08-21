@@ -33,7 +33,7 @@ export class IdentityWorkflowSetupView {
     private readonly finishSetup: () => void,
     private readonly refreshCatalog: () => Promise<void>,
   ) {
-    this.templates = new WorkflowTemplateView(renderApp, appState, client, refreshCatalog);
+    this.templates = new WorkflowTemplateView(renderApp, appState, client, refreshCatalog, dialogs);
   }
 
   open(): void {

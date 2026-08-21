@@ -621,13 +621,25 @@ export class ApiClient {
     });
   }
 
+  comfyuiCheckpoints(): Promise<{ ok: boolean; message: string; checkpoints: { name: string; cataloged: boolean }[] }> {
+    return this.request('/media-catalog/comfyui-checkpoints', { method: 'POST', body: JSON.stringify({}) });
+  }
+
+  addModelsFromCheckpoints(names: string[]): Promise<{ added: string[]; skipped: { name: string; reason: string }[] }> {
+    return this.request('/media-catalog/models/from-checkpoints', {
+      method: 'POST',
+      body: JSON.stringify({ names }),
+    });
+  }
+
   inspectIdentityWorkflow(
     workflowPatch: Record<string, unknown>,
     settings: Record<string, unknown> = {},
+    role: 'identity' | 'general' = 'identity',
   ): Promise<IdentityWorkflowInspection> {
     return this.request('/media-catalog/identity-workflows/inspect', {
       method: 'POST',
-      body: JSON.stringify({ workflow_patch: workflowPatch, settings }),
+      body: JSON.stringify({ workflow_patch: workflowPatch, settings, role }),
     });
   }
 
