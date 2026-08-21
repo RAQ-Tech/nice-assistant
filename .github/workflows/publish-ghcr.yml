@@ -126,6 +126,9 @@ jobs:
           # of being rebuilt - most pushes change app code, not dependencies.
           cache-from: type=gha
           cache-to: type=gha,mode=max
-          # No attestation manifests: they double the registry's version count
-          # for a single-operator deployment that never reads them.
-          provenance: false
+          # Provenance stays on, and not for the attestation itself: with it,
+          # the tag is published as an OCI index, which is the manifest shape
+          # Unraid's update checker can compare digests against. Turning it
+          # off flipped the tag to a bare manifest and the server's Docker
+          # page went from "update ready" to "not available" - the registry
+          # clutter it saves is not worth breaking update detection over.
