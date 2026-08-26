@@ -6,7 +6,7 @@ import { clickDismissesDrawer, ChatDrawer } from './chat_drawer';
 import { coverNewestImage, ChatRenderer, modelNickname } from './chat_rendering';
 import { CapabilityController } from './capabilities';
 import { composerState } from './composer_state';
-import { captureFocus, captureScroll, el, errorMessage, restoreFocus, restoreScroll } from './dom';
+import { captureFocus, captureScroll, captureScrollPositions, el, errorMessage, restoreFocus, restoreScroll, restoreScrollPositions } from './dom';
 import { imageOverlay, stepChatImage, videoOverlay } from './media_overlays';
 import { generationLogOverlay } from './generation_log_view';
 import { HomeView } from './home_view';
@@ -194,6 +194,8 @@ const homeView = new HomeView(state, api, {
 
 function render(): void {
   const focus = captureFocus(root);
+  // Every scrolled region, not just the messages pane; see dom.ts.
+  const scrolls = captureScrollPositions(document);
   const messageScroll = captureScroll(MESSAGES_PANE);
   visualizer.setEnabled(state.showViz);
   root.replaceChildren();
@@ -218,6 +220,8 @@ function render(): void {
   if (state.chatVideoPreview) root.append(videoOverlay(state, render));
   if (state.modal) root.append(modalNode(state.modal));
   restoreFocus(root, focus, Boolean(state.modal));
+  // After focus restore, so focus() cannot drag a pane the reader left.
+  restoreScrollPositions(document, scrolls);
   const pane = document.querySelector<HTMLElement>(MESSAGES_PANE);
   if (pane) coverNewestImage(pane, state.revealedImages);
   requestAnimationFrame(() => restoreMessageScroll(messageScroll));
@@ -564,20 +568,13 @@ function onMessageScroll(event: Event): void {
 }
 
 /**
- * Put the reader back where they were reading.
- *
- * Rendering replaces the whole tree, so the new messages pane starts at the
- * top. Sticking to the bottom was handled; having scrolled up to look at
- * something was not, and the pane silently jumped to the top on every render -
- * three times a second while a picture generated, which is exactly when
- * somebody is scrolling back through the conversation to wait.
+ * The messages pane alone also sticks to the bottom while a reply streams in;
+ * a reader who scrolled up is put back where they were reading. Runs a frame
+ * after the rebuild so restored media has its height.
  */
 function restoreMessageScroll(previous: number | null): void {
-  if (state.stickMessagesToBottom) {
-    scrollBottom(false);
-    return;
-  }
-  restoreScroll(MESSAGES_PANE, previous);
+  if (state.stickMessagesToBottom) scrollBottom(false);
+  else restoreScroll(MESSAGES_PANE, previous);
 }
 
 function scrollBottom(smooth: boolean): void {
