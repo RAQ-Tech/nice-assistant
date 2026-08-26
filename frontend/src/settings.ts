@@ -43,6 +43,7 @@ export const SETTINGS_DEFAULTS: Settings = {
   image_size: '1024x1024',
   image_quality: 'none',
   image_local_allow_nsfw: false,
+  civitai_lookup_skip_confirm: false,
   image_local_backend: 'automatic1111',
   image_local_base_url: '',
   image_local_api_auth: '',

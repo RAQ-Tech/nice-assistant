@@ -25,8 +25,10 @@ import type {
   MediaCatalogSettings,
   MediaLibraryItem,
   MediaPlan,
+  CivitaiMatch,
   MediaPlanRequirements,
   MediaReadiness,
+  ModelPrefillSuggestion,
   IdentityEvent,
   IdentityReference,
   IdentityValidation,
@@ -621,8 +623,28 @@ export class ApiClient {
     });
   }
 
-  comfyuiCheckpoints(): Promise<{ ok: boolean; message: string; checkpoints: { name: string; cataloged: boolean }[] }> {
+  comfyuiCheckpoints(): Promise<{
+    ok: boolean;
+    message: string;
+    checkpoints: { name: string; cataloged: boolean }[];
+    samplers: string[];
+    schedulers: string[];
+  }> {
     return this.request('/media-catalog/comfyui-checkpoints', { method: 'POST', body: JSON.stringify({}) });
+  }
+
+  modelPrefill(checkpoint: string): Promise<ModelPrefillSuggestion> {
+    return this.request('/media-catalog/model-prefill', {
+      method: 'POST',
+      body: JSON.stringify({ checkpoint }),
+    });
+  }
+
+  civitaiLookup(checkpoint: string): Promise<{ ok: boolean; message: string; matches: CivitaiMatch[] }> {
+    return this.request('/media-catalog/civitai-lookup', {
+      method: 'POST',
+      body: JSON.stringify({ checkpoint }),
+    });
   }
 
   addModelsFromCheckpoints(names: string[]): Promise<{ added: string[]; skipped: { name: string; reason: string }[] }> {

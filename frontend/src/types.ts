@@ -586,6 +586,35 @@ export interface MediaPreset {
   updated_at: number;
 }
 
+export interface CivitaiMatch {
+  model_name: string;
+  version_name: string;
+  base_model: string;
+  file_match: boolean;
+  trigger_words: string[];
+  url: string;
+  steps?: number;
+  cfg_scale?: number;
+  sampler?: string;
+  scheduler?: string;
+  width?: number;
+  height?: number;
+}
+
+export interface ModelPrefillSuggestion {
+  ok: boolean;
+  source: 'file' | 'filename' | 'none';
+  family: string | null;
+  family_label?: string;
+  title?: string | null;
+  width?: number;
+  height?: number;
+  steps?: number;
+  cfg_scale?: number;
+  prompt_style?: string;
+  message: string;
+}
+
 export interface StarterPreset {
   name: string;
   routing_card: string;
@@ -856,6 +885,7 @@ export interface Settings extends Record<string, SettingScalar | Record<string, 
   image_size: string;
   image_quality: string;
   image_local_allow_nsfw: boolean;
+  civitai_lookup_skip_confirm: boolean;
   image_local_backend: string;
   image_local_base_url: string;
   image_local_api_auth: string;
@@ -980,6 +1010,9 @@ export interface ModalState {
   message: string;
   inputValue?: string;
   inputPlaceholder?: string;
+  /** An opt-in remembered by the caller, e.g. “don't show this again”. */
+  checkboxLabel?: string;
+  checkboxValue?: boolean;
   actions: ModalAction[];
 }
 

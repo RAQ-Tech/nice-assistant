@@ -220,6 +220,15 @@ class ModelsFromCheckpoints(StrictModel):
     names: list[str] = Field(min_length=1, max_length=200)
 
 
+class ModelPrefill(StrictModel):
+    checkpoint: str = Field(min_length=1, max_length=512)
+    settings: dict = Field(default_factory=dict)
+
+
+class CivitaiLookup(StrictModel):
+    checkpoint: str = Field(min_length=1, max_length=512)
+
+
 class ComfyUIIdentityInputCandidate(BaseModel):
     node_id: str
     input_name: str
@@ -2055,6 +2064,24 @@ def comfyui_checkpoints(
     cataloged = services(request).media_catalog.cataloged_checkpoints(context.user_id)
     listing["checkpoints"] = [{"name": name, "cataloged": name in cataloged} for name in listing.get("checkpoints", [])]
     return listing
+
+
+@router.post("/media-catalog/model-prefill", tags=["media-catalog"])
+def comfyui_model_prefill(
+    body: ModelPrefill,
+    request: Request,
+    context: AuthContext = Depends(current_user),
+):
+    return services(request).provider_service.comfyui_model_prefill(context.user_id, body.checkpoint, body.settings)
+
+
+@router.post("/media-catalog/civitai-lookup", tags=["media-catalog"])
+def civitai_lookup(
+    body: CivitaiLookup,
+    request: Request,
+    context: AuthContext = Depends(current_user),
+):
+    return services(request).provider_service.civitai_model_lookup(body.checkpoint)
 
 
 @router.post("/media-catalog/models/from-checkpoints", tags=["media-catalog"])

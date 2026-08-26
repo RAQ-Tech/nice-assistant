@@ -6,6 +6,7 @@ import { clickDismissesDrawer, ChatDrawer } from './chat_drawer';
 import { coverNewestImage, ChatRenderer, modelNickname } from './chat_rendering';
 import { CapabilityController } from './capabilities';
 import { composerState } from './composer_state';
+import { createDialogs } from './dialogs';
 import { captureFocus, captureScroll, captureScrollPositions, el, errorMessage, restoreFocus, restoreScroll, restoreScrollPositions } from './dom';
 import { imageOverlay, stepChatImage, videoOverlay } from './media_overlays';
 import { generationLogOverlay } from './generation_log_view';
@@ -29,7 +30,7 @@ const playback = new PlaybackController(audio, visualizer);
 const media = new MediaController();
 const chat = new ChatController(playback);
 const recording = new RecordingController();
-const dialogs = createDialogs();
+const dialogs = createDialogs(state, () => render());
 const router = new Router((route) => void handleRoute(route));
 const settingsView = new SettingsView(render, closeSettings, dialogs, state, api, (section) => router.settings(section));
 const authView = new AuthView(authenticated, render);
@@ -466,6 +467,16 @@ function modalNode(modal: ModalState): HTMLElement {
     el('div', { class: 'modal-card glass', role: 'dialog', 'aria-modal': 'true', 'aria-label': modal.title }, [
       el('h3', { textContent: modal.title }),
       modal.message ? el('div', { class: 'meta modal-message', textContent: modal.message }) : null,
+      modal.checkboxLabel
+        ? el('label', { class: 'checkbox-row modal-checkbox' }, [
+            el('input', {
+              type: 'checkbox',
+              checked: modal.checkboxValue ?? false,
+              onchange: (event: Event) => { if (state.modal) state.modal.checkboxValue = (event.currentTarget as HTMLInputElement).checked; },
+            }),
+            modal.checkboxLabel,
+          ])
+        : null,
       modal.inputValue !== undefined
         ? el('input', { class: 'search-input', value: modal.inputValue, placeholder: modal.inputPlaceholder ?? '', autofocus: true, oninput: (event: Event) => { if (state.modal) state.modal.inputValue = (event.currentTarget as HTMLInputElement).value; } })
         : null,
@@ -510,42 +521,6 @@ async function logout(): Promise<void> {
   } finally {
     await signedOut();
   }
-}
-
-function createDialogs(): Dialogs {
-  return {
-    prompt(title, message, initial = '') {
-      return new Promise((resolve) => {
-        state.modal = {
-          title,
-          message,
-          inputValue: initial,
-          actions: [
-            { label: 'Cancel', run: () => { state.modal = null; resolve(null); render(); } },
-            { label: 'Continue', kind: 'primary', run: (value) => { state.modal = null; resolve(value); render(); } },
-          ],
-        };
-        render();
-      });
-    },
-    confirm(title, message, confirmText = 'Confirm') {
-      return new Promise((resolve) => {
-        state.modal = {
-          title,
-          message,
-          actions: [
-            { label: 'Cancel', run: () => { state.modal = null; resolve(false); render(); } },
-            { label: confirmText, kind: 'danger', run: () => { state.modal = null; resolve(true); render(); } },
-          ],
-        };
-        render();
-      });
-    },
-    info(title, message) {
-      state.modal = { title, message, actions: [{ label: 'Close', kind: 'primary', run: () => { state.modal = null; render(); } }] };
-      render();
-    },
-  };
 }
 
 // The scrolling region a reader is actually reading.

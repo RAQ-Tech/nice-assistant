@@ -2641,3 +2641,62 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
 .home-control-status .meta {
   margin: 0;
 }
+
+/* The model page: one ingredient at a time. The name is the headline - it is
+   an input so renaming is direct, but it should read as a title, not a form. */
+.model-page-nav {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 0.75rem;
+  flex-wrap: wrap;
+}
+
+.model-page-name {
+  width: 100%;
+  font-size: 1.6rem;
+  font-weight: 700;
+  background: transparent;
+  border: none;
+  border-bottom: 1px solid transparent;
+  color: inherit;
+  padding: 0.1rem 0;
+}
+
+.model-page-name:hover,
+.model-page-name:focus {
+  border-bottom-color: var(--border, rgba(127, 127, 127, 0.4));
+  outline: none;
+}
+
+.model-page-file {
+  margin-top: 0;
+  overflow-wrap: anywhere;
+}
+
+.model-page-suggestion {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  flex-wrap: wrap;
+  margin: 0.35rem 0;
+}
+
+.catalog-hidden-models summary {
+  cursor: pointer;
+}
+
+.model-lookup-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 0.6rem;
+  flex-wrap: wrap;
+  padding: 0.45rem 0;
+  border-top: 1px solid var(--border, rgba(127, 127, 127, 0.25));
+}
+
+.modal-checkbox {
+  margin: 0.5rem 0;
+}

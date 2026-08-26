@@ -301,8 +301,18 @@ a Whisper service on the LAN for 1F-5, and the installed identity journey that
 
 ## 2. Decided
 
-Answered by the owner on 2026-08-17. Each one produced either a settled
-constraint or an item in section 1F below; none of them is open any more.
+Answered by the owner on 2026-08-17, with additions from the settings
+conversation on 2026-08-26. Each one produced either a settled constraint or a
+listed item; none of them is open any more.
+
+0. **A model is an ingredient; a workflow is what you do with it** (owner,
+    2026-08-26). Day-to-day settings live on the model's own page, which edits
+    the model resource and the model's recipe together; the raw recipe list
+    retreats into Operator tools for multi-recipe and diagnostic work. Shipped
+    with the model pages; see `docs/media-catalog.md`. The same conversation
+    decided the CivitAI lookup: wanted, searched by filename with the person
+    picking the match, behind a consent popup that names civitai.com and
+    offers cancel / ok / "don't show again". Shipped with the model pages.
 
 1. **Rejected and forgotten memory never expires automatically.** Manual
     deletion, individually or in bulk, stays the only way a record leaves.
@@ -467,6 +477,11 @@ no stub is ever shipped in its place. See `docs/debt-register.md`.
   [ADR 0041](docs/decisions/0041-transcribing-before-somebody-has-finished.md).
 - Speech provider fallback chains. Choosing what to fall back to is the
   listening decision, which has not been made.
+- Masking the server's outbound address (VPN or Tailscale) for optional
+  internet lookups such as the CivitAI model lookup. Owner-wanted long term
+  (2026-08-26). Today the honest statement is that a lookup goes out from the
+  server's own address, and routing it through a tunnel is an Unraid-level
+  choice; an in-app option must not ship as a checkbox that does nothing.
 - Speech from a provider this deployment has not evaluated. Streaming and
   interruption are built against the local Kokoro path; neither is a claim that
   any particular provider has been chosen or heard.

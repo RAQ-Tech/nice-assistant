@@ -35,6 +35,46 @@ card shows the installed state and copy count, and installing another copy asks
 first. Five identical InstantID graphs were once created by five hopeful clicks
 on a button that never said it had already worked.
 
+## The model page
+
+The owner's framing, adopted as the design language: a model is an ingredient,
+a workflow is what you do with it. Day-to-day settings therefore live with the
+ingredient. Each model's name in the catalog opens a page for that one model:
+its nickname as the headline (the exact filename stays on hover and under the
+name), a "Show in Nice Assistant" switch, the plain-language note routing reads
+when choosing between models, and the settings the model likes - steps,
+guidance, sampler, scheduler, size. Arrows walk to the previous or next model;
+leaving with unsaved changes asks whether to save, discard, or stay, and the
+safe answer is the default.
+
+Under the hood the page edits the model resource and the model's own recipe
+together - the recipe machinery is unchanged, and the raw recipe list remains
+in Operator tools for multi-recipe and diagnostic work. Two honesty rules
+shape the page:
+
+- Sampler and scheduler are dropdowns of what ComfyUI actually reports
+  installed (from the same `/object_info` answer discovery uses), and fall
+  back to typing boxes only when ComfyUI cannot be asked.
+- Suggested settings carry their provenance. A safetensors file can carry a
+  metadata block naming its architecture; ComfyUI serves it via
+  `/view_metadata/checkpoints`, and when it names the family the suggestion
+  says "read from the file". When only the filename hints at the family the
+  suggestion says it is a guess. When neither says anything, nothing is
+  suggested. The family table lives in `app/model_prefill.py` and nowhere
+  else; suggestions apply only when a person presses Apply.
+
+The page also offers the one catalog action that leaves the LAN: a CivitAI
+lookup. It never runs as a side effect - a person presses the button, and a
+popup names civitai.com and offers cancel, ok, and "don't show this again"
+(remembered through the ordinary settings save). The app cannot hash a model
+file it cannot read, so the search runs on the filename and returns a
+pick-list rather than an auto-fill; an exact filename match is marked. A
+picked match fills the form for review with the model's proper name, its
+trigger words as a prompt prefix, and the settings most common across the
+creator's own showcase images, with A1111 sampler names translated to
+ComfyUI's vocabulary (`app/civitai_lookup.py`). Nothing is saved until the
+person saves.
+
 ## Resource metadata
 
 Each owner may register models, LoRAs, and ComfyUI workflows with:
