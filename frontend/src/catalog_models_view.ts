@@ -27,21 +27,29 @@ export class CatalogModelsView {
     private readonly client: ApiClient,
     private readonly renderApp: () => void,
     private readonly refreshCatalog: () => Promise<void>,
+    private readonly openModel: (modelId: string) => void = () => undefined,
   ) {}
 
   node(models: MediaCatalogResource[]): HTMLElement {
+    const shown = models.filter((model) => model.enabled);
+    const hidden = models.filter((model) => !model.enabled);
     return settingsCard([
       settingsHeading(
-        `Models — the look (${models.length} enabled)`,
-        models.length === 0
+        `Models — the look (${shown.length} enabled)`,
+        shown.length === 0
           ? 'No models yet, so nothing can be generated. Find the checkpoints ComfyUI already has below.'
-          : models.length === 1
-            ? 'One model means every picture shares its look. Add more from ComfyUI and each becomes a recipe chats can pick.'
-            : 'Each model is a checkpoint file ComfyUI already has, and each one becomes a recipe chats can pick.',
+          : shown.length === 1
+            ? 'One model means every picture shares its look. Add more from ComfyUI, and open one to set what it likes.'
+            : 'Open a model to name it, set what it likes, and say when to use it.',
       ),
-      models.length
-        ? el('div', { class: 'chips' }, models.map((model) =>
-            el('span', { class: 'pill-tag', textContent: model.name, title: model.external_id })))
+      shown.length
+        ? el('div', { class: 'chips' }, shown.map((model) => this.modelButton(model)))
+        : null,
+      hidden.length
+        ? el('details', { class: 'catalog-hidden-models' }, [
+            el('summary', { class: 'meta', textContent: `Hidden (${hidden.length})` }),
+            el('div', { class: 'chips' }, hidden.map((model) => this.modelButton(model))),
+          ])
         : null,
       el('div', { class: 'chips' }, [
         el('button', {
@@ -57,6 +65,16 @@ export class CatalogModelsView {
         : null,
       ...this.discoveryList(),
     ]);
+  }
+
+  private modelButton(model: MediaCatalogResource): HTMLElement {
+    return el('button', {
+      class: 'pill-btn model-open',
+      textContent: model.name,
+      title: model.external_id,
+      'data-testid': `catalog-model-open-${model.id}`,
+      onclick: () => this.openModel(model.id),
+    });
   }
 
   private discoveryList(): HTMLElement[] {

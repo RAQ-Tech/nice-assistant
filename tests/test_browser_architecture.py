@@ -21,11 +21,14 @@ class BrowserArchitectureTests(unittest.TestCase):
             "onboarding.ts",
             "chat_rendering.ts",
             "capabilities.ts",
+            "dialogs.ts",
             "everyday_settings_view.ts",
             "media_overlays.ts",
             "media.ts",
             "media_catalog_settings_view.ts",
             "identity_settings_view.ts",
+            "model_lookup_view.ts",
+            "model_page_view.ts",
             "model_settings_view.ts",
             "operations_settings_view.ts",
             "persona_card.ts",
@@ -55,6 +58,7 @@ class BrowserArchitectureTests(unittest.TestCase):
         }
         self.assertTrue(expected.issubset({path.name for path in SOURCE.glob("*.ts")}))
         self.assertLess((SOURCE / "app.ts").read_text(encoding="utf-8").count("\n"), 650)
+        self.assertLess((SOURCE / "dialogs.ts").read_text(encoding="utf-8").count("\n"), 140)
         self.assertLess((SOURCE / "media_overlays.ts").read_text(encoding="utf-8").count("\n"), 200)
         self.assertLess((SOURCE / "identity_settings_view.ts").read_text(encoding="utf-8").count("\n"), 550)
         self.assertLess((SOURCE / "settings_view.ts").read_text(encoding="utf-8").count("\n"), 800)
@@ -62,6 +66,8 @@ class BrowserArchitectureTests(unittest.TestCase):
         self.assertLess((SOURCE / "task_model_settings_view.ts").read_text(encoding="utf-8").count("\n"), 350)
         self.assertLess((SOURCE / "media_catalog_settings_view.ts").read_text(encoding="utf-8").count("\n"), 600)
         self.assertLess((SOURCE / "catalog_models_view.ts").read_text(encoding="utf-8").count("\n"), 200)
+        self.assertLess((SOURCE / "model_page_view.ts").read_text(encoding="utf-8").count("\n"), 380)
+        self.assertLess((SOURCE / "model_lookup_view.ts").read_text(encoding="utf-8").count("\n"), 160)
         self.assertLess((SOURCE / "workflow_import_view.ts").read_text(encoding="utf-8").count("\n"), 280)
         self.assertLess((SOURCE / "persona_card_view.ts").read_text(encoding="utf-8").count("\n"), 150)
         self.assertLess((SOURCE / "persona_lore_view.ts").read_text(encoding="utf-8").count("\n"), 300)

@@ -3,10 +3,13 @@ from __future__ import annotations
 import base64
 import json
 import urllib.error
+import urllib.parse
 import urllib.request
 
 from app.auth import is_masked_secret
+from app.civitai_lookup import parse_matches, search_query
 from app.media_clients import CHECKPOINT_INPUT_NAMES
+from app.model_prefill import prefill_suggestions
 from app.providers import (
     normalize_provider_base_url,
     provider_get_json,
@@ -177,6 +180,15 @@ def _input_specs(provider_node: dict) -> tuple[dict, dict]:
     required = required if isinstance(required, dict) else {}
     optional = optional if isinstance(optional, dict) else {}
     return required, {**required, **optional}
+
+
+def _combo_options(provider_node: dict, input_name: str) -> list[str]:
+    """The choices ComfyUI offers for one combo input, sorted and deduplicated."""
+
+    _, merged = _input_specs(provider_node)
+    spec = merged.get(input_name)
+    names = spec[0] if isinstance(spec, (list, tuple)) and spec and isinstance(spec[0], list) else []
+    return sorted({str(name) for name in names if isinstance(name, str) and name.strip()})
 
 
 def _link_reference(value) -> tuple[str, int] | None:
@@ -545,33 +557,88 @@ class ProviderService:
         are not there.
         """
 
+        empty = {"checkpoints": [], "samplers": [], "schedulers": []}
         try:
             effective = self._effective_settings(user_id, overrides)
             object_info = self._comfyui_object_info(effective)
         except urllib.error.HTTPError:
-            return {
-                "ok": False,
-                "checkpoints": [],
-                "message": "ComfyUI returned an error while its models were listed.",
-            }
+            return {"ok": False, **empty, "message": "ComfyUI returned an error while its models were listed."}
         except urllib.error.URLError:
-            return {"ok": False, "checkpoints": [], "message": "ComfyUI is not reachable. Start it, then try again."}
+            return {"ok": False, **empty, "message": "ComfyUI is not reachable. Start it, then try again."}
         except ValueError as exc:
-            return {"ok": False, "checkpoints": [], "message": str(exc)}
+            return {"ok": False, **empty, "message": str(exc)}
         except Exception:  # noqa: BLE001 - safe, content-free provider diagnostics
-            return {"ok": False, "checkpoints": [], "message": "ComfyUI could not be asked for its models."}
+            return {"ok": False, **empty, "message": "ComfyUI could not be asked for its models."}
         loader = object_info.get("CheckpointLoaderSimple")
         if not isinstance(loader, dict):
-            return {"ok": False, "checkpoints": [], "message": "ComfyUI did not report a checkpoint loader."}
-        required, optional = _input_specs(loader)
-        spec = {**optional, **required}.get("ckpt_name")
-        names = spec[0] if isinstance(spec, (list, tuple)) and spec and isinstance(spec[0], list) else []
-        checkpoints = sorted({str(name) for name in names if isinstance(name, str) and name.strip()})
+            return {"ok": False, **empty, "message": "ComfyUI did not report a checkpoint loader."}
+        checkpoints = _combo_options(loader, "ckpt_name")
+        # The sampler vocabulary rides along so those settings can be picked
+        # from what is actually installed instead of typed from memory.
+        sampler_node = object_info.get("KSampler")
         return {
             "ok": True,
             "checkpoints": checkpoints,
+            "samplers": _combo_options(sampler_node, "sampler_name") if isinstance(sampler_node, dict) else [],
+            "schedulers": _combo_options(sampler_node, "scheduler") if isinstance(sampler_node, dict) else [],
             "message": f"{len(checkpoints)} checkpoint file(s) reported by ComfyUI.",
         }
+
+    def civitai_model_lookup(self, checkpoint: str) -> dict:
+        """Search civitai.com for a checkpoint by filename, for a person to pick.
+
+        Runs only when somebody presses the lookup button behind its consent
+        dialog: this is the one provider call that leaves the LAN, so it is
+        never made as a side effect of anything.
+        """
+
+        query = search_query(checkpoint)
+        try:
+            payload = provider_get_json(
+                f"https://civitai.com/api/v1/models?limit=5&types=Checkpoint&query={urllib.parse.quote(query)}",
+                timeout=max(15, int(self.config.provider_timeout_seconds)),
+                max_bytes=4_000_000,
+            )
+        except Exception:  # noqa: BLE001 - content-free network diagnostics
+            return {"ok": False, "matches": [], "message": "civitai.com could not be reached."}
+        matches = parse_matches(payload if isinstance(payload, dict) else {}, checkpoint)
+        return {
+            "ok": True,
+            "matches": matches,
+            "message": f"{len(matches)} match(es) on CivitAI for “{query}”."
+            if matches
+            else f"Nothing on CivitAI matched “{query}”.",
+        }
+
+    def comfyui_model_prefill(self, user_id: str, checkpoint: str, overrides: dict | None = None) -> dict:
+        """Suggested starting settings for one checkpoint file.
+
+        ComfyUI can serve the metadata block stored inside a safetensors file;
+        when it names the architecture, the suggestion is evidence from the
+        file itself. When it does not, the filename is tried and the answer
+        says so - the page labels every suggestion with where it came from.
+        """
+
+        metadata: dict | None = None
+        try:
+            effective = self._effective_settings(user_id, overrides)
+            base = normalize_provider_base_url(
+                effective.get("image_local_base_url"),
+                self.config.comfyui_base_url,
+            )
+            if self.provider_url_policy:
+                base = self.provider_url_policy.normalize(base, label="ComfyUI")
+            payload = provider_get_json(
+                f"{base}/view_metadata/checkpoints?filename={urllib.parse.quote(checkpoint)}",
+                headers=basic_auth_headers(effective.get("image_local_api_auth")),
+                timeout=self.config.provider_timeout_seconds,
+                max_bytes=_OBJECT_INFO_BYTE_LIMIT,
+            )
+            if isinstance(payload, dict):
+                metadata = payload
+        except Exception:  # noqa: BLE001 - the filename fallback still answers
+            metadata = None
+        return prefill_suggestions(checkpoint, metadata)
 
     def _effective_settings(self, user_id: str, overrides: dict | None = None) -> dict:
         with self._uow() as uow:

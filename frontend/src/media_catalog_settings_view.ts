@@ -2,6 +2,7 @@ import type { ApiClient } from './api';
 import { el, errorMessage } from './dom';
 import { CatalogModelsView } from './catalog_models_view';
 import { IdentityWorkflowSetupView } from './identity_workflow_setup_view';
+import { ModelPageView } from './model_page_view';
 import { WorkflowImportView } from './workflow_import_view';
 import { PresetSettingsView } from './preset_settings_view';
 import { RoutingTesterView } from './routing_tester_view';
@@ -45,6 +46,7 @@ export class MediaCatalogSettingsView {
   private readonly starterPresets: StarterPresetsView;
   private readonly modelsView: CatalogModelsView;
   private readonly importView: WorkflowImportView;
+  private readonly modelPage: ModelPageView;
   private requirements: MediaPlanRequirements = {
     kind: 'image',
     operation: 'generate',
@@ -70,8 +72,12 @@ export class MediaCatalogSettingsView {
     this.routingTester = new RoutingTesterView(appState, client, renderApp);
     this.presets = new PresetSettingsView(appState, client, renderApp);
     this.starterPresets = new StarterPresetsView(appState, client, renderApp, () => this.refresh());
-    this.modelsView = new CatalogModelsView(appState, client, renderApp, () => this.refresh());
+    this.modelsView = new CatalogModelsView(appState, client, renderApp, () => this.refresh(), (modelId) => {
+      this.modelPage.open(modelId);
+      renderApp();
+    });
     this.importView = new WorkflowImportView(appState, client, renderApp, () => this.refresh());
+    this.modelPage = new ModelPageView(appState, client, renderApp, dialogs, () => this.refresh());
   }
 
   openIdentitySetup(): void {
@@ -90,10 +96,14 @@ export class MediaCatalogSettingsView {
         el('button', { class: 'pill-btn', textContent: 'Retry catalog', onclick: () => void this.refresh() }),
       ];
     }
+    // One model at a time: the open model replaces the catalog rather than
+    // stacking on top of it, which is the whole point of the page.
+    if (this.modelPage.modelId) return [this.modelPage.node(() => this.renderApp())];
     const enabled = catalog.resources.filter((item) => item.enabled);
     const models = enabled.filter((item) => item.resource_type === 'model');
     const workflows = enabled.filter((item) => item.resource_type === 'workflow');
     const loras = enabled.filter((item) => item.resource_type === 'lora');
+    const allImageModels = catalog.resources.filter((item) => item.resource_type === 'model' && item.kind === 'image');
     return [
       settingsIntro(
         'How pictures get made',
@@ -114,7 +124,7 @@ export class MediaCatalogSettingsView {
         readinessRow('Workflows', `${workflows.length} enabled`, workflows.length ? 'ready' : 'off', 'A workflow is the method: plain generation, identity conditioning, face swap, correction.'),
         readinessRow('LoRAs', `${loras.length} enabled`, loras.length ? 'ready' : 'off', 'LoRAs adjust a compatible model and join a recipe when their metadata matches the request.'),
       ]),
-      this.modelsView.node(models),
+      this.modelsView.node(allImageModels),
       settingsCard([
         settingsHeading(
           'Workflows — the method',
@@ -124,11 +134,14 @@ export class MediaCatalogSettingsView {
       ]),
       this.identitySetup.node(),
       this.importView.node(models),
-      ...this.presets.node(),
       advancedSettings(
         'Operator tools',
-        'The machinery behind the sections above: raw inventory, manual adds, starter bundles, limits, and planner diagnostics.',
+        'The machinery behind the sections above: the raw recipe list, inventory, manual adds, starter bundles, limits, and planner diagnostics.',
         [
+          // The raw recipe list lives here now: models are the front door for
+          // day-to-day settings, and this remains the place for multi-recipe
+          // and diagnostic work.
+          ...this.presets.node(),
           settingsCard([
             settingsHeading(
               `Inventory (${catalog.resources.length})`,
