@@ -101,6 +101,90 @@ export function restoreScroll(selector: string, top: number | null): void {
   if (pane) pane.scrollTop = top;
 }
 
+/**
+ * Every scrolled region on the page, so a re-render can put them all back.
+ *
+ * The messages pane got this treatment first, and every other screen turned
+ * out to need it too: settings, the homepage, the chat drawer, and the
+ * overlays each scroll their own pane, and rebuilding the tree yanked each of
+ * them to the top the moment any control was touched. One sweep over the
+ * document catches whatever scrolls today or grows a scrollbar later, where a
+ * list of selectors would quietly go stale.
+ *
+ * A pane's shape - tag, id, class, position among look-alikes - says which
+ * kind of pane it is. Its opening text says which content it is showing. Both
+ * have to match before a position is restored: a settings detail pane showing
+ * Memory is not the same place as one showing General, and restoring one onto
+ * the other would drop the reader mid-way down a page they have not read.
+ * Navigation therefore still starts at the top, while the panes that carried
+ * over - the section list, the chat drawer - keep their place.
+ */
+export interface ScrollSnapshot {
+  shape: string;
+  key: string;
+  index: number;
+  top: number;
+  left: number;
+}
+
+function paneShape(node: Element): string {
+  return `${node.tagName}|${node.id}|${node.getAttribute('class') ?? ''}`;
+}
+
+function paneIdentity(node: Element): string {
+  // The first heading names what a pane is showing; a pane without one is
+  // fingerprinted by whatever it opens with instead.
+  const anchor = node.querySelector('h1, h2, h3, h4') ?? node.firstElementChild;
+  return `${paneShape(node)}|${(anchor?.textContent ?? '').slice(0, 64)}`;
+}
+
+/**
+ * Counting per full identity, gated by shape: elements of other shapes can
+ * never produce a matching identity, so skipping them cannot change any
+ * per-identity index, and the sweep stays one cheap string check per element.
+ */
+export function captureScrollPositions(root: ParentNode): ScrollSnapshot[] {
+  const scrolled = new Set<HTMLElement>();
+  const shapes = new Set<string>();
+  for (const node of root.querySelectorAll<HTMLElement>('*')) {
+    if (node.scrollTop <= 0 && node.scrollLeft <= 0) continue;
+    scrolled.add(node);
+    shapes.add(paneShape(node));
+  }
+  if (!scrolled.size) return [];
+  const seen = new Map<string, number>();
+  const snapshots: ScrollSnapshot[] = [];
+  for (const node of root.querySelectorAll<HTMLElement>('*')) {
+    const shape = paneShape(node);
+    if (!shapes.has(shape)) continue;
+    const key = paneIdentity(node);
+    const index = seen.get(key) ?? 0;
+    seen.set(key, index + 1);
+    if (scrolled.has(node)) snapshots.push({ shape, key, index, top: node.scrollTop, left: node.scrollLeft });
+  }
+  return snapshots;
+}
+
+export function restoreScrollPositions(root: ParentNode, snapshots: ScrollSnapshot[]): void {
+  if (!snapshots.length) return;
+  const shapes = new Set(snapshots.map((snapshot) => snapshot.shape));
+  const wanted = new Map<string, ScrollSnapshot>();
+  for (const snapshot of snapshots) wanted.set(`${snapshot.key}@${snapshot.index}`, snapshot);
+  const seen = new Map<string, number>();
+  for (const node of root.querySelectorAll<HTMLElement>('*')) {
+    if (!shapes.has(paneShape(node))) continue;
+    const key = paneIdentity(node);
+    const index = seen.get(key) ?? 0;
+    seen.set(key, index + 1);
+    const snapshot = wanted.get(`${key}@${index}`);
+    if (!snapshot) continue;
+    node.scrollTop = snapshot.top;
+    node.scrollLeft = snapshot.left;
+    wanted.delete(`${key}@${index}`);
+    if (!wanted.size) return;
+  }
+}
+
 export function captureFocus(root: HTMLElement): FocusSnapshot | null {
   const active = document.activeElement;
   if (!(active instanceof HTMLInputElement || active instanceof HTMLTextAreaElement) || !root.contains(active)) {

@@ -70,7 +70,17 @@ npm run frontend:e2e
   Browser autoplay rejection keeps the completed audio available behind Replay
   and renders a compact human hint rather than the browser's technical error.
 - `app.ts`: composition root, shell/onboarding/auth views, routing coordination,
-  session expiry, and visible reporting of unexpected browser errors.
+  session expiry, and visible reporting of unexpected browser errors. Rendering
+  rebuilds the whole tree from state, so everything the browser was holding on
+  the reader's behalf is captured before the rebuild and put back after it:
+  focus and cursor position, and the scroll position of every scrolled region
+  on the page - the messages pane, both settings panes, the homepage, the chat
+  drawer, and any region that grows a scrollbar later. The sweep in `dom.ts`
+  identifies regions structurally rather than by a selector list, so a new
+  scrolling pane is covered without anyone remembering to register it. A
+  position is only restored while the pane still shows the same content, so
+  navigation - switching settings sections, opening another chat - still
+  starts at the top while the panes that carried over keep their place.
 
 ## Turn behavior
 

@@ -527,6 +527,62 @@ test('everyday settings use progressive disclosure and accessible info tips', as
   await expect(page.locator('details.persona-editor')).not.toHaveAttribute('open', '');
 });
 
+test('a reader who has scrolled stays put when they use a control', async ({ page }) => {
+  await installAuthenticatedFixture(page);
+  // Short viewport so the dashboard and the settings detail pane genuinely
+  // overflow: a scroll position has to exist before staying put means anything.
+  await page.setViewportSize({ width: 1100, height: 360 });
+
+  // The dashboard: scroll to the bottom, flip "Speak replies aloud". The pane
+  // re-renders twice - once when the save starts and once when it finishes -
+  // and used to land at the top both times. The marker attribute only exists
+  // on the pre-click pane, so its disappearance proves the rebuild happened.
+  await page.goto('/#/');
+  await expect(page.getByTestId('home-speech-toggle')).toBeAttached();
+  const homeBefore = await page.evaluate(() => {
+    const pane = document.querySelector<HTMLElement>('.home');
+    if (!pane) return -1;
+    pane.dataset.beforeRerender = '1';
+    pane.scrollTop = pane.scrollHeight;
+    return pane.scrollTop;
+  });
+  expect(homeBefore).toBeGreaterThan(0);
+  await Promise.all([
+    page.waitForResponse((response) => response.url().includes('/api/v1/settings') && response.request().method() === 'PUT'),
+    // A DOM-level click rather than a Playwright click: Playwright scrolls the
+    // target into view first, which would move the very position under test.
+    page.evaluate(() => document.querySelector<HTMLElement>('[data-testid="home-speech-toggle"]')?.click()),
+  ]);
+  await expect(page.locator('.home[data-before-rerender]')).toHaveCount(0);
+  await expect(page.getByTestId('home-speech-toggle')).toBeEnabled();
+  expect(await page.evaluate(() => document.querySelector<HTMLElement>('.home')?.scrollTop)).toBe(homeBefore);
+
+  // Settings: the same reader, the detail pane, a plain state-only toggle.
+  await page.goto('/#/settings/General');
+  await expect(page.getByRole('heading', { name: 'General' })).toBeVisible();
+  const detailBefore = await page.evaluate(() => {
+    const pane = document.querySelector<HTMLElement>('.settings-detail');
+    if (!pane) return -1;
+    pane.dataset.beforeRerender = '1';
+    pane.scrollTop = pane.scrollHeight;
+    return pane.scrollTop;
+  });
+  expect(detailBefore).toBeGreaterThan(0);
+  await page.evaluate(() => {
+    const row = [...document.querySelectorAll<HTMLLabelElement>('.checkbox-row')]
+      .find((label) => label.textContent?.includes('Speak assistant replies'));
+    row?.querySelector<HTMLInputElement>('input')?.click();
+  });
+  await expect(page.locator('.settings-detail[data-before-rerender]')).toHaveCount(0);
+  expect(await page.evaluate(() => document.querySelector<HTMLElement>('.settings-detail')?.scrollTop)).toBe(detailBefore);
+
+  // Switching sections is navigation, not a refresh: the pane is the same
+  // shape but shows different content, so the new section starts at the top.
+  await page.getByTestId('settings-nav-memory').click();
+  await expect(page.locator('.settings-detail h3').first()).not.toHaveText('General');
+  expect(await page.evaluate(() => document.querySelector<HTMLElement>('.settings-detail')?.scrollTop)).toBe(0);
+});
+
 test('operator settings lead with readiness and keep expert editors closed', async ({ page }) => {
   await installAuthenticatedFixture(page);
   await page.goto('/#/settings/Models');
