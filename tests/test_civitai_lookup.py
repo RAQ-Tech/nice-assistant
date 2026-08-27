@@ -106,7 +106,7 @@ class LookupEndpointTests(unittest.TestCase):
                 running.__exit__(None, None, None)
 
     def test_the_search_goes_to_civitai_and_comes_back_reviewable(self):
-        seen = {}
+        seen = {"urls": [], "agents": []}
 
         def transport(request, timeout=0, **_kwargs):
             class Response:
@@ -119,17 +119,81 @@ class LookupEndpointTests(unittest.TestCase):
                     return False
 
                 def read(self, *_size):
+                    if "/api/v1/images" in request.full_url:
+                        return json.dumps({"items": []}).encode()
                     return json.dumps(PAYLOAD).encode()
 
-            seen["url"] = request.full_url
+            seen["urls"].append(request.full_url)
+            seen["agents"].append(request.get_header("User-agent"))
             return Response()
 
         body = self._lookup(transport)
 
-        self.assertIn("civitai.com/api/v1/models", seen["url"])
-        self.assertIn("juggernautXL%20ragnarok", seen["url"])
+        self.assertIn("civitai.com/api/v1/models", seen["urls"][0])
+        self.assertIn("juggernautXL%20ragnarok", seen["urls"][0])
+        # Cloudflare 403s Python's default agent string; every request names
+        # the project instead.
+        self.assertTrue(all(agent and "nice-assistant" in agent for agent in seen["agents"]), seen["agents"])
         self.assertTrue(body["ok"])
         self.assertTrue(body["matches"][0]["file_match"])
+
+    def test_hidden_meta_falls_back_to_family_typical_settings(self):
+        from app.model_prefill import FAMILY_DEFAULTS
+
+        # The modern common case: the listing carries no generation meta and
+        # neither do the community images. The declared base model still names
+        # a family, so the match carries typical settings labeled as such.
+        stripped = json.loads(json.dumps(PAYLOAD))
+        for model in stripped["items"]:
+            for version in model["modelVersions"]:
+                version["images"] = []
+
+        def transport(request, timeout=0, **_kwargs):
+            class Response:
+                headers = {}
+
+                def __enter__(self):
+                    return self
+
+                def __exit__(self, *_args):
+                    return False
+
+                def read(self, *_size):
+                    if "/api/v1/images" in request.full_url:
+                        return json.dumps({"items": [{"meta": None}]}).encode()
+                    return json.dumps(stripped).encode()
+
+            return Response()
+
+        body = self._lookup(transport)
+
+        match = body["matches"][0]
+        self.assertEqual(match["settings_source"], "family")
+        self.assertEqual(match["steps"], FAMILY_DEFAULTS["sdxl"]["steps"])
+        self.assertEqual(match["family_label"], FAMILY_DEFAULTS["sdxl"]["label"])
+
+    def test_distilled_variants_get_no_family_numbers(self):
+        from app.civitai_lookup import apply_family_defaults
+
+        # A Lightning model wants a handful of steps, not the family's thirty;
+        # a wrong suggestion is worse than none, so distilled variants suggest
+        # nothing rather than misleading.
+        match = {"base_model": "SDXL Lightning"}
+        apply_family_defaults(match)
+
+        self.assertNotIn("settings_source", match)
+        self.assertNotIn("steps", match)
+
+    def test_a_refusal_is_named_as_a_refusal(self):
+        import urllib.error
+
+        def transport(request, timeout=0, **_kwargs):
+            raise urllib.error.HTTPError(request.full_url, 403, "forbidden", {}, None)
+
+        body = self._lookup(transport)
+
+        self.assertFalse(body["ok"])
+        self.assertIn("refused", body["message"])
 
     def test_unreachable_is_an_answer_rather_than_an_error(self):
         import urllib.error

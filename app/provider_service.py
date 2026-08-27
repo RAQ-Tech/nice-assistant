@@ -7,7 +7,14 @@ import urllib.parse
 import urllib.request
 
 from app.auth import is_masked_secret
-from app.civitai_lookup import parse_matches, search_query
+from app.civitai_lookup import (
+    REQUEST_HEADERS as CIVITAI_HEADERS,
+    apply_family_defaults,
+    apply_showcase,
+    images_url as civitai_images_url,
+    parse_matches,
+    search_query,
+)
 from app.media_clients import CHECKPOINT_INPUT_NAMES
 from app.model_prefill import prefill_suggestions
 from app.providers import (
@@ -593,15 +600,37 @@ class ProviderService:
         """
 
         query = search_query(checkpoint)
+        timeout = max(15, int(self.config.provider_timeout_seconds))
         try:
             payload = provider_get_json(
                 f"https://civitai.com/api/v1/models?limit=5&types=Checkpoint&query={urllib.parse.quote(query)}",
-                timeout=max(15, int(self.config.provider_timeout_seconds)),
+                headers=CIVITAI_HEADERS,
+                timeout=timeout,
                 max_bytes=4_000_000,
             )
+        except urllib.error.HTTPError:
+            return {"ok": False, "matches": [], "message": "civitai.com refused the request. Try again later."}
         except Exception:  # noqa: BLE001 - content-free network diagnostics
             return {"ok": False, "matches": [], "message": "civitai.com could not be reached."}
         matches = parse_matches(payload if isinstance(payload, dict) else {}, checkpoint)
+        for match in matches:
+            # Most 2026 uploads hide their generation meta, so the listing
+            # rarely carries settings; the community-images endpoint is where
+            # any surviving meta lives. A failure here only loses settings.
+            if not match.get("settings_source") and match.get("version_id") is not None:
+                try:
+                    apply_showcase(
+                        match,
+                        provider_get_json(
+                            civitai_images_url(match["version_id"]),
+                            headers=CIVITAI_HEADERS,
+                            timeout=timeout,
+                            max_bytes=4_000_000,
+                        ),
+                    )
+                except Exception:  # noqa: BLE001 - settings degrade, matches stay
+                    pass
+            apply_family_defaults(match)
         return {
             "ok": True,
             "matches": matches,

@@ -599,6 +599,8 @@ export interface CivitaiMatch {
   scheduler?: string;
   width?: number;
   height?: number;
+  settings_source?: 'showcase' | 'family';
+  family_label?: string;
 }
 
 export interface ModelPrefillSuggestion {
