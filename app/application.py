@@ -11,7 +11,7 @@ from app.compreface_identity_provider import CompreFaceIdentityProvider
 from app.identity_service import IdentityService
 from app.job_service import JobService
 from app.memory_service import MemoryService
-from app.media_adapters import LocalImageProvider, OpenAIImageProvider, OpenAIVideoProvider
+from app.media_adapters import LocalImageProvider, LocalVideoProvider, OpenAIImageProvider, OpenAIVideoProvider
 from app.media_catalog_service import MediaCatalogService
 from app.media_journal_service import MediaJournalService
 from app.media_library_service import MediaLibraryService
@@ -116,6 +116,7 @@ def build_services(
         media_providers={
             "openai-image": OpenAIImageProvider(),
             "local-image": LocalImageProvider(),
+            "local-video": LocalVideoProvider(),
             "openai-video": OpenAIVideoProvider(),
         },
         # Both, deliberately. Every default is local; cloud stays available to

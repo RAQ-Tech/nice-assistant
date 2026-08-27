@@ -37,6 +37,7 @@ PROVIDER_BACKENDS = {
     "openai-image": ("image", "openai"),
     "local-image": ("image", None),
     "openai-video": ("video", "openai"),
+    "local-video": ("video", "comfyui"),
 }
 LOCAL_BACKENDS = {"automatic1111", "comfyui"}
 MEDIA_OPERATIONS = {"generate", "inpaint", "outpaint", "image_to_image"}
@@ -1866,8 +1867,8 @@ class MediaCatalogService:
             raise RequestError("media provider and backend are incompatible", 400)
         if provider_key == "local-image" and backend not in LOCAL_BACKENDS:
             raise RequestError("local image resources require Automatic1111 or ComfyUI", 400)
-        if resource_type != "model" and provider_key != "local-image":
-            raise RequestError("LoRA and workflow resources are supported only by local image providers", 400)
+        if resource_type != "model" and provider_key not in ("local-image", "local-video"):
+            raise RequestError("LoRA and workflow resources are supported only by local providers", 400)
         if resource_type == "workflow" and backend != "comfyui":
             raise RequestError("workflow resources currently require ComfyUI", 400)
         if provider_key == "openai-image" and external_id != PROVIDER_DEFAULT:

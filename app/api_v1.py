@@ -610,7 +610,7 @@ class MediaCatalogResourceWrite(StrictModel):
     resource_type: Literal["model", "lora", "workflow"]
     kind: Literal["image", "video"]
     name: str = Field(min_length=1, max_length=160)
-    provider_key: Literal["openai-image", "local-image", "openai-video"]
+    provider_key: Literal["openai-image", "local-image", "openai-video", "local-video"]
     backend: Literal["openai", "automatic1111", "comfyui"]
     external_id: str = Field(min_length=1, max_length=500)
     enabled: bool = True

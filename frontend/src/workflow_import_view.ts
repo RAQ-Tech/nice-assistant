@@ -27,6 +27,7 @@ interface PendingImport {
  */
 export class WorkflowImportView {
   private name = '';
+  private kind: 'image' | 'video' = 'image';
   private raw = '';
   private message = '';
   private busy = false;
@@ -41,7 +42,7 @@ export class WorkflowImportView {
   ) {}
 
   node(models: MediaCatalogResource[]): HTMLElement {
-    const comfyModels = models.filter((model) => model.backend === 'comfyui');
+    const comfyModels = models.filter((model) => model.backend === 'comfyui' && model.kind === this.kind);
     return settingsCard([
       settingsHeading(
         'Bring your own workflow',
@@ -50,6 +51,20 @@ export class WorkflowImportView {
       ),
       inputField('Workflow name', this.name, (value) => { this.name = value; }, 'text', false,
         'Your label for this workflow in the catalog.'),
+      el('div', { class: 'setting-row' }, [
+        el('label', { textContent: 'This workflow makes' }),
+        el('select', {
+          class: 'chip-select',
+          'data-testid': 'workflow-import-kind',
+          onchange: (event: Event) => {
+            this.kind = (event.currentTarget as HTMLSelectElement).value === 'video' ? 'video' : 'image';
+            this.renderApp();
+          },
+        }, [
+          el('option', { value: 'image', selected: this.kind === 'image', textContent: 'Pictures' }),
+          el('option', { value: 'video', selected: this.kind === 'video', textContent: 'Video clips' }),
+        ]),
+      ]),
       textareaField('Workflow JSON (API format)', this.raw, (value) => { this.raw = value; }, false,
         'The pasted graph is checked against ComfyUI before it is saved; nothing runs during the check.'),
       el('div', { class: 'chips' }, [
@@ -63,7 +78,12 @@ export class WorkflowImportView {
       ]),
       ...this.landingSpot(comfyModels),
       !comfyModels.length
-        ? el('p', { class: 'meta', textContent: 'Add a ComfyUI model first — a workflow needs a model to run on.' })
+        ? el('p', {
+            class: 'meta',
+            textContent: this.kind === 'video'
+              ? 'Add a ComfyUI video model first — in Operator tools, add a model and set its kind to video.'
+              : 'Add a ComfyUI model first — a workflow needs a model to run on.',
+          })
         : null,
       this.message
         ? el('p', { class: 'meta', 'data-testid': 'workflow-import-message', textContent: this.message })
@@ -186,9 +206,9 @@ export class WorkflowImportView {
     try {
       await this.client.createMediaCatalogResource({
         resource_type: 'workflow',
-        kind: 'image',
+        kind: this.kind,
         name: pending.name,
-        provider_key: 'local-image',
+        provider_key: this.kind === 'video' ? 'local-video' : 'local-image',
         backend: 'comfyui',
         external_id: `imported-${Date.now().toString(36)}`,
         enabled: true,
@@ -242,8 +262,11 @@ function checkpointName(patch: Record<string, unknown>): string | null {
   for (const node of Object.values(patch)) {
     if (!node || typeof node !== 'object') continue;
     const inputs = (node as { inputs?: Record<string, unknown> }).inputs;
-    const name = inputs?.ckpt_name;
-    if (typeof name === 'string' && name) return name;
+    // Image graphs bake ckpt_name; video graphs load their model as a UNET.
+    for (const key of ['ckpt_name', 'unet_name', 'checkpoint_name']) {
+      const name = inputs?.[key];
+      if (typeof name === 'string' && name) return name;
+    }
   }
   return null;
 }

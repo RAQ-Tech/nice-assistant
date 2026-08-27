@@ -75,6 +75,33 @@ creator's own showcase images, with A1111 sampler names translated to
 ComfyUI's vocabulary (`app/civitai_lookup.py`). Nothing is saved until the
 person saves.
 
+## Local video
+
+Video is local-only by decision (2026-08-26). OpenAI's Sora API - the only
+cloud video path this product ever had - shuts down on 2026-09-24, and every
+surviving cloud video service both moderates away this product's content and
+would receive persona reference faces to do anything persona-shaped. The
+OpenAI video adapter remains in the code, unreachable from the UI; the
+settings page offers Off and Local, and a stored cloud choice renders and
+saves as Off.
+
+Local video is the image machinery with a different output: a video model
+(provider `local-video`, backend ComfyUI - Wan and its relatives load as
+UNETs, and `unet_name` binds exactly as `ckpt_name` does) pairs with a video
+workflow in a recipe, the planner selects it for `kind: video` requests, and
+execution submits the bound graph to the same ComfyUI address the image path
+uses. Two honest differences: the history poll budget is thirty minutes
+rather than two, because a clip renders for minutes; and there is no fallback
+graph - a video request without a cataloged workflow is refused in plain
+words rather than rendered through a graph nobody chose. Outputs are
+collected from every collection ComfyUI reports (`videos`, `gifs`, `images`)
+and a real container wins over an animated fallback.
+
+Workflows arrive through the same import card as image workflows - a "This
+workflow makes" choice sets the kind. A shipped Wan template is deliberately
+deferred: authoring one honestly requires verifying its node names against a
+live `/object_info`, and is tracked in `BACKLOG.md`.
+
 ## Resource metadata
 
 Each owner may register models, LoRAs, and ComfyUI workflows with:

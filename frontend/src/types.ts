@@ -599,6 +599,8 @@ export interface CivitaiMatch {
   scheduler?: string;
   width?: number;
   height?: number;
+  settings_source?: 'showcase' | 'family';
+  family_label?: string;
 }
 
 export interface ModelPrefillSuggestion {
@@ -639,7 +641,7 @@ export interface MediaCatalogResource {
   resource_type: MediaResourceType;
   kind: 'image' | 'video';
   name: string;
-  provider_key: 'openai-image' | 'local-image' | 'openai-video';
+  provider_key: 'openai-image' | 'local-image' | 'openai-video' | 'local-video';
   backend: 'openai' | 'automatic1111' | 'comfyui';
   external_id: string;
   enabled: boolean;

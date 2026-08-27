@@ -386,7 +386,7 @@ class MediaCatalogResource(Base):
         CheckConstraint("resource_type IN ('model','lora','workflow')", name="ck_media_resource_type"),
         CheckConstraint("kind IN ('image','video')", name="ck_media_resource_kind"),
         CheckConstraint(
-            "provider_key IN ('openai-image','local-image','openai-video')",
+            "provider_key IN ('openai-image','local-image','openai-video','local-video')",
             name="ck_media_resource_provider",
         ),
         CheckConstraint(

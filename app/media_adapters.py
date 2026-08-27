@@ -1,6 +1,15 @@
 from __future__ import annotations
 
-from app.media_clients import automatic1111_image, comfyui_image, openai_image, openai_video
+from pathlib import PurePosixPath
+
+from app.media_clients import (
+    VIDEO_OUTPUT_TYPES,
+    automatic1111_image,
+    comfyui_image,
+    comfyui_video,
+    openai_image,
+    openai_video,
+)
 from app.provider_contracts import (
     CancellationToken,
     MediaArtifact,
@@ -62,6 +71,33 @@ class LocalImageProvider:
             )
         cancellation.raise_if_cancelled()
         return MediaArtifact("image", content, ".png", "image/png")
+
+
+class LocalVideoProvider:
+    """Video through the operator's own ComfyUI, from cataloged workflows."""
+
+    name = "local-video"
+
+    def health(self):
+        return ProviderHealth(self.name, ProviderStatus.DEGRADED, "Use the ComfyUI provider check.")
+
+    def generate(self, request: MediaRequest, cancellation: CancellationToken) -> MediaArtifact:
+        cancellation.raise_if_cancelled()
+        options = request.options
+        content, filename = comfyui_video(
+            request.prompt,
+            options.get("size"),
+            options.get("base_url"),
+            options.get("local_settings"),
+            cancellation,
+        )
+        cancellation.raise_if_cancelled()
+        extension = PurePosixPath(str(filename).lower()).suffix or ".mp4"
+        content_type = next(
+            (ctype for known, ctype in VIDEO_OUTPUT_TYPES if known == extension),
+            "video/mp4",
+        )
+        return MediaArtifact("video", content, extension, content_type)
 
 
 class OpenAIVideoProvider:

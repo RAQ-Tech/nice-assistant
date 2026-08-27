@@ -12,6 +12,27 @@ from __future__ import annotations
 
 from collections import Counter
 
+from app.model_prefill import FAMILY_DEFAULTS
+
+# CivitAI is fronted by Cloudflare, which rejects Python's default agent
+# string outright - every request 403s without this. The string names the
+# project honestly rather than impersonating a browser.
+REQUEST_HEADERS = {
+    "User-Agent": "nice-assistant/1.0 (self-hosted)",
+    "Accept": "application/json",
+}
+
+# CivitAI's baseModel strings, mapped onto the same family table the model
+# page's prefill uses - one home for the numbers, two doors into it.
+_BASE_MODEL_FAMILIES = (
+    ("pony", "sdxl"),
+    ("illustrious", "sdxl"),
+    ("sdxl", "sdxl"),
+    ("sd 1.5", "sd15"),
+    ("sd 1.4", "sd15"),
+    ("flux", "flux"),
+)
+
 # CivitAI publishes A1111-style sampler names; ComfyUI wants its own identifiers
 # plus a scheduler. Unmapped names pass through untranslated so the page can
 # show them rather than dropping them.
@@ -44,6 +65,55 @@ def search_query(checkpoint: str) -> str:
 def translate_sampler(name: str) -> tuple[str, str | None]:
     mapped = SAMPLER_MAP.get(str(name).strip().lower())
     return mapped if mapped else (str(name), None)
+
+
+def images_url(version_id) -> str:
+    """Community images for one version - the only place meta still appears."""
+
+    return f"https://civitai.com/api/v1/images?modelVersionId={version_id}&limit=8"
+
+
+def apply_showcase(match: dict, images_payload: dict) -> None:
+    """Fill a match's settings from real showcase meta, when any exists."""
+
+    items = images_payload.get("items")
+    settings = _showcase_settings(items if isinstance(items, list) else [])
+    if settings:
+        match.update(settings)
+        match["settings_source"] = "showcase"
+
+
+def apply_family_defaults(match: dict) -> None:
+    """Family-typical settings when no showcase meta survived publication.
+
+    Most 2026 uploads hide their generation info, so "no settings" would be
+    the common case. The version's declared base model names a family, and
+    the family table is real evidence - labeled as typical, never as the
+    creator's own numbers.
+    """
+
+    if match.get("settings_source"):
+        return
+    declared = str(match.get("base_model") or "").lower()
+    # Distilled variants run at a handful of steps and near-zero guidance;
+    # the family's ordinary numbers would be actively wrong for them, and no
+    # suggestion beats a wrong one.
+    if any(tag in declared for tag in ("lightning", "turbo", "hyper", "lcm")):
+        return
+    for fragment, family in _BASE_MODEL_FAMILIES:
+        if fragment in declared:
+            defaults = FAMILY_DEFAULTS[family]
+            match.update(
+                {
+                    "steps": defaults["steps"],
+                    "cfg_scale": defaults["cfg_scale"],
+                    "width": defaults["width"],
+                    "height": defaults["height"],
+                    "settings_source": "family",
+                    "family_label": defaults["label"],
+                }
+            )
+            return
 
 
 def _showcase_settings(images: list) -> dict:
@@ -113,11 +183,15 @@ def parse_matches(payload: dict, checkpoint: str, limit: int = 5) -> list[dict]:
                 "model_name": str(model.get("name") or "").strip(),
                 "version_name": str(version.get("name") or "").strip(),
                 "base_model": str(version.get("baseModel") or "").strip(),
+                "version_id": version.get("id"),
                 "file_match": file_match,
                 "trigger_words": trigger_words,
                 "url": f"https://civitai.com/models/{model.get('id')}?modelVersionId={version.get('id')}",
-                **_showcase_settings(version.get("images") or []),
             }
+            inline = _showcase_settings(version.get("images") or [])
+            if inline:
+                entry.update(inline)
+                entry["settings_source"] = "showcase"
             if entry["model_name"]:
                 matches.append(entry)
     matches.sort(key=lambda item: not item["file_match"])

@@ -314,6 +314,18 @@ listed item; none of them is open any more.
     picking the match, behind a consent popup that names civitai.com and
     offers cancel / ok / "don't show again". Shipped with the model pages.
 
+0b. **Video is local-only** (owner, 2026-08-26). Sora's API shuts down
+    2026-09-24 and no surviving cloud video service accepts this product's
+    content, so no cloud option is offered through the UI; the cloud adapter
+    stays in the code for a future service worth linking, and a stored cloud
+    choice saves as Off. The local ComfyUI video path shipped with this
+    decision; see `docs/media-catalog.md`. Still open from it, deployment
+    work: download a Wan 2.2 model into ComfyUI and import a text-to-video
+    workflow (the import card's "This workflow makes: Video clips" choice);
+    a shipped Wan template follows once its node names can be verified
+    against the live `/object_info`, and the OpenAI video adapter should be
+    deleted after 2026-09-24 when its API stops answering.
+
 1. **Rejected and forgotten memory never expires automatically.** Manual
     deletion, individually or in bulk, stays the only way a record leaves.
     Keeping the discard pile is deliberate: it is what shows a persona

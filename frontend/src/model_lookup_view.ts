@@ -16,6 +16,7 @@ import type { AppState, CivitaiMatch } from './types';
 export class ModelLookupView {
   private matches: CivitaiMatch[] | null = null;
   private message = '';
+  private failed = false;
   private busy = false;
 
   constructor(
@@ -42,7 +43,15 @@ export class ModelLookupView {
           onclick: () => void this.run(checkpoint),
         }),
       ]),
-      this.message ? el('p', { class: 'meta', 'data-testid': 'model-lookup-message', textContent: this.message }) : null,
+      this.message
+        ? el('p', {
+            // A failure must be loud enough to notice: a quiet gray line under
+            // the button reads as nothing having happened at all.
+            class: this.failed ? 'settings-warning' : 'meta',
+            'data-testid': 'model-lookup-message',
+            textContent: this.message,
+          })
+        : null,
       this.matches?.length
         ? el('div', { class: 'model-lookup-matches', 'data-testid': 'model-lookup-matches' },
             this.matches.map((match, index) => this.row(match, index)))
@@ -57,6 +66,11 @@ export class ModelLookupView {
       match.sampler ?? '',
       match.width && match.height ? `${match.width}×${match.height}` : '',
     ].filter(Boolean).join(' · ');
+    const source = match.settings_source === 'showcase'
+      ? `${settings} (from the creator’s showcase)`
+      : match.settings_source === 'family'
+        ? `${settings} (typical for ${match.family_label ?? match.base_model})`
+        : 'no settings published';
     return el('div', { class: 'model-lookup-row' }, [
       el('div', {}, [
         el('strong', { textContent: `${match.model_name} — ${match.version_name}` }),
@@ -65,7 +79,7 @@ export class ModelLookupView {
           textContent: [
             match.base_model,
             match.file_match ? 'matches your file exactly' : '',
-            settings || 'no showcase settings published',
+            source,
           ].filter(Boolean).join(' · '),
         }),
       ]),
@@ -103,9 +117,11 @@ export class ModelLookupView {
       const result = await this.client.civitaiLookup(checkpoint);
       this.matches = result.matches;
       this.message = result.message;
+      this.failed = !result.ok;
     } catch (error) {
       this.matches = null;
       this.message = errorMessage(error, 'civitai.com could not be reached.');
+      this.failed = true;
     } finally {
       this.busy = false;
       this.renderApp();
