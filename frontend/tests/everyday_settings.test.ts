@@ -20,6 +20,38 @@ function setup(overrides: Partial<Settings> = {}) {
   return { root, settings, view, change };
 }
 
+describe('video is local only', () => {
+  it('offers Off and Local, and no cloud option at all', () => {
+    const { root, settings, view } = setup();
+    root.append(...view.nodes('Video Generation', settings));
+
+    const provider = root.querySelector('[data-testid="video-provider"]') as HTMLSelectElement;
+    const options = [...provider.options].map((option) => option.value);
+    expect(options).toEqual(['disabled', 'local']);
+    // The sora-era controls are gone with the provider they served.
+    expect(root.textContent).not.toContain('sora');
+    expect(root.textContent).not.toContain('Duration');
+  });
+
+  it('renders a stored cloud choice as Off rather than keeping it alive', () => {
+    const { root, settings, view } = setup({ video_provider: 'openai' });
+    root.append(...view.nodes('Video Generation', settings));
+
+    const provider = root.querySelector('[data-testid="video-provider"]') as HTMLSelectElement;
+    expect(provider.value).toBe('disabled');
+    expect(root.textContent).toContain('Video generation is off.');
+  });
+
+  it('says what local video needs and checks the same ComfyUI pictures use', () => {
+    const { root, settings, view } = setup({ video_provider: 'local' });
+    root.append(...view.nodes('Video Generation', settings));
+
+    expect(root.textContent).toContain('What local video needs');
+    expect(root.textContent).toContain('Media Catalog');
+    expect(root.textContent).toContain('check comfyui');
+  });
+});
+
 describe('everyday settings presentation', () => {
   it('keeps common General choices visible and optional controls closed', () => {
     const { root, settings, view } = setup();

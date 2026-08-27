@@ -520,7 +520,7 @@ class CapabilityService:
             return None
         ready = set()
         for provider_key, backend in candidates:
-            check_key = backend if provider_key == "local-image" else "openai"
+            check_key = backend if provider_key in ("local-image", "local-video") else "openai"
             checked = self.provider_service.check(user_id, check_key)
             if checked and checked.get("ok"):
                 ready.add((provider_key, backend))

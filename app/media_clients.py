@@ -503,7 +503,7 @@ def comfyui_image(prompt, size, quality, allow_nsfw, base_url, local_settings=No
     model = declared_model or "v1-5-pruned-emaonly.safetensors"
     workflow_patch = parse_additional_parameters(settings.get("additional_parameters"))
     if workflow_patch and settings.get("prompt_bindings"):
-        return _run_comfyui_workflow(
+        content, _filename = _run_comfyui_workflow(
             _comfyui_bound_workflow(
                 workflow_patch,
                 settings,
@@ -518,6 +518,7 @@ def comfyui_image(prompt, size, quality, allow_nsfw, base_url, local_settings=No
             base_url,
             cancellation,
         )
+        return content
     workflow = {
         "3": {
             "class_type": "KSampler",
@@ -568,10 +569,71 @@ def comfyui_image(prompt, size, quality, allow_nsfw, base_url, local_settings=No
     workflow["6"]["inputs"]["clip"] = clip_ref
     workflow["7"]["inputs"]["clip"] = clip_ref
     workflow.update(workflow_patch)
-    return _run_comfyui_workflow(workflow, settings, base_url, cancellation)
+    content, _filename = _run_comfyui_workflow(workflow, settings, base_url, cancellation)
+    return content
 
 
-def _run_comfyui_workflow(workflow: dict, settings: dict, base_url, cancellation):
+def comfyui_video(prompt, size, base_url, local_settings=None, cancellation=None):
+    """A video clip from an operator-cataloged ComfyUI workflow.
+
+    There is deliberately no fallback graph here: the image path predates the
+    catalog and keeps its legacy default, but video arrived after recipes
+    existed, so a video without a cataloged workflow is refused plainly
+    rather than rendered through a graph nobody chose.
+    """
+
+    settings = local_settings or {}
+    workflow_patch = settings.get("workflow_patch")
+    if not isinstance(workflow_patch, dict) or not workflow_patch or not settings.get("prompt_bindings"):
+        raise ValueError("Local video needs a cataloged ComfyUI video workflow with a bound prompt input.")
+    width, height = parse_image_size(size, allow_custom=True)
+    compiled = settings.get("compiled_prompt")
+    tuned = (
+        str(compiled)
+        if compiled is not None
+        else _prompt_with_loras(prompt, _normalized_loras(settings.get("loras")), syntax=False)
+    )
+    negative = str(settings.get("compiled_negative") or "")
+    return _run_comfyui_workflow(
+        _comfyui_bound_workflow(
+            workflow_patch,
+            settings,
+            prompt=tuned,
+            negative=negative,
+            seed=local_seed_for_backend(settings.get("seed"), "comfyui"),
+            width=width,
+            height=height,
+            checkpoint=str(settings.get("model") or "").strip(),
+        ),
+        settings,
+        base_url,
+        cancellation,
+        poll_seconds=VIDEO_POLL_SECONDS,
+        want_video=True,
+    )
+
+
+# A picture answers in seconds; a video clip renders for minutes. The image
+# budget stays what it was, and video gets a budget matched to what a 5-second
+# clip actually takes on consumer hardware, with cancellation checked every
+# second either way.
+IMAGE_POLL_SECONDS = 120
+VIDEO_POLL_SECONDS = 1800
+
+# What a saved output is, by the name ComfyUI gives the file. Ordered so a
+# real video container wins over an animated fallback format.
+VIDEO_OUTPUT_TYPES = (
+    (".mp4", "video/mp4"),
+    (".webm", "video/webm"),
+    (".mov", "video/quicktime"),
+    (".gif", "image/gif"),
+    (".webp", "image/webp"),
+)
+
+
+def _run_comfyui_workflow(
+    workflow: dict, settings: dict, base_url, cancellation, *, poll_seconds=IMAGE_POLL_SECONDS, want_video=False
+):
     """Upload declared images, submit the graph, and return the produced bytes."""
 
     base_url = str(base_url).rstrip("/")
@@ -601,7 +663,7 @@ def _run_comfyui_workflow(workflow: dict, settings: dict, base_url, cancellation
     if not prompt_id:
         raise ValueError("ComfyUI did not return a prompt_id")
     history = None
-    for _ in range(120):
+    for _ in range(int(poll_seconds)):
         _cancelled(cancellation)
         request = urllib.request.Request(
             f"{base_url}/history/{urllib.parse.quote(str(prompt_id))}",
@@ -616,14 +678,36 @@ def _run_comfyui_workflow(workflow: dict, settings: dict, base_url, cancellation
     if not history:
         raise TimeoutError("ComfyUI history polling timed out")
     outputs = (history.get(str(prompt_id)) or {}).get("outputs") or {}
-    image = next((item for output in outputs.values() for item in (output.get("images") or [])), None)
-    if not image:
-        raise ValueError("ComfyUI completed without returning image output")
+    if want_video:
+        # Video nodes report under different keys by lineage - core SaveVideo,
+        # VHS combine nodes, and plain animated images - so every collection
+        # is searched and the best real container wins.
+        produced = [
+            item
+            for output in outputs.values()
+            for key in ("videos", "gifs", "images")
+            for item in (output.get(key) or [])
+        ]
+        chosen = next(
+            (
+                item
+                for extension, _ctype in VIDEO_OUTPUT_TYPES
+                for item in produced
+                if str(item.get("filename", "")).lower().endswith(extension)
+            ),
+            None,
+        )
+        if not chosen:
+            raise ValueError("ComfyUI completed without returning a video output")
+    else:
+        chosen = next((item for output in outputs.values() for item in (output.get("images") or [])), None)
+        if not chosen:
+            raise ValueError("ComfyUI completed without returning image output")
     query = urllib.parse.urlencode(
         {
-            "filename": image.get("filename", ""),
-            "subfolder": image.get("subfolder", ""),
-            "type": image.get("type", "output"),
+            "filename": chosen.get("filename", ""),
+            "subfolder": chosen.get("subfolder", ""),
+            "type": chosen.get("type", "output"),
         }
     )
     request = urllib.request.Request(
@@ -631,5 +715,5 @@ def _run_comfyui_workflow(workflow: dict, settings: dict, base_url, cancellation
         headers=auth_headers(settings.get("api_auth")),
         method="GET",
     )
-    with urllib.request.urlopen(request, timeout=120) as response:
-        return _read_provider_response(response, cancellation)
+    with urllib.request.urlopen(request, timeout=300) as response:
+        return _read_provider_response(response, cancellation), str(chosen.get("filename", ""))

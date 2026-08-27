@@ -199,7 +199,7 @@ export const SETTINGS_SECTION_KEYS: Record<SettingsSection, readonly (keyof Sett
     'image_local_seed',
     'image_local_additional_parameters',
   ],
-  'Video Generation': ['video_provider', 'video_model', 'video_size', 'video_duration'],
+  'Video Generation': ['video_provider'],
   Memory: ['default_memory_mode'],
   User: ['user_display_name', 'user_timezone'],
   Personas: ['personas_default_system_prompt'],
@@ -285,6 +285,9 @@ export function settingsWire(settings: Settings): SettingsWire {
   }
   preferences.image_size = normalizeImageSize(settings.image_size);
   preferences.image_quality = normalizeImageQuality(settings.image_quality);
+  // Local only, by decision: a stored cloud choice saves as Off rather
+  // than keeping an option alive that the page no longer offers.
+  preferences.video_provider = settings.video_provider === 'local' ? 'local' : 'disabled';
   preferences.video_model = normalizeVideoModel(settings.video_model);
   preferences.video_size = normalizeVideoSize(settings.video_model, settings.video_size);
   preferences.video_duration = normalizeVideoDuration(settings.video_duration);

@@ -1,5 +1,4 @@
 import { el } from './dom';
-import { availableVideoSizes, SETTINGS_DEFAULTS } from './settings';
 import { inputField, selectField, textareaField, toggleField } from './settings_controls';
 import { advancedSettings, settingsCard, settingsHeading, settingsIntro } from './settings_ui';
 import type { AppState, Settings } from './types';
@@ -485,61 +484,36 @@ export class EverydaySettingsView {
     ].filter((node): node is HTMLElement => node !== null);
   }
 
+  // Local only, by decision (2026-08-26): every cloud video API either shut
+  // down or refuses this product's content, so the UI offers what can work.
+  // The cloud adapter stays in the code for the day a service worth linking
+  // exists; a stored cloud choice renders and saves as Off.
   private video(settings: Settings): HTMLElement[] {
+    const provider = settings.video_provider === 'local' ? 'local' : 'disabled';
     return [
       settingsIntro(
-        'Choose the default video path',
-        'Video generation is optional and currently uses completed OpenAI jobs.',
+        'Choose how video clips get made',
+        'Video runs on your own ComfyUI — the same service that makes pictures.',
       ),
       settingsCard([
         selectField(
           'Video provider',
-          settings.video_provider,
-          ['disabled', 'openai'],
+          provider,
+          ['disabled', 'local'],
           (value) => this.change('video_provider', value),
           'video-provider',
           providerLabel,
           true,
-          'OpenAI sends the prompt to OpenAI and polls until the video is complete.',
-        ),
-        selectField(
-          'Model',
-          settings.video_model,
-          ['sora-2', 'sora-2-pro'],
-          (value) => {
-            this.change('video_model', value, false);
-            this.change('video_size', availableVideoSizes(value)[0] ?? SETTINGS_DEFAULTS.video_size);
-          },
-          undefined,
-          (value) => value,
-          true,
-          'The selected model determines the available sizes and provider cost.',
-        ),
-        selectField(
-          'Size',
-          settings.video_size,
-          [...availableVideoSizes(settings.video_model)],
-          (value) => this.change('video_size', value),
-          undefined,
-          (value) => value,
-          true,
-          'Output width × height. Portrait sizes are listed with the narrower dimension first.',
-        ),
-        selectField(
-          'Duration',
-          settings.video_duration,
-          ['4', '8', '12'],
-          (value) => this.change('video_duration', value),
-          undefined,
-          (value) => `${value} seconds`,
-          true,
-          'Longer videos take more time and may cost more.',
+          'No cloud video service is currently offered. Local uses the ComfyUI configured on the Image Generation page.',
         ),
       ]),
-      settings.video_provider === 'openai'
+      provider === 'local'
         ? settingsCard([
-            settingsHeading('Connection check', 'Tests whether OpenAI video generation is configured and reachable.'),
-            this.providerControl('openai'),
+            settingsHeading(
+              'What local video needs',
+              'A video model and a video workflow in Media Catalog, paired as a recipe. A chat that asks for a clip picks one, exactly as pictures do.',
+            ),
+            this.providerControl('comfyui'),
           ])
         : el('div', { class: 'settings-empty-state', textContent: 'Video generation is off.' }),
     ];

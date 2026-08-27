@@ -212,12 +212,16 @@ export class MediaCatalogSettingsView {
       && item.backend === resource.backend
       && item.id !== resource.id
     );
+    // Video is local-only by decision; an existing cloud row stays renderable
+    // but new video resources are ComfyUI's.
     const providerOptions = resource.kind === 'video'
-      ? ['openai-video']
+      ? [...new Set(['local-video', resource.provider_key])]
       : (resource.resource_type === 'model' ? ['local-image', 'openai-image'] : ['local-image']);
     const backendOptions = resource.provider_key === 'local-image'
       ? (resource.resource_type === 'workflow' ? ['comfyui'] : ['automatic1111', 'comfyui'])
-      : ['openai'];
+      : resource.provider_key === 'local-video'
+        ? ['comfyui']
+        : ['openai'];
     const compatible = models.filter((model) => resource.compatible_model_ids.includes(model.id));
     const status = resource.enabled ? 'Enabled' : 'Draft';
     const subtitle = `${titleCase(resource.resource_type)} · ${resource.backend} · revision ${resource.revision}`;

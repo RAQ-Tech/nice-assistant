@@ -24,6 +24,7 @@ RUNTIME_OPERATIONS = {
     ("local-image", "automatic1111"): {"generate"},
     ("local-image", "comfyui"): {"generate", "inpaint", "outpaint", "image_to_image"},
     ("openai-video", "openai"): {"generate"},
+    ("local-video", "comfyui"): {"generate"},
 }
 SAMPLER_KEYS = ("steps", "cfg_scale", "sampler_name", "scheduler")
 WORKFLOW_SETTING_KEYS = (
@@ -633,7 +634,7 @@ def _execution_options(preset, winner: dict, snapshots: list[dict]) -> dict:
                 settings[key] = workflow_settings[key]
     external_id = base["external_id"]
     options = {
-        "provider": "local" if base["provider_key"] == "local-image" else "openai",
+        "provider": "local" if base["provider_key"] in ("local-image", "local-video") else "openai",
         "backend": base["backend"],
         "model": external_id if external_id != PROVIDER_DEFAULT else None,
         "prompt_dialect": definition.get("prompt_dialect") or {},
