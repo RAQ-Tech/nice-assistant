@@ -142,6 +142,7 @@ async def upload_visual_identity_reference(
     file: UploadFile = File(...),
     provenance: str = Form(default="user_upload"),
     attested: bool = Form(...),
+    approve: bool = Form(default=False),
     context: AuthContext = Depends(current_user),
 ):
     content = await file.read()
@@ -151,6 +152,7 @@ async def upload_visual_identity_reference(
         content=content,
         provenance=provenance,
         attested=attested,
+        approve=approve,
     )
 
 

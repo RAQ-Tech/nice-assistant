@@ -158,27 +158,17 @@ export class IdentitySettingsView {
     return el('div', { class: 'persona-card', 'data-testid': 'identity-reference-manager' }, [
       settingsHeading(
         `${name}’s reference images`,
-        'Use a clear image that represents how this persona should look. New images stay pending until you approve them.',
+        'Use a clear image that represents how this persona should look. A photo you add from this device counts immediately; a generated picture waits for your approval.',
       ),
-      el('label', { class: 'setting-row identity-file-row' }, [
-        el('span', { textContent: 'Choose an image from this device' }),
-        el('input', {
-          type: 'file',
-          accept: 'image/png,image/jpeg,image/webp',
-          'data-testid': 'identity-reference-file',
-          onchange: (event: Event) => {
-            this.selectedFile = (event.currentTarget as HTMLInputElement).files?.[0] ?? null;
-            this.renderApp();
-          },
-        }),
-      ]),
-      this.selectedFile
-        ? el('div', { class: 'selected-file-note', textContent: `Selected: ${this.selectedFile.name}` })
-        : null,
+      // One motion: tick the rights box, choose the photo, and it is added -
+      // approved, because a file from this device with a fresh attestation is
+      // the person's own deliberate act. Generated pictures keep the review
+      // wall below.
       el('label', { class: 'checkbox-row identity-attestation' }, [
         el('input', {
           type: 'checkbox',
           checked: this.attested,
+          'data-testid': 'identity-attested',
           onchange: (event: Event) => {
             this.attested = (event.currentTarget as HTMLInputElement).checked;
             this.renderApp();
@@ -186,14 +176,26 @@ export class IdentitySettingsView {
         }),
         'I created this image or have permission to use it.',
       ]),
-      el('div', { class: 'chips' }, [
-        el('button', {
-          class: 'send-btn',
-          textContent: this.appState.identityBusy ? 'Adding…' : 'Add selected image',
-          disabled: !this.selectedFile || !this.attested || this.appState.identityBusy,
-          'data-testid': 'identity-reference-upload',
-          onclick: () => void this.uploadReference(profile.persona_id),
+      el('label', { class: 'setting-row identity-file-row' }, [
+        el('span', {
+          textContent: this.appState.identityBusy
+            ? 'Adding…'
+            : this.attested
+              ? 'Choose a photo from this device'
+              : 'Tick the box above, then choose a photo',
         }),
+        el('input', {
+          type: 'file',
+          accept: 'image/png,image/jpeg,image/webp',
+          disabled: !this.attested || this.appState.identityBusy,
+          'data-testid': 'identity-reference-file',
+          onchange: (event: Event) => {
+            this.selectedFile = (event.currentTarget as HTMLInputElement).files?.[0] ?? null;
+            if (this.selectedFile) void this.uploadReference(profile.persona_id);
+          },
+        }),
+      ]),
+      el('div', { class: 'chips' }, [
         el('button', {
           class: 'pill-btn',
           textContent: 'Choose from generated images',
@@ -505,6 +507,9 @@ export class IdentitySettingsView {
     this.appState.identityProfiles[personaId] = profile;
     this.appState.identityValidations[personaId] = validations.items;
     this.appState.identityEvents[personaId] = history.items;
+    // The kept-pictures library is this persona's own; it loads with the
+    // persona instead of waiting behind a button.
+    void this.library.refresh(personaId);
   }
 
   private async run(action: () => Promise<void>): Promise<void> {

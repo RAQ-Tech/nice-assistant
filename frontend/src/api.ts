@@ -378,6 +378,9 @@ export class ApiClient {
     form.append('file', file, file.name);
     form.append('provenance', provenance);
     form.append('attested', 'true');
+    // A file chosen from this device and attested in the same motion is the
+    // person's deliberate act; the review wall stays for generated pictures.
+    if (provenance === 'user_upload') form.append('approve', 'true');
     return this.request(`/personas/${encodeURIComponent(personaId)}/visual-identity/references`, {
       method: 'POST',
       body: form,
