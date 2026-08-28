@@ -1,7 +1,7 @@
 import { api, type ApiClient } from './api';
 import { avatarErrorFallback, avatarSource } from './avatar';
 import { degradationSuggestsMoreContext, describeContextDegradation, replyWasTruncated } from './context_notice';
-import { copyText, downloadUrl, el, markdown } from './dom';
+import { copyText, downloadUrl, el, errorMessage, markdown } from './dom';
 import { extractImageUrl, extractVideoUrl, illustratedPassage, speechText, stripVideoLinks } from './media';
 import { state } from './state';
 import type { AppState, ChatAttachment, CapabilityRequest, Message } from './types';
@@ -256,15 +256,33 @@ export class ChatRenderer {
             : attachment.identity_state === 'unverified'
               ? el('p', { class: 'attachment-identity', textContent: 'Identity match unverified' })
               : null,
-        attachment.media_id
-          ? el('button', {
-              class: 'pill-btn attachment-action attachment-log',
-              textContent: 'Generation log',
-              title: 'See exactly how this was made',
-              'data-testid': 'open-generation-log',
-              onclick: () => void this.openGenerationLog(attachment.media_id as string),
-            })
-          : null,
+        // Steering, on the picture itself: another take of the same recipe,
+        // or a different look entirely - without a trip to settings.
+        el('div', { class: 'attachment-steering' }, [
+          el('button', {
+            class: 'pill-btn attachment-steer',
+            textContent: '↻ Another take',
+            title: 'Same recipe, new roll of the dice',
+            'data-testid': 'attachment-again',
+            onclick: () => void this.varyAttachment(attachment, 'again'),
+          }),
+          el('button', {
+            class: 'pill-btn attachment-steer',
+            textContent: '✦ Different look',
+            title: 'Same request through a different recipe',
+            'data-testid': 'attachment-different-look',
+            onclick: () => void this.varyAttachment(attachment, 'different_look'),
+          }),
+          attachment.media_id
+            ? el('button', {
+                class: 'pill-btn attachment-action attachment-log',
+                textContent: 'Generation log',
+                title: 'See exactly how this was made',
+                'data-testid': 'open-generation-log',
+                onclick: () => void this.openGenerationLog(attachment.media_id as string),
+              })
+            : null,
+        ]),
         this.attachmentDetails(request),
       ]);
     }
@@ -338,6 +356,16 @@ export class ChatRenderer {
       await this.refreshCurrentChat();
     } catch {
       this.appState.uiError = 'That picture could not be canceled.';
+    }
+    this.renderApp();
+  }
+
+  private async varyAttachment(attachment: ChatAttachment, mode: 'again' | 'different_look'): Promise<void> {
+    try {
+      await this.client.capabilityVariation(attachment.capability_request_id, mode);
+      await this.refreshCurrentChat();
+    } catch (error) {
+      this.appState.uiError = errorMessage(error, 'Another picture could not be started.');
     }
     this.renderApp();
   }

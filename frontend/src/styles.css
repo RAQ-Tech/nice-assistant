@@ -2763,3 +2763,21 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
 .modal-checkbox {
   margin: 0.5rem 0;
 }
+
+/* Picture steering: quiet until the pointer arrives, present on touch. */
+.attachment-steering {
+  display: flex;
+  gap: .4rem;
+  flex-wrap: wrap;
+  align-items: center;
+  opacity: 0;
+  transition: opacity .15s ease;
+}
+.chat-attachment:hover .attachment-steering,
+.chat-attachment:focus-within .attachment-steering { opacity: 1; }
+@media (pointer: coarse) { .attachment-steering { opacity: 1; } }
+.attachment-steer {
+  font-size: .78rem;
+  padding: .3rem .6rem;
+  background: rgba(20, 36, 52, 0.5);
+}

@@ -1149,6 +1149,124 @@ class CapabilityService:
             self._submit(response["id"], job.id, definition.kind, user_id, chat_id, submission_values)
         return response
 
+    def variation(self, user_id: str, request_id: str, mode: str) -> dict | None:
+        """Another picture from an existing one, steered from the chat.
+
+        "again" runs the same recipe with a fresh roll of the dice - pinned,
+        because a button called another take that silently switched recipes
+        would be a lie. "different_look" sets that recipe aside so routing
+        must choose another. Both re-plan under every ordinary rule, so a
+        pinned recipe that no longer fits refuses honestly instead of
+        rendering something else.
+        """
+
+        if mode not in {"again", "different_look"}:
+            raise RequestError("unknown variation mode", 400)
+        submit = False
+        kind = ""
+        chat_id = None
+        values: dict = {}
+        with self._uow() as uow:
+            original = uow.repo.capability_request(user_id, request_id)
+            if not original:
+                return None
+            if original.status != "completed":
+                raise ConflictError("Only a finished picture can be varied.")
+            definition = self.registry.by_key(original.capability_key)
+            if definition.kind != "image" or not original.chat_id:
+                raise ConflictError("Only chat pictures can be varied here.")
+            chat = uow.repo.chat(user_id, original.chat_id)
+            if not chat:
+                raise NotFoundError("chat not found")
+            arguments = _json_object(original.arguments_json)
+            prior_plan = uow.repo.media_execution_plan_for_capability(user_id, original.id)
+            prior_options = _json_object(prior_plan.execution_options_json) if prior_plan else {}
+            source_preset_id = str(prior_options.get("_preset_id") or "")
+            row, _created = uow.repo.add_capability_request(
+                user_id=user_id,
+                chat_id=original.chat_id,
+                turn_id=None,
+                capability_key=original.capability_key,
+                arguments=arguments,
+                status="queued",
+                permission_mode="auto",
+                idempotency_key=f"variation:{mode}:{original.id}:{secrets.token_hex(12)}",
+                retry_of_request_id=original.id,
+            )
+            requirements = {
+                "kind": definition.kind,
+                "operation": arguments.get("operation") or "generate",
+                "domains": arguments.get("domains") or [],
+                "content_tags": arguments.get("content_tags") or [],
+                "required_features": arguments.get("required_features") or [],
+            }
+            if source_preset_id:
+                if mode == "again":
+                    requirements["pin_preset_id"] = source_preset_id
+                else:
+                    requirements["exclude_preset_ids"] = [source_preset_id]
+            plan = self.media_catalog.create_coordinator_plan(
+                uow.repo,
+                user_id,
+                row.id,
+                requirements,
+                persona_id=chat.persona_id,
+                ready_backends=self._ready_media_backends(uow.repo, user_id, definition.kind),
+            )
+            uow.repo.add_capability_event(
+                row,
+                "requested",
+                from_status=None,
+                to_status=row.status,
+                detail={
+                    "source": "variation",
+                    "mode": mode,
+                    "varied_from": original.id,
+                    "media_plan_status": plan.status,
+                },
+            )
+            assistant = uow.repo.add_message(original.chat_id, "assistant", "")
+            chat.updated_at = now_ts()
+            uow.repo.add_chat_attachment(
+                user_id=user_id,
+                chat_id=original.chat_id,
+                assistant_message_id=assistant.id,
+                capability_request_id=row.id,
+                kind=definition.kind,
+                status="queued",
+            )
+            job = None
+            if plan.status == "ready":
+                job = uow.repo.add_job(
+                    user_id=user_id,
+                    chat_id=original.chat_id,
+                    turn_id=None,
+                    kind=definition.kind,
+                    progress="Queued",
+                    capability_request_id=row.id,
+                )
+                uow.repo.add_capability_event(row, "queued", from_status="queued", to_status="queued")
+                execution_spec = self.media_catalog.execution_spec(uow.repo, user_id, row.id)
+                values = dict(arguments)
+                values.update(execution_spec["options"])
+                values["_estimated_vram_mb"] = execution_spec["estimated_vram_mb"]
+                submit = True
+            else:
+                transition_capability(
+                    uow.repo,
+                    row,
+                    "failed",
+                    "failed",
+                    code=plan.block_code or "plan_blocked",
+                    message=plan.block_message or "Image generation is not ready.",
+                )
+            response = self._response(uow.repo, row, job=job)
+            kind = definition.kind
+            chat_id = original.chat_id
+        if submit:
+            self._submit(response["id"], job.id, kind, user_id, chat_id, values)
+        return response
+
     def retry(self, user_id: str, request_id: str) -> dict | None:
         submit = False
         kind = ""

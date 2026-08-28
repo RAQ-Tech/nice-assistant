@@ -2161,6 +2161,10 @@ class MediaCatalogService:
             # A preference the model expressed from an offered shortlist. The
             # hard filter still decides whether it is legal.
             "preferred_preset_id": str(values.get("preferred_preset_id") or "").strip()[:64],
+            # In-chat steering from an existing picture: pin the recipe that
+            # made it for another take, or set it aside for a different look.
+            "pin_preset_id": str(values.get("pin_preset_id") or "").strip()[:64],
+            "exclude_preset_ids": [str(item).strip()[:64] for item in (values.get("exclude_preset_ids") or [])][:8],
         }
 
     @staticmethod
