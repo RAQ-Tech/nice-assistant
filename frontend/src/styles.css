@@ -230,8 +230,14 @@ input[type='file']::file-selector-button {
 .chat-actions {
   display: flex;
   gap: .25rem;
-  margin-top: .45rem;
+  margin-top: .35rem;
+  opacity: 0;
+  transition: opacity .15s ease;
 }
+.chat-row:hover .chat-actions,
+.chat-row:focus-within .chat-actions,
+.chat-row.active .chat-actions { opacity: 1; }
+@media (pointer: coarse) { .chat-actions { opacity: .6; } }
 
 .chat-bulk-bar,
 .memory-bulk-bar {
@@ -305,6 +311,18 @@ input[type='file']::file-selector-button {
   min-height: 0;
 }
 
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  border: 0;
+}
+
 .topbar {
   display: flex;
   gap: .6rem;
@@ -313,7 +331,7 @@ input[type='file']::file-selector-button {
   flex-shrink: 0;
 }
 
-.icon-btn, .send-btn, .talk-btn, .pill-btn {
+.send-btn, .talk-btn, .pill-btn {
   border: 1px solid var(--border);
   background: rgba(20, 36, 52, 0.72);
   border-radius: 12px;
@@ -321,9 +339,34 @@ input[type='file']::file-selector-button {
   cursor: pointer;
   transition: .2s;
 }
-.icon-btn:hover, .send-btn:hover, .talk-btn:hover, .pill-btn:hover { transform: translateY(-1px); border-color: var(--accent); }
+.send-btn:hover, .talk-btn:hover, .pill-btn:hover { transform: translateY(-1px); border-color: var(--accent); }
 
-.header-meta { display: flex; flex-direction: column; min-width: 0; gap: .25rem; flex: 1 1 auto; }
+/* Icon buttons are quiet: no box until the pointer says so. */
+.icon-btn {
+  border: 0;
+  background: transparent;
+  border-radius: 10px;
+  padding: .45rem .55rem;
+  cursor: pointer;
+  color: var(--text-dim);
+  font-size: 1rem;
+  line-height: 1;
+  transition: background .15s ease, color .15s ease;
+}
+.icon-btn:hover, .icon-btn:focus-visible { background: rgba(120, 170, 220, 0.14); color: var(--text); }
+
+.header-meta { display: flex; flex-direction: row; align-items: center; min-width: 0; gap: .6rem; flex: 1 1 auto; }
+.header-titles { display: flex; flex-direction: column; min-width: 0; gap: .1rem; }
+.header-subtitle {
+  border: 0;
+  background: transparent;
+  padding: 0;
+  font-size: .78rem;
+  color: var(--text-dim);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
 .image-preview-trigger {
   width: fit-content;
   border: 0;
@@ -338,8 +381,8 @@ input[type='file']::file-selector-button {
 }
 
 .topbar-avatar {
-  width: 96px;
-  height: 96px;
+  width: 40px;
+  height: 40px;
   border-radius: 999px;
   object-fit: cover;
   border: 1px solid var(--border);
@@ -381,8 +424,8 @@ input[type='file']::file-selector-button {
 
 .msg-avatar {
   cursor: zoom-in;
-  width: 56px;
-  height: 56px;
+  width: 30px;
+  height: 30px;
   border-radius: 999px;
   object-fit: cover;
   border: 1px solid var(--border);
@@ -418,7 +461,16 @@ input[type='file']::file-selector-button {
 .msg code { background: rgba(0,0,0,.25); padding: .05rem .35rem; border-radius: 6px; }
 .msg ul { margin: .4rem 0 .4rem 1.1rem; }
 .msg a { color: var(--accent); }
-.msg-inline-image { display:block; max-width:min(100%, 480px); width:100%; height:auto; margin:.45rem 0; border-radius:10px; border:1px solid var(--border); }
+.msg-inline-image {
+  display: block;
+  max-width: min(100%, 420px);
+  max-height: min(46vh, 440px);
+  width: auto;
+  height: auto;
+  margin: .45rem 0;
+  border-radius: 12px;
+  border: 1px solid var(--border);
+}
 .msg-video-preview {
   position: relative;
   margin: .45rem 0;
@@ -460,8 +512,8 @@ input[type='file']::file-selector-button {
 
 
 .msg-inline-image.image-blurred {
-  filter: blur(18px) saturate(0.7);
-  transform: scale(1.01);
+  filter: blur(22px) saturate(0.7);
+  clip-path: inset(0 round 12px);
 }
 
 .typing-indicator {
@@ -514,7 +566,11 @@ input[type='file']::file-selector-button {
   opacity: 0;
   transition: .2s;
 }
-.msg:hover .msg-actions { opacity: 1; }
+.msg:hover .msg-actions, .msg:focus-within .msg-actions { opacity: 1; }
+.msg-actions .icon-btn { padding: .3rem .4rem; font-size: .85rem; }
+@media (pointer: coarse) {
+  .msg-actions { opacity: .5; position: static; justify-content: flex-end; margin-top: .2rem; }
+}
 
 .message-audio-error {
   margin: .45rem 0 0;
@@ -539,10 +595,20 @@ input[type='file']::file-selector-button {
 }
 
 .chat-attachment .attachment-image {
-  flex-basis: 100%;
   margin: 0;
   cursor: pointer;
 }
+/* The image owns the row; everything about it sits under it, small. */
+.attachment-completed { align-items: flex-start; flex-direction: column; gap: .3rem; }
+.attachment-completed .attachment-action { margin-left: 0; }
+.attachment-log {
+  border: 0;
+  background: transparent;
+  padding: .1rem 0;
+  font-size: .76rem;
+  color: var(--text-dim);
+}
+.attachment-log:hover { color: var(--text); transform: none; border: 0; }
 
 .attachment-progress,
 .attachment-failed,
@@ -558,7 +624,8 @@ input[type='file']::file-selector-button {
 .attachment-action { margin-left: auto; }
 .attachment-identity { margin: 0; font-size: .78rem; color: var(--text-dim); }
 .attachment-details { flex-basis: 100%; font-size: .78rem; color: var(--text-dim); }
-.attachment-details summary { cursor: pointer; width: max-content; }
+.attachment-details summary { cursor: pointer; width: max-content; color: var(--text-dim); }
+.attachment-completed .attachment-details { flex-basis: auto; }
 .attachment-details p { margin: .3rem 0 0; }
 
 .attachment-spinner {
@@ -790,16 +857,21 @@ input[type='file']::file-selector-button {
 .settings-nav-item {
   width: 100%;
   text-align: left;
-  border: 1px solid var(--border);
-  background: rgba(20, 36, 52, 0.4);
+  border: 0;
+  background: transparent;
   border-radius: 10px;
-  padding: .55rem .65rem;
+  padding: .5rem .65rem;
   cursor: pointer;
+  color: var(--text-dim);
+  transition: background .15s ease, color .15s ease;
 }
 
+.settings-nav-item:hover { background: rgba(120, 170, 220, 0.1); color: var(--text); }
+
 .settings-nav-item.active {
-  border-color: var(--accent);
   background: var(--accent-soft);
+  color: var(--text);
+  font-weight: 600;
 }
 
 .settings-detail {
@@ -1651,7 +1723,7 @@ input[type='file']::file-selector-button {
   }
   .status-pill { display: none; }
   .composer { grid-template-columns: 1fr auto; }
-  .talk-btn { grid-column: span 2; }
+  .talk-btn { grid-column: span 2; background: transparent; padding: .45rem .7rem; }
   .drawer {
     inset:
       calc(.4rem + var(--safe-top))
@@ -1664,8 +1736,7 @@ input[type='file']::file-selector-button {
     bottom: calc(9.5rem + var(--safe-bottom));
   }
   .compact-select { min-width: 110px; max-width: 180px; }
-  .topbar-avatar { width: 72px; height: 72px; }
-  .msg-avatar { width: 44px; height: 44px; }
+  .msg-avatar { width: 26px; height: 26px; }
   .chat-controls-menu .chip-select { min-width: 140px; }
   .settings-screen {
     padding:
@@ -1713,40 +1784,30 @@ input[type='file']::file-selector-button {
   }
 
   .topbar {
-    gap: .5rem;
-    flex-wrap: wrap;
+    gap: .3rem;
+    flex-wrap: nowrap;
     align-items: center;
   }
 
   .topbar > .icon-btn,
   .topbar > .viz-btn {
     flex: 0 0 auto;
+    padding: .4rem .45rem;
   }
 
   .header-meta {
-    display: grid;
-    grid-template-columns: 48px minmax(0, 1fr);
-    grid-template-rows: auto auto;
-    column-gap: .55rem;
-    row-gap: .1rem;
-    flex: 1 1 calc(100% - 56px);
+    gap: .45rem;
+    flex: 1 1 auto;
     min-width: 0;
   }
 
   .topbar-avatar {
-    width: 48px;
-    height: 48px;
-    align-self: center;
-  }
-
-  .topbar-avatar-trigger {
-    grid-row: 1 / 3;
-    align-self: center;
+    width: 36px;
+    height: 36px;
   }
 
   .header-title {
-    font-size: 1.02rem;
-    align-self: end;
+    font-size: .98rem;
   }
 
   .header-meta .chips {
@@ -1992,13 +2053,9 @@ input[type='file']::file-selector-button {
     gap: .45rem;
   }
 
-  .header-meta {
-    grid-template-columns: 40px minmax(0, 1fr);
-  }
-
   .topbar-avatar {
-    width: 40px;
-    height: 40px;
+    width: 32px;
+    height: 32px;
   }
 
   .composer-input {
@@ -2531,7 +2588,13 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
 
 .home-fact {
   display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 1rem;
+  min-width: 0;
 }
+.home-fact > .home-fact-label { flex: 0 0 auto; }
+.home-fact > .home-fact-value { text-align: right; min-width: 0; overflow-wrap: anywhere; }
 
 /* Every one of these names a setting, so every one of them opens it. */
 .home-fact-button,

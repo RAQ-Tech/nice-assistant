@@ -342,7 +342,8 @@ test('completed turns refresh the generated chat title in the visible header', a
   await page.getByTestId('chat-input').fill('Plan a perfect summer morning');
   await page.getByTestId('chat-send').click();
 
-  await expect(page.locator('.header-title')).toHaveText('Perfect Summer Morning');
+  // The persona is the headline now; the chat's title lives in the subtitle.
+  await expect(page.locator('.header-subtitle')).toHaveText('Perfect Summer Morning');
 });
 
 test('mobile touch and keyboard input keep conversation controls usable', async ({ page }, testInfo) => {

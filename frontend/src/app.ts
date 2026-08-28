@@ -303,8 +303,12 @@ function shell(): HTMLElement {
             el('button', { class: 'icon-btn', textContent: 'Dismiss', onclick: () => { state.uiError = ''; if (state.phase === 'error') machine.recover(); render(); } }),
           ])
         : null,
-      el('div', { class: 'record-indicator', textContent: state.phase === 'recording' ? `● Recording… ${Math.floor((Date.now() - state.recordingStartedAt) / 1000)}s` : 'Ready' }),
-      composer(),
+      // Silence when idle: a label that always says "Ready" is furniture, and
+      // the one moment it matters is while a recording is actually running.
+      state.phase === 'recording'
+        ? el('div', { class: 'record-indicator', textContent: `● Recording… ${Math.floor((Date.now() - state.recordingStartedAt) / 1000)}s` })
+        : null,
+      composer(persona?.name ?? 'your persona'),
     ]),
     el('div', { class: `viz-wrap ${state.showViz ? 'show' : ''}` }, visualizer.node()),
   ]);
@@ -336,8 +340,10 @@ function topbar(personaName: string, avatar: string): HTMLElement {
       }, [
         el('img', { class: 'topbar-avatar', src: avatar, alt: `${personaName} avatar` }),
       ]),
-      el('div', { class: 'header-title', textContent: state.currentChat?.title || 'New conversation' }),
-      el('span', { class: 'chip persona-chip', textContent: personaName }),
+      el('div', { class: 'header-titles' }, [
+        el('div', { class: 'header-title', textContent: personaName }),
+        el('div', { class: 'header-subtitle chip persona-chip', textContent: state.currentChat?.title || 'New conversation' }),
+      ]),
     ]),
     el('span', { class: 'sr-only', textContent: state.statusText, 'data-testid': 'client-phase' }),
     el('button', { class: 'icon-btn', textContent: '⋯', title: 'Chat controls and details', 'aria-expanded': state.showChatControlsMenu, onclick: () => { state.showChatControlsMenu = !state.showChatControlsMenu; render(); } }),
@@ -396,7 +402,7 @@ async function toggleChatImageBlur(): Promise<void> {
   }
 }
 
-function composer(): HTMLElement {
+function composer(personaName: string): HTMLElement {
   const { busy, inputLocked } = composerState(state.phase);
   const cancellableTurn = state.pendingRequest && ['queued', 'thinking'].includes(state.phase);
   return el('div', { class: 'composer' }, [
@@ -405,7 +411,8 @@ function composer(): HTMLElement {
       rows: 1,
       class: 'composer-input',
       value: state.draftMessage,
-      placeholder: 'Ask anything… (Shift+Enter for new line)',
+      placeholder: `Message ${personaName}…`,
+      title: 'Enter sends. Shift+Enter starts a new line.',
       disabled: inputLocked,
       'data-testid': 'chat-input',
       oninput: (event: Event) => {
