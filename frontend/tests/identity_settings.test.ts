@@ -93,12 +93,12 @@ describe('Visual identity settings', () => {
     expect(root.textContent).toContain("Everything about a persona's pictures");
     expect(root.textContent).toContain('ComfyUI needs an identity model plus a bound workflow in Media Catalog');
     expect(root.textContent).toContain('IPAdapter, InstantID, PuLID, or PhotoMaker');
-    const fallback = [...root.querySelectorAll('.settings-readiness-row')]
-      .find((row) => row.textContent?.includes('When identity control is unavailable'));
-    expect(fallback?.textContent).toContain('Allow a clearly labeled unconditioned image');
-    const comparison = [...root.querySelectorAll('.settings-readiness-row')]
-      .find((row) => row.textContent?.includes('When comparison fails'));
-    expect(comparison?.textContent).toContain('Hide the failed image');
+    // Readiness reports readiness; the two policy rows that once restated
+    // the dropdowns below are gone, and the policies live only where they
+    // are set.
+    const readinessText = [...root.querySelectorAll('.settings-readiness-row')].map((row) => row.textContent).join(' ');
+    expect(readinessText).not.toContain('When identity control is unavailable');
+    expect(readinessText).not.toContain('When comparison fails');
     expect(root.textContent).toContain('Identity generation behavior');
     expect(root.textContent).toContain('Generate and label an unconditioned image');
     expect(root.textContent).not.toContain('Protected media ID');

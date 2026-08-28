@@ -69,7 +69,6 @@ export function identityReadinessCard(
   configureComparison: () => void = () => undefined,
 ): HTMLElement {
   const hasReference = profile.approved_reference_count > 0;
-  const requiresConditioning = profile.conditioning_fallback === 'require_conditioning';
   return el('div', { class: 'persona-card identity-readiness-card' }, [
     el('div', { class: 'task-model-head' }, [
       el('div', {}, [
@@ -101,24 +100,6 @@ export function identityReadinessCard(
         profile.verification_configured ? 'Verifier settings are configured' : 'Off; generated images will remain unverified',
         profile.verification_configured ? 'ready' : 'off',
         'An optional verifier can compare a finished face with the reference. It cannot improve generation.',
-      ),
-      readinessRow(
-        'When identity control is unavailable',
-        requiresConditioning
-          ? 'Block the request until reference-aware generation is ready'
-          : 'Allow a clearly labeled unconditioned image',
-        requiresConditioning ? 'attention' : 'off',
-        'This controls pre-generation fallback when no compatible identity workflow can run. It is separate from face comparison after generation.',
-      ),
-      readinessRow(
-        'When comparison fails',
-        profile.failure_policy === 'block_claim'
-          ? 'Hide the failed image'
-          : 'Show the image with an unverified label',
-        profile.failure_policy === 'block_claim' ? 'attention' : 'off',
-        profile.verification_configured
-          ? 'This policy applies after the optional comparison service evaluates a generated image.'
-          : 'This saved policy will take effect only if the optional comparison service is configured later.',
       ),
     ]),
     el('div', { class: 'chips' }, [
@@ -182,9 +163,6 @@ export function identityGenerationPolicyCard(
       },
       (value) => fallbackLabels[value as VisualIdentityProfile['conditioning_fallback']] ?? value,
     ), 'Allowing fallback never claims a match: the resulting image is explicitly labeled unconditioned and may not resemble the persona.'),
-    field('Maximum generation attempts', input(String(profile.max_generation_attempts), (value) => {
-      profile.max_generation_attempts = Math.round(boundedNumber(value, 1, 10, profile.max_generation_attempts));
-    }, 'number'), 'The maximum number of bounded generation or correction attempts for one request.'),
     el('button', {
       class: 'pill-btn',
       textContent: 'Save identity behavior',
@@ -219,6 +197,9 @@ export function identityComparisonPolicyCard(
     field('Comparison threshold', input(String(profile.acceptance_threshold), (value) => {
       profile.acceptance_threshold = boundedNumber(value, 0, 1, profile.acceptance_threshold);
     }, 'number'), 'A higher score is stricter. Calibrate this with representative generated images before enabling blocking.'),
+    field('Maximum generation attempts', input(String(profile.max_generation_attempts), (value) => {
+      profile.max_generation_attempts = Math.round(boundedNumber(value, 1, 10, profile.max_generation_attempts));
+    }, 'number'), 'The cap on bounded generation or correction attempts for one request.'),
     el('button', {
       class: 'pill-btn',
       textContent: 'Save comparison outcome',

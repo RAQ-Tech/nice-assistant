@@ -265,6 +265,7 @@ class IdentityService:
         provenance: str,
         attested: bool,
         source_media_id: str | None = None,
+        approve: bool = False,
     ) -> dict:
         if not attested:
             raise RequestError("The right to use this identity reference must be attested.", 400)
@@ -283,6 +284,10 @@ class IdentityService:
                     media = uow.repo.media(user_id, source_media_id)
                     if not media or media.kind != "image":
                         raise NotFoundError("source image not found")
+                # A file somebody chose from their own device and attested in
+                # the same motion is their deliberate act; the review wall
+                # exists for pictures the machine produced, and those keep it.
+                auto_approve = approve and provenance == "user_upload"
                 row = uow.repo.add_identity_reference(
                     user_id=user_id,
                     identity_id=identity.id,
@@ -296,13 +301,22 @@ class IdentityService:
                     height=normalized.height,
                     sha256=normalized.digest,
                     provenance=provenance,
-                    review_status="pending",
+                    review_status="approved" if auto_approve else "pending",
                     is_primary=0,
                     consent_attested_at=now_ts(),
                     created_at=now_ts(),
                 )
+                if auto_approve:
+                    row.reviewed_at = now_ts()
+                    approved = uow.repo.approved_identity_references(user_id, identity.id)
+                    if not any(item.is_primary for item in approved):
+                        row.is_primary = 1
+                    identity.status = "active"
                 uow.repo.add_identity_event(
-                    identity, "reference_added", reference_id=row.id, detail={"provenance": provenance}
+                    identity,
+                    "reference_added",
+                    reference_id=row.id,
+                    detail={"provenance": provenance, "approved_on_upload": auto_approve},
                 )
                 return self._reference_response(row)
         except Exception:

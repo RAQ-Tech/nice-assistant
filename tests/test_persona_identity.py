@@ -68,6 +68,35 @@ class PersonaIdentityTests(unittest.TestCase):
         self.assertEqual(response.status_code, 200, response.text)
         self.assertEqual(response.json()["api_key"], "********-key")
 
+    def test_a_device_photo_with_fresh_attestation_counts_immediately(self):
+        """One motion: a person's own attested file skips the review queue.
+
+        The pending-then-approve wall exists for pictures the machine produced.
+        A file chosen from this device with the rights box freshly ticked is
+        the person's deliberate act, so asking them to approve their own
+        choice a second time was ceremony. Generated pictures keep the wall.
+        """
+
+        with tempfile.TemporaryDirectory() as tmp, TestApp(Path(tmp)) as running:
+            running.create_and_login()
+            persona_id = self._persona(running)["id"]
+            consent = running.client.post(
+                f"/api/v1/personas/{persona_id}/visual-identity/consent",
+                json={"attested": True},
+            )
+            self.assertEqual(consent.status_code, 200, consent.text)
+
+            uploaded = running.client.post(
+                f"/api/v1/personas/{persona_id}/visual-identity/references",
+                files={"file": ("reference.png", test_image(), "image/png")},
+                data={"provenance": "user_upload", "attested": "true", "approve": "true"},
+            )
+
+            self.assertEqual(uploaded.status_code, 200, uploaded.text)
+            reference = uploaded.json()
+            self.assertEqual(reference["review_status"], "approved")
+            self.assertTrue(reference["is_primary"])
+
     def _approved_reference(self, running, persona_id):
         consent = running.client.post(
             f"/api/v1/personas/{persona_id}/visual-identity/consent",
