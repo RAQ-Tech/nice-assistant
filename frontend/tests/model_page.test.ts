@@ -243,6 +243,45 @@ describe('the model page', () => {
   });
 });
 
+describe('the sample picture', () => {
+  it('renders one picture with the page values and pins it as the thumbnail', async () => {
+    const imageJob = vi.fn().mockResolvedValue({ job_id: 'job-1', capability_request_id: 'cap-1', status: 'queued' });
+    const job = vi.fn().mockResolvedValue({ status: 'completed', result: { mediaId: 'media-9' }, error: '' });
+    const updateMediaCatalogResource = vi.fn().mockImplementation(async (resource) => resource);
+    const { view, appState } = built({ imageJob, job, updateMediaCatalogResource } as Partial<ApiClient>);
+    const node = await opened(view);
+
+    (node.querySelector('[data-testid="model-page-make-sample"]') as HTMLButtonElement).click();
+    await vi.waitFor(() => {
+      expect(updateMediaCatalogResource).toHaveBeenCalled();
+    });
+
+    // The sample rendered with the numbers on screen, not global preferences.
+    const sent = imageJob.mock.calls[0]![0];
+    expect(sent.model).toBe('dreamshaper.safetensors');
+    expect(sent.steps).toBe(30);
+    expect(sent.sampler_name).toBe('euler');
+    // And the picture became the model's face.
+    const saved = updateMediaCatalogResource.mock.calls[0]![0];
+    expect(saved.default_settings.sample_media_id).toBe('media-9');
+    const after = view.node(vi.fn());
+    expect((after.querySelector('[data-testid="model-page-thumb"]') as HTMLImageElement).src).toContain('/api/v1/media/media-9');
+    expect(appState.settingsError).toBe('');
+  });
+
+  it('says plainly when the sample cannot be made', async () => {
+    const imageJob = vi.fn().mockResolvedValue({ job_id: 'job-1', capability_request_id: 'cap-1', status: 'queued' });
+    const job = vi.fn().mockResolvedValue({ status: 'failed', result: null, error: 'ComfyUI is not reachable.' });
+    const { view, appState } = built({ imageJob, job } as Partial<ApiClient>);
+    const node = await opened(view);
+
+    (node.querySelector('[data-testid="model-page-make-sample"]') as HTMLButtonElement).click();
+    await vi.waitFor(() => {
+      expect(appState.settingsError).toContain('ComfyUI is not reachable.');
+    });
+  });
+});
+
 describe('the CivitAI lookup', () => {
   it('asks before anything leaves the machine, and cancel sends nothing', async () => {
     const { view, client, consent } = built();

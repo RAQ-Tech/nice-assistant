@@ -18,6 +18,9 @@ import type { AppState, CivitaiMatch, MediaCatalogResource, MediaPreset, ModelPr
 
 const SHAPES = ['1024x1024', '832x1216', '1216x832', '512x512', '512x768', '768x512'];
 const CUSTOM = 'custom';
+// One neutral, style-revealing scene for every model's sample, so thumbnails
+// compare looks rather than subjects.
+const SAMPLE_PROMPT = 'a cozy reading nook by a rain-streaked window, warm lamplight, a sleeping cat on the chair';
 
 interface EditState {
   name: string;
@@ -48,6 +51,7 @@ export class ModelPageView {
   private customSize = false;
   private moreOpen = false;
   private busy = false;
+  private sampleBusy = false;
 
   private readonly lookup: ModelLookupView;
 
@@ -264,15 +268,20 @@ export class ModelPageView {
         ]),
       ]),
       !edit ? el('p', { class: 'meta', textContent: 'Opening…' }) : settingsCard([
-        el('input', {
-          class: 'model-page-name',
-          value: edit.name,
-          title: model.external_id,
-          'aria-label': 'Model nickname',
-          'data-testid': 'model-page-name',
-          oninput: (event: Event) => { edit.name = (event.currentTarget as HTMLInputElement).value; },
-        }),
-        el('p', { class: 'meta model-page-file', textContent: family ? `${model.external_id} · ${family}` : model.external_id }),
+        el('div', { class: 'model-page-head' }, [
+          this.thumbnail(model),
+          el('div', { class: 'model-page-head-titles' }, [
+            el('input', {
+              class: 'model-page-name',
+              value: edit.name,
+              title: model.external_id,
+              'aria-label': 'Model nickname',
+              'data-testid': 'model-page-name',
+              oninput: (event: Event) => { edit.name = (event.currentTarget as HTMLInputElement).value; },
+            }),
+            el('p', { class: 'meta model-page-file', textContent: family ? `${model.external_id} · ${family}` : model.external_id }),
+          ]),
+        ]),
         toggleField('Show in Nice Assistant', edit.enabled, (value) => { edit.enabled = value; this.renderApp(); }),
         ...(this.preset ? this.recipeFields(edit) : [el('p', {
           class: 'meta',
@@ -336,6 +345,67 @@ export class ModelPageView {
       ].filter((nodeItem): nodeItem is HTMLElement => nodeItem !== null),
       { testId: 'model-page-more', open: this.moreOpen, onToggle: (open) => { this.moreOpen = open; } }),
     ].filter((nodeItem): nodeItem is HTMLElement => nodeItem !== null);
+  }
+
+  /** The model's one sample picture, and the button that makes or remakes it. */
+  private thumbnail(model: MediaCatalogResource): HTMLElement {
+    const sampleId = String(model.default_settings?.sample_media_id ?? '');
+    return el('div', { class: 'model-page-thumb-slot' }, [
+      sampleId
+        ? el('img', {
+            class: 'model-page-thumb',
+            src: `/api/v1/media/${sampleId}`,
+            alt: `${model.name} sample`,
+            'data-testid': 'model-page-thumb',
+          })
+        : el('div', { class: 'model-page-thumb model-page-thumb-empty', textContent: '?' }),
+      el('button', {
+        class: 'pill-btn model-page-sample',
+        textContent: this.sampleBusy ? 'Rendering…' : sampleId ? 'New sample' : 'Make a sample',
+        title: 'Renders one picture with the settings on this page, so the model has a face here.',
+        disabled: this.sampleBusy,
+        'data-testid': 'model-page-make-sample',
+        onclick: () => void this.makeSample(model),
+      }),
+    ]);
+  }
+
+  private async makeSample(model: MediaCatalogResource): Promise<void> {
+    const edit = this.edit;
+    if (!edit) return;
+    this.sampleBusy = true;
+    this.appState.settingsError = '';
+    this.renderApp();
+    try {
+      const accepted = await this.client.imageJob({
+        prompt: SAMPLE_PROMPT,
+        provider: 'local/comfyui',
+        model: model.external_id,
+        ...(edit.size ? { size: edit.size } : {}),
+        ...(edit.steps.trim() ? { steps: Number(edit.steps) } : {}),
+        ...(edit.cfg.trim() ? { cfg_scale: Number(edit.cfg) } : {}),
+        ...(edit.sampler ? { sampler_name: edit.sampler } : {}),
+        ...(edit.scheduler ? { scheduler: edit.scheduler } : {}),
+      });
+      const deadline = Date.now() + 180_000;
+      let job = await this.client.job(accepted.job_id);
+      while (!['completed', 'failed', 'cancelled'].includes(job.status)) {
+        if (Date.now() > deadline) throw new Error('The sample is taking too long. Check ComfyUI, then try again.');
+        await new Promise((resolve) => window.setTimeout(resolve, 500));
+        job = await this.client.job(accepted.job_id);
+      }
+      if (job.status !== 'completed' || !job.result?.mediaId) {
+        throw new Error(job.error || 'The sample could not be made. Is ComfyUI running?');
+      }
+      model.default_settings = { ...model.default_settings, sample_media_id: String(job.result.mediaId) };
+      await this.client.updateMediaCatalogResource(model);
+      await this.refreshCatalog();
+    } catch (error) {
+      this.appState.settingsError = errorMessage(error, 'The sample could not be made.');
+    } finally {
+      this.sampleBusy = false;
+      this.renderApp();
+    }
   }
 
   /** A dropdown of what ComfyUI has; a plain box when it could not be asked. */
