@@ -314,6 +314,16 @@ listed item; none of them is open any more.
     picking the match, behind a consent popup that names civitai.com and
     offers cancel / ok / "don't show again". Shipped with the model pages.
 
+0a. **"Handing you the keys" — the Apple-grade experience pass** (owner,
+    2026-08-28). Executed as verified slices, each screenshot-driven and
+    merged separately: the chat visual overhaul (one-row header, framed
+    pictures, quiet chrome), in-chat picture steering ("Another take" /
+    "Different look" with honest refusals), model sample thumbnails with the
+    resource-save wire fix, and the Shape picker replacing typed resolution.
+    Still open from the mandate, next in line: collapse persona identity to
+    a switch-plus-photo on the persona itself, with the machinery invisible
+    until it genuinely needs a human hand.
+
 0b. **Video is local-only** (owner, 2026-08-26). Sora's API shuts down
     2026-09-24 and no surviving cloud video service accepts this product's
     content, so no cloud option is offered through the UI; the cloud adapter
