@@ -1981,6 +1981,9 @@ class MediaCatalogService:
                 "allow_nsfw",
                 "prompt_dialect",
                 "architecture",
+                # The one sample picture this model rendered, shown wherever
+                # the model is listed - a look you can see, not a filename.
+                "sample_media_id",
             }
         elif resource_type == "lora":
             allowed = {"weight", "trigger_words"}
@@ -2038,6 +2041,8 @@ class MediaCatalogService:
             if "prompt_dialect" in result:
                 result["prompt_dialect"] = normalize_dialect(result["prompt_dialect"])
             result = {key: value for key, value in result.items() if value not in (None, "")}
+            if "sample_media_id" in result:
+                result["sample_media_id"] = str(result["sample_media_id"]).strip()[:64]
             try:
                 if "steps" in result:
                     result["steps"] = int(result["steps"])

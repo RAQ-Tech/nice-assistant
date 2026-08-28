@@ -655,6 +655,9 @@ export interface MediaCatalogResource {
   default_settings: Record<string, unknown>;
   notes: string;
   needs_binding_review?: boolean;
+  /** Server-managed template provenance; stripped before any save. */
+  source_template_id?: string;
+  source_template_version?: number | null;
   compatible_model_ids: Id[];
   revision: number;
   created_at: number;

@@ -75,6 +75,17 @@ creator's own showcase images, with A1111 sampler names translated to
 ComfyUI's vocabulary (`app/civitai_lookup.py`). Nothing is saved until the
 person saves.
 
+## The model's face
+
+Every model can carry one sample picture, shown beside its name on its page
+and on its chip in the models list - a look you can see instead of a
+filename. "Make a sample" renders one picture of a fixed neutral scene with
+exactly the settings on the page (the direct image job accepts per-call
+steps, guidance, sampler, and scheduler for this reason), then pins the
+result as the model's `sample_media_id`. The scene is fixed so thumbnails
+compare looks rather than subjects; failure states say plainly that ComfyUI
+could not be reached rather than spinning.
+
 ## Steering from the chat
 
 Changing what a picture looks like must not mean a trip to settings, so every

@@ -293,6 +293,13 @@ class MediaJobCreate(StrictModel):
     seconds: str | None = None
     backend: str | None = None
     base_url: str | None = None
+    # Per-call tuning, so a caller can render with exact numbers - the model
+    # page's sample button sends the values on screen rather than whatever
+    # the global preferences happen to be.
+    steps: int | None = Field(default=None, ge=1, le=200)
+    cfg_scale: float | None = Field(default=None, ge=0, le=40)
+    sampler_name: str | None = Field(default=None, max_length=120)
+    scheduler: str | None = Field(default=None, max_length=120)
 
 
 class MediaEditJobCreate(StrictModel):

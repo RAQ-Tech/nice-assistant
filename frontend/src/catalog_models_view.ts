@@ -68,13 +68,18 @@ export class CatalogModelsView {
   }
 
   private modelButton(model: MediaCatalogResource): HTMLElement {
+    const sampleId = String(model.default_settings?.sample_media_id ?? '');
     return el('button', {
-      class: 'pill-btn model-open',
-      textContent: model.name,
+      class: `pill-btn model-open ${sampleId ? 'has-thumb' : ''}`,
       title: model.external_id,
       'data-testid': `catalog-model-open-${model.id}`,
       onclick: () => this.openModel(model.id),
-    });
+    }, [
+      sampleId
+        ? el('img', { class: 'model-open-thumb', src: `/api/v1/media/${sampleId}`, alt: '' })
+        : null,
+      el('span', { textContent: model.name }),
+    ]);
   }
 
   private discoveryList(): HTMLElement[] {

@@ -1071,6 +1071,10 @@ class CapabilityService:
             "backend",
             "base_url",
             "input_reference",
+            "steps",
+            "cfg_scale",
+            "sampler_name",
+            "scheduler",
         }
         execution_arguments.update({key: values[key] for key in allowed_options if values.get(key) is not None})
         chat_id = values.get("chat_id")

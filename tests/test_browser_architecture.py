@@ -66,7 +66,9 @@ class BrowserArchitectureTests(unittest.TestCase):
         self.assertLess((SOURCE / "task_model_settings_view.ts").read_text(encoding="utf-8").count("\n"), 350)
         self.assertLess((SOURCE / "media_catalog_settings_view.ts").read_text(encoding="utf-8").count("\n"), 600)
         self.assertLess((SOURCE / "catalog_models_view.ts").read_text(encoding="utf-8").count("\n"), 200)
-        self.assertLess((SOURCE / "model_page_view.ts").read_text(encoding="utf-8").count("\n"), 380)
+        # The model page owns its four jobs - nickname, recipe, lookup, and
+        # the sample picture that gives the model a face.
+        self.assertLess((SOURCE / "model_page_view.ts").read_text(encoding="utf-8").count("\n"), 460)
         self.assertLess((SOURCE / "model_lookup_view.ts").read_text(encoding="utf-8").count("\n"), 160)
         self.assertLess((SOURCE / "workflow_import_view.ts").read_text(encoding="utf-8").count("\n"), 280)
         self.assertLess((SOURCE / "persona_card_view.ts").read_text(encoding="utf-8").count("\n"), 150)

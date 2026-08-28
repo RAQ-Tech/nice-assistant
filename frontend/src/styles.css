@@ -2781,3 +2781,31 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
   padding: .3rem .6rem;
   background: rgba(20, 36, 52, 0.5);
 }
+
+/* A model's face: one sample picture beside its name, everywhere it appears. */
+.model-page-head { display: flex; gap: .9rem; align-items: center; }
+.model-page-head-titles { flex: 1 1 auto; min-width: 0; }
+.model-page-thumb-slot { display: flex; flex-direction: column; gap: .35rem; align-items: center; flex: 0 0 auto; }
+.model-page-thumb {
+  width: 96px;
+  height: 96px;
+  border-radius: 14px;
+  object-fit: cover;
+  border: 1px solid var(--border);
+}
+.model-page-thumb-empty {
+  display: grid;
+  place-items: center;
+  color: var(--text-dim);
+  font-size: 1.6rem;
+  background: rgba(20, 36, 52, 0.4);
+}
+.model-page-sample { font-size: .74rem; padding: .25rem .55rem; }
+.model-open { display: inline-flex; align-items: center; gap: .45rem; }
+.model-open-thumb {
+  width: 30px;
+  height: 30px;
+  border-radius: 8px;
+  object-fit: cover;
+  margin: -0.2rem 0 -0.2rem -0.25rem;
+}

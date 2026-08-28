@@ -17,6 +17,35 @@ describe('ApiClient', () => {
     await expect(client.job('gone')).rejects.toMatchObject({ status: 404, code: 'not_found', message: 'missing' });
   });
 
+  it('strips every server-managed field before saving a catalog resource', async () => {
+    const fetchMock = vi
+      .fn<typeof fetch>()
+      .mockResolvedValue(new Response('{}', { status: 200, headers: { 'Content-Type': 'application/json' } }));
+    vi.stubGlobal('fetch', fetchMock);
+    const client = new ApiClient();
+
+    // A resource exactly as a GET returns it, readonly fields included. The
+    // API refuses extras by design, so leaving one in is a 422 on a save
+    // that looked valid on screen.
+    await client.updateMediaCatalogResource({
+      id: 'resource-1',
+      revision: 3,
+      created_at: 1,
+      updated_at: 2,
+      needs_binding_review: false,
+      source_template_id: 'template-1',
+      source_template_version: 2,
+      name: 'Model',
+      resource_type: 'model',
+    } as never);
+
+    const body = JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body));
+    for (const readonly of ['id', 'revision', 'created_at', 'updated_at', 'needs_binding_review', 'source_template_id', 'source_template_version']) {
+      expect(body).not.toHaveProperty(readonly);
+    }
+    expect(body.name).toBe('Model');
+  });
+
   it('adds the CSRF marker to writes but not reads', async () => {
     const fetchMock = vi.fn<typeof fetch>().mockImplementation(async () => new Response(JSON.stringify({ ok: true }), {
       status: 200,

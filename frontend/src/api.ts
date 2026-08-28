@@ -135,6 +135,10 @@ export interface MediaJobInput {
   seconds?: string;
   backend?: string;
   base_url?: string;
+  steps?: number;
+  cfg_scale?: number;
+  sampler_name?: string;
+  scheduler?: string;
 }
 
 export interface MediaEditJobInput {
@@ -605,7 +609,19 @@ export class ApiClient {
   }
 
   updateMediaCatalogResource(resource: MediaCatalogResource): Promise<MediaCatalogResource> {
-    const { id, revision: _revision, created_at: _created, updated_at: _updated, ...body } = resource;
+    // Every server-managed field must come off before the wire: the API is
+    // deliberately strict about extras, so a stray readonly field is a 422
+    // on a save that looked valid on screen.
+    const {
+      id,
+      revision: _revision,
+      created_at: _created,
+      updated_at: _updated,
+      needs_binding_review: _review,
+      source_template_id: _templateId,
+      source_template_version: _templateVersion,
+      ...body
+    } = resource;
     return this.request(`/media-catalog/resources/${encodeURIComponent(id)}`, {
       method: 'PUT',
       body: JSON.stringify(body),
