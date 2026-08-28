@@ -109,17 +109,25 @@ export class ModelPageView {
       this.preset = presets.find((item) => item.definition?.base_model_resource_id === model.id) ?? null;
       this.edit = this.fromCurrent(model, this.preset);
       this.snapshot = JSON.stringify(this.edit);
-      if (!this.options) {
-        const listing = await this.client.comfyuiCheckpoints().catch(() => null);
-        this.options = { samplers: listing?.samplers ?? [], schedulers: listing?.schedulers ?? [] };
-      }
-      this.prefill = await this.client.modelPrefill(model.external_id).catch(() => null);
     } catch (error) {
       this.appState.settingsError = errorMessage(error, 'Unable to open that model.');
     } finally {
       this.busy = false;
       this.renderApp();
     }
+    // The page is usable now; the slower questions - what ComfyUI has
+    // installed, what the file suggests - fill in as their answers arrive
+    // rather than holding the whole page behind an "Opening…" line.
+    if (!this.options) {
+      void this.client.comfyuiCheckpoints()
+        .then((listing) => { this.options = { samplers: listing.samplers ?? [], schedulers: listing.schedulers ?? [] }; })
+        .catch(() => { this.options = { samplers: [], schedulers: [] }; })
+        .then(() => this.renderApp());
+    }
+    void this.client.modelPrefill(model.external_id)
+      .then((suggestion) => { if (this.modelId === model.id) this.prefill = suggestion; })
+      .catch(() => undefined)
+      .then(() => this.renderApp());
   }
 
   private fromCurrent(model: MediaCatalogResource, preset: MediaPreset | null): EditState {
