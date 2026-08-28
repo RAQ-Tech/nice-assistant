@@ -104,6 +104,37 @@ describe('durable chat attachments', () => {
     expect(appState.chatImagePreview).toContain('/api/v1/media/media-1');
   });
 
+  it('steers from the picture itself: another take and a different look', async () => {
+    const appState = createState();
+    const item = attachment();
+    appState.settings = { ...SETTINGS_DEFAULTS };
+    appState.capabilityRequests = [request(item)];
+    appState.currentChat = { id: 'chat-1' } as never;
+    const capabilityVariation = vi.fn().mockResolvedValue(request(item));
+    const client = {
+      capabilityVariation,
+      chat: vi.fn().mockResolvedValue({ chat: { id: 'chat-1' }, messages: [] }),
+      capabilityRequests: vi.fn().mockResolvedValue({ items: [] }),
+    } as unknown as ApiClient;
+    const renderer = new ChatRenderer(
+      {} as MediaController,
+      {} as PlaybackController,
+      () => undefined,
+      appState,
+      client,
+    );
+    const node = renderer.message(message(item), null)!;
+
+    (node.querySelector('[data-testid="attachment-again"]') as HTMLButtonElement).click();
+    await vi.waitFor(() => {
+      expect(capabilityVariation).toHaveBeenCalledWith('capability-1', 'again');
+    });
+    (node.querySelector('[data-testid="attachment-different-look"]') as HTMLButtonElement).click();
+    await vi.waitFor(() => {
+      expect(capabilityVariation).toHaveBeenCalledWith('capability-1', 'different_look');
+    });
+  });
+
   it('shows a compact retry action for a failed picture', () => {
     const appState = createState();
     const item = attachment('failed');

@@ -75,6 +75,20 @@ creator's own showcase images, with A1111 sampler names translated to
 ComfyUI's vocabulary (`app/civitai_lookup.py`). Nothing is saved until the
 person saves.
 
+## Steering from the chat
+
+Changing what a picture looks like must not mean a trip to settings, so every
+finished picture in a conversation carries two quiet buttons. "Another take"
+re-runs the request with the recipe that made it pinned - pinned, not
+preferred, because a button with that name that silently switched recipes
+would be a lie. "Different look" sets that recipe aside so routing must
+choose another, and when there is no other enabled recipe it refuses plainly
+and names the way out ("add another model") rather than re-rendering the
+same look. Both re-plan under every ordinary rule - content tags, features,
+capacity - and both land in the chat as a new picture beside the old one,
+with the same journal a planned picture gets. The planner carries the two
+hints as `pin_preset_id` and `exclude_preset_ids` in plan requirements.
+
 ## Local video
 
 Video is local-only by decision (2026-08-26). OpenAI's Sora API - the only

@@ -640,6 +640,13 @@ export class ApiClient {
     });
   }
 
+  capabilityVariation(requestId: string, mode: 'again' | 'different_look'): Promise<CapabilityRequest> {
+    return this.request(`/capability-requests/${requestId}/variations`, {
+      method: 'POST',
+      body: JSON.stringify({ mode }),
+    });
+  }
+
   civitaiLookup(checkpoint: string): Promise<{ ok: boolean; message: string; matches: CivitaiMatch[] }> {
     return this.request('/media-catalog/civitai-lookup', {
       method: 'POST',

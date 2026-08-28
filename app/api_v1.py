@@ -1693,6 +1693,27 @@ def retry_capability(request_id: str, request: Request, context: AuthContext = D
     return value
 
 
+class CapabilityVariation(StrictModel):
+    mode: Literal["again", "different_look"]
+
+
+@router.post(
+    "/capability-requests/{request_id}/variations",
+    response_model=CapabilityRequestRepresentation,
+    tags=["capabilities"],
+)
+def capability_variation(
+    request_id: str,
+    body: CapabilityVariation,
+    request: Request,
+    context: AuthContext = Depends(current_user),
+):
+    value = services(request).capabilities.variation(context.user_id, request_id, body.mode)
+    if not value:
+        raise NotFoundError("capability request not found")
+    return value
+
+
 @router.get(
     "/capability-requests/{request_id}/events",
     response_model=CapabilityHistoryResponse,

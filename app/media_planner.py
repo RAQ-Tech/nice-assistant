@@ -94,6 +94,12 @@ def build_media_plan(repo, user_id: str, requirements: dict, providers, ready_ba
     preferred_preset_id = str(requirements.get("preferred_preset_id") or "")
     required_mechanism = str(requirements.get("required_identity_mechanism") or "")
     persona_preset_ids = [str(item) for item in (requirements.get("persona_preset_ids") or [])]
+    # In-chat picture steering. "Another take" pins the recipe that made the
+    # original, because silently switching recipes would make the button a
+    # lie; "different look" sets that recipe aside so routing must choose
+    # another. Both remain subject to every hard requirement.
+    pinned_preset_id = str(requirements.get("pin_preset_id") or "")
+    excluded_preset_ids = {str(item) for item in (requirements.get("exclude_preset_ids") or [])}
 
     presets = repo.media_presets(user_id, kind=kind, enabled=True)
     resources = {row.id: row for row in repo.media_catalog_resources(user_id, enabled=True)}
@@ -103,6 +109,13 @@ def build_media_plan(repo, user_id: str, requirements: dict, providers, ready_ba
     rejected = []
     candidates = []
     for preset in presets:
+        if pinned_preset_id and preset.id != pinned_preset_id:
+            continue
+        if preset.id in excluded_preset_ids:
+            rejected.append(
+                {"resource_id": preset.id, "name": preset.name, "reasons": ["set aside to get a different look"]}
+            )
+            continue
         definition = _json(preset.definition_json, {})
         evaluated = _evaluate_preset(
             preset,
@@ -124,6 +137,17 @@ def build_media_plan(repo, user_id: str, requirements: dict, providers, ready_ba
         candidates.append(evaluated)
 
     if not candidates:
+        if pinned_preset_id:
+            block_code = "pinned_preset_unavailable"
+            block_message = "The recipe that made this picture can no longer serve it. Try a different look instead."
+        elif excluded_preset_ids:
+            block_code = "no_alternate_media_plan"
+            block_message = (
+                "There is no other recipe to try. Add another model in Media Catalog to get a different look."
+            )
+        else:
+            block_code = "no_compatible_media_plan"
+            block_message = _blocked_plan_message(rejected)
         return {
             "status": "blocked",
             "selected_resources": [],
@@ -135,8 +159,8 @@ def build_media_plan(repo, user_id: str, requirements: dict, providers, ready_ba
                 "rejected": rejected[:20],
             },
             "estimated_vram_mb": 0,
-            "block_code": "no_compatible_media_plan",
-            "block_message": _blocked_plan_message(rejected),
+            "block_code": block_code,
+            "block_message": block_message,
         }
 
     candidates.sort(
