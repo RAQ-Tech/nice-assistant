@@ -370,24 +370,36 @@ export class EverydaySettingsView {
         (value) => this.change('chat_blur_images', value),
         'When enabled, the first tap reveals a picture and the second opens the large preview. The default is off.',
       ),
-      inputField(
-        'Resolution',
-        settings.image_size,
-        (value) => this.change('image_size', value),
-        'text',
-        true,
-        'Enter width × height, for example 1024x1024. Provider support still determines what can run.',
-      ),
+      // A picker cannot be misspelled: "1024 x 1024" typed with spaces used
+      // to fail quietly at the provider.
       selectField(
-        'Prompt enhancement quality',
-        settings.image_quality,
-        ['none', 'low', 'medium', 'high', 'auto'],
-        (value) => this.change('image_quality', value),
-        undefined,
-        titleCase,
+        'Shape',
+        SHAPE_CHOICES.includes(settings.image_size) ? settings.image_size : 'custom',
+        [...SHAPE_CHOICES, 'custom'],
+        (value) => { if (value !== 'custom') this.change('image_size', value); },
+        'image-shape',
+        shapeLabel,
         true,
-        'Controls provider-specific prompt enhancement. None preserves the prompt most directly.',
+        'The default size for one-off pictures. Recipes carry their own sizes.',
       ),
+      ...(SHAPE_CHOICES.includes(settings.image_size)
+        ? []
+        : [inputField('Custom size', settings.image_size, (value) => this.change('image_size', value), 'text', true,
+            'Width × height, for example 1152x896.')]),
+      // OpenAI is the only provider that reads this; showing it beside a
+      // ComfyUI setup taught people the page could not be trusted.
+      ...(settings.image_provider === 'openai'
+        ? [selectField(
+            'Prompt enhancement quality',
+            settings.image_quality,
+            ['none', 'low', 'medium', 'high', 'auto'],
+            (value) => this.change('image_quality', value),
+            undefined,
+            titleCase,
+            true,
+            'How much OpenAI rewrites your prompt before generating. None preserves it most directly.',
+          )]
+        : []),
     ];
     const advanced: HTMLElement[] = [];
     if (settings.image_provider === 'local') {
@@ -475,8 +487,8 @@ export class EverydaySettingsView {
           ]),
       settings.image_provider === 'local'
         ? advancedSettings(
-            'Local generation tuning',
-            'Optional authentication and sampling controls for direct local image actions.',
+            'Tuning for one-off pictures',
+            'Only direct image actions read these. Recipes in Media Catalog carry their own numbers.',
             advanced,
             { testId: 'image-advanced-settings' },
           )
@@ -587,6 +599,18 @@ export function providerLabel(value: string): string {
   if (LOCAL_PROVIDERS.has(value)) return `${titleCase(value)} — on this machine`;
   // Neither list claims it, so neither does this.
   return `${titleCase(value)} — nobody has said where this runs`;
+}
+
+// The shapes offered by name. Anything else remains reachable through Custom,
+// so an unusual stored size is shown rather than silently rewritten.
+const SHAPE_CHOICES = ['1024x1024', '832x1216', '1216x832', '512x512'];
+
+function shapeLabel(value: string): string {
+  if (value === 'custom') return 'Custom…';
+  const [width, height] = value.split('x').map(Number);
+  if (!width || !height) return value;
+  const shape = width === height ? 'Square' : width > height ? 'Landscape' : 'Portrait';
+  return `${shape} — ${width}×${height}`;
 }
 
 function sttBackendLabel(value: string): string {

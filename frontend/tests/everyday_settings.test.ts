@@ -20,6 +20,32 @@ function setup(overrides: Partial<Settings> = {}) {
   return { root, settings, view, change };
 }
 
+describe('the image page speaks in shapes, not typed sizes', () => {
+  it('offers named shapes and keeps unusual sizes reachable as Custom', () => {
+    const { root, settings, view } = setup({ image_size: '1024x1024' });
+    root.append(...view.nodes('Image Generation', settings));
+
+    const shape = root.querySelector('[data-testid="image-shape"]') as HTMLSelectElement;
+    expect(shape.value).toBe('1024x1024');
+    expect([...shape.options].map((option) => option.textContent)).toContain('Portrait — 832×1216');
+    // A stored size the picker does not name is shown, not rewritten.
+    const custom = setup({ image_size: '1152x896' });
+    custom.root.append(...custom.view.nodes('Image Generation', custom.settings));
+    expect((custom.root.querySelector('[data-testid="image-shape"]') as HTMLSelectElement).value).toBe('custom');
+    expect(custom.root.textContent).toContain('Custom size');
+  });
+
+  it('shows prompt enhancement only to the provider that reads it', () => {
+    const local = setup({ image_provider: 'local' });
+    local.root.append(...local.view.nodes('Image Generation', local.settings));
+    expect(local.root.textContent).not.toContain('Prompt enhancement');
+
+    const cloud = setup({ image_provider: 'openai' });
+    cloud.root.append(...cloud.view.nodes('Image Generation', cloud.settings));
+    expect(cloud.root.textContent).toContain('Prompt enhancement');
+  });
+});
+
 describe('video is local only', () => {
   it('offers Off and Local, and no cloud option at all', () => {
     const { root, settings, view } = setup();
