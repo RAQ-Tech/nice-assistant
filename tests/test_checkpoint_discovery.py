@@ -270,6 +270,21 @@ class PrefillTests(unittest.TestCase):
         self.assertEqual(body["family"], "sdxl")
         self.assertIn("guessed from the file name", body["message"])
 
+    def test_chroma_is_its_own_family_not_flux(self):
+        import urllib.error
+
+        def transport(request, timeout=0, **_kwargs):
+            raise urllib.error.HTTPError(request.full_url, 404, "not found", {}, None)
+
+        # De-distilled Flux lineage runs at real CFG; inheriting Flux's 1.0
+        # would be an actively wrong suggestion for the owner's own model.
+        body = self._prefill("gonzalomoChroma_v30.safetensors", transport)
+
+        self.assertEqual(body["family"], "chroma")
+        from app.model_prefill import FAMILY_DEFAULTS
+
+        self.assertEqual(body["cfg_scale"], FAMILY_DEFAULTS["chroma"]["cfg_scale"])
+
     def test_saying_nothing_is_an_honest_answer(self):
         import urllib.error
 

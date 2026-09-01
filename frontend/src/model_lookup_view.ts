@@ -24,7 +24,7 @@ export class ModelLookupView {
     private readonly client: ApiClient,
     private readonly renderApp: () => void,
     private readonly dialogs: SettingsDialogs,
-    private readonly apply: (match: CivitaiMatch) => void,
+    private readonly apply: (match: CivitaiMatch) => string[],
   ) {}
 
   reset(): void {
@@ -62,7 +62,7 @@ export class ModelLookupView {
   private row(match: CivitaiMatch, index: number): HTMLElement {
     const settings = [
       match.steps !== undefined ? `${match.steps} steps` : '',
-      match.cfg_scale !== undefined ? `guidance ${match.cfg_scale}` : '',
+      match.cfg_scale !== undefined ? `CFG ${match.cfg_scale}` : '',
       match.sampler ?? '',
       match.width && match.height ? `${match.width}×${match.height}` : '',
     ].filter(Boolean).join(' · ');
@@ -88,7 +88,14 @@ export class ModelLookupView {
           class: 'send-btn',
           textContent: 'Use',
           'data-testid': `model-lookup-use-${index}`,
-          onclick: () => this.apply(match),
+          onclick: () => {
+            const filled = this.apply(match);
+            this.failed = false;
+            this.message = filled.length
+              ? `Filled from ${match.model_name}: ${filled.join(', ')}. Review the fields, then press Save.`
+              : `${match.model_name} publishes no settings this page does not already have - nothing changed.`;
+            this.renderApp();
+          },
         }),
         el('a', { class: 'pill-btn', textContent: 'Open page', href: match.url, target: '_blank', rel: 'noreferrer noopener' }),
       ]),
