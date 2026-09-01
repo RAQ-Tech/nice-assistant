@@ -354,10 +354,10 @@ export class PresetSettingsView {
           sampler.steps = Number(value) || undefined;
           this.markDirty(preset);
         }, 'number'),
-        inputField('Guidance (CFG)', String(sampler.cfg_scale ?? ''), (value) => {
+        inputField('CFG', String(sampler.cfg_scale ?? ''), (value) => {
           sampler.cfg_scale = Number(value) || undefined;
           this.markDirty(preset);
-        }, 'number'),
+        }, 'number', true, undefined, '0.1'),
         inputField('Sampler', String(sampler.sampler_name ?? ''), (value) => {
           sampler.sampler_name = value;
           this.markDirty(preset);

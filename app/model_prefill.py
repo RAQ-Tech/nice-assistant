@@ -40,10 +40,21 @@ FAMILY_DEFAULTS: dict[str, dict] = {
         "cfg_scale": 1.0,
         "prompt_style": "natural_language",
     },
+    # De-distilled Flux lineage: real CFG again, so Flux's 1.0 would be
+    # actively wrong for it.
+    "chroma": {
+        "label": "Chroma",
+        "width": 1024,
+        "height": 1024,
+        "steps": 30,
+        "cfg_scale": 4.0,
+        "prompt_style": "natural_language",
+    },
 }
 
 # Architecture strings seen in safetensors metadata, longest match wins.
 _ARCHITECTURE_FAMILIES = (
+    ("chroma", "chroma"),
     ("stable-diffusion-xl", "sdxl"),
     ("sdxl", "sdxl"),
     ("stable-diffusion-v1", "sd15"),
@@ -54,6 +65,7 @@ _ARCHITECTURE_FAMILIES = (
 
 # Filename fragments that name a family clearly enough to suggest from.
 _FILENAME_FAMILIES = (
+    ("chroma", "chroma"),
     ("flux", "flux"),
     ("sdxl", "sdxl"),
     ("xl", "sdxl"),

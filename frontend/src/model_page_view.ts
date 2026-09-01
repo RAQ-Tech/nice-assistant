@@ -76,21 +76,31 @@ export class ModelPageView {
     void this.load();
   }
 
-  /** A person picked a CivitAI match; its published settings fill the form. */
-  private applyMatch(match: CivitaiMatch): void {
+  /** A person picked a CivitAI match; its settings fill the form, and the
+   * answer says exactly what changed - silence after a press reads as the
+   * press not working. */
+  private applyMatch(match: CivitaiMatch): string[] {
     const edit = this.edit;
-    if (!edit) return;
-    if (match.model_name) edit.name = match.model_name;
-    if (match.steps !== undefined) edit.steps = String(match.steps);
-    if (match.cfg_scale !== undefined) edit.cfg = String(match.cfg_scale);
-    if (match.sampler) edit.sampler = match.sampler;
-    if (match.scheduler) edit.scheduler = match.scheduler;
-    if (match.width && match.height) edit.size = `${match.width}x${match.height}`;
+    if (!edit) return [];
+    const filled: string[] = [];
+    if (match.model_name && edit.name !== match.model_name) { edit.name = match.model_name; filled.push('name'); }
+    if (match.steps !== undefined && edit.steps !== String(match.steps)) { edit.steps = String(match.steps); filled.push('steps'); }
+    if (match.cfg_scale !== undefined && edit.cfg !== String(match.cfg_scale)) { edit.cfg = String(match.cfg_scale); filled.push('CFG'); }
+    if (match.sampler && edit.sampler !== match.sampler) { edit.sampler = match.sampler; filled.push('sampler'); }
+    if (match.scheduler && edit.scheduler !== match.scheduler) { edit.scheduler = match.scheduler; filled.push('scheduler'); }
+    if (match.width && match.height && edit.size !== `${match.width}x${match.height}`) {
+      edit.size = `${match.width}x${match.height}`;
+      filled.push('size');
+    }
     if (match.trigger_words.length) {
       const words = match.trigger_words.join(', ');
-      edit.prefix = edit.prefix.includes(words) ? edit.prefix : [words, edit.prefix].filter(Boolean).join(', ');
+      if (!edit.prefix.includes(words)) {
+        edit.prefix = [words, edit.prefix].filter(Boolean).join(', ');
+        filled.push('trigger words');
+      }
     }
     this.renderApp();
+    return filled;
   }
 
   private models(): MediaCatalogResource[] {
@@ -309,14 +319,14 @@ export class ModelPageView {
         'Plain language. Chats read this note when choosing between models.'),
       suggestion && suggestion.source !== 'none'
         ? el('div', { class: 'model-page-suggestion', 'data-testid': 'model-page-suggestion' }, [
-            el('span', { class: 'meta', textContent: `${suggestion.message} ${suggestion.steps} steps · guidance ${suggestion.cfg_scale} · ${suggestion.width}×${suggestion.height}` }),
+            el('span', { class: 'meta', textContent: `${suggestion.message} ${suggestion.steps} steps · CFG ${suggestion.cfg_scale} · ${suggestion.width}×${suggestion.height}` }),
             el('button', { class: 'pill-btn', textContent: 'Apply', 'data-testid': 'model-page-apply-suggestion', onclick: () => this.applyPrefill() }),
           ])
         : null,
       this.lookup.node(this.model()?.external_id ?? ''),
       el('div', { class: 'settings-grid' }, [
         inputField('Steps', edit.steps, (value) => { edit.steps = value; }, 'number', false),
-        inputField('Guidance', edit.cfg, (value) => { edit.cfg = value; }, 'number', false),
+        inputField('CFG', edit.cfg, (value) => { edit.cfg = value; }, 'number', false, undefined, '0.1'),
         this.optionField('Sampler', edit.sampler, this.options?.samplers ?? [], (value) => { edit.sampler = value; }, 'model-page-sampler'),
         this.optionField('Scheduler', edit.scheduler, this.options?.schedulers ?? [], (value) => { edit.scheduler = value; }, 'model-page-scheduler'),
         selectField('Size', pickSize, sizeOptions, (value) => {

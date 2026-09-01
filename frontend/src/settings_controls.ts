@@ -17,6 +17,7 @@ export function inputField(
   type = 'text',
   rerender = true,
   help?: string,
+  step?: string,
 ): HTMLElement {
   const id = `settings-control-${++controlSequence}`;
   return el('div', { class: 'setting-row' }, [
@@ -25,6 +26,7 @@ export function inputField(
       id,
       class: 'search-input',
       type,
+      step,
       value,
       oninput: (event: Event) => change((event.currentTarget as HTMLInputElement).value),
       onchange: rerender ? (event: Event) => change((event.currentTarget as HTMLInputElement).value) : undefined,

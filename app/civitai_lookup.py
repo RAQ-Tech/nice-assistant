@@ -25,6 +25,7 @@ REQUEST_HEADERS = {
 # CivitAI's baseModel strings, mapped onto the same family table the model
 # page's prefill uses - one home for the numbers, two doors into it.
 _BASE_MODEL_FAMILIES = (
+    ("chroma", "chroma"),
     ("pony", "sdxl"),
     ("illustrious", "sdxl"),
     ("sdxl", "sdxl"),

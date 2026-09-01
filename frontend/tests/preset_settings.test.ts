@@ -58,7 +58,7 @@ describe('preset settings', () => {
     const text = instance.node().map((node) => node.textContent).join(' ');
 
     expect(text).toContain('Prompt style');
-    expect(text).toContain('Guidance (CFG)');
+    expect(text).toContain('CFG');
     expect(text).toContain('Dimensions');
     expect(text).toContain('When should this be used?');
     // The raw shape stays reachable but is no longer the only way in.

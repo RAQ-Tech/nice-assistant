@@ -329,6 +329,38 @@ describe('the CivitAI lookup', () => {
     expect((after.querySelector('[data-testid="model-page-name"]') as HTMLInputElement).value).toBe('Juggernaut XL');
     expect((after.querySelector('[data-testid="model-page-sampler"]') as HTMLSelectElement).value).toBe('dpmpp_2m');
     expect((after.querySelector('[data-testid="model-page-save"]') as HTMLButtonElement).disabled).toBe(false);
+    // Pressing Use is acknowledged in words - silence reads as a dead button.
+    const note = after.querySelector('[data-testid="model-lookup-message"]');
+    expect(note?.textContent).toContain('Filled from Juggernaut XL');
+    expect(note?.textContent).toContain('press Save');
+  });
+
+  it('says plainly when a match has nothing to fill', async () => {
+    const { view, appState } = built({
+      civitaiLookup: vi.fn().mockResolvedValue({
+        ok: true,
+        message: '1 match(es) on CivitAI.',
+        matches: [{
+          model_name: 'GonzaLomo Chroma',
+          version_name: 'v3.0',
+          base_model: 'Unmapped Base',
+          file_match: true,
+          trigger_words: [],
+          url: 'https://civitai.com/models/2',
+        }],
+      }),
+    } as Partial<ApiClient>);
+    (appState.settings as Settings).civitai_lookup_skip_confirm = true;
+    const node = await opened(view);
+    (node.querySelector('[data-testid="model-lookup-run"]') as HTMLButtonElement).click();
+    await vi.waitFor(() => {
+      expect(view.node(vi.fn()).querySelector('[data-testid="model-lookup-use-0"]')).toBeTruthy();
+    });
+
+    (view.node(vi.fn()).querySelector('[data-testid="model-lookup-use-0"]') as HTMLButtonElement).click();
+
+    const note = view.node(vi.fn()).querySelector('[data-testid="model-lookup-message"]');
+    expect(note?.textContent).toContain('Filled from GonzaLomo Chroma: name');
   });
 });
 

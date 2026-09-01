@@ -449,7 +449,7 @@ export class EverydaySettingsView {
         inputField('Steps', settings.image_local_steps, (value) => this.change('image_local_steps', value), 'number', true, 'Higher values may refine an image but take longer.'),
         inputField('Sampler', settings.image_local_sampler_name, (value) => this.change('image_local_sampler_name', value), 'text', true, 'Sampling algorithm passed to compatible local backends.'),
         inputField('Scheduler', settings.image_local_scheduler, (value) => this.change('image_local_scheduler', value), 'text', true, 'Optional scheduler name for compatible local backends.'),
-        inputField('CFG scale', settings.image_local_cfg_scale, (value) => this.change('image_local_cfg_scale', value), 'number', true, 'Controls how strongly generation follows the prompt.'),
+        inputField('CFG', settings.image_local_cfg_scale, (value) => this.change('image_local_cfg_scale', value), 'number', true, 'Controls how strongly generation follows the prompt.', '0.1'),
         inputField('Seed', settings.image_local_seed, (value) => this.change('image_local_seed', value), 'text', true, 'Reuse a seed for repeatability, or leave blank for a new result.'),
         textareaField(
           'Additional JSON parameters',
