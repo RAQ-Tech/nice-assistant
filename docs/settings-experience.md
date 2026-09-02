@@ -7,24 +7,34 @@ what to do next without reading the source code.
 
 ## Interaction rules
 
-- Lead each tab with its purpose in plain language.
-- Keep the primary screen concise. Put short explanations behind a consistent
-  information icon that appears on hover and keyboard focus; keep warnings and
-  consequences that require a decision visible in the flow.
-- Put the common path first. Hide provider diagnostics, thresholds, raw
-  workflow controls, and destructive actions under clearly labeled advanced
-  sections.
-- Prefer pickers, previews, and recognizable names over opaque resource IDs.
-- Show readiness as separate truthful facts. Do not collapse configured,
-  reachable, generation-capable, and verified into one ambiguous status.
-- Explain optional dependencies where they are used, including what the
-  dependency cannot do.
-- Use labels based on the operator's intent. Internal consent, capability, and
-  provider terminology belongs in supporting text only when it materially
-  affects privacy or behavior.
-- Keep dangerous actions separate, explicit, and reversible where possible.
-- Do not erase expert control; progressive disclosure should make it available
-  without making it the first thing every user must understand.
+The design language, from the owner's 2026-08-26 framing and the model page
+that proved it:
+
+- A list of plain things, each opening a page of its own. A persona, a
+  conversation model, a background role, a catalog model: the group page is
+  the list, and the thing's page has its name as the headline, arrows to its
+  neighbours, and an address (`#/settings/Personas/<id>`) so it can be linked
+  to and returned to.
+- Sparse fields, labelled plainly. Help waits on hover - a `title` on the
+  row, read by assistive technology as the control's description - and never
+  takes up room. A page says at most one thing out loud.
+- Never an information icon explaining an explanation. Image Generation,
+  Video Generation, Media Catalog and Persona Pictures still carry the earlier
+  icon-per-row shape until they are redone in the same pass as the rest of
+  Pictures; nothing new is built that way.
+- Change the input type before adding words: a dropdown of what the provider
+  actually reports beats a typed box, and a prefilled value says where it
+  came from.
+- The rest goes behind one "More options" fold per page, closed by default.
+  Expert control is never removed, only put away.
+- Leaving a page with unsaved changes asks: stay, leave without saving, or
+  save and continue. The safe answer is the default, and the section
+  navigation asks the same question a page's own buttons do.
+- Readiness stays separate truthful facts, and a warning that changes
+  another service's state stays visible in the flow.
+- Dangerous actions are separate, explicit, and reversible where possible.
+- Every control that offers a provider says which kind it is in the option
+  itself.
 
 ## Local and cloud
 
@@ -119,54 +129,84 @@ the lorebook preview. It is labeled in the product as a diagnostic expected to
 be removed once routing is stable, and it must not become a permanent surface:
 if it is still there when routing is trusted, it is clutter.
 
-### 21B — Everyday settings — delivered
+### The pages, one thing each - delivered 2026-09-02
 
-General, TTS, STT, Image Generation, Video Generation, Memory, User, Personas,
-and Workspaces now use the same approachable structure.
+Every group outside Pictures now has the model-page shape. Navigation is
+unchanged: five groups named for intent - Conversation, Voice, Pictures,
+Personas, System - a search box that matches the words a person actually
+thinks, and section ids that still answer every deep link. A thing inside a
+section has an address of its own, `#/settings/<section>/<item>`.
 
-Navigation is five groups named for intent - Conversation, Voice, Pictures,
-Personas, System - rather than fifteen flat tabs named after subsystems, and
-the jargon ids wear plain labels: TTS is "Spoken replies", STT is
-"Transcription", Task Models is "Background models". Section ids are unchanged,
-so every deep link still lands. A search box above the groups matches the words
-a person actually thinks - "blur", "microphone", "backup" - against a curated
-vocabulary per section, narrows the list live, and opens the best match on
-Enter. On a phone the groups dissolve into one scrolling chip row beneath the
-search box.
+Conversation:
 
-The sections themselves:
+- **General** is Theme, Model, whether replies are spoken, and the
+  visualizer. Technical messages, model thinking and signing out after
+  inactivity are folded.
+- **Models** is the list Ollama reports, the default marked, with the shared
+  defaults under it - default model, temperature, reply length, context
+  window - and sampling folded. Each model's page carries the same numbers
+  prefilled from the defaults and says so; the first change customizes that
+  model alone, a switch makes it the default for new chats, and one action
+  returns it to the shared defaults. Everything still lives in the one
+  settings object the header's Save writes.
+- **Memory** is the mode for new chats, one line saying that only approved
+  memories reach a conversation and what forget and delete each mean, then
+  the pending, active and history groups with their atomic bulk actions.
 
-- Common choices appear first in goal-oriented cards; diagnostics, credentials,
-  retention, tuning payloads, and new-persona defaults begin closed.
-- A shared accessible information icon reveals concise explanations on hover or
-  keyboard focus without filling the page with instructional copy.
-- Speech and transcription copy describes the push-to-talk behavior that exists
-  today. Speech does stream, hands-free listening is offered where it is
-  configured, and transcription can run against a self-hosted Whisper service on
-  this network - over Wyoming or an OpenAI-compatible HTTP API - or against
-  OpenAI. Transcription can optionally begin at each natural pause rather than
-  at the end of a turn; what is still not implemented is refining a partial
-  result as more audio arrives.
-- Memory distinguishes pending, forget, and permanent delete, including atomic
-  bulk actions. Persona editors remain collapsed until selected, and workspaces
-  explain their organizational scope.
-- Each persona has a closed Character card editor with definition, personality,
-  style, and behavior fields. Every field shows its own token cost as it is
-  typed, and a budget meter reports the total against the limit and what is left
-  for conversation history. Going over the limit warns before saving rather than
-  after, and the card saves through its own action, separate from Save persona.
-- Card and lorebook authoring guidance, including a complete worked
-  example, is in `docs/persona-authoring.md`.
-- Each persona also has a closed Lorebook. Entries are collapsed by name — the
-  same convention Media Catalog and Task Models use — and each summarizes what it
-  fires on, whether it is always included, and whether it is switched off. A
-  preview box takes a pasted message and reports which entries fire, which fit the
-  allowance, and which were left out, so keyword tuning is observed rather than
-  guessed. Entries load only when the section is opened.
-- User adds a short About you profile sent with every message. It is refused when
-  saved if it would not fit, naming the budget, because it is never dropped to make
-  room once stored. The display name is sent with it, so that setting now changes
-  runtime behavior instead of only labeling the browser.
+Voice:
+
+- **Spoken replies** is who speaks - Off, a local service on this machine,
+  or OpenAI, which leaves it - then the fields that provider actually reads,
+  a connection check, and the stored format and voice direction folded.
+- **Transcription** is who transcribes, the language, and for a local service
+  which of its two shapes it is: OpenAI-compatible (speaches, whisper.cpp,
+  LocalAI) or Wyoming, the one Home Assistant voice already runs. Hands-free
+  listening and transcribing at natural pauses appear once something can
+  transcribe; keeping recordings is folded.
+
+Personas:
+
+- **Personas** is the people, each a chip with their picture or initials, and
+  one page each: picture and name as the headline, model, whether the persona
+  may send pictures, which workspaces it is available in (only when there is
+  more than one), then the Character card and Lorebook editors - each still
+  with its own save, its cost meter and its preview - and free-form
+  instructions and deletion folded. The page saves itself; leaving with
+  unsaved changes asks. Instructions for a new persona sit under the list.
+- **Workspaces** is the default workspace, one line on what a workspace is,
+  and each workspace with its name editable in place.
+- **Your profile** is name, About you with the one visible reminder to keep it
+  short, timezone, and the OpenAI key folded.
+
+System:
+
+- **Background models** is the roles - chat titles, summaries, memory
+  proposals, capability planning - each a chip saying which model it uses or
+  that it is off, one line on what background work is, and the recent runs
+  folded. A role's page states what the role does under its name, then On,
+  Model, Fallback model, budgets and failure behavior folded, and Save role
+  beside Check readiness with its result.
+- **GPU Coordination** is the mode, its save, timing and reserve folded, the
+  one line that unknown capacity is never presented as free VRAM, and each
+  provider endpoint as a row that opens to what it reports and two switches:
+  nothing else uses it, and only then, allow releasing its models. The
+  managed-mode warning stays in the flow because it changes another
+  service's state.
+- **Data** is the backup and diagnostic actions, one line to verify an archive
+  before relying on it, and each archive as a row with download, verify and
+  delete.
+
+What did not change: the character card cap and cost meter, lore copying,
+the memory distinctions, the persona image permission, the in-app avatar
+viewer, and every provider control naming which kind it is. Authoring
+guidance for cards and lorebooks stays in `docs/persona-authoring.md`.
+
+### The pictures pages - earlier shape
+
+Image Generation and Video Generation keep the goal-oriented cards with
+information icons, readiness facts and closed advanced sections, and are redone
+with the rest of Pictures:
+
 - Local image connection choices remain readily available while sampling,
   authentication, and raw JSON controls live under advanced disclosure.
 - Enabling an image provider seeds a starter Media Catalog model only when no
@@ -182,12 +222,6 @@ The sections themselves:
   generation, and optional identity enhancement so missing identity setup never
   reads as a basic block. Redundant per-image approval is not an everyday
   setting.
-- Each persona editor exposes `Allow persona to send images`, defaulting on.
-  Turning it off withholds conversational picture fulfillment for that persona
-  without disabling direct user image actions or authorizing unsolicited work.
-- Persona avatars and Visual Identity thumbnails open the same in-app
-  full-image viewer used by chat pictures; they never launch a separate browser
-  window.
 - The chat control popover keeps speech, `Blur images`, and `Stop audio` in the
   common path. Workspace, model, memory mode, client state, and visualization are
   preserved under `Chat details`; they are not removed or made read-only.
@@ -201,38 +235,9 @@ generate with a warning while conditioning is unavailable, and what to do after
 a real comparison failure. The Media Catalog setup imports API-format workflow
 JSON, reports missing ComfyUI nodes/assets, and creates an explicit reference
 binding without claiming that schema inspection is a live generation test.
-
-### 21C — Operator settings — delivered
-
-Models, Task Models, Media Catalog, GPU Coordination, and Data retain their
-operator controls behind a consistent guided structure:
-
-- Each tab leads with its actual purpose and separate readiness facts rather
-  than presenting configuration as proof of health.
-- Models shows the effective default, installed Ollama count, context window,
-  and saved per-model customization count. Sampling controls and the real
-  per-model override editor begin closed.
-- Task roles and media resources are collapsed named editors. Budgets, failure
-  policy, raw provider payloads, and content-free audit records remain
-  available under nested advanced disclosure.
-- Media compatibility is selected by named base model instead of requiring
-  operators to copy internal IDs. Catalog drafts, planning limits, and
-  deterministic plan previews remain explicit.
-- GPU Coordination separates measured capacity, adapter capability, and
-  operator authorization. Managed-mode consequences remain visible because
-  they affect external provider state.
-- Data separates backup creation from restore verification and destructive
-  archive deletion. Permanent deletion uses an explicit consequence warning.
-- Tabs with independent persistence no longer display a global save button
-  that cannot save their changes; each operation has a local action instead.
-
-The operator logic is split into focused typed modules so the settings shell no
-longer owns Task Model, media-catalog, coordination, or backup workflows.
-
-These chunks were intentionally separate. Visual Identity needed a new
-protected media-list contract and an interaction redesign; the everyday and
-operator tabs have different audiences and therefore use separate modules and
-interaction depth.
+Media compatibility is selected by named base model instead of requiring
+operators to copy internal IDs; catalog drafts, planning limits, and
+deterministic plan previews remain explicit.
 
 ## What has happened to the pictures
 

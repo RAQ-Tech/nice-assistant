@@ -71,12 +71,14 @@ class ContextServiceTests(unittest.TestCase):
         self.assertNotIn("memory_auto_save_user_facts", source)
         self.assertIn("Use saved memory", source)
         self.assertIn("Chat details", source)
-        self.assertIn("A proposed memory that does not enter prompts until you approve it", source)
-        self.assertIn("Only approved active memories enter prompts", source)
-        self.assertIn("Default memory mode", source)
+        # The memory page says, in one line, what reaches a conversation and what
+        # forget and delete each mean; the mode control names both choices.
+        self.assertIn("Only approved memories reach a conversation", source)
+        self.assertIn("Use approved memories", source)
+        self.assertIn("Do not use saved memories", source)
         self.assertIn("Approve", source)
         self.assertIn("Undo", source)
-        self.assertIn("Context window tokens", source)
+        self.assertIn("Context window (tokens)", source)
         self.assertIn("context_window_tokens", source)
         self.assertIn("/api/v1", source)
 

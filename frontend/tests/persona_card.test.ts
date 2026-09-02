@@ -68,6 +68,7 @@ function configuredState(current: Persona) {
     preferences: {},
   });
   appState.settingsSection = 'Personas';
+  appState.settingsItem = current.id;
   appState.personas = [current];
   appState.workspaces = [{ id: 'home', name: 'Home', created_at: 1 }];
   return appState;

@@ -1,170 +1,147 @@
 import { el } from './dom';
-import { modelSettings, setModelSetting } from './settings';
-import { inputField, selectField } from './settings_controls';
-import { advancedSettings, readinessRow, settingsCard, settingsHeading, settingsIntro } from './settings_ui';
 import type { SettingChange } from './everyday_settings_view';
+import { modelSettings, setModelSetting } from './settings';
+import {
+  actionRow,
+  choiceField,
+  numberField,
+  pageHead,
+  pageHint,
+  pageNav,
+  switchField,
+  thingList,
+} from './settings_page';
+import { advancedSettings, settingsCard } from './settings_ui';
 import type { AppState, Settings, SettingScalar } from './types';
 
+/**
+ * Conversation models: the list Ollama reports, and one page per model.
+ *
+ * The page used to be a readiness summary over a form over a collapsed
+ * "customize a model" editor with a dropdown inside it. Now the models are the
+ * list, the shared defaults sit under them, and each model's page carries its
+ * own numbers - prefilled from the defaults, and saying so, until one is
+ * changed. Everything still lives in the one settings object the header's
+ * Save writes; only the door is new.
+ */
+
 const MODEL_KEYS = [
-  ['temperature', 'Temperature'],
-  ['top_p', 'Top P'],
-  ['num_predict', 'Maximum output tokens'],
-  ['context_window_tokens', 'Context window tokens'],
-  ['presence_penalty', 'Presence penalty'],
-  ['frequency_penalty', 'Frequency penalty'],
+  ['temperature', 'Temperature', 'Higher is less predictable. 0.7 is a balanced default.', '0.1'],
+  ['num_predict', 'Reply length (tokens)', 'Room kept for the reply inside the context window.', undefined],
+  ['context_window_tokens', 'Context window (tokens)', 'No more than the model and Ollama can actually hold.', undefined],
+  ['top_p', 'Top P', 'Limits word choices by cumulative probability.', '0.1'],
+  ['presence_penalty', 'Presence penalty', 'Positive values invite topics not yet mentioned.', '0.1'],
+  ['frequency_penalty', 'Frequency penalty', 'Positive values discourage repeating the same words.', '0.1'],
 ] as const;
 
 export class ModelSettingsView {
-  private selectedOverrideModel = '';
-
   constructor(
     private readonly appState: AppState,
     private readonly change: SettingChange,
     private readonly renderApp: () => void,
     private readonly providerControl: () => HTMLElement,
+    private readonly navigate: (model: string | null) => void,
   ) {}
 
-  nodes(settings: Settings): HTMLElement[] {
-    const selectedModel = settings.global_default_model || this.appState.models[0] || '';
-    const effective = modelSettings(settings, selectedModel);
-    const installed = this.appState.models.length;
+  nodes(settings: Settings, item: string | null): HTMLElement[] {
+    return item ? this.page(settings, item) : this.list(settings);
+  }
+
+  private list(settings: Settings): HTMLElement[] {
+    const models = this.appState.models;
+    const customized = new Set(Object.keys(settings.model_overrides));
     return [
-      settingsIntro(
-        'Set the default conversation behavior',
-        'These values apply to conversations unless a persona, chat, or per-model customization is more specific.',
-      ),
-      el('div', { class: 'settings-readiness-list' }, [
-        readinessRow(
-          'Default model',
-          selectedModel || 'Automatic; the provider chooses from installed models',
-          selectedModel || installed ? 'ready' : 'attention',
-          'A persona or chat may still select a different model.',
-        ),
-        readinessRow(
-          'Installed models',
-          installed ? `${installed} reported by Ollama` : 'No installed models reported',
-          installed ? 'ready' : 'attention',
-          'This list comes from Ollama and is refreshed when Nice Assistant loads provider data.',
-        ),
-        readinessRow(
-          'Effective context window',
-          `${effective.context_window_tokens} tokens for ${selectedModel || 'the automatic model'}`,
-          'ready',
-          'Nice Assistant budgets instructions, history, memories, output, and safety room inside this limit.',
-        ),
-        readinessRow(
-          'Per-model customizations',
-          `${Object.keys(settings.model_overrides).length} saved`,
-          Object.keys(settings.model_overrides).length ? 'ready' : 'off',
-          'A customization changes only the named model and takes precedence over the account defaults below.',
-        ),
-      ]),
+      thingList(models.map((model) => ({
+        id: model,
+        label: model,
+        note: model === settings.global_default_model ? 'default' : customized.has(model) ? 'customized' : undefined,
+        testId: `model-open-${model}`,
+        onOpen: () => this.navigate(model),
+      })), 'Ollama reports no models. Pull one, then reload this page.', 'model-list'),
+      pageHint('Every model uses these unless its own page says otherwise.'),
       settingsCard([
-        selectField(
-          'Default model',
-          settings.global_default_model,
-          ['', ...this.appState.models],
-          (value) => this.change('global_default_model', value),
-          undefined,
-          (value) => value || 'Automatic',
-          true,
-          'Used when neither the persona nor chat chooses a different model.',
-        ),
-        inputField('Temperature', settings.models_temperature, (value) => this.change('models_temperature', value), 'number', true, 'Higher values make replies less predictable; 0.7 is a balanced default.'),
-        inputField('Maximum output tokens', settings.models_num_predict, (value) => this.change('models_num_predict', value), 'number', true, 'Reserves this many tokens for the reply inside the context window.'),
-        inputField('Context window tokens', settings.models_context_window_tokens, (value) => this.change('models_context_window_tokens', value), 'number', true, 'Must not exceed what the selected model and Ollama configuration can actually support.'),
-      ]),
-      advancedSettings(
-        'Sampling and repetition controls',
-        'Optional generation controls for experienced model operators.',
-        [
-          inputField('Top P', settings.models_top_p, (value) => this.change('models_top_p', value), 'number', true, 'Limits token choices by cumulative probability.'),
-          inputField('Presence penalty', settings.models_presence_penalty, (value) => this.change('models_presence_penalty', value), 'number', true, 'Positive values encourage introducing topics not already present.'),
-          inputField('Frequency penalty', settings.models_frequency_penalty, (value) => this.change('models_frequency_penalty', value), 'number', true, 'Positive values discourage repeatedly using the same tokens.'),
-        ],
-        { testId: 'models-advanced-settings' },
-      ),
-      this.overrideEditor(settings),
-      settingsCard([
-        settingsHeading('Ollama connection', 'Checks whether Ollama is reachable and reports models without changing saved settings.'),
+        choiceField('Default model', settings.global_default_model, ['', ...models], (value) => {
+          this.change('global_default_model', value);
+        }, { display: (value) => value || 'Automatic', hover: 'Used when a persona or chat has not chosen one.', testId: 'models-default' }),
+        el('div', { class: 'settings-grid' }, [
+          numberField('Temperature', settings.models_temperature, (value) => this.change('models_temperature', value, false),
+            { hover: MODEL_KEYS[0][2], step: '0.1' }),
+          numberField('Reply length (tokens)', settings.models_num_predict, (value) => this.change('models_num_predict', value, false),
+            { hover: MODEL_KEYS[1][2] }),
+          numberField('Context window (tokens)', settings.models_context_window_tokens, (value) => this.change('models_context_window_tokens', value, false),
+            { hover: MODEL_KEYS[2][2] }),
+        ]),
+        advancedSettings('More options', 'Sampling and repetition.', [
+          el('div', { class: 'settings-grid' }, [
+            numberField('Top P', settings.models_top_p, (value) => this.change('models_top_p', value, false), { hover: MODEL_KEYS[3][2], step: '0.1' }),
+            numberField('Presence penalty', settings.models_presence_penalty, (value) => this.change('models_presence_penalty', value, false), { hover: MODEL_KEYS[4][2], step: '0.1' }),
+            numberField('Frequency penalty', settings.models_frequency_penalty, (value) => this.change('models_frequency_penalty', value, false), { hover: MODEL_KEYS[5][2], step: '0.1' }),
+          ]),
+        ], { testId: 'models-advanced-settings' }),
         this.providerControl(),
       ]),
     ];
   }
 
-  private overrideEditor(settings: Settings): HTMLElement {
-    const candidates = this.appState.models;
-    if (!this.selectedOverrideModel || !candidates.includes(this.selectedOverrideModel)) {
-      this.selectedOverrideModel = settings.global_default_model || candidates[0] || '';
-    }
-    const model = this.selectedOverrideModel;
-    const override = model ? settings.model_overrides[model] : undefined;
-    const effective = model ? modelSettings(settings, model) : null;
-    const children: HTMLElement[] = [
-      selectField(
-        'Model to customize',
-        model,
-        candidates,
-        (value) => { this.selectedOverrideModel = value; this.renderApp(); },
-        'model-override-model',
-        (value) => value,
-        true,
-        'Only installed models are listed. The customization is stored by exact model name.',
-      ),
-    ];
-    if (!model) {
-      children.push(el('div', { class: 'settings-empty-state', textContent: 'Install or expose an Ollama model before creating a model-specific customization.' }));
-    } else if (!override) {
-      children.push(
-        el('div', { class: 'meta', textContent: `Using account defaults: ${effective?.context_window_tokens ?? 0} context tokens, temperature ${effective?.temperature ?? 0}.` }),
-        el('button', {
-          class: 'pill-btn',
-          textContent: `Customize ${model}`,
-          onclick: () => this.createOverride(settings, model),
-        }),
-      );
-    } else {
-      children.push(
-        el('div', { class: 'settings-grid' }, MODEL_KEYS.map(([key, label]) =>
-          inputField(
-            label,
-            String(override[key] ?? effective?.[key] ?? ''),
-            (value) => this.updateOverride(settings, model, key, value),
-            'number',
-            false,
-            `Overrides the account ${label.toLowerCase()} only when ${model} is selected.`,
-          ),
-        )),
-        el('button', {
-          class: 'pill-btn danger',
-          textContent: 'Use account defaults for this model',
-          onclick: () => this.removeOverride(settings, model),
-        }),
-      );
-    }
-    return advancedSettings(
-      'Per-model customizations',
-      'Optional values that take precedence only when a specific installed model runs.',
-      children,
-      { testId: 'model-overrides-settings' },
-    );
-  }
-
-  private createOverride(settings: Settings, model: string): void {
+  private page(settings: Settings, model: string): HTMLElement[] {
+    const models = this.appState.models;
+    const index = models.indexOf(model);
+    const previous = index > 0 ? models[index - 1] : undefined;
+    const next = index >= 0 ? models[index + 1] : undefined;
+    const override = settings.model_overrides[model];
     const effective = modelSettings(settings, model);
-    settings.model_overrides[model] = { ...effective };
-    this.change('model_overrides', { ...settings.model_overrides });
+    return [
+      pageNav({
+        back: 'All models',
+        onBack: () => this.navigate(null),
+        arrows: {
+          previous: previous ? () => this.navigate(previous) : null,
+          next: next ? () => this.navigate(next) : null,
+        },
+        testId: 'model-settings-page',
+      }),
+      settingsCard([
+        pageHead({
+          name: model,
+          line: index >= 0 ? 'Ollama — on this machine' : 'Ollama does not report this model right now',
+          testId: 'model-settings-page',
+        }),
+        switchField('Default model for new chats', settings.global_default_model === model, (on) => {
+          this.change('global_default_model', on ? model : '');
+        }, { hover: 'Used when a persona or chat has not chosen one.', testId: 'model-settings-default' }),
+        pageHint(
+          override
+            ? `Customized. Only ${model} uses these numbers; every other model uses the shared defaults.`
+            : 'Using the shared defaults. Change a number and it applies to this model only.',
+          'model-settings-provenance',
+        ),
+        el('div', { class: 'settings-grid' }, MODEL_KEYS.map(([key, label, hover, step]) =>
+          numberField(label, String(override?.[key] ?? effective[key] ?? ''), (value) => this.set(settings, model, key, value), {
+            hover,
+            step,
+            commit: () => this.renderApp(),
+          }))),
+        override
+          ? actionRow([
+              el('button', {
+                class: 'pill-btn',
+                textContent: 'Use the shared defaults',
+                'data-testid': 'model-settings-reset',
+                onclick: () => {
+                  delete settings.model_overrides[model];
+                  this.change('model_overrides', { ...settings.model_overrides });
+                },
+              }),
+            ])
+          : null,
+      ], 'model-settings-page', 'model-settings-page'),
+    ];
   }
 
-  private updateOverride(settings: Settings, model: string, key: string, value: string): void {
+  private set(settings: Settings, model: string, key: string, value: string): void {
     const parsed: SettingScalar = value.trim() === '' ? null : Number(value);
     if (parsed !== null && !Number.isFinite(parsed)) return;
     setModelSetting(settings, model, key, parsed);
     this.change('model_overrides', { ...settings.model_overrides }, false);
-  }
-
-  private removeOverride(settings: Settings, model: string): void {
-    delete settings.model_overrides[model];
-    this.change('model_overrides', { ...settings.model_overrides });
   }
 }

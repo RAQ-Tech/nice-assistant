@@ -1,6 +1,6 @@
 import { api, type ApiClient, type PersonaLoreInput } from './api';
 import { el, errorMessage } from './dom';
-import { inputField, textareaField, toggleField } from './settings_controls';
+import { longField, numberField, switchField, textField } from './settings_page';
 import { PersonaLoreCopyView } from './persona_lore_copy_view';
 import { advancedSettings, settingsCard } from './settings_ui';
 import { state } from './state';
@@ -86,30 +86,24 @@ export class PersonaLoreView {
         ? 'Always included, regardless of keywords.'
         : `Fires on: ${entry.keys.join(', ') || 'nothing yet'}`,
       [
-        inputField('Title', entry.title, (value) => { entry.title = value; }, 'text', false,
-          'Your label for this entry. It is never sent to the model.'),
-        textareaField('Content', entry.content, (value) => { entry.content = value; }, false,
-          'The text injected when this entry fires.'),
-        inputField('Keywords', entry.keys.join(', '), (value) => { entry.keys = splitKeys(value); }, 'text', false,
-          'Comma separated. Matched as whole words, never as patterns.'),
-        inputField(
-          'Also requires',
-          entry.secondary_keys.join(', '),
-          (value) => { entry.secondary_keys = splitKeys(value); },
-          'text',
-          false,
-          'Optional. When set, one of these must appear as well before the entry fires.',
-        ),
-        inputField('Priority', String(entry.priority), (value) => { entry.priority = clampPriority(value); },
-          'number', false, 'Higher entries win when the allowance runs out. 0 to 100.'),
-        toggleField('Always include', entry.always_on, (value) => { entry.always_on = value; },
-          'Include this entry on every turn instead of matching keywords.'),
-        toggleField('Match case', entry.case_sensitive, (value) => { entry.case_sensitive = value; },
-          'Off means Bakery and bakery both match.'),
-        toggleField('Match plurals', entry.match_word_forms, (value) => { entry.match_word_forms = value; },
-          'On means a keyword of sister also fires on sisters, and bakery on bakeries.'),
-        toggleField('Enabled', entry.enabled, (value) => { entry.enabled = value; },
-          'Turn off to keep the entry without sending it.'),
+        textField('Title', entry.title, (value) => { entry.title = value; },
+          { hover: 'Your label for this entry. It is never sent to the model.' }),
+        longField('Content', entry.content, (value) => { entry.content = value; },
+          { hover: 'The text injected when this entry fires.' }),
+        textField('Keywords', entry.keys.join(', '), (value) => { entry.keys = splitKeys(value); },
+          { hover: 'Comma separated. Matched as whole words, never as patterns.' }),
+        textField('Also requires', entry.secondary_keys.join(', '), (value) => { entry.secondary_keys = splitKeys(value); },
+          { hover: 'Optional. When set, one of these must appear as well before the entry fires.' }),
+        numberField('Priority', String(entry.priority), (value) => { entry.priority = clampPriority(value); },
+          { hover: 'Higher entries win when the allowance runs out. 0 to 100.' }),
+        switchField('Always include', entry.always_on, (value) => { entry.always_on = value; },
+          { hover: 'Include this entry on every turn instead of matching keywords.' }),
+        switchField('Match case', entry.case_sensitive, (value) => { entry.case_sensitive = value; },
+          { hover: 'Off means Bakery and bakery both match.' }),
+        switchField('Match plurals', entry.match_word_forms, (value) => { entry.match_word_forms = value; },
+          { hover: 'On means a keyword of sister also fires on sisters, and bakery on bakeries.' }),
+        switchField('Enabled', entry.enabled, (value) => { entry.enabled = value; },
+          { hover: 'Turn off to keep the entry without sending it.' }),
         el('div', {
           class: 'meta',
           'data-testid': `lore-entry-meta-${entry.id}`,
@@ -139,12 +133,11 @@ export class PersonaLoreView {
   private previewBox(persona: Persona): HTMLElement {
     const preview = this.previews.get(persona.id);
     return settingsCard([
-      textareaField(
+      longField(
         'Preview',
         this.previewText.get(persona.id) ?? '',
         (value) => { this.previewText.set(persona.id, value); },
-        false,
-        'Paste a message to see which entries it fires, before a real conversation depends on it.',
+        { hover: 'Paste a message to see which entries it fires, before a real conversation depends on it.' },
       ),
       el('div', { class: 'chips' }, [
         el('button', {

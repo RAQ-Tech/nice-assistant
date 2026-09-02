@@ -1,5 +1,6 @@
 import { el } from './dom';
 import { inputField, selectField, textareaField, toggleField } from './settings_controls';
+import { choiceField, longField, numberField, pageHint, switchField, textField } from './settings_page';
 import { advancedSettings, settingsCard, settingsHeading, settingsIntro } from './settings_ui';
 import type { AppState, Settings } from './types';
 
@@ -17,12 +18,19 @@ export type SettingChange = <K extends keyof Settings>(
   shouldRender?: boolean,
 ) => void;
 
+/**
+ * The everyday pages.
+ *
+ * General, Spoken replies, Transcription and Your profile are each one sparse
+ * page: the choices that matter, labelled plainly, help on hover, and the rest
+ * behind one "More options" fold. The two pictures pages keep the earlier
+ * shape until they are redone in the same pass as the rest of Pictures.
+ */
 export class EverydaySettingsView {
   constructor(
     private readonly appState: AppState,
     private readonly change: SettingChange,
     private readonly providerControl: (provider: string) => HTMLElement,
-    private readonly providerPanel: () => HTMLElement,
   ) {}
 
   nodes(section: EverydaySettingsSection, settings: Settings): HTMLElement[] {
@@ -36,267 +44,125 @@ export class EverydaySettingsView {
 
   private general(settings: Settings): HTMLElement[] {
     return [
-      settingsIntro(
-        'Choose the everyday experience',
-        'Set the appearance, default model, and reply behavior most conversations should use.',
-      ),
       settingsCard([
-        selectField(
-          'Theme',
-          settings.general_theme,
-          ['dark', 'light'],
-          (value) => this.change('general_theme', value),
-          undefined,
-          titleCase,
-          true,
-          'Changes the interface colors for this Nice Assistant account.',
-        ),
-        selectField(
-          'Default model',
-          settings.global_default_model,
-          ['', ...this.appState.models],
-          (value) => this.change('global_default_model', value),
-          undefined,
-          (value) => value || 'Automatic',
-          true,
-          'Used when a persona or chat has not selected a different model.',
-        ),
-        toggleField(
-          'Speak assistant replies',
-          settings.general_voice_responses,
-          (value) => this.change('general_voice_responses', value),
-          'Automatically plays completed speech for assistant replies when TTS is configured.',
-        ),
-        toggleField(
-          'Show the audio visualizer',
-          settings.general_show_viz,
-          (value) => this.change('general_show_viz', value),
-          'Displays the playback visualization while assistant audio is playing.',
-        ),
+        choiceField('Theme', settings.general_theme, ['dark', 'light'], (value) => this.change('general_theme', value), {
+          display: titleCase,
+          testId: 'general-theme',
+        }),
+        choiceField('Model', settings.global_default_model, ['', ...this.appState.models], (value) => this.change('global_default_model', value), {
+          display: (value) => value || 'Automatic',
+          hover: 'Used when a persona or chat has not chosen one.',
+        }),
+        switchField('Speak replies aloud', settings.general_voice_responses, (value) => this.change('general_voice_responses', value), {
+          hover: 'Plays each finished reply, once spoken replies are set up.',
+        }),
+        switchField('Show the audio visualizer', settings.general_show_viz, (value) => this.change('general_show_viz', value), {
+          hover: 'A waveform while a reply is playing.',
+        }),
       ]),
-      advancedSettings(
-        'Interface, session, and connection details',
-        'Optional visibility, session-expiry, and provider-diagnostic controls.',
-        [
-          settingsCard([
-            toggleField(
-              'Show system and tool messages',
-              settings.general_show_system_messages,
-              (value) => this.change('general_show_system_messages', value),
-              'Shows technical messages that are normally hidden from the conversation.',
-            ),
-            toggleField(
-              'Show model thinking by default',
-              settings.general_show_thinking,
-              (value) => this.change('general_show_thinking', value),
-              'Shows reasoning content only when the selected model and provider return it.',
-            ),
-            toggleField(
-              'Expire inactive sessions automatically',
-              settings.general_auto_logout,
-              (value) => this.change('general_auto_logout', value),
-              'Ends an inactive browser session after the server-configured session lifetime.',
-            ),
-          ]),
-          this.providerPanel(),
-        ],
-        { testId: 'general-advanced-settings' },
-      ),
+      advancedSettings('More options', 'Technical messages, thinking, and signing out.', [
+        switchField('Show system and tool messages', settings.general_show_system_messages, (value) => this.change('general_show_system_messages', value), {
+          hover: 'Technical messages that are normally kept out of the conversation.',
+        }),
+        switchField('Show model thinking', settings.general_show_thinking, (value) => this.change('general_show_thinking', value), {
+          hover: 'Only when the model and provider return it.',
+        }),
+        switchField('Sign out after inactivity', settings.general_auto_logout, (value) => this.change('general_auto_logout', value), {
+          hover: 'Ends an idle browser session after the server’s session lifetime.',
+        }),
+      ], { testId: 'general-advanced-settings' }),
     ];
   }
 
   private tts(settings: Settings): HTMLElement[] {
-    const common: HTMLElement[] = [
-      selectField(
-        'Speech provider',
-        settings.tts_provider,
-        ['disabled', 'local', 'openai'],
-        (value) => this.change('tts_provider', value),
-        'tts-provider',
-        providerLabel,
-        true,
-        'Local uses the configured Kokoro LAN service. OpenAI sends reply text to OpenAI for speech generation.',
-      ),
+    const provider = settings.tts_provider;
+    const fields: HTMLElement[] = [
+      choiceField('Spoken by', provider, ['disabled', 'local', 'openai'], (value) => this.change('tts_provider', value), {
+        testId: 'tts-provider',
+        display: providerLabel,
+      }),
     ];
-    const advanced: HTMLElement[] = [
-      selectField(
-        'Completed audio format',
-        settings.tts_format,
-        ['wav', 'mp3', 'opus', 'aac', 'flac'],
-        (value) => this.change('tts_format', value),
-        undefined,
-        titleCase,
-        true,
-        'The format stored for completed playback. Live streaming speech is not implemented yet.',
-      ),
+    const more: HTMLElement[] = [
+      choiceField('Stored audio format', settings.tts_format, ['wav', 'mp3', 'opus', 'aac', 'flac'], (value) => this.change('tts_format', value), {
+        display: titleCase,
+        hover: 'What a finished reply is kept as for replay. Speech itself starts before the file is finished, except for WAV, which cannot.',
+      }),
     ];
-    if (settings.tts_provider === 'openai') {
-      common.push(
-        inputField(
-          'Voice',
-          settings.tts_voice_openai,
-          (value) => this.change('tts_voice_openai', value),
-          'text',
-          true,
-          'The OpenAI voice name used unless a persona overrides it.',
-        ),
-        selectField(
-          'Speech model',
-          settings.tts_model_openai,
-          ['gpt-4o-mini-tts', 'tts-1', 'tts-1-hd'],
-          (value) => this.change('tts_model_openai', value),
-          undefined,
-          (value) => value,
-          true,
-          'The OpenAI model that generates completed speech audio.',
-        ),
-        inputField(
-          'Speaking speed',
-          settings.tts_speed_openai,
-          (value) => this.change('tts_speed_openai', value),
-          'number',
-          true,
-          'A multiplier where 1 is the provider default.',
-        ),
+    if (provider === 'openai') {
+      fields.push(
+        textField('Voice', settings.tts_voice_openai, (value) => this.change('tts_voice_openai', value), {
+          hover: 'Unless a persona chooses its own.',
+        }),
+        choiceField('Speech model', settings.tts_model_openai, ['gpt-4o-mini-tts', 'tts-1', 'tts-1-hd'], (value) => this.change('tts_model_openai', value)),
+        numberField('Speed', settings.tts_speed_openai, (value) => this.change('tts_speed_openai', value), { step: '0.1', hover: '1 is normal.' }),
       );
-      advanced.push(
-        textareaField(
-          'Voice direction',
-          settings.tts_instructions_openai,
-          (value) => this.change('tts_instructions_openai', value),
-          true,
-          'Optional performance guidance such as warmth, pacing, or emotional tone.',
-        ),
+      more.push(
+        longField('Voice direction', settings.tts_instructions_openai, (value) => this.change('tts_instructions_openai', value), {
+          hover: 'How to perform it: warmth, pacing, tone.',
+        }),
       );
-    } else if (settings.tts_provider === 'local') {
-      common.push(
-        inputField(
-          'Kokoro service address',
-          settings.tts_local_base_url,
-          (value) => this.change('tts_local_base_url', value),
-          'url',
-          true,
-          'The private-LAN address of the separately deployed Kokoro-compatible service.',
-        ),
-        inputField(
-          'Voice',
-          settings.tts_voice_local,
-          (value) => this.change('tts_voice_local', value),
-          'text',
-          true,
-          'The local service voice used unless a persona overrides it.',
-        ),
-        inputField(
-          'Speaking speed',
-          settings.tts_speed_local,
-          (value) => this.change('tts_speed_local', value),
-          'number',
-          true,
-          'A multiplier where 1 is the provider default.',
-        ),
+    } else if (provider === 'local') {
+      fields.push(
+        textField('Service address', settings.tts_local_base_url, (value) => this.change('tts_local_base_url', value), {
+          type: 'url',
+          hover: 'The Kokoro-compatible service on this network.',
+        }),
+        textField('Voice', settings.tts_voice_local, (value) => this.change('tts_voice_local', value), {
+          hover: 'Unless a persona chooses its own.',
+        }),
+        numberField('Speed', settings.tts_speed_local, (value) => this.change('tts_speed_local', value), { step: '0.1', hover: '1 is normal.' }),
       );
-      advanced.push(
-        inputField(
-          'Local model name',
-          settings.tts_model_local,
-          (value) => this.change('tts_model_local', value),
-          'text',
-          true,
-          'Passed to the local speech service when it supports model selection.',
-        ),
+      more.push(
+        textField('Model name', settings.tts_model_local, (value) => this.change('tts_model_local', value), {
+          hover: 'Only if the service offers more than one.',
+        }),
       );
     }
     return [
-      settingsIntro(
-        'Choose how replies sound',
-        'Speech currently uses completed-audio playback. Streaming and interruption remain future voice work.',
-      ),
-      settingsCard(common),
-      settings.tts_provider === 'disabled'
-        ? el('div', { class: 'settings-empty-state', textContent: 'Speech playback is off.' })
-        : settingsCard([
-            settingsHeading('Connection check', 'Tests the selected service without changing saved settings.'),
-            this.providerControl(settings.tts_provider === 'local' ? 'kokoro' : 'openai'),
-          ]),
-      advancedSettings(
-        'Speech file and provider details',
-        'Optional format and provider-specific controls.',
-        advanced,
-        { testId: 'tts-advanced-settings' },
-      ),
-    ];
+      settingsCard(fields),
+      provider === 'disabled' ? null : settingsCard([this.providerControl(provider === 'local' ? 'kokoro' : 'openai')]),
+      advancedSettings('More options', 'Audio format and provider details.', more, { testId: 'tts-advanced-settings' }),
+    ].filter((node): node is HTMLElement => node !== null);
   }
 
   private stt(settings: Settings): HTMLElement[] {
-    return [
-      settingsIntro(
-        'Choose how recorded speech becomes text',
-        'A local Whisper service keeps a recording on this network. OpenAI is the cloud alternative, and uploads every recording it transcribes.',
-      ),
-      settingsCard([
-        selectField(
-          'Transcription provider',
-          settings.stt_provider,
-          ['disabled', 'local', 'openai'],
-          (value) => this.change('stt_provider', value),
-          'stt-provider',
-          providerLabel,
-          true,
-          'A local service transcribes on this network. OpenAI uploads each completed push-to-talk recording.',
-        ),
-        selectField(
-          'Language',
-          settings.stt_language,
-          ['auto', 'en', 'es', 'fr', 'de'],
-          (value) => this.change('stt_language', value),
-          undefined,
-          languageLabel,
-          true,
-          'Automatic detection is convenient; a fixed language can improve consistency.',
-        ),
-        ...(settings.stt_provider === 'local' ? this.localTranscription(settings) : []),
-      ]),
-      settings.stt_provider !== 'disabled'
-        ? settingsCard([
-            settingsHeading(
-              'Hands-free listening',
-              'A tap starts listening and Nice Assistant decides when you have finished, instead of you holding the button down.',
-            ),
-            toggleField(
-              'Decide when I have finished talking',
-              settings.stt_hands_free,
-              (value) => this.change('stt_hands_free', value),
-              'Holding the microphone button always works and is never guessed at. This is a judgement, so it can be wrong: it waits for a pause after you have actually spoken, and never ends a turn on silence alone.',
-            ),
-            toggleField(
-              'Transcribe while I am still talking',
-              settings.stt_streaming,
-              (value) => this.change('stt_streaming', value),
-              'Starts transcribing at each natural pause, so the wait after you stop is one sentence rather than the whole turn. It transcribes more audio in total, so it suits a fast transcription model and not a large one on a busy machine.',
-            ),
-          ])
-        : el('div', {
-            class: 'settings-empty-state',
-            textContent: 'Hands-free listening needs a transcription provider.',
-          }),
-      settings.stt_provider !== 'disabled'
-        ? settingsCard([
-            settingsHeading('Connection check', 'Tests whether the chosen transcription service is configured and reachable.'),
-            this.providerControl(settings.stt_provider === 'local' ? 'whisper' : 'openai'),
-          ])
-        : el('div', { class: 'settings-empty-state', textContent: 'Voice transcription is off.' }),
-      advancedSettings(
-        'Recording retention',
-        'Optional storage behavior for source microphone recordings.',
-        [toggleField(
-          'Keep source recordings',
-          settings.stt_store_recordings,
-          (value) => this.change('stt_store_recordings', value),
-          'Keeps the original recording after transcription. Leave off for the more private default.',
-        )],
-        { testId: 'stt-advanced-settings' },
-      ),
+    const provider = settings.stt_provider;
+    const fields: HTMLElement[] = [
+      choiceField('Transcribed by', provider, ['disabled', 'local', 'openai'], (value) => this.change('stt_provider', value), {
+        testId: 'stt-provider',
+        display: providerLabel,
+      }),
     ];
+    if (provider !== 'disabled') {
+      fields.push(choiceField('Language', settings.stt_language, ['auto', 'en', 'es', 'fr', 'de'], (value) => this.change('stt_language', value), {
+        display: languageLabel,
+        hover: 'Detecting is convenient. Fixing one is more consistent.',
+      }));
+    }
+    if (provider === 'local') fields.push(...this.localTranscription(settings));
+    return [
+      settingsCard(fields),
+      provider === 'disabled'
+        ? null
+        : settingsCard([
+            switchField('Decide when I have finished talking', settings.stt_hands_free, (value) => this.change('stt_hands_free', value), {
+              hover: 'A tap starts listening and the turn ends at a pause after you have actually spoken - never on silence alone. '
+                + 'Holding the button always works and is never guessed at.',
+              testId: 'stt-hands-free',
+            }),
+            switchField('Transcribe while I am still talking', settings.stt_streaming, (value) => this.change('stt_streaming', value), {
+              hover: 'Transcribes at each natural pause, so the wait at the end is one sentence rather than the whole turn. '
+                + 'It transcribes more audio in total, so it suits a fast model on a machine with room.',
+              testId: 'stt-streaming',
+            }),
+          ]),
+      provider === 'disabled' ? null : settingsCard([this.providerControl(provider === 'local' ? 'whisper' : 'openai')]),
+      advancedSettings('More options', 'Recordings.', [
+        switchField('Keep source recordings', settings.stt_store_recordings, (value) => this.change('stt_store_recordings', value), {
+          hover: 'Keeps the original recording after it is transcribed. Off is the more private default.',
+        }),
+      ], { testId: 'stt-advanced-settings' }),
+    ].filter((node): node is HTMLElement => node !== null);
   }
 
   /**
@@ -309,46 +175,24 @@ export class EverydaySettingsView {
   private localTranscription(settings: Settings): HTMLElement[] {
     const wyoming = settings.stt_local_backend === 'wyoming';
     return [
-      selectField(
-        'How it connects',
-        settings.stt_local_backend,
-        ['openai_api', 'wyoming'],
-        (value) => this.change('stt_local_backend', value),
-        'stt-local-backend',
-        sttBackendLabel,
-        true,
-        'Wyoming is what Home Assistant voice uses. If you already run faster-whisper for it, choose that.',
-      ),
+      choiceField('Connection', settings.stt_local_backend, ['openai_api', 'wyoming'], (value) => this.change('stt_local_backend', value), {
+        testId: 'stt-local-backend',
+        display: sttBackendLabel,
+        hover: 'Wyoming is what Home Assistant voice uses. If you already run faster-whisper for it, choose that.',
+      }),
       wyoming
-        ? inputField(
-            'Service address',
-            settings.stt_wyoming_address,
-            (value) => this.change('stt_wyoming_address', value),
-            'text',
-            true,
-            'The private-LAN host and port of the Wyoming service, port 10300 unless it was changed. '
-            + 'The model is whatever that service has loaded.',
-          )
-        : inputField(
-            'Service address',
-            settings.stt_local_base_url,
-            (value) => this.change('stt_local_base_url', value),
-            'url',
-            true,
-            'The private-LAN address of a Whisper service that speaks the OpenAI transcription API.',
-          ),
+        ? textField('Service address', settings.stt_wyoming_address, (value) => this.change('stt_wyoming_address', value), {
+            hover: 'Host and port on this network - port 10300 unless it was changed. The model is whatever that service has loaded.',
+          })
+        : textField('Service address', settings.stt_local_base_url, (value) => this.change('stt_local_base_url', value), {
+            type: 'url',
+            hover: 'A Whisper service on this network that speaks the OpenAI transcription API.',
+          }),
       ...(wyoming
         ? []
-        : [
-            inputField(
-              'Model',
-              settings.stt_model_local,
-              (value) => this.change('stt_model_local', value),
-              'text',
-              true,
-              'What to ask that service to load. Most accept whisper-1; some want their own identifier.',
-            ),
-          ]),
+        : [textField('Model', settings.stt_model_local, (value) => this.change('stt_model_local', value), {
+            hover: 'What to ask the service to load. Most accept whisper-1; some want their own name.',
+          })]),
     ];
   }
 
@@ -533,49 +377,24 @@ export class EverydaySettingsView {
 
   private user(settings: Settings): HTMLElement[] {
     return [
-      settingsIntro(
-        'Your account defaults',
-        'Set how your name and local time appear. Provider credentials remain server-side.',
-      ),
       settingsCard([
-        inputField(
-          'Display name',
-          settings.user_display_name,
-          (value) => this.change('user_display_name', value),
-          'text',
-          true,
-          'The friendly name Nice Assistant may use for this account.',
-        ),
-        textareaField(
-          'About you',
-          settings.user_profile,
-          (value) => this.change('user_profile', value),
-          true,
-          'A few durable facts about you, sent with every message. Keep it short: it is always '
-            + 'present, so it competes with the conversation itself.',
-        ),
-        inputField(
-          'Timezone',
-          settings.user_timezone,
-          (value) => this.change('user_timezone', value),
-          'text',
-          true,
-          'Use local for the browser timezone, or enter a standard timezone such as America/New_York.',
-        ),
+        textField('Name', settings.user_display_name, (value) => this.change('user_display_name', value), {
+          hover: 'What Nice Assistant may call you.',
+        }),
+        longField('About you', settings.user_profile, (value) => this.change('user_profile', value), {
+          hover: 'A few durable facts, sent with every message.',
+        }),
+        pageHint('Sent with every message, so keep it short: it competes with the conversation itself.'),
+        textField('Timezone', settings.user_timezone, (value) => this.change('user_timezone', value), {
+          hover: '“local” for the browser’s own, or a name such as America/New_York.',
+        }),
       ]),
-      advancedSettings(
-        'Provider credentials',
-        'Credentials are encrypted at rest and are never returned to the browser in full.',
-        [inputField(
-          'OpenAI API key',
-          settings.openai_api_key,
-          (value) => this.change('openai_api_key', value),
-          'password',
-          true,
-          'Used server-side for enabled OpenAI speech, transcription, image, and video features.',
-        )],
-        { testId: 'user-advanced-settings' },
-      ),
+      advancedSettings('More options', 'Credentials. Encrypted at rest, and never sent back in full.', [
+        textField('OpenAI API key', settings.openai_api_key, (value) => this.change('openai_api_key', value), {
+          type: 'password',
+          hover: 'Used on the server for whichever OpenAI features are switched on.',
+        }),
+      ], { testId: 'user-advanced-settings' }),
     ];
   }
 }

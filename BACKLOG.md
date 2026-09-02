@@ -30,7 +30,7 @@ browser route is not acceptance evidence for those.
 Most items carry their own **Done when** list. Those criteria are in addition to
 the verifier, never instead of it.
 
-Last full verifier run: passed, 2026-08-17.
+Last full verifier run: passed, 2026-09-02.
 
 ## Status vocabulary
 
@@ -124,8 +124,7 @@ one; see `docs/persona-authoring.md`. Turn event replay stays in memory by
 decision, with the single-process assumption it rests on enforced at startup;
 see ADR 0034.
 
-**This section is complete.** Everything remaining needs an owner decision, an
-operator evaluation, or the deployment.
+**This section is complete.** What can still be started here is in 1G.
 
 ### 1E. Identity-preserving picture workflows
 
@@ -299,6 +298,62 @@ a Whisper service on the LAN for 1F-5, and the installed identity journey that
     **Needs on the deployment:** a Whisper service running on the LAN. Until
     there is one, transcription is OpenAI or off and the microphone says which.
 
+### 1G. Handing you the keys, continued
+
+Agreed with the owner on 2026-09-02, in this order. The first two are the rest
+of the 2026-08-28 mandate (item 0a in section 2); the last two are the work the
+video decision (item 0b) left behind.
+
+1. **The remaining settings groups, in the model-page shape - delivered
+    2026-09-02.** The model
+    pages proved the design language: a list of plain things, each opening a
+    page of its own, sparse fields, prefills that say where they came from,
+    guarded navigation, and at most one visible hint per page. Conversation,
+    Voice, Personas and System still have the earlier shape - a card with an
+    information icon on every row, and collapsed editors inside collapsed
+    editors. Redo them the same way: each persona, each conversation model,
+    each background role and each voice gets a page, and the group page is
+    the list. Section ids and deep links stay, so nothing that names one
+    breaks.
+    Delivered: Conversation, Voice, Personas and System are lists or single
+    sparse pages, a persona, a model and a background role each have a page
+    with an address, help waits on hover, and a unit test holds every redone
+    page to one visible hint and no icons. See `docs/settings-experience.md`.
+
+2. **Persona identity as a switch and a photo.** Today it is a settings area
+    of its own, with mechanism dropdowns, a readiness card and a comparison
+    threshold. On the persona's own page it should be one switch - looks like
+    this photo - and the photo, with the machinery appearing only when it
+    genuinely needs a human hand: a missing model, a workflow with no input to
+    bind, a reference that failed review. The 2026-08-28 change made adding a
+    photo one motion and trimmed the readiness card; this finishes the
+    collapse.
+    **Done when** a persona can be given a face from its own page without
+    visiting Persona Pictures, and what remains of the identity settings is
+    reached from that page only when it is needed.
+
+3. **Delete the OpenAI video adapter after 2026-09-24.** Sora's API stops
+    answering that day. Until then the adapter stays as a stored choice that
+    saves as Off; afterwards it is dead code, and dead code is deleted rather
+    than kept for a service that no longer exists. Dated, not blocked: nothing
+    here can be done before that day.
+    **Done when** no code path names the OpenAI video provider, a stored
+    `openai` video choice still lands as Off, and the documents say video is
+    local only without describing a cloud adapter.
+
+4. **A shipped Wan 2.2 video template.** The local video path exists, but
+    nothing ships to run on it: a person must import a text-to-video graph of
+    their own. Ship one the way the identity templates ship - node IDs fixed,
+    bindings declared by construction, inspection verifying that the node
+    types and named files are installed and saying plainly what it cannot
+    see. Wan 2.2's nodes live in ComfyUI itself, so their names can be
+    verified against the ComfyUI source; what needs the deployment is the
+    model download and the first clip.
+    **Done when** the template installs from the video import card, inspection
+    names the missing model on a ComfyUI that has not downloaded it, and the
+    first clip on the deployment - **Blocked - deployment** - shows the
+    template's stages in its journal.
+
 ## 2. Decided
 
 Answered by the owner on 2026-08-17, with additions from the settings
@@ -320,21 +375,16 @@ listed item; none of them is open any more.
     pictures, quiet chrome), in-chat picture steering ("Another take" /
     "Different look" with honest refusals), model sample thumbnails with the
     resource-save wire fix, and the Shape picker replacing typed resolution.
-    Still open from the mandate, next in line: collapse persona identity to
-    a switch-plus-photo on the persona itself, with the machinery invisible
-    until it genuinely needs a human hand.
+    What is still open from the mandate is item 1G-2.
 
 0b. **Video is local-only** (owner, 2026-08-26). Sora's API shuts down
     2026-09-24 and no surviving cloud video service accepts this product's
     content, so no cloud option is offered through the UI; the cloud adapter
     stays in the code for a future service worth linking, and a stored cloud
     choice saves as Off. The local ComfyUI video path shipped with this
-    decision; see `docs/media-catalog.md`. Still open from it, deployment
-    work: download a Wan 2.2 model into ComfyUI and import a text-to-video
-    workflow (the import card's "This workflow makes: Video clips" choice);
-    a shipped Wan template follows once its node names can be verified
-    against the live `/object_info`, and the OpenAI video adapter should be
-    deleted after 2026-09-24 when its API stops answering.
+    decision; see `docs/media-catalog.md`. The work it left is items 1G-3
+    and 1G-4, plus one deployment step: download a Wan 2.2 model into
+    ComfyUI.
 
 1. **Rejected and forgotten memory never expires automatically.** Manual
     deletion, individually or in bulk, stays the only way a record leaves.
@@ -481,6 +531,8 @@ surface.
   the deployment. It exists to make routing-card authoring observable rather
   than guesswork; when routing is trusted it is clutter. Source: ADR 0030,
   `docs/settings-experience.md`.
+- **Delete the OpenAI video adapter** after 2026-09-24, when its API stops
+  answering. Item 1G-3.
 
 ## 6. Not advertised
 
@@ -607,7 +659,7 @@ done:
 - Update the product, architecture, security, testing, operations, roadmap, and
   debt documents in the same change as the behavior they describe.
 - Record durable architectural choices as ADRs in `docs/decisions/`. The next
-  free number is 0040.
+  free number is 0042.
 - Run `python scripts/audit_public_repo.py` before every public commit. This
   file must never contain deployment addresses, hostnames, user-specific paths,
   hardware inventories, or account identifiers.

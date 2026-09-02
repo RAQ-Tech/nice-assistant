@@ -445,14 +445,14 @@ test('settings review memory and media use only canonical APIs', async ({ page }
   await page.getByTestId('settings-save').click();
   await expect(page.getByText('Settings saved')).toBeVisible();
   await page.getByTestId('settings-nav-personas').click();
-  const personaCard = page.getByTestId('persona-persona-1');
-  await personaCard.locator(':scope > summary').click();
-  await personaCard.locator('.setting-toggle-row').filter({ hasText: 'Allow persona to send images' }).locator('input').uncheck();
-  await personaCard.getByRole('button', { name: 'Save persona' }).click();
+  await page.getByTestId('persona-open-persona-1').click();
+  const personaPage = page.getByTestId('persona-page');
+  await personaPage.locator('.setting-toggle-row').filter({ hasText: 'Allowed to send pictures' }).locator('input').uncheck();
+  await page.getByTestId('persona-save').click();
+  await expect(page.getByTestId('persona-save')).toHaveText('Saved');
   await page.getByTestId('settings-nav-task-models').click();
-  const taskModelCard = page.getByTestId('task-model-title_generation');
-  await taskModelCard.locator(':scope > summary').click();
-  await taskModelCard.locator('.setting-row').filter({ hasText: 'Primary model' }).locator('select').selectOption('demo');
+  await page.getByTestId('task-model-title_generation').click();
+  await page.getByTestId('task-model-model-title_generation').selectOption('demo');
   const taskModelSaveRequest = page.waitForRequest((request) =>
     request.method() === 'PUT' && new URL(request.url()).pathname === '/api/v1/task-models/title_generation',
   );
@@ -504,28 +504,33 @@ test('form controls and native dropdown options stay legible in both themes', as
   });
 });
 
-test('everyday settings use progressive disclosure and accessible info tips', async ({ page }) => {
+test('everyday settings are sparse pages with help on hover and the rest folded', async ({ page }) => {
   await installAuthenticatedFixture(page);
   await page.goto('/#/settings/General');
 
-  await expect(page.getByText('Choose the everyday experience')).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'General' })).toBeVisible();
+  await expect(page.locator('.info-tip-trigger')).toHaveCount(0);
+  await expect(page.locator('.settings-intro')).toHaveCount(0);
   await expect(page.getByTestId('general-advanced-settings')).not.toHaveAttribute('open', '');
-  const themeInfo = page.getByRole('button', { name: 'About Theme' });
-  const tooltipId = await themeInfo.getAttribute('aria-describedby');
-  expect(tooltipId).toBeTruthy();
-  await themeInfo.hover();
-  await expect(page.locator(`#${tooltipId}`)).toBeVisible();
-  await themeInfo.focus();
-  await expect(page.locator(`#${tooltipId}`)).toBeVisible();
+  const speak = page.locator('.setting-toggle-row').filter({ hasText: 'Speak replies aloud' });
+  await expect(speak).toHaveAttribute('title', /Plays each finished reply/);
 
   await page.getByTestId('settings-nav-image-generation').click();
   await expect(page.getByText('Choose the default image path')).toBeVisible();
   await expect(page.getByText('Local image service', { exact: true })).toBeVisible();
   await expect(page.getByTestId('image-advanced-settings')).not.toHaveAttribute('open', '');
 
+  // A persona is a page of its own, reached from the list.
   await page.getByTestId('settings-nav-personas').click();
-  await expect(page.getByText('Manage the people you talk with')).toBeVisible();
-  await expect(page.locator('details.persona-editor')).not.toHaveAttribute('open', '');
+  await expect(page.getByTestId('persona-open-persona-1')).toBeVisible();
+  await expect(page.locator('.info-tip-trigger')).toHaveCount(0);
+  await page.getByTestId('persona-open-persona-1').click();
+  await expect(page).toHaveURL(/#\/settings\/Personas\/persona-1$/);
+  await expect(page.getByTestId('persona-page-name')).toHaveValue('Nova');
+  await expect(page.getByTestId('persona-save')).toBeDisabled();
+  await expect(page.locator('.page-hint')).toHaveCount(0);
+  await page.getByTestId('persona-page-back').click();
+  await expect(page).toHaveURL(/#\/settings\/Personas$/);
 });
 
 test('a reader who has scrolled stays put when they use a control', async ({ page }) => {
@@ -571,7 +576,7 @@ test('a reader who has scrolled stays put when they use a control', async ({ pag
   expect(detailBefore).toBeGreaterThan(0);
   await page.evaluate(() => {
     const row = [...document.querySelectorAll<HTMLLabelElement>('.checkbox-row')]
-      .find((label) => label.textContent?.includes('Speak assistant replies'));
+      .find((label) => label.textContent?.includes('Speak replies aloud'));
     row?.querySelector<HTMLInputElement>('input')?.click();
   });
   await expect(page.locator('.settings-detail[data-before-rerender]')).toHaveCount(0);
@@ -584,22 +589,20 @@ test('a reader who has scrolled stays put when they use a control', async ({ pag
   expect(await page.evaluate(() => document.querySelector<HTMLElement>('.settings-detail')?.scrollTop)).toBe(0);
 });
 
-test('operator settings lead with readiness and keep expert editors closed', async ({ page }) => {
+test('operator settings are lists of things, each opening a page with the expert numbers folded', async ({ page }) => {
   await installAuthenticatedFixture(page);
   await page.goto('/#/settings/Models');
 
-  await expect(page.getByText('Set the default conversation behavior')).toBeVisible();
-  await expect(page.getByText('1 reported by Ollama')).toBeVisible();
+  await expect(page.getByTestId('model-open-demo')).toContainText('default');
   await expect(page.getByTestId('models-advanced-settings')).not.toHaveAttribute('open', '');
-  await expect(page.getByTestId('model-overrides-settings')).not.toHaveAttribute('open', '');
+  await page.getByTestId('model-open-demo').click();
+  await expect(page.getByTestId('model-settings-provenance')).toContainText('shared defaults');
+  await page.getByTestId('model-settings-page-back').click();
 
   await page.getByTestId('settings-nav-task-models').click();
-  await expect(page.getByText('Configure background intelligence')).toBeVisible();
-  const taskModel = page.getByTestId('task-model-title_generation');
-  await expect(taskModel).not.toHaveAttribute('open', '');
   await expect(page.getByTestId('settings-save')).toHaveCount(0);
-  await taskModel.locator(':scope > summary').click();
-  await expect(taskModel).toHaveAttribute('open', '');
+  await page.getByTestId('task-model-title_generation').click();
+  await expect(page.getByTestId('task-model-page-name')).toHaveText('Chat titles');
   await expect(page.getByTestId('task-model-advanced-title_generation')).not.toHaveAttribute('open', '');
 
   await page.getByTestId('settings-nav-media-catalog').click();

@@ -14,7 +14,6 @@ function setup(overrides: Partial<Settings> = {}) {
     appState,
     change,
     (provider) => document.createTextNode(`check ${provider}`) as unknown as HTMLElement,
-    () => document.createElement('div'),
   );
   const root = document.createElement('div');
   return { root, settings, view, change };
@@ -78,15 +77,52 @@ describe('video is local only', () => {
   });
 });
 
-describe('everyday settings presentation', () => {
-  it('keeps common General choices visible and optional controls closed', () => {
+describe('the everyday pages are sparse', () => {
+  it('shows the few General choices, with help on hover and the rest folded', () => {
     const { root, settings, view } = setup();
     root.append(...view.nodes('General', settings));
 
-    expect(root.textContent).toContain('Choose the everyday experience');
-    expect(root.querySelectorAll('.info-tip-trigger').length).toBeGreaterThan(3);
+    expect(root.querySelectorAll('.info-tip-trigger')).toHaveLength(0);
+    expect(root.querySelectorAll('.settings-intro')).toHaveLength(0);
+    expect(root.textContent).toContain('Theme');
+    expect(root.textContent).toContain('Speak replies aloud');
+    const speak = [...root.querySelectorAll('.setting-toggle-row')]
+      .find((row) => row.textContent?.includes('Speak replies aloud')) as HTMLElement;
+    expect(speak.title).toContain('Plays each finished reply');
     expect((root.querySelector('[data-testid="general-advanced-settings"]') as HTMLDetailsElement).open).toBe(false);
     expect(root.textContent).toContain('Show system and tool messages');
+  });
+
+  it('shows the fields for the chosen speech provider and names where it runs', () => {
+    const off = setup();
+    off.root.append(...off.view.nodes('TTS', off.settings));
+    expect(off.root.textContent).not.toContain('Service address');
+    expect(off.root.textContent).not.toContain('check kokoro');
+
+    const local = setup({ tts_provider: 'local' });
+    local.root.append(...local.view.nodes('TTS', local.settings));
+    const provider = local.root.querySelector('[data-testid="tts-provider"]') as HTMLSelectElement;
+    expect([...provider.options].map((option) => option.textContent)).toEqual([
+      'Off',
+      'Local service — on this machine',
+      'Openai — leaves this machine',
+    ]);
+    expect(local.root.textContent).toContain('Service address');
+    expect(local.root.textContent).toContain('check kokoro');
+    expect(local.root.querySelectorAll('.page-hint').length).toBeLessThanOrEqual(1);
+  });
+
+  it('offers hands-free listening only once something can transcribe', () => {
+    const off = setup();
+    off.root.append(...off.view.nodes('STT', off.settings));
+    expect(off.root.querySelector('[data-testid="stt-hands-free"]')).toBeNull();
+
+    const local = setup({ stt_provider: 'local', stt_local_backend: 'wyoming' });
+    local.root.append(...local.view.nodes('STT', local.settings));
+    expect(local.root.querySelector('[data-testid="stt-hands-free"]')).not.toBeNull();
+    expect(local.root.textContent).toContain('Wyoming');
+    expect(local.root.textContent).not.toContain('Model');
+    expect(local.root.textContent).toContain('check whisper');
   });
 
   it('shows local image connection choices while collapsing tuning details', () => {
@@ -100,11 +136,14 @@ describe('everyday settings presentation', () => {
     expect((root.querySelector('[data-testid="image-advanced-settings"]') as HTMLDetailsElement).open).toBe(false);
   });
 
-  it('keeps provider credentials behind optional disclosure', () => {
+  it('keeps provider credentials behind the fold on the profile page', () => {
     const { root, settings, view } = setup();
     root.append(...view.nodes('User', settings));
 
-    expect(root.textContent).toContain('Your account defaults');
-    expect((root.querySelector('[data-testid="user-advanced-settings"]') as HTMLDetailsElement).open).toBe(false);
+    expect(root.textContent).toContain('About you');
+    expect(root.querySelectorAll('.page-hint')).toHaveLength(1);
+    const fold = root.querySelector('[data-testid="user-advanced-settings"]') as HTMLDetailsElement;
+    expect(fold.open).toBe(false);
+    expect(fold.querySelector('input[type="password"]')).not.toBeNull();
   });
 });

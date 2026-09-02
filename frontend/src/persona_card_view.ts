@@ -14,7 +14,7 @@ import {
   selectedExampleBlocks,
   type PersonaCardField,
 } from './persona_card';
-import { textareaField } from './settings_controls';
+import { longField } from './settings_page';
 import { advancedSettings } from './settings_ui';
 import { state } from './state';
 import type { AppState, Persona } from './types';
@@ -69,31 +69,29 @@ export class PersonaCardView {
       const count = el('span', { class: 'meta', 'data-testid': `character-card-count-${field}-${persona.id}` });
       counts.set(field, count);
       return el('div', { class: 'character-card-field' }, [
-        textareaField(
+        longField(
           PERSONA_CARD_EDITOR_LABELS[field],
           persona[field] ?? '',
           (value) => {
             persona[field] = value;
             refresh();
           },
-          false,
-          PERSONA_CARD_HELP[field],
+          { hover: PERSONA_CARD_HELP[field] },
         ),
         count,
       ]);
     });
     const examples = el('div', { class: 'character-card-field' }, [
-      textareaField(
+      longField(
         'Example dialogue',
         persona.card_example_dialogue ?? '',
         (value) => {
           persona.card_example_dialogue = value;
           refresh();
         },
-        false,
-        `Sample exchanges that show how this persona talks. Separate each one with a ${EXAMPLE_BLOCK_DELIMITER} `
+        { hover: `Sample exchanges that show how this persona talks. Separate each one with a ${EXAMPLE_BLOCK_DELIMITER} `
           + `line, and write ${EXAMPLE_CHAR_PLACEHOLDER} for the persona and ${EXAMPLE_USER_PLACEHOLDER} for whoever `
-          + 'is talking to them.',
+          + 'is talking to them.' },
       ),
     ]);
     refresh();
