@@ -98,36 +98,36 @@ not proof of a real person's legal identity.
 
 ## Operator flow
 
-Settings -> Persona Pictures is one surface for a persona's appearance: reviewed
-references, the Identity Spec, and the pictures kept for reuse. It replaced the
-separate Visual Identity tab rather than adding to it.
+A persona's face lives on the persona's own page (Settings -> Personas -> the
+persona): one switch, "Looks like this photo", and the photos. Persona Pictures
+shows the same card for the persona it has selected, with the preferred recipes,
+the kept pictures, and comparison folded beneath. The two are one component, so
+there is one face and not two.
 
+1. Turn the switch on. The confirmation is the consent grant: for a fictional
+   persona it confirms only that the operator created the images or has the
+   right to use them; it does not imply that a real person is granting consent.
+   Turning it off withdraws consent and deletes the stored photos, and says so
+   before it does.
+2. Tick the rights box and choose a photo from this device, and it counts at
+   once - approved, and primary if it is the first. Or use a generated picture,
+   which waits for a yes or a no: a picture the machine made is reviewed before
+   it defines a face. Raw database or protected-media IDs are never inputs.
+3. The card says the one thing that needs a hand, when something does: add a
+   photo, or - once there is one - that no identity workflow is installed to
+   use it, with the way to the Media Catalog setup that imports a ComfyUI
+   graph, inspects installed nodes and assets, and binds the reference input.
+4. Under "More about the face": appearance in words, which technique makes the
+   face when the catalog offers more than one, and what happens without an
+   identity workflow - make the picture anyway, labelled as unconditioned, or
+   refuse until one is installed. Each saves as it is changed.
+5. Under the fold on Persona Pictures, optionally configure the separate LAN
+   verifier, choose the visible policy used after a measured comparison
+   failure, compare a generated image by hand, and read the audit history.
 
-The review workflow is:
-
-1. Select a persona and enable private visual-identity storage. For a fictional
-   persona this confirms only that the operator created the image or has the
-   right to use it; it does not imply that a real person is granting consent.
-2. Upload an image or choose one from the owner-protected generated-image
-   gallery. Raw database or protected-media IDs are not user-facing inputs.
-3. Review and explicitly approve, reject, or delete each pending reference.
-4. Record stable appearance guidance and choose what happens while a
-   reference-aware workflow is unavailable: generate with a visible warning or
-   require conditioning and block.
-5. Use the focused Identity Control setup in Media Catalog to import a ComfyUI
-   API-format workflow, inspect installed nodes/assets, and bind the reviewed
-   reference input when new generations should use the approved reference.
-6. Optionally configure the separate LAN verifier under Advanced settings when
-   automated comparison or retry is wanted, and choose the visible policy used
-   after a measured comparison failure.
-7. Optionally choose a generated image from the thumbnail gallery for manual
-   comparison and inspect the durable result and audit history.
-
-The readiness card reports reference approval, reference-aware generation,
-the saved no-workflow behavior, optional comparison, and the saved
-comparison-failure behavior independently. CompreFace is only a stateless
-verifier: it can compare a result to an approved reference, but it cannot improve
-generation or make an image resemble that reference.
+CompreFace is only a stateless verifier: it can compare a result to an approved
+reference, but it cannot improve generation or make an image resemble that
+reference.
 
 `allow_unconditioned` keeps image generation available when no compatible
 identity workflow is configured. This is the effective default even before a

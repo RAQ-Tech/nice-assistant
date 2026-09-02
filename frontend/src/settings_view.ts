@@ -7,6 +7,7 @@ import { MediaCatalogSettingsView } from './media_catalog_settings_view';
 import { ModelSettingsView } from './model_settings_view';
 import { OperationsSettingsView } from './operations_settings_view';
 import { PersonaCardView } from './persona_card_view';
+import { PersonaFaceView } from './persona_face_view';
 import { PersonaLoreView } from './persona_lore_view';
 import { PersonaPageView } from './persona_page_view';
 import {
@@ -70,20 +71,15 @@ export class SettingsView {
     },
   ) {
     this.mediaCatalogView = new MediaCatalogSettingsView(renderApp, appState, client, dialogs, close);
-    this.identityView = new IdentitySettingsView(
-      renderApp,
-      appState,
-      client,
-      dialogs,
-      (personaId) => this.startIdentitySetup({
-        capability_request_id: null,
-        chat_id: appState.currentChat?.id ?? null,
-        persona_id: personaId,
-        prompt: '',
-        required_features: ['identity_control'],
-        block_code: null,
-      }),
-    );
+    const setUpIdentityControl = (personaId: string) => this.startIdentitySetup({
+      capability_request_id: null,
+      chat_id: appState.currentChat?.id ?? null,
+      persona_id: personaId,
+      prompt: '',
+      required_features: ['identity_control'],
+      block_code: null,
+    });
+    this.identityView = new IdentitySettingsView(renderApp, appState, client, dialogs, setUpIdentityControl);
     const change = <K extends keyof Settings>(key: K, value: Settings[K], shouldRender?: boolean) => this.set(key, value, shouldRender);
     this.everydayView = new EverydaySettingsView(appState, change, (provider) => this.providerControl(provider));
     this.modelView = new ModelSettingsView(
@@ -102,6 +98,11 @@ export class SettingsView {
       (personaId) => this.navigateSettings('Personas', personaId),
       new PersonaCardView(renderApp, appState, client),
       new PersonaLoreView(renderApp, appState, client),
+      new PersonaFaceView(appState, client, renderApp, dialogs, setUpIdentityControl, (personaId) => {
+        appState.identitySelectedPersonaId = personaId;
+        this.navigateSettings('Persona Pictures');
+        void this.identityView.refresh();
+      }),
       change,
     );
     this.operationsView = new OperationsSettingsView(renderApp, appState, client, dialogs);
@@ -110,8 +111,12 @@ export class SettingsView {
   startIdentitySetup(intent: IdentitySetupIntent): void {
     if (isVisualIdentityBlock(intent.block_code)) {
       this.appState.mediaCatalogIdentitySetupIntent = null;
+      // The face lives on the persona's own page now; that is where a missing
+      // or changed reference gets fixed.
       if (intent.persona_id && this.appState.personas.some((item) => item.id === intent.persona_id)) {
         this.appState.identitySelectedPersonaId = intent.persona_id;
+        this.navigateSettings('Personas', intent.persona_id);
+        return;
       }
       this.navigateSettings('Persona Pictures');
       void this.identityView.refresh();

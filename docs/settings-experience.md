@@ -76,12 +76,14 @@ settings pages.
 - Keep verifier settings, thresholds, manual validation, history, and deletion
   in an optional advanced section.
 
-### Persona Pictures — delivered
+### Persona Pictures - the face, the recipes, the kept pictures
 
-Visual Identity became Persona Pictures: one surface for how a persona looks,
-the references that make it recognizable, and the pictures kept for reuse. It is
-a rename plus a section, not a new tab, so the number of top-level settings tabs
-is unchanged.
+Persona Pictures is one surface for a persona's appearance. It leads with the
+same face card the persona's own page carries (see the Personas page below):
+one switch, "Looks like this photo", and the photos, with a line only when
+something needs a hand. Beneath it are the preferred recipes and the kept
+pictures, and under one fold what comparison needs: the optional verifier, the
+outcome policy and threshold, manual comparison, and the activity history.
 
 Kept pictures show the description they were stored under, because that
 description is what a later request is matched against; an entry nobody can
@@ -97,11 +99,12 @@ is ignored rather than blocking the picture. A preference is persona-specific
 knowledge that a routing score cannot represent, which is why it is recorded
 rather than inferred.
 
-The identity behavior card names how the face is produced rather than offering a
-choice, because only one mechanism is implemented and a control that can only
-block is worse than a plain statement. The comparison threshold and what to do with a below-threshold image live in the advanced
-section with the verifier they belong to: comparison measures a finished image
-and cannot make generation resemble the reference.
+The face names how it is produced rather than offering a choice, unless the
+catalog can apply more than one mechanism, because a control that can only
+block is worse than a plain statement. The comparison threshold and what to do
+with a below-threshold image live in the fold with the verifier they belong to:
+comparison measures a finished image and cannot make generation resemble the
+reference.
 
 ### Media Catalog is preset-first — delivered
 
@@ -169,7 +172,10 @@ Personas:
 - **Personas** is the people, each a chip with their picture or initials, and
   one page each: picture and name as the headline, model, whether the persona
   may send pictures, which workspaces it is available in (only when there is
-  more than one), then the Character card and Lorebook editors - each still
+  more than one), the face - one switch, "Looks like this photo", and the
+  photos, with a line only when something needs a hand: add a photo, or
+  install a workflow that can use one - then the Character card and Lorebook
+  editors - each still
   with its own save, its cost meter and its preview - and free-form
   instructions and deletion folded. The page saves itself; leaving with
   unsaved changes asks. Instructions for a new persona sit under the list.

@@ -320,7 +320,8 @@ video decision (item 0b) left behind.
     with an address, help waits on hover, and a unit test holds every redone
     page to one visible hint and no icons. See `docs/settings-experience.md`.
 
-2. **Persona identity as a switch and a photo.** Today it is a settings area
+2. **Persona identity as a switch and a photo - delivered 2026-09-02.** It
+    was a settings area
     of its own, with mechanism dropdowns, a readiness card and a comparison
     threshold. On the persona's own page it should be one switch - looks like
     this photo - and the photo, with the machinery appearing only when it
@@ -328,9 +329,11 @@ video decision (item 0b) left behind.
     bind, a reference that failed review. The 2026-08-28 change made adding a
     photo one motion and trimmed the readiness card; this finishes the
     collapse.
-    **Done when** a persona can be given a face from its own page without
-    visiting Persona Pictures, and what remains of the identity settings is
-    reached from that page only when it is needed.
+    Delivered: the persona's page carries one switch, "Looks like this photo",
+    and the photos; a photo from this device counts at once, a generated
+    picture waits for a yes; the only line said out loud is the one that needs
+    a hand, and it leads to the workflow setup. Persona Pictures shows the same
+    card, with comparison folded beneath. See `docs/persona-visual-identity.md`.
 
 3. **Delete the OpenAI video adapter after 2026-09-24.** Sora's API stops
     answering that day. Until then the adapter stays as a stored choice that
@@ -375,7 +378,7 @@ listed item; none of them is open any more.
     pictures, quiet chrome), in-chat picture steering ("Another take" /
     "Different look" with honest refusals), model sample thumbnails with the
     resource-save wire fix, and the Shape picker replacing typed resolution.
-    What is still open from the mandate is item 1G-2.
+    Nothing from the mandate is still open.
 
 0b. **Video is local-only** (owner, 2026-08-26). Sora's API shuts down
     2026-09-24 and no surviving cloud video service accepts this product's

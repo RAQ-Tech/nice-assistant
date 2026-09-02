@@ -1,7 +1,6 @@
 import { el, formatDate } from './dom';
 import {
   boundedNumber,
-  readinessRow,
   selectControl as select,
   settingField as field,
   settingsHeading,
@@ -9,28 +8,6 @@ import {
   titleCase,
 } from './settings_ui';
 import type { AppState, VisualIdentityProfile } from './types';
-
-type Mechanism = VisualIdentityProfile['conditioning_mechanism'];
-
-// ADR 0031: resemblance comes from a declared structural mechanism, not from
-// comparing the result afterwards. Which of them can be picked is what the
-// catalog can actually apply, reported by the server: a control that lets
-// someone choose a value which can only block is worse than no control.
-const MECHANISM_LABELS: Record<Mechanism, string> = {
-  reference_adapter: 'Condition generation on the reference image',
-  identity_pass: 'Replace the face after generation',
-};
-
-const MECHANISM_HELP =
-  'How the persona’s face is produced. Conditioning applies the approved reference while the image is being made. A later pass generates the picture first and then replaces the face, which works with checkpoints no adapter can condition but cannot change pose or lighting. Both are configured in Media Catalog, and every picture records which one produced its face.';
-
-function offeredMechanisms(profile: VisualIdentityProfile): Mechanism[] {
-  const available = profile.available_mechanisms ?? [];
-  const current = profile.conditioning_mechanism ?? 'reference_adapter';
-  // What is stored stays selectable even if its workflow was since removed, so
-  // opening this screen cannot silently change what a persona is set to.
-  return available.includes(current) ? [...available] : [current, ...available];
-}
 
 export function identityImageButton(
   url: string,
@@ -58,118 +35,6 @@ export function identityAuditCard(events: AppState['identityEvents'][string]): H
           ]),
         ))
       : el('div', { class: 'meta', textContent: 'No visual identity activity has been recorded.' }),
-  ]);
-}
-
-export function identityReadinessCard(
-  profile: VisualIdentityProfile,
-  name: string,
-  enabled: boolean,
-  configureGeneration: () => void = () => undefined,
-  configureComparison: () => void = () => undefined,
-): HTMLElement {
-  const hasReference = profile.approved_reference_count > 0;
-  return el('div', { class: 'persona-card identity-readiness-card' }, [
-    el('div', { class: 'task-model-head' }, [
-      el('div', {}, [
-        el('strong', { textContent: `${name} visual identity` }),
-        el('div', { class: 'meta', textContent: 'A quick view of what is actually ready.' }),
-      ]),
-      el('span', {
-        class: `provider-status ${enabled ? 'ok' : 'fail'}`,
-        textContent: enabled ? 'Enabled' : 'Not enabled',
-      }),
-    ]),
-    el('div', { class: 'settings-readiness-list' }, [
-      readinessRow(
-        'Reference image',
-        hasReference ? `${profile.approved_reference_count} approved` : 'Add and approve at least one image',
-        hasReference ? 'ready' : 'attention',
-        'A reviewed image that defines how this persona should look. References remain private protected media.',
-      ),
-      readinessRow(
-        'Reference-aware generation',
-        profile.generation_workflow_configured
-          ? 'An identity-capable ComfyUI workflow is configured'
-          : 'Not configured; ComfyUI needs an identity model plus a bound workflow in Media Catalog',
-        profile.generation_workflow_configured ? 'ready' : 'attention',
-        'Install and test an identity graph such as IPAdapter, InstantID, PuLID, or PhotoMaker in ComfyUI. Then add its API-format workflow in Media Catalog with feature identity_control and explicit identity_image_bindings.',
-      ),
-      readinessRow(
-        'Optional comparison',
-        profile.verification_configured ? 'Verifier settings are configured' : 'Off; generated images will remain unverified',
-        profile.verification_configured ? 'ready' : 'off',
-        'An optional verifier can compare a finished face with the reference. It cannot improve generation.',
-      ),
-    ]),
-    el('div', { class: 'chips' }, [
-      el('button', {
-        class: 'pill-btn',
-        textContent: profile.generation_workflow_configured ? 'Review identity control setup' : 'Set up identity control',
-        'data-testid': 'identity-configure-generation',
-        onclick: configureGeneration,
-      }),
-      el('button', {
-        class: 'pill-btn',
-        textContent: profile.verification_configured ? 'Review optional comparison' : 'Configure optional comparison',
-        'data-testid': 'identity-configure-comparison',
-        onclick: configureComparison,
-      }),
-    ]),
-  ]);
-}
-
-
-function mechanismField(profile: VisualIdentityProfile, changed: () => void): HTMLElement {
-  const current = profile.conditioning_mechanism ?? 'reference_adapter';
-  const offered = offeredMechanisms(profile);
-  if (offered.length < 2) {
-    // Say plainly what will happen rather than offering a choice of one.
-    return field(
-      'How the face is produced',
-      el('span', { class: 'meta', 'data-testid': 'identity-mechanism', textContent: MECHANISM_LABELS[current] }),
-      MECHANISM_HELP,
-    );
-  }
-  const control = select(current, offered, (value) => {
-    profile.conditioning_mechanism = value as Mechanism;
-    changed();
-  }, (value) => MECHANISM_LABELS[value as Mechanism] ?? value);
-  control.dataset.testid = 'identity-mechanism';
-  return field('How the face is produced', control, MECHANISM_HELP);
-}
-
-export function identityGenerationPolicyCard(
-  profile: VisualIdentityProfile,
-  busy: boolean,
-  save: () => void,
-  changed: () => void = () => undefined,
-): HTMLElement {
-  const fallbackLabels: Record<VisualIdentityProfile['conditioning_fallback'], string> = {
-    allow_unconditioned: 'Generate and label an unconditioned image',
-    require_conditioning: 'Block until identity control is ready',
-  };
-  return el('div', { class: 'persona-card' }, [
-    settingsHeading(
-      'Identity generation behavior',
-      'How the persona’s face is produced, and what happens when that is not possible. What happens after generation, when the optional comparison service disagrees, is in the advanced section.',
-    ),
-    mechanismField(profile, changed),
-    field('When identity control is unavailable', select(
-      profile.conditioning_fallback ?? 'allow_unconditioned',
-      ['allow_unconditioned', 'require_conditioning'],
-      (value) => {
-        profile.conditioning_fallback = value as VisualIdentityProfile['conditioning_fallback'];
-      },
-      (value) => fallbackLabels[value as VisualIdentityProfile['conditioning_fallback']] ?? value,
-    ), 'Allowing fallback never claims a match: the resulting image is explicitly labeled unconditioned and may not resemble the persona.'),
-    el('button', {
-      class: 'pill-btn',
-      textContent: 'Save identity behavior',
-      disabled: busy,
-      'data-testid': 'identity-behavior-save',
-      onclick: save,
-    }),
   ]);
 }
 
@@ -219,6 +84,6 @@ export function identityPersonaSelector(
   return field(
     'Persona',
     select(selectedId, personaIds, change, name),
-    'Choose whose reference images, appearance guidance, kept pictures, and validation history you want to manage.',
+    'Choose whose face, recipes, kept pictures, and comparison history you want to manage.',
   );
 }

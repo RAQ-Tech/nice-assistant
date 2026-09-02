@@ -1,14 +1,13 @@
 import type { ApiClient } from './api';
-import { el, errorMessage, formatBytes, formatDate } from './dom';
+import { el, errorMessage, formatDate } from './dom';
 import { IdentityMediaPicker } from './identity_media_picker';
+import { PersonaFaceView } from './persona_face_view';
 import { PictureLibraryView } from './picture_library_view';
 import {
   identityAuditCard,
   identityComparisonPolicyCard,
-  identityGenerationPolicyCard,
   identityImageButton,
   identityPersonaSelector,
-  identityReadinessCard,
 } from './identity_settings_components';
 import {
   advancedSettings,
@@ -17,13 +16,11 @@ import {
   settingField as field,
   settingsHeading,
   settingsIntro,
-  textAreaSetting as textareaRow,
   textControl as input,
   titleCase as title,
 } from './settings_ui';
 import type {
   AppState,
-  IdentityReference,
   IdentityValidationSettings,
   VisualIdentityProfile,
 } from './types';
@@ -33,12 +30,21 @@ interface IdentityDialogs {
   confirm(title: string, message: string, confirmText?: string): Promise<boolean>;
 }
 
+/**
+ * Persona Pictures: one persona's face, its preferred recipes and kept
+ * pictures, and - folded - the comparison service, manual comparison and the
+ * activity record.
+ *
+ * The face is the same card the persona's own page shows, so there is one
+ * face and not two. What is left here is what comparison needs: a verifier
+ * is advisory measurement (ADR 0031), so its plumbing and its thresholds sit
+ * behind the fold rather than in front of somebody setting a persona up.
+ */
 export class IdentitySettingsView {
-  private selectedFile: File | null = null;
-  private attested = false;
   private providerResult = '';
   private readonly mediaPicker: IdentityMediaPicker;
   private readonly library: PictureLibraryView;
+  private readonly face: PersonaFaceView;
   private advancedOpen = false;
 
   constructor(
@@ -50,6 +56,15 @@ export class IdentitySettingsView {
   ) {
     this.mediaPicker = new IdentityMediaPicker(renderApp, client, (url) => this.openImage(url));
     this.library = new PictureLibraryView(appState, client, renderApp);
+    this.face = new PersonaFaceView(
+      appState,
+      client,
+      renderApp,
+      dialogs,
+      openIdentitySetup,
+      null,
+      (personaId) => this.reloadPersona(personaId),
+    );
   }
 
   async refresh(): Promise<void> {
@@ -70,18 +85,20 @@ export class IdentitySettingsView {
 
   nodes(): HTMLElement[] {
     const personaId = this.appState.identitySelectedPersonaId;
+    const persona = this.appState.personas.find((item) => item.id === personaId) ?? null;
     const profile = personaId ? this.appState.identityProfiles[personaId] : null;
     return [
       settingsIntro(
         "Everything about a persona's pictures",
-        'How it looks, the references that make it recognizable, and the pictures kept for reuse. Reference-aware generation is configured in Media Catalog before a reference can influence new pictures.',
+        'The face it is drawn from, the recipes that suit it, and the pictures kept for reuse. Comparison, when a verifier is configured, is measurement after the fact and lives under the fold.',
       ),
       this.personaSelector(),
-      profile
-        ? this.profileStack(profile)
+      persona
+        ? this.face.node(persona)
         : el('div', { class: 'settings-empty-state', textContent: 'Choose a persona to manage its appearance.' }),
-      this.library.node(personaId ?? '', profile, () => this.reloadPersona(personaId ?? '')),
-    ];
+      this.library.node(personaId ?? '', profile ?? null, () => this.reloadPersona(personaId ?? '')),
+      profile ? this.advanced(profile) : null,
+    ].filter((node): node is HTMLElement => node !== null);
   }
 
   private personaSelector(): HTMLElement {
@@ -92,149 +109,33 @@ export class IdentitySettingsView {
       (value) => {
         this.appState.identitySelectedPersonaId = value || null;
         this.mediaPicker.close();
-        this.selectedFile = null;
-        this.attested = false;
         void this.refresh();
       },
     );
   }
 
-  private profileStack(profile: VisualIdentityProfile): HTMLElement {
+  private advanced(profile: VisualIdentityProfile): HTMLElement {
     const enabled = profile.consent_status === 'granted';
     const name = this.personaName(profile.persona_id);
     const validations = this.appState.identityValidations[profile.persona_id] ?? [];
     const events = this.appState.identityEvents[profile.persona_id] ?? [];
-    return el('div', { class: 'identity-profile-stack', 'data-testid': 'identity-profile-stack' }, [
-      identityReadinessCard(profile, name, enabled, () => this.openIdentitySetup(profile.persona_id), () => { this.advancedOpen = true; this.renderApp(); }),
-      enabled ? this.referenceManager(profile, name) : this.enablementCard(profile.persona_id, name),
-      enabled ? this.appearanceCard(profile, name) : null,
-      enabled
-        ? identityGenerationPolicyCard(
-            profile,
-            this.appState.identityBusy,
-            () => void this.saveProfile(profile),
-            () => this.renderApp(),
-          )
-        : null,
-      advancedSettings(
-        'Advanced identity controls and diagnostics',
-        `These controls tune comparison and troubleshooting. They are not required to store ${name}’s reference image, and a verifier cannot make generated images look more like the reference.`,
-        [
-          this.providerCard(this.appState.identitySettings),
-          enabled
-            ? identityComparisonPolicyCard(profile, this.appState.identityBusy, () => void this.saveProfile(profile))
-            : null,
-          this.validationManager(profile, validations),
-          identityAuditCard(events),
-          enabled ? this.dangerCard(profile.persona_id, name) : null,
-        ],
-        {
-          open: this.advancedOpen,
-          testId: 'identity-advanced-settings',
-          onToggle: (open) => { this.advancedOpen = open; },
-        },
-      ),
-    ]);
-  }
-
-  private enablementCard(personaId: string, name: string): HTMLElement {
-    return el('div', { class: 'persona-card settings-action-card' }, [
-      settingsHeading(
-        `Set up ${name}’s appearance`,
-        `Nice Assistant will privately store reference images you choose for ${name}. For a fictional AI persona, this confirms that you created the image or have permission to use it.`,
-      ),
-      el('button', {
-        class: 'send-btn',
-        textContent: `Enable visual identity for ${name}`,
-        disabled: this.appState.identityBusy,
-        'data-testid': 'identity-enable',
-        onclick: () => void this.enableIdentity(personaId, name),
-      }),
-    ]);
-  }
-
-  private referenceManager(profile: VisualIdentityProfile, name: string): HTMLElement {
-    const references = profile.references.filter((reference) => reference.review_status !== 'deleted');
-    return el('div', { class: 'persona-card', 'data-testid': 'identity-reference-manager' }, [
-      settingsHeading(
-        `${name}’s reference images`,
-        'Use a clear image that represents how this persona should look. A photo you add from this device counts immediately; a generated picture waits for your approval.',
-      ),
-      // One motion: tick the rights box, choose the photo, and it is added -
-      // approved, because a file from this device with a fresh attestation is
-      // the person's own deliberate act. Generated pictures keep the review
-      // wall below.
-      el('label', { class: 'checkbox-row identity-attestation' }, [
-        el('input', {
-          type: 'checkbox',
-          checked: this.attested,
-          'data-testid': 'identity-attested',
-          onchange: (event: Event) => {
-            this.attested = (event.currentTarget as HTMLInputElement).checked;
-            this.renderApp();
-          },
-        }),
-        'I created this image or have permission to use it.',
-      ]),
-      el('label', { class: 'setting-row identity-file-row' }, [
-        el('span', {
-          textContent: this.appState.identityBusy
-            ? 'Adding…'
-            : this.attested
-              ? 'Choose a photo from this device'
-              : 'Tick the box above, then choose a photo',
-        }),
-        el('input', {
-          type: 'file',
-          accept: 'image/png,image/jpeg,image/webp',
-          disabled: !this.attested || this.appState.identityBusy,
-          'data-testid': 'identity-reference-file',
-          onchange: (event: Event) => {
-            this.selectedFile = (event.currentTarget as HTMLInputElement).files?.[0] ?? null;
-            if (this.selectedFile) void this.uploadReference(profile.persona_id);
-          },
-        }),
-      ]),
-      el('div', { class: 'chips' }, [
-        el('button', {
-          class: 'pill-btn',
-          textContent: 'Choose from generated images',
-          disabled: this.appState.identityBusy,
-          'data-testid': 'identity-reference-gallery-open',
-          onclick: () => void this.mediaPicker.open('reference'),
-        }),
-      ]),
-      this.mediaPicker.isOpen('reference')
-        ? this.mediaPicker.node({
-            mode: 'reference',
-            actionLabel: 'Use as reference',
-            actionDisabled: this.appState.identityBusy || !this.attested,
-            blockedMessage: this.attested ? undefined : 'Confirm above that you created the image or have permission to use it.',
-            onUse: (item) => this.referenceFromMedia(profile.persona_id, item.id),
-          })
-        : null,
-      references.length
-        ? el('div', { class: 'identity-reference-list' }, references.map((reference) => this.referenceCard(reference, name)))
-        : el('div', { class: 'settings-empty-state', textContent: `No reference images have been added for ${name}.` }),
-    ]);
-  }
-
-  private appearanceCard(profile: VisualIdentityProfile, name: string): HTMLElement {
-    return el('div', { class: 'persona-card' }, [
-      settingsHeading(
-        'Appearance guidance',
-        `Describe stable details that should remain recognizable as ${name}. This helps generation prompts but does not replace a reference-aware workflow.`,
-      ),
-      textareaRow(`How ${name} should look`, profile.appearance_description, (value) => {
-        profile.appearance_description = value;
-      }, 'Include stable traits such as hair, eyes, facial features, body type, and other defining details.'),
-      el('button', {
-        class: 'send-btn',
-        textContent: 'Save appearance guidance',
-        disabled: this.appState.identityBusy,
-        onclick: () => void this.saveProfile(profile),
-      }),
-    ]);
+    return advancedSettings(
+      'Comparison and history',
+      `Measuring a finished picture against ${name}’s photo. A verifier cannot make a picture look more like the photo; it can say how close one came.`,
+      [
+        this.providerCard(this.appState.identitySettings),
+        enabled
+          ? identityComparisonPolicyCard(profile, this.appState.identityBusy, () => void this.saveProfile(profile))
+          : null,
+        this.validationManager(profile, validations),
+        identityAuditCard(events),
+      ],
+      {
+        open: this.advancedOpen,
+        testId: 'identity-advanced-settings',
+        onToggle: (open) => { this.advancedOpen = open; },
+      },
+    );
   }
 
   private providerCard(settings: IdentityValidationSettings | null): HTMLElement {
@@ -326,53 +227,6 @@ export class IdentitySettingsView {
     ]);
   }
 
-  private referenceCard(reference: IdentityReference, name: string): HTMLElement {
-    const status = reference.review_status === 'approved'
-      ? (reference.is_primary ? 'Primary reference' : 'Approved reference')
-      : (reference.review_status === 'pending' ? 'Needs your approval' : 'Rejected reference');
-    return el('div', { class: 'identity-reference-card', 'data-testid': `identity-reference-${reference.id}` }, [
-      reference.content_url
-        ? identityImageButton(
-            reference.content_url,
-            `Open ${name} reference image`,
-            `${name} reference`,
-            'identity-reference-thumb',
-            (url) => this.openImage(url),
-          )
-        : el('div', { class: 'identity-reference-thumb missing', textContent: 'Unavailable' }),
-      el('div', { class: 'identity-reference-detail' }, [
-        el('strong', { textContent: status }),
-        el('div', { class: 'meta', textContent: `${reference.width}×${reference.height} · ${formatBytes(reference.byte_size)}` }),
-        reference.review_status === 'pending'
-          ? el('div', { class: 'meta', textContent: `Approve this only if it is a good representation of ${name}.` })
-          : null,
-        reference.rejection_reason ? el('div', { class: 'provider-check-message', textContent: reference.rejection_reason }) : null,
-        el('div', { class: 'chips' }, [
-          reference.review_status === 'pending'
-            ? el('button', { class: 'send-btn', textContent: `Approve as ${name}`, onclick: () => void this.approveReference(reference.id) })
-            : null,
-          reference.review_status === 'pending'
-            ? el('button', { class: 'pill-btn', textContent: 'Not this persona', onclick: () => void this.rejectReference(reference.id) })
-            : null,
-          el('button', { class: 'icon-btn danger', textContent: 'Delete', onclick: () => void this.deleteReference(reference.id) }),
-        ]),
-      ]),
-    ]);
-  }
-
-  private dangerCard(personaId: string, name: string): HTMLElement {
-    return el('div', { class: 'persona-card settings-danger-zone' }, [
-      el('h4', { textContent: 'Remove visual identity data' }),
-      el('p', { class: 'meta', textContent: `This permanently deletes ${name}’s stored reference files and cancels active comparisons.` }),
-      el('button', {
-        class: 'pill-btn danger',
-        textContent: `Disable and delete ${name}’s references`,
-        disabled: this.appState.identityBusy,
-        onclick: () => void this.disableIdentity(personaId, name),
-      }),
-    ]);
-  }
-
   private async saveProvider(): Promise<void> {
     const settings = this.appState.identitySettings;
     if (!settings) return;
@@ -407,76 +261,6 @@ export class IdentitySettingsView {
         throw error;
       }
     });
-  }
-
-  private async enableIdentity(personaId: string, name: string): Promise<void> {
-    const confirmed = await this.dialogs.confirm(
-      'Enable persistent visual identity',
-      `Nice Assistant will store reference images you choose for ${name} and may compare generated images with them. For fictional personas, this confirms your right to use the images; it does not claim the persona is a real person giving consent.`,
-      'Enable visual identity',
-    );
-    if (!confirmed) return;
-    await this.run(async () => { this.appState.identityProfiles[personaId] = await this.client.grantIdentityConsent(personaId); });
-  }
-
-  private async disableIdentity(personaId: string, name: string): Promise<void> {
-    const confirmed = await this.dialogs.confirm(
-      'Disable visual identity and delete references',
-      `Permanently delete all stored reference files for ${name} and cancel active comparisons? The activity record remains, but the images cannot be restored.`,
-      'Disable and delete',
-    );
-    if (!confirmed) return;
-    await this.run(async () => { this.appState.identityProfiles[personaId] = await this.client.withdrawIdentityConsent(personaId); });
-  }
-
-  private async uploadReference(personaId: string): Promise<void> {
-    if (!this.selectedFile || !this.attested) {
-      this.appState.settingsError = 'Choose an image and confirm that you have permission to use it.';
-      this.renderApp();
-      return;
-    }
-    await this.run(async () => {
-      await this.client.uploadIdentityReference(personaId, this.selectedFile as File, 'user_upload');
-      this.selectedFile = null;
-      this.attested = false;
-      await this.reloadPersona(personaId);
-    });
-  }
-
-  private async referenceFromMedia(personaId: string, mediaId: string): Promise<void> {
-    if (!this.attested) return;
-    await this.run(async () => {
-      await this.client.identityReferenceFromMedia(personaId, mediaId);
-      this.attested = false;
-      this.mediaPicker.close();
-      await this.reloadPersona(personaId);
-    });
-  }
-
-  private async approveReference(referenceId: string): Promise<void> {
-    const personaId = this.appState.identitySelectedPersonaId;
-    if (!personaId) return;
-    await this.run(async () => { await this.client.approveIdentityReference(referenceId); await this.reloadPersona(personaId); });
-  }
-
-  private async rejectReference(referenceId: string): Promise<void> {
-    const personaId = this.appState.identitySelectedPersonaId;
-    if (!personaId) return;
-    const reason = await this.dialogs.prompt('Reject reference', 'Why is this not a good representation of the persona?', 'Does not represent this persona.');
-    if (reason === null) return;
-    await this.run(async () => { await this.client.rejectIdentityReference(referenceId, reason); await this.reloadPersona(personaId); });
-  }
-
-  private async deleteReference(referenceId: string): Promise<void> {
-    const personaId = this.appState.identitySelectedPersonaId;
-    if (!personaId) return;
-    const confirmed = await this.dialogs.confirm(
-      'Delete reference image',
-      'Permanently delete this stored reference image? The deletion will remain in the activity history.',
-      'Delete image',
-    );
-    if (!confirmed) return;
-    await this.run(async () => { await this.client.deleteIdentityReference(referenceId); await this.reloadPersona(personaId); });
   }
 
   private async validateMedia(personaId: string, mediaId: string): Promise<void> {

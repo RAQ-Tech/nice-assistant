@@ -71,6 +71,8 @@ function setup(enabled = true) {
     visualIdentity: vi.fn().mockResolvedValue(currentProfile),
     identityValidations: vi.fn().mockResolvedValue({ items: [] }),
     identityHistory: vi.fn().mockResolvedValue({ items: [] }),
+    libraryEntries: vi.fn().mockResolvedValue({ items: [] }),
+    mediaPresets: vi.fn().mockResolvedValue({ items: [] }),
     grantIdentityConsent: vi.fn().mockResolvedValue(currentProfile),
     updateVisualIdentity: vi.fn().mockImplementation((_personaId: string, updated: VisualIdentityProfile) => Promise.resolve({ ...updated })),
     mediaUrl: vi.fn((id: string) => `/api/v1/media/${id}`),
@@ -87,43 +89,35 @@ function setup(enabled = true) {
   return { appState, client, dialogs, root, render };
 }
 
-describe('Visual identity settings', () => {
-  it('explains readiness, exposes behavior controls, and keeps provider plumbing advanced', () => {
+describe('Persona Pictures', () => {
+  it('shows the face, the recipes and the kept pictures, and keeps comparison folded', () => {
     const { root } = setup();
     expect(root.textContent).toContain("Everything about a persona's pictures");
-    expect(root.textContent).toContain('ComfyUI needs an identity model plus a bound workflow in Media Catalog');
-    expect(root.textContent).toContain('IPAdapter, InstantID, PuLID, or PhotoMaker');
-    // Readiness reports readiness; the two policy rows that once restated
-    // the dropdowns below are gone, and the policies live only where they
-    // are set.
-    const readinessText = [...root.querySelectorAll('.settings-readiness-row')].map((row) => row.textContent).join(' ');
-    expect(readinessText).not.toContain('When identity control is unavailable');
-    expect(readinessText).not.toContain('When comparison fails');
-    expect(root.textContent).toContain('Identity generation behavior');
-    expect(root.textContent).toContain('Generate and label an unconditioned image');
+    expect(root.querySelector('[data-testid="persona-face"]')).not.toBeNull();
+    expect((root.querySelector('[data-testid="persona-face-switch"]') as HTMLInputElement).checked).toBe(true);
+    expect(root.textContent).toContain('Preferred recipes');
+    expect(root.textContent).toContain('Kept pictures');
     expect(root.textContent).not.toContain('Protected media ID');
-    expect(root.querySelectorAll('.info-tip-trigger').length).toBeGreaterThan(4);
-    expect((root.querySelector('[data-testid="identity-advanced-settings"]') as HTMLDetailsElement).open).toBe(false);
+    // The readiness card is gone; what needs a hand is said by the face itself.
+    expect(root.querySelector('[data-testid="persona-face-hint"]')?.textContent).toContain('Add a photo');
+    const advanced = root.querySelector('[data-testid="identity-advanced-settings"]') as HTMLDetailsElement;
+    expect(advanced.open).toBe(false);
+    expect(advanced.textContent).toContain('Optional identity comparison service');
   });
 
-  it('saves conditioning fallback separately from comparison failure behavior', async () => {
+  it('saves the comparison outcome separately from the face', async () => {
     const { client, root } = setup();
-    const fallbackRow = [...root.querySelectorAll('.setting-row')]
-      .find((row) => row.textContent?.includes('When identity control is unavailable')) as HTMLElement;
-    const fallback = fallbackRow.querySelector('select') as HTMLSelectElement;
-    fallback.value = 'require_conditioning';
-    fallback.dispatchEvent(new Event('change', { bubbles: true }));
     const comparisonRow = [...root.querySelectorAll('.setting-row')]
       .find((row) => row.textContent?.includes('When optional comparison fails')) as HTMLElement;
     const comparison = comparisonRow.querySelector('select') as HTMLSelectElement;
     comparison.value = 'show_unverified';
     comparison.dispatchEvent(new Event('change', { bubbles: true }));
-    (root.querySelector('[data-testid="identity-behavior-save"]') as HTMLButtonElement).click();
+    (root.querySelector('[data-testid="identity-comparison-policy-save"]') as HTMLButtonElement).click();
 
     await vi.waitFor(() => expect(client.updateVisualIdentity).toHaveBeenCalled());
     expect(client.updateVisualIdentity).toHaveBeenCalledWith('nova', expect.objectContaining({
-      conditioning_fallback: 'require_conditioning',
       failure_policy: 'show_unverified',
+      conditioning_fallback: 'allow_unconditioned',
     }));
   });
 
@@ -141,7 +135,7 @@ describe('Visual identity settings', () => {
 
   it('names how the face is produced rather than offering a choice of one', () => {
     const { root } = setup();
-    expect(root.textContent).toContain('Condition generation on the reference image');
+    expect(root.textContent).toContain('From the photo, while the picture is made');
     // This catalog can apply one technique, so there is nothing to choose
     // between and a select would be a control that cannot do anything.
     expect(root.querySelector('[data-testid="identity-mechanism"]')?.tagName).not.toBe('SELECT');
@@ -155,15 +149,7 @@ describe('Visual identity settings', () => {
     const control = root.querySelector('[data-testid="identity-mechanism"]') as HTMLSelectElement;
     expect(control.tagName).toBe('SELECT');
     expect([...control.options].map((option) => option.value)).toEqual(['identity_pass', 'reference_adapter']);
-    expect(root.textContent).toContain('Replace the face after generation');
-  });
-
-  it('turns readiness summaries into direct setup actions', () => {
-    const { root } = setup();
-    expect((root.querySelector('[data-testid="identity-configure-generation"]') as HTMLButtonElement).disabled).toBe(false);
-    (root.querySelector('[data-testid="identity-configure-comparison"]') as HTMLButtonElement).click();
-    expect((root.querySelector('[data-testid="identity-advanced-settings"]') as HTMLDetailsElement).open).toBe(true);
-    expect(root.textContent).toContain('Optional identity comparison service');
+    expect(root.textContent).toContain('Make the picture, then put the face in');
   });
 
   it('selects a generated image through thumbnails instead of requiring a database ID', async () => {
@@ -185,9 +171,12 @@ describe('Visual identity settings', () => {
     await vi.waitFor(() => expect(client.identityReferenceFromMedia).toHaveBeenCalledWith('nova', 'media-1'));
   });
 
-  it('describes fictional-persona rights plainly when visual identity is enabled', async () => {
+  it('describes fictional-persona rights plainly when the face is turned on', async () => {
     const { client, dialogs, root } = setup(false);
-    (root.querySelector('[data-testid="identity-enable"]') as HTMLButtonElement).click();
+    const toggle = root.querySelector('[data-testid="persona-face-switch"]') as HTMLInputElement;
+    expect(toggle.checked).toBe(false);
+    toggle.checked = true;
+    toggle.dispatchEvent(new Event('change'));
     await vi.waitFor(() => expect(dialogs.confirm).toHaveBeenCalled());
     expect(dialogs.confirm.mock.calls[0]?.[1]).toContain('does not claim the persona is a real person giving consent');
     await vi.waitFor(() => expect(client.grantIdentityConsent).toHaveBeenCalledWith('nova'));

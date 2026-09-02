@@ -64,10 +64,13 @@ npm run frontend:e2e
 - `settings_controls.ts` and `settings_ui.ts`: common cards, closed advanced
   disclosure, truthful readiness rows, and the earlier icon-per-row controls
   the pictures pages still use.
+- `persona_face_view.ts`: a persona's face as one switch and the photos, with
+  the machinery shown only when it needs a hand, rendered on the persona page
+  and on Persona Pictures alike.
 - `identity_settings_view.ts`, `identity_settings_components.ts`, and
-  `identity_media_picker.ts`: guided persona reference setup, separate truthful
-  generation/verification readiness, owner-protected thumbnail selection,
-  optional verifier configuration, validation, and audit history.
+  `identity_media_picker.ts`: Persona Pictures around that face - preferred
+  recipes, kept pictures, owner-protected thumbnail selection, and the folded
+  verifier configuration, manual comparison, and audit history.
 - `media.ts`, `recording.ts`, `playback.ts`, and `visualization.ts`: async media
   jobs, push-to-talk transcription, completed-file speech playback, and real
   playback-driven visualization. While an owned conversation turn is queued or
