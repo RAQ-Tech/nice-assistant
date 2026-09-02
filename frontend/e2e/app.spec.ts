@@ -528,7 +528,9 @@ test('everyday settings are sparse pages with help on hover and the rest folded'
   await expect(page).toHaveURL(/#\/settings\/Personas\/persona-1$/);
   await expect(page.getByTestId('persona-page-name')).toHaveValue('Nova');
   await expect(page.getByTestId('persona-save')).toBeDisabled();
-  await expect(page.locator('.page-hint')).toHaveCount(0);
+  // The one line the page says out loud is the face asking for a photo.
+  await expect(page.locator('.page-hint')).toHaveCount(1);
+  await expect(page.locator('.page-hint')).toContainText('Add a photo');
   await page.getByTestId('persona-page-back').click();
   await expect(page).toHaveURL(/#\/settings\/Personas$/);
 });
@@ -617,17 +619,15 @@ test('operator settings are lists of things, each opening a page with the expert
   await expect(page.getByTestId('media-resource-advanced-media-model-1')).not.toHaveAttribute('open', '');
 });
 
-test('visual identity guides reference setup without exposing internal media IDs', async ({ page }) => {
+test('a persona gets a face from its own page, and the rest stays folded', async ({ page }) => {
   await installAuthenticatedFixture(page);
-  await page.goto('/#/settings/Persona%20Pictures');
-  await expect(page.getByRole('heading', { name: 'Persona Pictures' })).toBeVisible();
-  await expect(page.getByText("Everything about a persona's pictures")).toBeVisible();
-  // One surface: references, appearance, and the pictures kept for reuse.
-  await expect(page.getByTestId('library-refresh')).toBeVisible();
-  await expect(page.getByText('Reference-aware generation', { exact: true })).toBeVisible();
-  await expect(page.getByText('ComfyUI needs an identity model plus a bound workflow in Media Catalog', { exact: false })).toBeVisible();
+  await page.goto('/#/settings/Personas/persona-1');
+  await expect(page.getByTestId('persona-page-name')).toHaveValue('Nova');
+  // The face is one switch and a photo; with no photo yet, it says so once.
+  await expect(page.getByTestId('persona-face-switch')).toBeChecked();
+  await expect(page.getByTestId('persona-face-hint')).toContainText('Add a photo');
   await expect(page.getByText('Protected media ID')).toHaveCount(0);
-  await expect(page.getByTestId('identity-advanced-settings')).not.toHaveAttribute('open', '');
+  await expect(page.locator('.info-tip-trigger')).toHaveCount(0);
 
   await page.locator('.identity-attestation input').check();
   await page.getByTestId('identity-reference-gallery-open').click();
@@ -640,6 +640,15 @@ test('visual identity guides reference setup without exposing internal media IDs
   await expect(page.getByRole('dialog', { name: 'Image preview' })).toBeVisible();
   await page.getByRole('button', { name: 'Close preview' }).click();
   await expect(page.getByRole('button', { name: 'Use as reference' })).toBeEnabled();
+
+  // Persona Pictures shows the same face, with the recipes, the kept
+  // pictures, and comparison folded beneath.
+  await page.goto('/#/settings/Persona%20Pictures');
+  await expect(page.getByRole('heading', { name: 'Persona Pictures' })).toBeVisible();
+  await expect(page.getByText("Everything about a persona's pictures")).toBeVisible();
+  await expect(page.getByTestId('persona-face-switch')).toBeChecked();
+  await expect(page.getByTestId('library-refresh')).toBeVisible();
+  await expect(page.getByTestId('identity-advanced-settings')).not.toHaveAttribute('open', '');
 });
 
 test('model video requests remain pending until the user approves them', async ({ page }) => {

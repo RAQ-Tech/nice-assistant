@@ -278,7 +278,8 @@ installed-browser acceptance.
   against, that a retired entry explains the keep limit without implying
   deletion, that forgetting an entry says the picture itself stays, and that an
   empty library says so rather than rendering nothing. The browser journey
-  covers the merged Persona Pictures surface.
+  covers the face on the persona's own page and the merged Persona Pictures
+  surface around it.
 - Persona preset preference tests prove a persona records an ordered preference
   and expresses none until one is set, that a preference wins over the
   deterministic score and says so in the plan, that the task model's own choice

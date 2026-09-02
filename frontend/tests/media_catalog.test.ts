@@ -273,10 +273,12 @@ describe('Media catalog settings', () => {
       required_features: ['identity_control'], block_code: 'identity_reference_unavailable',
     });
 
-    expect(navigate).toHaveBeenCalledWith('Persona Pictures');
+    // The face lives on the persona's own page now, so that is where a
+    // missing or changed reference is fixed.
+    expect(navigate).toHaveBeenCalledWith('Personas', 'nova');
     expect(appState.identitySelectedPersonaId).toBe('nova');
     expect(appState.mediaCatalogIdentitySetupIntent).toBeNull();
-    await vi.waitFor(() => expect(client.visualIdentity).toHaveBeenCalledWith('nova'));
+    expect(client.visualIdentity).not.toHaveBeenCalled();
   });
 
   it('guides identity workflow import, provider inspection, exact binding, and automatic image retry', async () => {

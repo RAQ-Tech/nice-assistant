@@ -2814,3 +2814,49 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
   object-fit: cover;
   margin: -0.2rem 0 -0.2rem -0.25rem;
 }
+
+/* A persona's face: the photos it is drawn from, and the way another arrives. */
+.face-strip { display: flex; flex-wrap: wrap; gap: .75rem; align-items: flex-start; }
+.face-photo { position: relative; display: grid; gap: .3rem; justify-items: center; max-width: 140px; }
+.face-photo-img {
+  width: 96px;
+  height: 96px;
+  border-radius: 14px;
+  object-fit: cover;
+  border: 1px solid var(--border);
+  background: rgba(255, 255, 255, 0.04);
+}
+.face-photo-img.missing { display: grid; place-items: center; color: var(--text-dim); font-size: 1.4rem; }
+.face-photo.pending .face-photo-img { border-color: color-mix(in srgb, #ffc76a 60%, var(--border)); }
+.face-photo.rejected .face-photo-img { opacity: .55; }
+.face-photo-note { font-size: .72rem; color: var(--text-dim); text-align: center; }
+.face-photo-remove {
+  position: absolute;
+  top: -.4rem;
+  right: -.4rem;
+  width: 1.4rem;
+  height: 1.4rem;
+  border-radius: 50%;
+  border: 1px solid var(--border);
+  background: var(--panel-strong, rgba(16, 35, 51, .95));
+  color: var(--text);
+  cursor: pointer;
+  line-height: 1;
+  opacity: 0;
+  transition: opacity .15s ease;
+}
+.face-photo:hover .face-photo-remove,
+.face-photo:focus-within .face-photo-remove { opacity: 1; }
+@media (pointer: coarse) { .face-photo-remove { opacity: 1; } }
+.face-add { display: grid; gap: .4rem; align-content: start; flex: 1 1 220px; min-width: 0; }
+.face-needs {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: .6rem;
+  flex-wrap: wrap;
+  padding: .55rem .7rem;
+  border: 1px solid color-mix(in srgb, #ffc76a 48%, var(--border));
+  border-radius: 10px;
+  background: color-mix(in srgb, #ffc76a 8%, transparent);
+}
