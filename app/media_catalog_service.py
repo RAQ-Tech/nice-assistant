@@ -649,6 +649,9 @@ class MediaCatalogService:
                     installed[row.source_template_id] = row
                 installed_counts[row.source_template_id] = installed_counts.get(row.source_template_id, 0) + 1
             architecture = str(_json(model.default_settings_json, {}).get("architecture") or "") if model else ""
+            # A video model is offered video graphs and a picture model picture
+            # graphs; with no model named, everything is listed.
+            kind = str(model.kind or "") if model else ""
             items = [
                 self._template_entry(
                     template,
@@ -657,8 +660,9 @@ class MediaCatalogService:
                     installed_counts.get(template["id"], 0),
                 )
                 for template in available_templates()
+                if not kind or template["kind"] == kind
             ]
-        return {"model_id": model_id, "model_architecture": architecture, "templates": items}
+        return {"model_id": model_id, "model_kind": kind, "model_architecture": architecture, "templates": items}
 
     @staticmethod
     def _template_entry(template: dict, existing, architecture: str, installed_count: int = 0) -> dict:
@@ -670,6 +674,7 @@ class MediaCatalogService:
             "name": template["name"],
             "template_version": template["template_version"],
             "summary": template["summary"],
+            "kind": template["kind"],
             "mechanism": template["mechanism"],
             "architectures": template["architectures"],
             "required_assets": template["required_assets"],
@@ -700,6 +705,13 @@ class MediaCatalogService:
                 raise NotFoundError("media catalog model not found")
             if model.backend != "comfyui":
                 raise RequestError("workflow templates are ComfyUI graphs, so they need a ComfyUI model", 400)
+            if template["kind"] != model.kind:
+                makes = {"image": "pictures", "video": "video clips"}
+                raise RequestError(
+                    f"'{template['name']}' makes {makes.get(template['kind'], template['kind'])}, "
+                    f"and this model makes {makes.get(model.kind, model.kind)}",
+                    400,
+                )
             architecture = str(_json(model.default_settings_json, {}).get("architecture") or "")
             if architecture and architecture not in template["architectures"]:
                 raise RequestError(

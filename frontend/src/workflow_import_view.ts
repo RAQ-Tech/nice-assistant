@@ -3,6 +3,7 @@ import { el, errorMessage } from './dom';
 import { inputField, textareaField } from './settings_controls';
 import { settingsCard, settingsHeading } from './settings_ui';
 import type { AppState, IdentityWorkflowInspection, MediaCatalogResource } from './types';
+import type { VideoTemplateOffer } from './video_template_offer';
 
 interface PendingImport {
   name: string;
@@ -39,6 +40,9 @@ export class WorkflowImportView {
     private readonly client: ApiClient,
     private readonly renderApp: () => void,
     private readonly refreshCatalog: () => Promise<void>,
+    // The shipped video graph, offered before the paste box: for video, a
+    // known-good workflow is the way in and pasting your own is the fallback.
+    private readonly videoTemplates: VideoTemplateOffer | null = null,
   ) {}
 
   node(models: MediaCatalogResource[]): HTMLElement {
@@ -65,6 +69,7 @@ export class WorkflowImportView {
           el('option', { value: 'video', selected: this.kind === 'video', textContent: 'Video clips' }),
         ]),
       ]),
+      ...(this.kind === 'video' && this.videoTemplates ? this.videoTemplates.nodes(comfyModels) : []),
       textareaField('Workflow JSON (API format)', this.raw, (value) => { this.raw = value; }, false,
         'The pasted graph is checked against ComfyUI before it is saved; nothing runs during the check.'),
       el('div', { class: 'chips' }, [

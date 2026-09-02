@@ -16,6 +16,10 @@ it cannot see. An identity model loaded behind a device selector rather than a
 named input is invisible to `/object_info`, so a template states what it needs in
 plain language instead of implying it was verified.
 
+A template also says what it makes. The identity graphs make pictures and are
+offered to image models; the Wan 2.2 graph makes video clips, declares no
+identity mechanism, and is offered to video models only.
+
 This is a sibling of `app/preset_bundle.py`, not an extension of it. A bundle
 deliberately cannot carry a graph: it is the operator-to-operator import path,
 where accepting one would mean running a stranger's graph on your machine.
@@ -46,8 +50,14 @@ MODEL_ARCHITECTURES = (
     "sd3",
     "flux",
     "chroma",
+    "wan",
     "other",
 )
+
+# What a template makes. A video graph is offered to video models and an image
+# graph to image models - the same choice the import card's "This workflow
+# makes" puts to a person.
+TEMPLATE_KINDS = ("image", "video")
 
 BINDING_ROLES = (
     "prompt_bindings",
@@ -67,6 +77,7 @@ _ALLOWED_FIELDS = {
     "name",
     "template_version",
     "summary",
+    "kind",
     "mechanism",
     "architectures",
     "operations",
@@ -109,9 +120,18 @@ def normalize_template(values) -> dict:
     identifier = _text(values.get("id"), "id", limit=64).casefold()
     if not identifier or set(identifier) - set(_SLUG):
         raise RequestError("workflow template id must be a lowercase slug", 500)
+    kind = _text(values.get("kind") or "image", "kind", limit=16)
+    if kind not in TEMPLATE_KINDS:
+        raise RequestError(f"workflow template '{identifier}' declares an unknown kind", 500)
     mechanism = _text(values.get("mechanism"), "mechanism", limit=64)
-    if mechanism not in CONDITIONING_MECHANISMS:
+    if kind == "image" and mechanism not in CONDITIONING_MECHANISMS:
         raise RequestError(f"workflow template '{identifier}' declares an unknown mechanism", 500)
+    if kind == "video" and mechanism:
+        # A clip has no face to condition; a video graph claiming an identity
+        # mechanism would be offered where it cannot deliver.
+        raise RequestError(
+            f"workflow template '{identifier}' makes video and cannot declare an identity mechanism", 500
+        )
     architectures = _strings(values.get("architectures"), "architectures", limit=32, count=16)
     unsupported = sorted(set(architectures) - set(MODEL_ARCHITECTURES))
     if not architectures or unsupported:
@@ -128,7 +148,8 @@ def normalize_template(values) -> dict:
         "name": _text(values.get("name"), "name", limit=120) or identifier,
         "template_version": max(1, int(values.get("template_version") or 1)),
         "summary": _text(values.get("summary"), "summary", limit=2000),
-        "mechanism": mechanism,
+        "kind": kind,
+        "mechanism": mechanism or None,
         "architectures": architectures,
         "operations": _strings(values.get("operations") or ["generate"], "operations", limit=32, count=8),
         "features": _strings(values.get("features") or [], "features", limit=64, count=16),

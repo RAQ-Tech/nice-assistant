@@ -123,9 +123,17 @@ collected from every collection ComfyUI reports (`videos`, `gifs`, `images`)
 and a real container wins over an animated fallback.
 
 Workflows arrive through the same import card as image workflows - a "This
-workflow makes" choice sets the kind. A shipped Wan template is deliberately
-deferred: authoring one honestly requires verifying its node names against a
-live `/object_info`, and is tracked in `BACKLOG.md`.
+workflow makes" choice sets the kind - and for video the card leads with the
+shipped Wan 2.2 template: a text-to-video graph for the 5B model, its node IDs
+fixed and its prompt, negative, seed and model bindings declared by
+construction. Its node names come from ComfyUI's own source, where the Wan 2.2
+and video nodes live, and checking it asks the live `/object_info` whether
+they and the three files it names - the model, the text encoder and the VAE -
+are installed, offering the files ComfyUI does have where one is missing. The
+graph carries its size, 1280 by 704 and 121 frames at 24 frames a second,
+because the model was trained at it, so the request's picture size is not
+bound into it. Nothing here has rendered a clip on the deployment; the first
+one is the live test, and it is tracked in `BACKLOG.md`.
 
 ## Resource metadata
 
@@ -705,6 +713,12 @@ workflow resource paired with a chosen catalog model, so the graph takes that
 model through its checkpoint binding rather than the placeholder name inside the
 shipped file.
 
+A template also says what it makes - pictures or video clips - and is offered
+only to models of that kind, the same choice the import card puts to a person.
+A video template declares no identity mechanism, is refused if it claims one,
+and is checked for its nodes, its files and a place for the prompt rather than
+for a reference path it could not have.
+
 Inspection changes role. For an imported graph it is discovery - which inputs
 could receive what. For a template it is verification: are these node types
 installed, and are the files these nodes name present? What it cannot see is
@@ -725,7 +739,7 @@ not been. The first requested persona image is still the live test, exactly as
 it is for a workflow an operator imported themselves.
 
 A model resource may declare its `architecture` - `sd15`, `sdxl`, `pony`,
-`illustrious`, `sd3`, `flux`, `chroma`, or `other`. It is declared, never
+`illustrious`, `sd3`, `flux`, `chroma`, `wan`, or `other`. It is declared, never
 sniffed: the application has no access to the models directory, and
 `/object_info` reports the filenames a provider has rather than what is inside
 them. It matters because an identity adapter is trained against one text

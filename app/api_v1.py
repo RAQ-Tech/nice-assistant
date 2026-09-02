@@ -652,7 +652,8 @@ class WorkflowTemplateRepresentation(BaseModel):
     name: str
     template_version: int
     summary: str
-    mechanism: str
+    kind: str = "image"
+    mechanism: str | None = None
     architectures: list[str]
     required_assets: list[str]
     required_prompt_token: str
@@ -665,6 +666,7 @@ class WorkflowTemplateRepresentation(BaseModel):
 
 class WorkflowTemplateListResponse(BaseModel):
     model_id: str
+    model_kind: str = ""
     model_architecture: str
     templates: list[WorkflowTemplateRepresentation]
 
@@ -1827,7 +1829,11 @@ def verify_workflow_template(
     # Verification, not discovery: the bindings are already declared, so the
     # only open question is whether these nodes and named files are installed.
     template = resolve_template(template_id)
-    return services(request).provider_service.inspect_comfyui_workflow(context.user_id, template["workflow"])
+    # An identity graph must route the reference to an output; a video graph is
+    # asked only whether its nodes and files exist and the prompt can land.
+    return services(request).provider_service.inspect_comfyui_workflow(
+        context.user_id, template["workflow"], require_identity=template["kind"] == "image"
+    )
 
 
 @router.post(

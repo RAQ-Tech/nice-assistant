@@ -4,6 +4,8 @@ import { CatalogModelsView } from './catalog_models_view';
 import { IdentityWorkflowSetupView } from './identity_workflow_setup_view';
 import { ModelPageView } from './model_page_view';
 import { WorkflowImportView } from './workflow_import_view';
+import { VideoTemplateOffer } from './video_template_offer';
+import { WorkflowTemplateView } from './workflow_template_view';
 import { PresetSettingsView } from './preset_settings_view';
 import { RoutingTesterView } from './routing_tester_view';
 import { StarterPresetsView } from './starter_presets_view';
@@ -76,7 +78,13 @@ export class MediaCatalogSettingsView {
       this.modelPage.open(modelId);
       renderApp();
     });
-    this.importView = new WorkflowImportView(appState, client, renderApp, () => this.refresh());
+    this.importView = new WorkflowImportView(
+      appState,
+      client,
+      renderApp,
+      () => this.refresh(),
+      new VideoTemplateOffer(new WorkflowTemplateView(renderApp, appState, client, () => this.refresh(), dialogs), renderApp),
+    );
     this.modelPage = new ModelPageView(appState, client, renderApp, dialogs, () => this.refresh());
   }
 

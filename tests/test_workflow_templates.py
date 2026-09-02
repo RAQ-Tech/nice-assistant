@@ -34,7 +34,12 @@ class ShippedTemplateTests(unittest.TestCase):
 
         self.assertTrue(templates)
         for template in templates:
-            self.assertIn(template["mechanism"], ("reference_adapter", "identity_pass"))
+            self.assertIn(template["kind"], ("image", "video"))
+            if template["kind"] == "image":
+                self.assertIn(template["mechanism"], ("reference_adapter", "identity_pass"))
+            else:
+                # A clip has no face to condition.
+                self.assertIsNone(template["mechanism"])
             self.assertTrue(set(template["architectures"]) <= set(MODEL_ARCHITECTURES))
             self.assertTrue(template["summary"], template["id"])
             self.assertTrue(template["required_assets"], template["id"])
@@ -45,8 +50,15 @@ class ShippedTemplateTests(unittest.TestCase):
             # Validated by the same code that validates an operator's own
             # bindings, so a template cannot ship something a person could not
             # have saved by hand.
-            normalized = MediaCatalogService._normalize_default_settings("workflow", "local-image", "comfyui", settings)
-            self.assertTrue(normalized["identity_image_bindings"], template["id"])
+            provider = "local-video" if template["kind"] == "video" else "local-image"
+            normalized = MediaCatalogService._normalize_default_settings("workflow", provider, "comfyui", settings)
+            if template["kind"] == "video":
+                # A clip is made from the prompt and the paired model; there is
+                # no reference to receive.
+                self.assertFalse(normalized.get("identity_image_bindings"), template["id"])
+                self.assertTrue(normalized["checkpoint_bindings"], template["id"])
+            else:
+                self.assertTrue(normalized["identity_image_bindings"], template["id"])
             # A graph that renders from a prompt must be able to receive the
             # request. One that only changes a picture it is handed says so,
             # and binding a prompt into its face-index widget would be worse
@@ -60,7 +72,7 @@ class ShippedTemplateTests(unittest.TestCase):
     def test_a_reference_binding_targets_the_node_that_loads_the_image(self):
         for template in available_templates():
             graph = template["workflow"]
-            for binding in template["bindings"]["identity_image_bindings"]:
+            for binding in template["bindings"].get("identity_image_bindings", []):
                 node = graph[binding["node_id"]]
                 # The executor writes an uploaded filename, which only means
                 # something on a loader. Writing it into the identity node's
@@ -322,6 +334,248 @@ class TemplateInstallTests(ModelFixture, unittest.TestCase):
             missing = running.client.post("/api/v1/media-catalog/workflow-templates/nope/verify")
 
             self.assertEqual(missing.status_code, 404, missing.text)
+
+
+# A ComfyUI that has every node the Wan graph needs - they ship with ComfyUI -
+# but has downloaded a different quantisation of the model than the one the
+# template names. What the check must say is the file, and what it has instead.
+def _combo(*values):
+    return [list(values)]
+
+
+WAN_OBJECT_INFO = {
+    "UNETLoader": {
+        "input": {
+            "required": {
+                "unet_name": _combo("wan2.2_ti2v_5B_fp8.safetensors"),
+                "weight_dtype": _combo("default", "fp8_e4m3fn"),
+            }
+        },
+        "output": ["MODEL"],
+    },
+    "CLIPLoader": {
+        "input": {
+            "required": {
+                "clip_name": _combo("umt5_xxl_fp8_e4m3fn_scaled.safetensors"),
+                "type": _combo("stable_diffusion", "wan"),
+            },
+            "optional": {"device": _combo("default", "cpu")},
+        },
+        "output": ["CLIP"],
+    },
+    "VAELoader": {
+        "input": {"required": {"vae_name": _combo("wan2.2_vae.safetensors")}},
+        "output": ["VAE"],
+    },
+    "ModelSamplingSD3": {
+        "input": {"required": {"model": ["MODEL"], "shift": ["FLOAT", {"default": 3.0}]}},
+        "output": ["MODEL"],
+    },
+    "CLIPTextEncode": {
+        "input": {"required": {"text": ["STRING", {"multiline": True}], "clip": ["CLIP"]}},
+        "output": ["CONDITIONING"],
+    },
+    "Wan22ImageToVideoLatent": {
+        "input": {
+            "required": {
+                "vae": ["VAE"],
+                "width": ["INT", {"default": 1280}],
+                "height": ["INT", {"default": 704}],
+                "length": ["INT", {"default": 49}],
+                "batch_size": ["INT", {"default": 1}],
+            },
+            "optional": {"start_image": ["IMAGE"]},
+        },
+        "output": ["LATENT"],
+    },
+    "KSampler": {
+        "input": {
+            "required": {
+                "model": ["MODEL"],
+                "seed": ["INT", {"default": 0}],
+                "steps": ["INT", {"default": 20}],
+                "cfg": ["FLOAT", {"default": 8.0}],
+                "sampler_name": _combo("uni_pc", "euler"),
+                "scheduler": _combo("simple", "normal"),
+                "positive": ["CONDITIONING"],
+                "negative": ["CONDITIONING"],
+                "latent_image": ["LATENT"],
+                "denoise": ["FLOAT", {"default": 1.0}],
+            }
+        },
+        "output": ["LATENT"],
+    },
+    "VAEDecode": {
+        "input": {"required": {"samples": ["LATENT"], "vae": ["VAE"]}},
+        "output": ["IMAGE"],
+    },
+    "CreateVideo": {
+        "input": {
+            "required": {"images": ["IMAGE"], "fps": ["FLOAT", {"default": 30.0}]},
+            "optional": {"audio": ["AUDIO"]},
+        },
+        "output": ["VIDEO"],
+    },
+    "SaveVideo": {
+        "input": {
+            "required": {
+                "video": ["VIDEO"],
+                "filename_prefix": ["STRING", {"default": "video/ComfyUI"}],
+                "format": _combo("auto", "mp4"),
+            },
+            "optional": {"codec": _combo("auto", "h264")},
+        },
+        "output": [],
+        "output_node": True,
+    },
+}
+
+
+class VideoTemplateTests(ModelFixture, unittest.TestCase):
+    """The shipped Wan 2.2 graph: a clip from the prompt, offered to video models only."""
+
+    def _video_model(self, running) -> dict:
+        created = running.client.post(
+            "/api/v1/media-catalog/resources",
+            json={
+                "resource_type": "model",
+                "kind": "video",
+                "name": "Wan 2.2 5B",
+                "provider_key": "local-video",
+                "backend": "comfyui",
+                "external_id": "wan2.2_ti2v_5B_fp16.safetensors",
+                "operations": ["generate"],
+                "default_settings": {"architecture": "wan"},
+            },
+        )
+        assert created.status_code == 201, created.text
+        return created.json()
+
+    def test_the_graph_is_bound_by_construction_and_carries_its_own_size(self):
+        template = resolve_template("wan22-ti2v-5b")
+
+        self.assertEqual(template["kind"], "video")
+        self.assertIsNone(template["mechanism"])
+        self.assertEqual(template["features"], ["text_to_video"])
+        self.assertEqual(template["architectures"], ["wan"])
+        bindings = template["bindings"]
+        graph = template["workflow"]
+        for role in ("prompt_bindings", "negative_prompt_bindings", "seed_bindings", "checkpoint_bindings"):
+            self.assertTrue(bindings[role], role)
+        # The paired model lands on the diffusion-model loader, which is what
+        # `unet_name` is to a Wan graph.
+        checkpoint = bindings["checkpoint_bindings"][0]
+        self.assertEqual(graph[checkpoint["node_id"]]["class_type"], "UNETLoader")
+        self.assertEqual(checkpoint["input_name"], "unet_name")
+        for role in ("prompt_bindings", "negative_prompt_bindings"):
+            self.assertEqual(graph[bindings[role][0]["node_id"]]["class_type"], "CLIPTextEncode")
+        # Size and length are the model's own and are deliberately not bound:
+        # the request's picture size is not a clip size.
+        latent = next(node for node in graph.values() if node["class_type"] == "Wan22ImageToVideoLatent")
+        self.assertEqual(
+            (latent["inputs"]["width"], latent["inputs"]["height"], latent["inputs"]["length"]),
+            (1280, 704, 121),
+        )
+        self.assertNotIn("width_bindings", bindings)
+        self.assertTrue(any(node["class_type"] == "SaveVideo" for node in graph.values()))
+
+    def test_a_video_graph_may_not_claim_an_identity_mechanism(self):
+        base = json.loads(Path("assets/workflow-templates/wan22-ti2v-5b.json").read_text(encoding="utf-8"))
+        with self.assertRaises(RequestError) as raised:
+            normalize_template({**base, "mechanism": "reference_adapter"})
+        self.assertIn("video", str(raised.exception))
+        with self.assertRaises(RequestError):
+            normalize_template({**base, "kind": "clip"})
+
+    def test_video_graphs_are_offered_to_video_models_and_picture_graphs_to_picture_models(self):
+        with tempfile.TemporaryDirectory() as tmp, TestApp(Path(tmp)) as running:
+            running.create_and_login()
+            picture = self._model(running, "sdxl")
+            video = self._video_model(running)
+            for_picture = running.client.get(
+                "/api/v1/media-catalog/workflow-templates", params={"model_id": picture["id"]}
+            ).json()
+            for_video = running.client.get(
+                "/api/v1/media-catalog/workflow-templates", params={"model_id": video["id"]}
+            ).json()
+
+            self.assertEqual(for_picture["model_kind"], "image")
+            self.assertNotIn("wan22-ti2v-5b", {item["id"] for item in for_picture["templates"]})
+            self.assertEqual(for_video["model_kind"], "video")
+            self.assertEqual([item["id"] for item in for_video["templates"]], ["wan22-ti2v-5b"])
+            self.assertTrue(for_video["templates"][0]["architecture_matches"])
+            self.assertIsNone(for_video["templates"][0]["mechanism"])
+
+    def test_a_graph_is_refused_for_a_model_that_makes_something_else(self):
+        with tempfile.TemporaryDirectory() as tmp, TestApp(Path(tmp)) as running:
+            running.create_and_login()
+            picture = self._model(running, "sdxl")
+            video = self._video_model(running)
+            clip_on_picture = running.client.post(
+                "/api/v1/media-catalog/workflow-templates/wan22-ti2v-5b/installations",
+                json={"model_id": picture["id"]},
+            )
+            picture_on_clip = running.client.post(
+                "/api/v1/media-catalog/workflow-templates/photomaker-v2-sdxl/installations",
+                json={"model_id": video["id"]},
+            )
+
+            self.assertEqual(clip_on_picture.status_code, 400, clip_on_picture.text)
+            self.assertIn("video clips", clip_on_picture.text)
+            self.assertEqual(picture_on_clip.status_code, 400, picture_on_clip.text)
+            self.assertIn("pictures", picture_on_clip.text)
+
+    def test_installing_pairs_the_clip_graph_with_the_video_model(self):
+        with tempfile.TemporaryDirectory() as tmp, TestApp(Path(tmp)) as running:
+            running.create_and_login()
+            video = self._video_model(running)
+            created = running.client.post(
+                "/api/v1/media-catalog/workflow-templates/wan22-ti2v-5b/installations",
+                json={"model_id": video["id"]},
+            )
+
+            self.assertEqual(created.status_code, 201, created.text)
+            resource = created.json()
+            self.assertEqual(resource["kind"], "video")
+            self.assertEqual(resource["provider_key"], "local-video")
+            self.assertEqual(resource["features"], ["text_to_video"])
+            self.assertEqual(resource["compatible_model_ids"], [video["id"]])
+            settings = resource["default_settings"]
+            self.assertEqual(settings["checkpoint_bindings"][0]["input_name"], "unet_name")
+            self.assertTrue(settings["prompt_bindings"])
+            self.assertFalse(settings.get("identity_image_bindings"))
+            self.assertIn("not been generation-tested here", resource["notes"])
+
+    def test_verification_names_the_model_this_comfyui_has_not_downloaded(self):
+        def object_info(request, timeout=0):
+            if request.full_url.endswith("/object_info"):
+                return Response(WAN_OBJECT_INFO)
+            raise AssertionError(request.full_url)
+
+        with tempfile.TemporaryDirectory() as tmp, TestApp(Path(tmp)) as running:
+            running.create_and_login()
+            running.client.put(
+                "/api/v1/settings",
+                json={"preferences": {"image_provider": "local", "image_local_backend": "comfyui"}},
+            )
+            with mock.patch("app.providers.urllib.request.urlopen", side_effect=object_info):
+                verified = running.client.post("/api/v1/media-catalog/workflow-templates/wan22-ti2v-5b/verify")
+
+            self.assertEqual(verified.status_code, 200, verified.text)
+            body = verified.json()
+            # Every node type is installed - they ship with ComfyUI - so the
+            # answer is about the files: the one that is missing, by name, and
+            # the files ComfyUI does have for that input.
+            self.assertEqual(body["missing_node_types"], [])
+            missing = [item for item in body["asset_checks"] if not item["available"]]
+            self.assertEqual(
+                [(item["node_type"], item["input_name"], item["value"]) for item in missing],
+                [("UNETLoader", "unet_name", "wan2.2_ti2v_5B_fp16.safetensors")],
+            )
+            self.assertEqual(missing[0]["options"], ["wan2.2_ti2v_5B_fp8.safetensors"])
+            self.assertFalse(body["provider_compatible"])
+            # A video graph is never asked for an identity path.
+            self.assertNotIn("reference-conditioned", body["message"])
 
 
 if __name__ == "__main__":
