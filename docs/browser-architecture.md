@@ -40,23 +40,30 @@ npm run frontend:e2e
 - `capabilities.ts`: compact durable media state, video approval/denial, image
   retry, progress polling, cancellation, and protected result rendering.
 - `settings.ts` and `settings_view.ts`: canonical settings envelope,
-  normalization, Memory v2 review, personas, workspaces, explicit memory bulk
-  actions, and composition of focused settings views.
-- `everyday_settings_view.ts`: goal-oriented General, speech, media-default, and
-  User screens without provider workflow ownership.
-- `model_settings_view.ts`: effective conversation-model state, common sampling
-  defaults, closed expert controls, and per-model runtime overrides.
-- `task_model_settings_view.ts` and `media_catalog_settings_view.ts`: durable
-  platform-role and media-resource editors, refresh conflict protection,
-  readiness checks, plan previews, and content-free audits.
+  normalization, memory review with explicit bulk actions, workspaces, the
+  section-and-item route, and composition of the focused settings views.
+- `settings_page.ts`: the one-page-per-thing shell - back and neighbour
+  arrows, the headline, chips that open a page, fields whose help waits on
+  hover, the single visible hint, and the leave guard.
+- `persona_page_view.ts`: the persona list and one page per persona,
+  composing the character card and lorebook editors and saving itself.
+- `everyday_settings_view.ts`: General, Spoken replies, Transcription and Your
+  profile as sparse pages; the pictures pages in the earlier shape.
+- `model_settings_view.ts`: the conversation models Ollama reports as a list,
+  the shared defaults, and one page per model whose numbers say whether they
+  are customized.
+- `task_model_settings_view.ts` and `media_catalog_settings_view.ts`: the
+  background roles as a list with one page each, and the media-resource
+  editors, with refresh conflict protection, readiness checks, plan previews,
+  and content-free audits.
 - `operations_settings_view.ts`: administrator-only GPU coordination and backup
   operations, including explicit provider-control authorization and restore
   verification.
 - `settings_contracts.ts`: the small dialog boundary shared by focused settings
   views without coupling them back to the application shell.
-- `settings_controls.ts` and `settings_ui.ts`: accessible label/control wiring,
-  common cards, closed advanced disclosure, truthful readiness rows, and
-  information tips revealed by pointer hover or keyboard focus.
+- `settings_controls.ts` and `settings_ui.ts`: common cards, closed advanced
+  disclosure, truthful readiness rows, and the earlier icon-per-row controls
+  the pictures pages still use.
 - `identity_settings_view.ts`, `identity_settings_components.ts`, and
   `identity_media_picker.ts`: guided persona reference setup, separate truthful
   generation/verification readiness, owner-protected thumbnail selection,

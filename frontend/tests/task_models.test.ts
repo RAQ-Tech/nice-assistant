@@ -31,65 +31,80 @@ const dialogs = {
   info: vi.fn(),
 } as unknown as Dialogs;
 
-describe('Task model settings', () => {
-  it('renders separate role controls and saves the selected task model', async () => {
-    const appState = createState();
-    appState.settings = normalizeSettings({
-      global_default_model: null,
-      default_memory_mode: 'saved',
-      stt_provider: 'disabled',
-      tts_provider: 'local',
-      tts_format: 'wav',
-      openai_api_key: null,
-      onboarding_done: true,
-      preferences: {},
-    });
+function configuredState() {
+  const appState = createState();
+  appState.settings = normalizeSettings({
+    global_default_model: null,
+    default_memory_mode: 'saved',
+    stt_provider: 'disabled',
+    tts_provider: 'local',
+    tts_format: 'wav',
+    openai_api_key: null,
+    onboarding_done: true,
+    preferences: {},
+  });
+  return appState;
+}
+
+const readiness = {
+  role: 'title_generation',
+  ready: true,
+  status: 'ready',
+  message: 'Task model is ready.',
+  primary_ready: true,
+  fallback_ready: false,
+  effective_model: 'task-model',
+  fallback_effective_model: null,
+};
+
+describe('background models', () => {
+  it('lists the roles, and a role page saves its own model', async () => {
+    const appState = configuredState();
     appState.settingsSection = 'Task Models';
     appState.models = ['persona-model', 'task-model'];
-    appState.taskModels = [profile()];
+    appState.taskModels = [profile(), profile('capability_planning')];
     const updated = { ...profile(), model: 'task-model' };
     const client = {
       updateTaskModel: vi.fn().mockResolvedValue(updated),
-      checkTaskModel: vi.fn().mockResolvedValue({
-        role: 'title_generation',
-        ready: true,
-        status: 'ready',
-        message: 'Task model is ready.',
-        primary_ready: true,
-        fallback_ready: false,
-        effective_model: 'task-model',
-        fallback_effective_model: null,
-      }),
+      checkTaskModel: vi.fn().mockResolvedValue(readiness),
     } as unknown as ApiClient;
     const view = new SettingsView(vi.fn(), vi.fn(), dialogs, appState, client);
-    const node = view.node();
+    const list = view.node();
 
-    expect(node.textContent).toContain('separate from persona behavior');
-    expect(node.textContent).toContain('workflows, LoRAs, and identity controls');
-    const modelSelect = [...node.querySelectorAll('select')].find((select) =>
-      select.parentElement?.textContent?.includes('Primary model'),
-    ) as HTMLSelectElement;
+    expect(list.querySelectorAll('.thing-open')).toHaveLength(2);
+    expect(list.textContent).toContain('never by the persona’s own model');
+    expect(list.querySelectorAll('.info-tip-trigger')).toHaveLength(0);
+    (list.querySelector('[data-testid="task-model-title_generation"]') as HTMLButtonElement).click();
+    expect(appState.settingsItem).toBe('title_generation');
+
+    const page = view.node();
+    expect(page.querySelector('[data-testid="task-model-page-name"]')?.textContent).toBe('Chat titles');
+    const modelSelect = page.querySelector('[data-testid="task-model-model-title_generation"]') as HTMLSelectElement;
+    expect([...modelSelect.options][0]?.textContent).toContain('Automatic');
     modelSelect.value = 'task-model';
     modelSelect.dispatchEvent(new Event('change'));
-    (node.querySelector('[data-testid="task-model-save-title_generation"]') as HTMLButtonElement).click();
+    (view.node().querySelector('[data-testid="task-model-save-title_generation"]') as HTMLButtonElement).click();
     await new Promise((resolve) => window.setTimeout(resolve, 0));
 
     expect(client.updateTaskModel).toHaveBeenCalledWith(expect.objectContaining({ model: 'task-model' }));
     expect(appState.taskModelChecks.title_generation?.ready).toBe(true);
+    expect(view.node().textContent).toContain('Ready: Task model is ready.');
+  });
+
+  it('says what capability planning decides, and what it leaves to the media coordinator', () => {
+    const appState = configuredState();
+    appState.settingsSection = 'Task Models';
+    appState.settingsItem = 'capability_planning';
+    appState.taskModels = [profile('capability_planning')];
+    const node = new SettingsView(vi.fn(), vi.fn(), dialogs, appState, {} as ApiClient).node();
+
+    expect(node.textContent).toContain('media coordinator');
+    expect(node.querySelectorAll('.page-hint').length).toBeLessThanOrEqual(1);
+    expect((node.querySelector('[data-testid="task-model-advanced-capability_planning"]') as HTMLDetailsElement).open).toBe(false);
   });
 
   it('preserves an unsaved model choice when a late refresh completes', async () => {
-    const appState = createState();
-    appState.settings = normalizeSettings({
-      global_default_model: null,
-      default_memory_mode: 'saved',
-      stt_provider: 'disabled',
-      tts_provider: 'local',
-      tts_format: 'wav',
-      openai_api_key: null,
-      onboarding_done: true,
-      preferences: {},
-    });
+    const appState = configuredState();
     appState.settingsSection = 'General';
     appState.models = ['task-model'];
     appState.taskModels = [profile()];
@@ -102,24 +117,13 @@ describe('Task model settings', () => {
       taskModels: vi.fn().mockReturnValue(pendingRefresh),
       taskModelRuns: vi.fn().mockResolvedValue({ items: [] }),
       updateTaskModel: vi.fn().mockResolvedValue(updated),
-      checkTaskModel: vi.fn().mockResolvedValue({
-        role: 'title_generation',
-        ready: true,
-        status: 'ready',
-        message: 'Task model is ready.',
-        primary_ready: true,
-        fallback_ready: false,
-        effective_model: 'task-model',
-        fallback_effective_model: null,
-      }),
+      checkTaskModel: vi.fn().mockResolvedValue(readiness),
     } as unknown as ApiClient;
     const view = new SettingsView(vi.fn(), vi.fn(), dialogs, appState, client);
 
     (view.node().querySelector('[data-testid="settings-nav-task-models"]') as HTMLButtonElement).click();
-    const taskModelNode = view.node();
-    const modelSelect = [...taskModelNode.querySelectorAll('select')].find((select) =>
-      select.parentElement?.textContent?.includes('Primary model'),
-    ) as HTMLSelectElement;
+    (view.node().querySelector('[data-testid="task-model-title_generation"]') as HTMLButtonElement).click();
+    const modelSelect = view.node().querySelector('[data-testid="task-model-model-title_generation"]') as HTMLSelectElement;
     modelSelect.value = 'task-model';
     modelSelect.dispatchEvent(new Event('change'));
     finishRefresh({ items: [profile()] });
@@ -133,17 +137,7 @@ describe('Task model settings', () => {
   });
 
   it('shows content-free task run diagnostics without rendering prompt or result fields', () => {
-    const appState = createState();
-    appState.settings = normalizeSettings({
-      global_default_model: null,
-      default_memory_mode: 'saved',
-      stt_provider: 'disabled',
-      tts_provider: 'disabled',
-      tts_format: 'wav',
-      openai_api_key: null,
-      onboarding_done: true,
-      preferences: {},
-    });
+    const appState = configuredState();
     appState.settingsSection = 'Task Models';
     appState.taskModels = [profile('capability_planning')];
     appState.taskModelRuns = [{
@@ -166,7 +160,7 @@ describe('Task model settings', () => {
       completed_at: 2,
     }];
     const node = new SettingsView(vi.fn(), vi.fn(), dialogs, appState, {} as ApiClient).node();
-    expect(node.textContent).toContain('Prompts and generated task output are not stored');
+    expect(node.textContent).toContain('Prompts and answers are never stored');
     expect(node.textContent).toContain('42 ms');
     expect(node.textContent).not.toContain('Show me a portrait');
   });

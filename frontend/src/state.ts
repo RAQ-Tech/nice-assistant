@@ -53,6 +53,7 @@ export function createState(): AppState {
     showJumpBottom: false,
     showSettings: false,
     settingsSection: 'General',
+    settingsItem: null,
     modal: null,
     generationLog: null,
     routingPreview: null,

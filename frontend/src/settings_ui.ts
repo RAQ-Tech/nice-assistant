@@ -24,8 +24,8 @@ export function settingsHeading(title: string, help: string, level: 'h4' | 'stro
   ]);
 }
 
-export function settingsCard(children: Child[], className = ''): HTMLElement {
-  return el('div', { class: `persona-card settings-card ${className}`.trim() }, children);
+export function settingsCard(children: Child[], className = '', testId?: string): HTMLElement {
+  return el('div', { class: `persona-card settings-card ${className}`.trim(), 'data-testid': testId }, children);
 }
 
 export function operatorEditor(

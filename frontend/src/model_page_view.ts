@@ -270,7 +270,7 @@ export class ModelPageView {
     const index = models.findIndex((item) => item.id === model.id);
     const family = this.prefill?.family_label;
     return el('div', { class: 'model-page', 'data-testid': 'model-page' }, [
-      el('div', { class: 'model-page-nav' }, [
+      el('div', { class: 'page-nav' }, [
         el('button', { class: 'pill-btn', textContent: '‹ All models', 'data-testid': 'model-page-back', onclick: () => void this.close(done) }),
         el('div', { class: 'chips' }, [
           el('button', { class: 'pill-btn', textContent: '‹ Previous', disabled: index <= 0 || this.busy, 'data-testid': 'model-page-previous', onclick: () => void this.step(-1) }),
@@ -278,18 +278,18 @@ export class ModelPageView {
         ]),
       ]),
       !edit ? el('p', { class: 'meta', textContent: 'Opening…' }) : settingsCard([
-        el('div', { class: 'model-page-head' }, [
+        el('div', { class: 'page-head' }, [
           this.thumbnail(model),
-          el('div', { class: 'model-page-head-titles' }, [
+          el('div', { class: 'page-head-titles' }, [
             el('input', {
-              class: 'model-page-name',
+              class: 'page-name',
               value: edit.name,
               title: model.external_id,
               'aria-label': 'Model nickname',
               'data-testid': 'model-page-name',
               oninput: (event: Event) => { edit.name = (event.currentTarget as HTMLInputElement).value; },
             }),
-            el('p', { class: 'meta model-page-file', textContent: family ? `${model.external_id} · ${family}` : model.external_id }),
+            el('p', { class: 'meta page-line', textContent: family ? `${model.external_id} · ${family}` : model.external_id }),
           ]),
         ]),
         toggleField('Show in Nice Assistant', edit.enabled, (value) => { edit.enabled = value; this.renderApp(); }),
@@ -318,7 +318,7 @@ export class ModelPageView {
       textareaField('When should this model be used?', edit.routingCard, (value) => { edit.routingCard = value; }, false,
         'Plain language. Chats read this note when choosing between models.'),
       suggestion && suggestion.source !== 'none'
-        ? el('div', { class: 'model-page-suggestion', 'data-testid': 'model-page-suggestion' }, [
+        ? el('div', { class: 'page-suggestion', 'data-testid': 'model-page-suggestion' }, [
             el('span', { class: 'meta', textContent: `${suggestion.message} ${suggestion.steps} steps · CFG ${suggestion.cfg_scale} · ${suggestion.width}×${suggestion.height}` }),
             el('button', { class: 'pill-btn', textContent: 'Apply', 'data-testid': 'model-page-apply-suggestion', onclick: () => this.applyPrefill() }),
           ])
@@ -360,17 +360,17 @@ export class ModelPageView {
   /** The model's one sample picture, and the button that makes or remakes it. */
   private thumbnail(model: MediaCatalogResource): HTMLElement {
     const sampleId = String(model.default_settings?.sample_media_id ?? '');
-    return el('div', { class: 'model-page-thumb-slot' }, [
+    return el('div', { class: 'page-thumb-slot' }, [
       sampleId
         ? el('img', {
-            class: 'model-page-thumb',
+            class: 'page-thumb',
             src: `/api/v1/media/${sampleId}`,
             alt: `${model.name} sample`,
             'data-testid': 'model-page-thumb',
           })
-        : el('div', { class: 'model-page-thumb model-page-thumb-empty', textContent: '?' }),
+        : el('div', { class: 'page-thumb page-thumb-empty', textContent: '?' }),
       el('button', {
-        class: 'pill-btn model-page-sample',
+        class: 'pill-btn page-thumb-action',
         textContent: this.sampleBusy ? 'Rendering…' : sampleId ? 'New sample' : 'Make a sample',
         title: 'Renders one picture with the settings on this page, so the model has a face here.',
         disabled: this.sampleBusy,

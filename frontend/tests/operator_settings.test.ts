@@ -27,36 +27,53 @@ function configuredState() {
   return appState;
 }
 
-describe('operator settings progressive disclosure', () => {
-  it('keeps optional model controls closed while exposing a useful readiness summary', () => {
+describe('conversation models', () => {
+  it('lists the models Ollama reports, marks the default, and keeps sampling folded', () => {
     const appState = configuredState();
     appState.settingsSection = 'Models';
     const node = new SettingsView(vi.fn(), vi.fn(), dialogs, appState, {} as ApiClient).node();
 
-    expect(node.textContent).toContain('2 reported by Ollama');
-    expect(node.textContent).toContain('8192 tokens for primary-model');
+    const chips = [...node.querySelectorAll('.thing-open')];
+    expect(chips.map((chip) => chip.textContent)).toEqual(['primary-modeldefault', 'larger-model']);
+    expect(node.querySelectorAll('.info-tip-trigger')).toHaveLength(0);
+    expect(node.querySelectorAll('.page-hint')).toHaveLength(1);
     expect((node.querySelector('[data-testid="models-advanced-settings"]') as HTMLDetailsElement).open).toBe(false);
-    expect((node.querySelector('[data-testid="model-overrides-settings"]') as HTMLDetailsElement).open).toBe(false);
   });
 
-  it('creates a per-model customization that changes the effective runtime settings', () => {
+  it('opens a model page that says whose numbers it is using, and customizes on the first change', () => {
     const appState = configuredState();
     appState.settingsSection = 'Models';
     const view = new SettingsView(vi.fn(), vi.fn(), dialogs, appState, {} as ApiClient);
-    const firstNode = view.node();
-    const customize = [...firstNode.querySelectorAll('button')]
-      .find((button) => button.textContent === 'Customize primary-model') as HTMLButtonElement;
-    customize.click();
+    (view.node().querySelector('[data-testid="model-open-primary-model"]') as HTMLButtonElement).click();
+    expect(appState.settingsItem).toBe('primary-model');
 
-    const override = view.node().querySelector('[data-testid="model-overrides-settings"]') as HTMLDetailsElement;
-    const contextRow = [...override.querySelectorAll('.setting-row')]
-      .find((row) => row.textContent?.includes('Context window tokens')) as HTMLElement;
+    const page = view.node();
+    expect(page.querySelector('[data-testid="model-settings-provenance"]')?.textContent).toContain('Using the shared defaults');
+    const contextRow = [...page.querySelectorAll('.setting-row')]
+      .find((row) => row.textContent?.includes('Context window (tokens)')) as HTMLElement;
     const contextInput = contextRow.querySelector('input') as HTMLInputElement;
-    contextInput.value = '8192';
+    contextInput.value = '4096';
     contextInput.dispatchEvent(new Event('input'));
+    contextInput.dispatchEvent(new Event('change'));
 
-    expect(appState.settings!.model_overrides['primary-model']?.context_window_tokens).toBe(8192);
-    expect(modelSettings(appState.settings!, 'primary-model').context_window_tokens).toBe(8192);
+    expect(appState.settings!.model_overrides['primary-model']?.context_window_tokens).toBe(4096);
+    expect(modelSettings(appState.settings!, 'primary-model').context_window_tokens).toBe(4096);
+    const customized = view.node();
+    expect(customized.querySelector('[data-testid="model-settings-provenance"]')?.textContent).toContain('Customized');
+    (customized.querySelector('[data-testid="model-settings-reset"]') as HTMLButtonElement).click();
+    expect(appState.settings!.model_overrides['primary-model']).toBeUndefined();
+  });
+
+  it('makes a model the default from its own page', () => {
+    const appState = configuredState();
+    appState.settingsSection = 'Models';
+    appState.settingsItem = 'larger-model';
+    const view = new SettingsView(vi.fn(), vi.fn(), dialogs, appState, {} as ApiClient);
+    const toggle = view.node().querySelector('[data-testid="model-settings-default"]') as HTMLInputElement;
+    expect(toggle.checked).toBe(false);
+    toggle.checked = true;
+    toggle.dispatchEvent(new Event('change'));
+    expect(appState.settings!.global_default_model).toBe('larger-model');
   });
 
   it('does not show a misleading global save button on independently persisted operator tabs', () => {

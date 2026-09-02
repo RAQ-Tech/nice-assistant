@@ -7,6 +7,8 @@ describe('routing and safe rendering', () => {
   it('parses stable chat and settings routes', () => {
     expect(parseRoute('#/chats/chat%201')).toEqual({ kind: 'chat', chatId: 'chat 1' });
     expect(parseRoute('#/settings/Memory')).toEqual({ kind: 'settings', section: 'Memory' });
+    // One thing inside a section has an address of its own.
+    expect(parseRoute('#/settings/Personas/guide%201')).toEqual({ kind: 'settings', section: 'Personas', item: 'guide 1' });
     expect(parseRoute('')).toEqual({ kind: 'home' });
   });
 

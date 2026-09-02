@@ -646,10 +646,11 @@ installed-browser acceptance.
   covers onboarding/login, streamed chat, settings, memory review, and media
   while rejecting legacy API calls. It also checks computed input/select and
   native option colors in both themes so browser-default light controls cannot
-  make dark-theme text unreadable. It also verifies information tips on hover
-  and keyboard focus, closed advanced sections, collapsed persona editors, and
-  the operator path from readiness summaries into Task Model and Media Catalog
-  editors without exposing a misleading global save action.
+  make dark-theme text unreadable. It also verifies that the redone settings
+  pages carry no information icons and keep their fold closed, that a persona
+  opens as a page with its own address and its own save, and the operator path
+  from the model and role lists into their pages and the Media Catalog editors
+  without exposing a misleading global save action.
   A direct-media journey proves that active
   work exposes an enabled cancellation control, calls the canonical job DELETE
   endpoint, returns to `idle`, and does not misreport acknowledged cancellation

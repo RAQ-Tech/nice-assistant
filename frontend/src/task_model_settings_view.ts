@@ -1,81 +1,148 @@
 import type { ApiClient } from './api';
 import { el, errorMessage, formatDate } from './dom';
-import { inputField, selectField, toggleField } from './settings_controls';
-import { advancedSettings, operatorEditor, readinessRow, settingsCard, settingsHeading, settingsIntro, titleCase } from './settings_ui';
+import { providerLabel } from './everyday_settings_view';
+import {
+  actionRow,
+  choiceField,
+  numberField,
+  pageHead,
+  pageHint,
+  pageNav,
+  switchField,
+  thingList,
+} from './settings_page';
+import { advancedSettings, settingsCard, titleCase } from './settings_ui';
 import type { AppState, TaskModelProfile, TaskModelRole } from './types';
 
+/**
+ * Background models: the roles, and one page per role.
+ *
+ * A role is a job the platform does around a conversation - naming it,
+ * summarising it, proposing memories, planning a picture - with a model of its
+ * own so the persona's model is never borrowed for it. The list is the jobs;
+ * a job's page is its model, its fallback, and what happens when it fails.
+ */
+
 const ROLE_HELP: Record<TaskModelRole, string> = {
-  title_generation: 'Creates short chat titles after conversation turns.',
-  conversation_summary: 'Compresses older conversation history when the context budget requires it.',
-  memory_extraction: 'Proposes reviewable memory candidates without automatically approving them.',
-  capability_planning: 'Chooses a typed assistant capability. Media models, workflows, LoRAs, and identity controls are selected later by the media coordinator.',
+  title_generation: 'Names a chat after its first turns.',
+  conversation_summary: 'Compresses older history when the context budget requires it.',
+  memory_extraction: 'Proposes memories for review. Nothing is remembered until you approve it.',
+  capability_planning: 'Decides what kind of thing a request is asking for. Which model, workflow or face to use is decided later, by the media coordinator.',
 };
 
 export class TaskModelSettingsView {
   private readonly dirtyRoles = new Set<TaskModelRole>();
   private readonly versions = new Map<TaskModelRole, number>();
-  private readonly openRoles = new Set<TaskModelRole>();
+  private moreOpen = false;
 
   constructor(
     private readonly renderApp: () => void,
     private readonly appState: AppState,
     private readonly client: ApiClient,
+    private readonly navigate: (role: string | null) => void,
   ) {}
 
-  nodes(): HTMLElement[] {
-    const enabled = this.appState.taskModels.filter((profile) => profile.enabled);
-    const ready = enabled.filter((profile) => this.appState.taskModelChecks[profile.role]?.ready);
-    const checked = enabled.filter((profile) => this.appState.taskModelChecks[profile.role]);
-    const rows: HTMLElement[] = [
-      settingsIntro(
-        'Configure background intelligence',
-        'Task Models handle platform work separate from persona behavior and share the interactive Ollama lane with chat. Capability planning does not choose media workflows, LoRAs, and identity controls; the media coordinator handles those later.',
-      ),
-      el('div', { class: 'settings-readiness-list' }, [
-        readinessRow(
-          'Configured roles',
-          `${enabled.length} of ${this.appState.taskModels.length} enabled`,
-          enabled.length ? 'ready' : 'attention',
-          'Disabled roles use their documented fallback behavior and never silently borrow the persona model.',
-        ),
-        readinessRow(
-          'Readiness checks',
-          checked.length ? `${ready.length} of ${checked.length} checked roles ready` : 'Not checked in this browser session',
-          checked.length && ready.length === checked.length ? 'ready' : (checked.length ? 'attention' : 'off'),
-          'A readiness check confirms the adapter is installed, that any credential it needs is configured for this account, and that the chosen model exists. It sends no request, so it never proves the provider answers, and it does not judge output quality.',
-        ),
-        readinessRow(
-          'GPU scheduling',
-          'Shares the interactive lane with persona chat',
-          'ready',
-          'The default single interactive worker prevents background inference from overlapping chat on a shared GPU.',
-        ),
-        readinessRow(
-          'Recent audits',
-          `${this.appState.taskModelRuns.length} content-free run records loaded`,
-          this.appState.taskModelRuns.length ? 'ready' : 'off',
-          'Audits retain role, model, timing, token estimates, and safe errors—not prompts or generated task content.',
-        ),
-      ]),
-      settingsCard([
-        settingsHeading('Task roles', 'Open a role to choose its model, fallback, limits, and failure behavior.'),
-        el('button', {
-          class: 'pill-btn',
-          textContent: 'Refresh roles and audits',
-          onclick: () => void this.refresh(),
-        }),
-      ]),
-    ];
-    if (!this.appState.taskModels.length) {
-      rows.push(el('div', {
-        class: 'settings-empty-state',
-        textContent: 'No Task Model profiles were returned. Refresh the page, then check the server logs if the profiles remain unavailable.',
-      }));
-    } else {
-      rows.push(...this.appState.taskModels.map((profile) => this.profileCard(profile)));
+  nodes(item: string | null): HTMLElement[] {
+    const profile = item ? this.appState.taskModels.find((entry) => entry.role === item) : undefined;
+    if (item && !profile) {
+      return [
+        pageNav({ back: 'All background models', onBack: () => this.navigate(null), testId: 'task-model-page' }),
+        el('p', { class: 'meta', textContent: 'That role was not returned by the server.' }),
+      ];
     }
-    rows.push(this.runAudit());
-    return rows;
+    return profile ? this.page(profile) : this.list();
+  }
+
+  private list(): HTMLElement[] {
+    const profiles = this.appState.taskModels;
+    return [
+      thingList(profiles.map((profile) => ({
+        id: profile.role,
+        label: profile.title,
+        note: profile.enabled ? (profile.model || 'automatic') : 'off',
+        testId: `task-model-${profile.role}`,
+        onOpen: () => this.navigate(profile.role),
+      })), 'No background roles were returned. Reload, then check the server logs if they stay missing.', 'task-model-list'),
+      pageHint('Work done around a conversation - never by the persona’s own model, and never overlapping chat on the GPU.'),
+      this.runAudit(),
+    ];
+  }
+
+  private page(profile: TaskModelProfile): HTMLElement[] {
+    const profiles = this.appState.taskModels;
+    const index = profiles.indexOf(profile);
+    const previous = profiles[index - 1];
+    const next = profiles[index + 1];
+    const readiness = this.appState.taskModelChecks[profile.role];
+    const busy = Boolean(this.appState.taskModelBusy[profile.role]);
+    const modelOptions = ['', ...this.appState.models];
+    const displayModel = (value: string) => value || 'Automatic — the first installed model';
+    const fallbackPolicies = profile.role === 'title_generation' ? ['deterministic', 'skip', 'fail'] : ['skip', 'fail'];
+    return [
+      pageNav({
+        back: 'All background models',
+        onBack: () => this.navigate(null),
+        arrows: {
+          previous: previous ? () => this.navigate(previous.role) : null,
+          next: next ? () => this.navigate(next.role) : null,
+        },
+        busy,
+        testId: 'task-model-page',
+      }),
+      settingsCard([
+        pageHead({ name: profile.title, line: ROLE_HELP[profile.role], testId: 'task-model-page' }),
+        switchField('On', profile.enabled, (value) => this.change(profile.role, 'enabled', value), {
+          hover: 'Off, the role follows its failure behavior instead of running a model.',
+          testId: `task-model-enabled-${profile.role}`,
+        }),
+        choiceField('Model', profile.model ?? '', modelOptions, (value) => this.change(profile.role, 'model', value || null), {
+          display: displayModel,
+          hover: `${providerLabel(profile.provider)}. An explicit choice is more predictable than Automatic.`,
+          testId: `task-model-model-${profile.role}`,
+        }),
+        choiceField('Fallback model', profile.fallback_model ?? '', modelOptions, (value) => {
+          this.change(profile.role, 'fallback_model', value || null, false);
+          this.change(profile.role, 'fallback_provider', value ? profile.provider : null);
+        }, { display: (value) => value || 'None', hover: 'Tried only after the first model fails, before the failure behavior applies.' }),
+        advancedSettings('More options', 'Budgets, and what happens when it fails.', [
+          el('div', { class: 'settings-grid' }, [
+            numberField('Input limit (tokens)', String(profile.max_input_tokens), (value) => this.changeNumber(profile.role, 'max_input_tokens', value),
+              { hover: 'The most this role is ever sent.' }),
+            numberField('Output limit (tokens)', String(profile.max_output_tokens), (value) => this.changeNumber(profile.role, 'max_output_tokens', value),
+              { hover: 'The most this role may answer with.' }),
+            numberField('Timeout (seconds)', String(profile.timeout_seconds), (value) => this.changeNumber(profile.role, 'timeout_seconds', value),
+              { hover: 'Stops waiting after this long.' }),
+            numberField('Temperature', String(profile.temperature), (value) => this.changeNumber(profile.role, 'temperature', value),
+              { hover: 'Low is right for platform work that should come out the same way twice.', step: '0.1' }),
+          ]),
+          choiceField('When it fails', profile.fallback_policy, fallbackPolicies, (value) => {
+            this.change(profile.role, 'fallback_policy', value as TaskModelProfile['fallback_policy']);
+          }, { display: policyLabel }),
+        ], { testId: `task-model-advanced-${profile.role}`, open: this.moreOpen, onToggle: (open) => { this.moreOpen = open; } }),
+        actionRow([
+          el('button', {
+            class: 'send-btn',
+            textContent: busy ? 'Saving…' : 'Save role',
+            disabled: busy,
+            'data-testid': `task-model-save-${profile.role}`,
+            onclick: () => void this.save(profile.role),
+          }),
+          el('button', {
+            class: 'pill-btn',
+            textContent: busy ? 'Checking…' : 'Check readiness',
+            title: 'Confirms the adapter is installed, its credential is configured, and the model exists. Sends no request, so it never proves the provider answers.',
+            disabled: busy,
+            onclick: () => void this.check(profile.role),
+          }),
+          readiness
+            ? el('span', {
+                class: `provider-status ${readiness.ready ? 'ok' : 'fail'}`,
+                textContent: `${titleCase(readiness.status)}: ${readiness.message}`,
+              })
+            : null,
+        ]),
+      ], 'task-model-page', 'task-model-page'),
+    ];
   }
 
   async refresh(): Promise<void> {
@@ -96,82 +163,9 @@ export class TaskModelSettingsView {
       });
       this.appState.taskModelRuns = runs.items;
     } catch (error) {
-      this.appState.settingsError = errorMessage(error, 'Unable to load Task Models.');
+      this.appState.settingsError = errorMessage(error, 'Unable to load background models.');
     }
     this.renderApp();
-  }
-
-  private profileCard(profile: TaskModelProfile): HTMLElement {
-    const readiness = this.appState.taskModelChecks[profile.role];
-    const busy = Boolean(this.appState.taskModelBusy[profile.role]);
-    const modelOptions = ['', ...this.appState.models];
-    const displayModel = (value: string) => value || 'Automatic (first installed model)';
-    const fallbackPolicies = profile.role === 'title_generation'
-      ? ['deterministic', 'skip', 'fail']
-      : ['skip', 'fail'];
-    const status = !profile.enabled
-      ? 'Disabled'
-      : readiness
-        ? (readiness.ready ? 'Ready' : titleCase(readiness.status))
-        : 'Not checked';
-    const statusClass = !profile.enabled ? 'idle' : readiness?.ready ? 'ok' : readiness ? 'fail' : 'idle';
-    return operatorEditor(
-      profile.title,
-      profile.enabled
-        ? `${profile.model || 'Automatic model'} · ${profile.fallback_policy} fallback policy`
-        : 'This background role is disabled',
-      status,
-      [
-        settingsHeading('Execution path', ROLE_HELP[profile.role]),
-        toggleField('Enable this role', profile.enabled, (value) => this.change(profile.role, 'enabled', value, false), 'Disabled roles follow the selected failure behavior instead of running a model.'),
-        selectField('Provider', profile.provider, ['ollama'], (value) => this.change(profile.role, 'provider', value, false), undefined, titleCase, false, 'Only providers implementing the structured Task Model contract appear here. An adapter existing in the codebase is not the same as a provider offered here.'),
-        selectField('Primary model', profile.model ?? '', modelOptions, (value) => this.change(profile.role, 'model', value || null, false), undefined, displayModel, false, 'Automatic uses the first installed Ollama model. An explicit choice is more predictable.'),
-        selectField('Fallback model', profile.fallback_model ?? '', modelOptions, (value) => {
-          this.change(profile.role, 'fallback_model', value || null, false);
-          this.change(profile.role, 'fallback_provider', value ? profile.provider : null, false);
-        }, undefined, displayModel, false, 'Tried only after the primary execution fails and before the role failure policy is applied.'),
-        advancedSettings(
-          'Budgets and failure behavior',
-          'Bounds keep background work from consuming unbounded context, time, or output.',
-          [
-            inputField('Maximum input tokens', String(profile.max_input_tokens), (value) => this.changeNumber(profile.role, 'max_input_tokens', value), 'number', false, 'The maximum estimated input size sent to this role.'),
-            inputField('Maximum output tokens', String(profile.max_output_tokens), (value) => this.changeNumber(profile.role, 'max_output_tokens', value), 'number', false, 'The maximum structured output size accepted from this role.'),
-            inputField('Timeout seconds', String(profile.timeout_seconds), (value) => this.changeNumber(profile.role, 'timeout_seconds', value), 'number', false, 'Stops waiting for this background task after the limit.'),
-            inputField('Temperature', String(profile.temperature), (value) => this.changeNumber(profile.role, 'temperature', value), 'number', false, 'Low values are recommended for deterministic platform work.'),
-            selectField('Failure behavior', profile.fallback_policy, fallbackPolicies, (value) => this.change(profile.role, 'fallback_policy', value as TaskModelProfile['fallback_policy'], false), undefined, titleCase, false, 'Determines whether the product skips the task, fails it, or uses a narrow deterministic fallback.'),
-          ],
-          { testId: `task-model-advanced-${profile.role}` },
-        ),
-        el('div', { class: 'chips' }, [
-          el('button', {
-            class: 'send-btn',
-            textContent: busy ? 'Saving…' : 'Save role',
-            disabled: busy,
-            'data-testid': `task-model-save-${profile.role}`,
-            onclick: () => void this.save(profile.role),
-          }),
-          el('button', {
-            class: 'pill-btn',
-            textContent: busy ? 'Checking…' : 'Check readiness',
-            disabled: busy,
-            onclick: () => void this.check(profile.role),
-          }),
-          readiness
-            ? el('span', {
-                class: `provider-status ${readiness.ready ? 'ok' : 'fail'}`,
-                textContent: `${titleCase(readiness.status)}: ${readiness.message}`,
-              })
-            : null,
-        ]),
-      ],
-      {
-        open: this.openRoles.has(profile.role),
-        onToggle: (open) => open ? this.openRoles.add(profile.role) : this.openRoles.delete(profile.role),
-        testId: `task-model-${profile.role}`,
-        className: 'task-model-card',
-        statusClass,
-      },
-    );
   }
 
   private runAudit(): HTMLElement {
@@ -192,11 +186,16 @@ export class TaskModelSettingsView {
             ]),
           ]),
         )
-      : [el('div', { class: 'settings-empty-state', textContent: 'No Task Model runs have been recorded yet.' })];
+      : [el('div', { class: 'settings-empty-state', textContent: 'No runs recorded yet.' })];
     return advancedSettings(
-      `Recent Task Model audits (${this.appState.taskModelRuns.length})`,
-      'Prompts and generated task output are not stored. These records contain only role, provider/model, timing, token estimates, status, and safe errors.',
-      rows,
+      `Recent runs (${this.appState.taskModelRuns.length})`,
+      'Role, model, timing and safe errors only. Prompts and answers are never stored.',
+      [
+        ...rows,
+        actionRow([
+          el('button', { class: 'pill-btn', textContent: 'Refresh', onclick: () => void this.refresh() }),
+        ]),
+      ],
       { testId: 'task-model-run-audits' },
     );
   }
@@ -259,12 +258,18 @@ export class TaskModelSettingsView {
     try {
       this.appState.taskModelChecks[role] = await this.client.checkTaskModel(role);
     } catch (error) {
-      this.appState.settingsError = errorMessage(error, 'Unable to check Task Model readiness.');
+      this.appState.settingsError = errorMessage(error, 'Unable to check readiness.');
     } finally {
       this.appState.taskModelBusy[role] = false;
       this.renderApp();
     }
   }
+}
+
+function policyLabel(value: string): string {
+  if (value === 'deterministic') return 'Use a plain fallback without a model';
+  if (value === 'skip') return 'Skip the task';
+  return 'Fail the task';
 }
 
 function taskRunStatusClass(status: string): string {

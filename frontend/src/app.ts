@@ -32,7 +32,7 @@ const chat = new ChatController(playback);
 const recording = new RecordingController();
 const dialogs = createDialogs(state, () => render());
 const router = new Router((route) => void handleRoute(route));
-const settingsView = new SettingsView(render, closeSettings, dialogs, state, api, (section) => router.settings(section));
+const settingsView = new SettingsView(render, closeSettings, dialogs, state, api, (section, item) => router.settings(section, false, item ?? null));
 const authView = new AuthView(authenticated, render);
 const chatRenderer = new ChatRenderer(
   media,
@@ -150,6 +150,7 @@ async function applyCurrentRoute(): Promise<void> {
   if (state.route.kind === 'settings') {
     state.showSettings = true;
     state.settingsSection = state.route.section ?? 'General';
+    state.settingsItem = state.route.item ?? null;
     return;
   }
   state.showSettings = false;

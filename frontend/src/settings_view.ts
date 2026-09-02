@@ -1,4 +1,4 @@
-import { api, type ApiClient, type PersonaInput } from './api';
+import { api, type ApiClient } from './api';
 import { settingsNav } from './settings_nav';
 import { el, errorMessage, formatDate } from './dom';
 import { EverydaySettingsView, type EverydaySettingsSection } from './everyday_settings_view';
@@ -8,24 +8,24 @@ import { ModelSettingsView } from './model_settings_view';
 import { OperationsSettingsView } from './operations_settings_view';
 import { PersonaCardView } from './persona_card_view';
 import { PersonaLoreView } from './persona_lore_view';
+import { PersonaPageView } from './persona_page_view';
 import {
   resetSettingsSection,
-  SETTINGS_DEFAULTS,
   SETTINGS_SECTIONS,
   sectionLabel,
   settingsWire,
   type SettingsSection,
 } from './settings';
-import { inputField, selectField, textareaField, toggleField } from './settings_controls';
+import { textareaField } from './settings_controls';
 import type { SettingsDialogs } from './settings_contracts';
-import { advancedSettings, infoTip, settingsCard, settingsHeading, settingsIntro, titleCase } from './settings_ui';
+import { actionRow, choiceField, pageHint, textField } from './settings_page';
+import { advancedSettings, settingsCard, titleCase } from './settings_ui';
 import { state } from './state';
 import { TaskModelSettingsView } from './task_model_settings_view';
 import type {
   AppState,
   IdentitySetupIntent,
   Memory,
-  Persona,
   ProviderCheckResult,
   Settings,
 } from './types';
@@ -34,9 +34,13 @@ const PROVIDERS: readonly [string, string][] = [
   ['ollama', 'Ollama'],
   ['openai', 'OpenAI'],
   ['kokoro', 'Kokoro'],
+  ['whisper', 'Whisper'],
   ['automatic1111', 'Automatic1111'],
   ['comfyui', 'ComfyUI'],
 ];
+
+/** Sections whose pages save themselves, so the header's Save has nothing to write. */
+const SELF_SAVING_SECTIONS: readonly SettingsSection[] = ['Data', 'Task Models', 'Media Catalog', 'Persona Pictures', 'GPU Coordination'];
 
 export type Dialogs = SettingsDialogs;
 
@@ -49,8 +53,7 @@ export class SettingsView {
   private readonly taskModelView: TaskModelSettingsView;
   private readonly mediaCatalogView: MediaCatalogSettingsView;
   private readonly operationsView: OperationsSettingsView;
-  private readonly personaCardView: PersonaCardView;
-  private readonly personaLoreView: PersonaLoreView;
+  private readonly personaPages: PersonaPageView;
   private readonly selectedMemoryIds = new Set<string>();
   private memoryActionBusy = false;
 
@@ -60,8 +63,9 @@ export class SettingsView {
     private readonly dialogs: Dialogs,
     private readonly appState: AppState = state,
     private readonly client: ApiClient = api,
-    private readonly navigateSettings: (section: SettingsSection) => void = (section) => {
+    private readonly navigateSettings: (section: SettingsSection, item?: string | null) => void = (section, item = null) => {
       appState.settingsSection = section;
+      appState.settingsItem = item;
       renderApp();
     },
   ) {
@@ -80,21 +84,26 @@ export class SettingsView {
         block_code: null,
       }),
     );
-    this.everydayView = new EverydaySettingsView(
-      appState,
-      (key, value, shouldRender) => this.set(key, value, shouldRender),
-      (provider) => this.providerControl(provider),
-      () => this.providerPanel(),
-    );
+    const change = <K extends keyof Settings>(key: K, value: Settings[K], shouldRender?: boolean) => this.set(key, value, shouldRender);
+    this.everydayView = new EverydaySettingsView(appState, change, (provider) => this.providerControl(provider));
     this.modelView = new ModelSettingsView(
       appState,
-      (key, value, shouldRender) => this.set(key, value, shouldRender),
+      change,
       renderApp,
       () => this.providerControl('ollama'),
+      (model) => this.navigateSettings('Models', model),
     );
-    this.taskModelView = new TaskModelSettingsView(renderApp, appState, client);
-    this.personaCardView = new PersonaCardView(renderApp, appState, client);
-    this.personaLoreView = new PersonaLoreView(renderApp, appState, client);
+    this.taskModelView = new TaskModelSettingsView(renderApp, appState, client, (role) => this.navigateSettings('Task Models', role));
+    this.personaPages = new PersonaPageView(
+      appState,
+      client,
+      renderApp,
+      dialogs,
+      (personaId) => this.navigateSettings('Personas', personaId),
+      new PersonaCardView(renderApp, appState, client),
+      new PersonaLoreView(renderApp, appState, client),
+      change,
+    );
     this.operationsView = new OperationsSettingsView(renderApp, appState, client, dialogs);
   }
 
@@ -118,7 +127,10 @@ export class SettingsView {
     const settings = this.appState.settings;
     if (!settings) return el('div', { class: 'settings-screen', textContent: 'Settings are unavailable.' });
     const section = normalizeSection(this.appState.settingsSection);
-    const usesDedicatedActions = ['Data', 'Task Models', 'Media Catalog', 'Persona Pictures', 'GPU Coordination'].includes(section);
+    const item = this.appState.settingsItem;
+    // A persona's page saves itself; the list around it still holds one
+    // ordinary setting, so the header's Save belongs to the list only.
+    const selfSaving = SELF_SAVING_SECTIONS.includes(section) || (section === 'Personas' && Boolean(item));
     this.appState.settingsSection = section;
     if (section === 'Persona Pictures' && !this.appState.identitySettings && !this.appState.identityBusy) {
       void this.identityView.refresh();
@@ -139,7 +151,7 @@ export class SettingsView {
           : null,
         el('div', { class: 'chips' }, [
           el('button', { class: 'icon-btn', textContent: '✕ Close', onclick: this.close }),
-          !usesDedicatedActions
+          !selfSaving
             ? el('button', {
                 class: 'send-btn',
                 textContent: this.appState.settingsSaving ? 'Saving…' : 'Save settings',
@@ -166,7 +178,7 @@ export class SettingsView {
         el('section', { class: 'settings-detail glass' }, [
           el('div', { class: 'settings-section-head' }, [
             el('h3', { textContent: sectionLabel(section) }),
-            !usesDedicatedActions
+            !selfSaving && !item
               ? el('button', {
                   class: 'pill-btn',
                   textContent: 'Reset to Default',
@@ -177,7 +189,7 @@ export class SettingsView {
                 })
               : null,
           ]),
-          ...this.section(section, settings),
+          ...this.section(section, item, settings),
         ]),
       ]),
     ]);
@@ -185,27 +197,29 @@ export class SettingsView {
 
   /** Switch sections, and load whatever that section reads on arrival. */
   private openSection(name: SettingsSection): void {
-    this.appState.settingsSection = name;
-    if (name === 'Memory') void this.refreshMemories();
-    if (name === 'Task Models') void this.taskModelView.refresh();
-    if (name === 'Media Catalog') void this.mediaCatalogView.refresh();
-    if (name === 'Persona Pictures') void this.identityView.refresh();
-    if (name === 'GPU Coordination' && this.appState.session?.is_admin) {
-      void this.operationsView.refreshCoordination();
-    }
-    if (name === 'Data' && this.appState.session?.is_admin) void this.operationsView.refreshBackups();
-    this.renderApp();
+    this.personaPages.beforeLeave(() => {
+      this.navigateSettings(name, null);
+      if (name === 'Memory') void this.refreshMemories();
+      if (name === 'Task Models') void this.taskModelView.refresh();
+      if (name === 'Media Catalog') void this.mediaCatalogView.refresh();
+      if (name === 'Persona Pictures') void this.identityView.refresh();
+      if (name === 'GPU Coordination' && this.appState.session?.is_admin) {
+        void this.operationsView.refreshCoordination();
+      }
+      if (name === 'Data' && this.appState.session?.is_admin) void this.operationsView.refreshBackups();
+      this.renderApp();
+    });
   }
 
-  private section(section: SettingsSection, settings: Settings): HTMLElement[] {
+  private section(section: SettingsSection, item: string | null, settings: Settings): HTMLElement[] {
     if (['General', 'TTS', 'STT', 'Image Generation', 'Video Generation', 'User'].includes(section)) {
       return this.everydayView.nodes(section as EverydaySettingsSection, settings);
     }
     if (section === 'Memory') return this.memory(settings);
-    if (section === 'Personas') return this.personas(settings);
+    if (section === 'Personas') return item ? this.personaPages.page(item) : this.personaPages.list(settings);
     if (section === 'Workspaces') return this.workspaces(settings);
-    if (section === 'Models') return this.modelView.nodes(settings);
-    if (section === 'Task Models') return this.taskModelView.nodes();
+    if (section === 'Models') return this.modelView.nodes(settings, item);
+    if (section === 'Task Models') return this.taskModelView.nodes(item);
     if (section === 'Media Catalog') return this.mediaCatalogView.nodes();
     if (section === 'Persona Pictures') return this.identityView.nodes();
     if (section === 'GPU Coordination') return this.operationsView.gpuNodes();
@@ -217,32 +231,17 @@ export class SettingsView {
     const selected = this.appState.memories.filter((memory) => this.selectedMemoryIds.has(memory.id));
     const forgettable = selected.filter((memory) => ['pending', 'active'].includes(memory.status));
     return [
-      settingsIntro(
-        'Control what carries between conversations',
-        'Only approved active memories enter prompts. Review, forget, or permanently delete them here.',
-      ),
       settingsCard([
-        selectField(
-          'Default memory mode',
-          settings.default_memory_mode,
-          ['saved', 'off'],
-          (value) => this.set('default_memory_mode', value === 'off' ? 'off' : 'saved'),
-          undefined,
-          (value) => value === 'saved' ? 'Use approved memories' : 'Do not use saved memories',
-          true,
-          'Controls new chats by default. Individual chats can still choose a different memory mode.',
-        ),
-        el('div', { class: 'settings-concept-strip' }, [
-          conceptTip('Pending', 'A proposed memory that does not enter prompts until you approve it.'),
-          conceptTip('Forget', 'Stops using the memory while preserving history so the action can be undone.'),
-          conceptTip('Delete', 'Permanently removes the memory and its history. This cannot be undone.'),
-        ]),
+        choiceField('New chats', settings.default_memory_mode, ['saved', 'off'], (value) => {
+          this.set('default_memory_mode', value === 'off' ? 'off' : 'saved');
+        }, {
+          display: (value) => value === 'saved' ? 'Use approved memories' : 'Do not use saved memories',
+          hover: 'Each chat can still choose differently.',
+        }),
       ]),
+      pageHint('Only approved memories reach a conversation. Forget keeps the history so it can be undone; delete is for good.'),
       el('div', { class: 'memory-bulk-bar persona-card', 'data-testid': 'memory-bulk-actions' }, [
-        el('div', { class: 'settings-heading-with-info' }, [
-          el('strong', { textContent: `${selected.length} of ${this.appState.memories.length} selected` }),
-          infoTip('Bulk actions apply atomically to the selected memories. Permanent delete cannot be undone.', 'About memory bulk actions'),
-        ]),
+        el('strong', { textContent: `${selected.length} of ${this.appState.memories.length} selected` }),
         el('div', { class: 'chips' }, [
           el('button', {
             class: 'pill-btn',
@@ -275,11 +274,11 @@ export class SettingsView {
       this.memoryGroup('Pending review', groups.pending, 'pending'),
       this.memoryGroup('Active', groups.active, 'active'),
       this.memoryGroup('History', groups.history, 'history'),
-      el('div', { class: 'persona-card' }, [
-        settingsHeading('Add a manual memory', 'Manual memories are global, immediately active facts you intentionally want the assistant to remember.', 'strong'),
+      actionRow([
         el('button', {
           class: 'pill-btn',
-          textContent: 'Add global memory',
+          textContent: '+ Add a memory',
+          title: 'A fact you want remembered everywhere, active at once.',
           'data-testid': 'memory-add',
           onclick: () => void this.addMemory(),
         }),
@@ -287,159 +286,32 @@ export class SettingsView {
     ];
   }
 
-  private personas(settings: Settings): HTMLElement[] {
-    return [
-      settingsIntro(
-        'Manage the people you talk with',
-        'Create personas and open one only when you want to change its model, appearance source, or behavior.',
-      ),
-      el('div', { class: 'settings-primary-actions' }, [
-        el('button', { class: 'send-btn', textContent: '+ New persona', onclick: () => void this.addPersona() }),
-        el('span', { class: 'meta', textContent: `${this.appState.personas.length} ${this.appState.personas.length === 1 ? 'persona' : 'personas'}` }),
-      ]),
-      advancedSettings(
-        'New-persona default instructions',
-        'Applied only when a new persona is created; existing personas keep their own instructions.',
-        [textareaField(
-          'Default system prompt',
-          settings.personas_default_system_prompt,
-          (value) => this.set('personas_default_system_prompt', value),
-          true,
-          'Starting system instructions for newly created personas.',
-        )],
-        { testId: 'personas-advanced-settings' },
-      ),
-      ...this.appState.personas.map((persona) => this.personaCard(persona)),
-    ];
-  }
-
   private workspaces(settings: Settings): HTMLElement[] {
+    const workspaces = this.appState.workspaces;
     return [
-      settingsIntro(
-        'Organize personas and conversations',
-        'Workspaces are private organizational groups. They do not create separate user accounts or provider environments.',
-      ),
       settingsCard([
-        selectField(
-          'Default workspace',
-          settings.workspaces_default_workspace_id,
-          ['', ...this.appState.workspaces.map((item) => item.id)],
-          (value) => this.set('workspaces_default_workspace_id', value),
-          undefined,
-          (value) => this.appState.workspaces.find((item) => item.id === value)?.name ?? 'None',
-          true,
-          'Used as the initial workspace when a feature needs one and no more specific choice exists.',
-        ),
+        choiceField('Default workspace', settings.workspaces_default_workspace_id, ['', ...workspaces.map((item) => item.id)], (value) => {
+          this.set('workspaces_default_workspace_id', value);
+        }, {
+          display: (value) => workspaces.find((item) => item.id === value)?.name ?? 'None',
+          hover: 'Where a new persona goes when nothing more specific has been chosen.',
+        }),
+      ]),
+      pageHint('A workspace is a private grouping of personas and conversations, not a separate account.'),
+      ...workspaces.map((workspace) =>
+        el('div', { class: 'persona-card workspace-card', 'data-testid': `workspace-${workspace.id}` }, [
+          textField('Name', workspace.name, (value) => { workspace.name = value; }, {
+            commit: () => void this.renameWorkspace(workspace.id, workspace.name),
+          }),
+          actionRow([
+            el('button', { class: 'icon-btn danger', textContent: 'Delete', title: 'Only an empty workspace can be deleted.', onclick: () => void this.deleteWorkspace(workspace.id, workspace.name) }),
+          ]),
+        ]),
+      ),
+      actionRow([
         el('button', { class: 'send-btn', textContent: '+ New workspace', onclick: () => void this.addWorkspace() }),
       ]),
-      ...this.appState.workspaces.map((workspace) =>
-        el('div', { class: 'persona-card workspace-card' }, [
-          el('strong', { textContent: workspace.name }),
-          el('div', { class: 'chips' }, [
-            el('button', { class: 'pill-btn', textContent: 'Rename', onclick: () => void this.renameWorkspace(workspace.id, workspace.name) }),
-            el('button', { class: 'icon-btn danger', textContent: 'Delete', onclick: () => void this.deleteWorkspace(workspace.id, workspace.name) }),
-          ]),
-        ]),
-      ),
     ];
-  }
-
-  private personaCard(persona: Persona): HTMLElement {
-    const workspaceIds = new Set(persona.workspace_ids.length ? persona.workspace_ids : [persona.workspace_id]);
-    return el('details', { class: 'persona-card persona-editor', 'data-testid': `persona-${persona.id}` }, [
-      el('summary', {}, [
-        el('div', {}, [
-          el('strong', { textContent: persona.name }),
-          el('div', { class: 'meta', textContent: persona.default_model ? `Model: ${persona.default_model}` : 'Automatic model' }),
-        ]),
-        el('span', { class: 'meta', textContent: 'Edit' }),
-      ]),
-      persona.avatar_url
-        ? el('button', {
-            class: 'persona-avatar-preview-button',
-            type: 'button',
-            title: `View ${persona.name}'s full-size avatar`,
-            'aria-label': `View ${persona.name}'s full-size avatar`,
-            onclick: () => {
-              this.appState.personaAvatarPreview = persona.avatar_url ?? '';
-              this.renderApp();
-            },
-          }, [
-            el('img', {
-              class: 'persona-avatar-preview',
-              src: persona.avatar_url,
-              alt: `${persona.name} avatar`,
-            }),
-          ])
-        : null,
-      inputField('Name', persona.name, (value) => { persona.name = value; }, 'text', false, 'The name shown in chat and persona selectors.'),
-      inputField('Avatar image URL', persona.avatar_url ?? '', (value) => { persona.avatar_url = value; }, 'url', false, 'Paste any image URL; the picture is copied and kept, so it keeps working if the source moves or goes away.'),
-      toggleField(
-        'Allow persona to send images',
-        persona.allow_image_sends !== false,
-        (value) => { persona.allow_image_sends = value; },
-        'Controls pictures requested through this persona’s conversation. Direct image actions remain available.',
-      ),
-      selectField(
-        'Default model',
-        persona.default_model ?? '',
-        ['', ...this.appState.models],
-        (value) => { persona.default_model = value; },
-        undefined,
-        (value) => value || 'Automatic',
-        false,
-        'Overrides the account default model for this persona.',
-      ),
-      el('div', { class: 'setting-row' }, [
-        el('div', { class: 'setting-label-line' }, [
-          el('label', { textContent: 'Workspaces' }),
-          infoTip('Choose every workspace where this persona should be available.', 'About persona workspaces'),
-        ]),
-        ...this.appState.workspaces.map((workspace) =>
-          el('label', { class: 'checkbox-row' }, [
-            el('input', {
-              type: 'checkbox',
-              checked: workspaceIds.has(workspace.id),
-              onchange: (event: Event) => {
-                const checked = (event.currentTarget as HTMLInputElement).checked;
-                if (checked) workspaceIds.add(workspace.id);
-                else workspaceIds.delete(workspace.id);
-                persona.workspace_ids = [...workspaceIds];
-                persona.workspace_id = persona.workspace_ids[0] ?? persona.workspace_id;
-              },
-            }),
-            workspace.name,
-          ]),
-        ),
-      ]),
-      advancedSettings(
-        'Personality instructions',
-        'These instructions strongly influence persona behavior. Change them deliberately.',
-        [
-          textareaField(
-            'Personality details',
-            persona.personality_details ?? '',
-            (value) => { persona.personality_details = value; },
-            false,
-            'Descriptive traits and background used to support this persona’s behavior.',
-          ),
-          textareaField(
-            'System prompt',
-            persona.system_prompt ?? '',
-            (value) => { persona.system_prompt = value; },
-            false,
-            'Highest-priority persona instructions sent with each conversation turn.',
-          ),
-        ],
-        { testId: `persona-advanced-${persona.id}` },
-      ),
-      this.personaCardView.node(persona),
-      this.personaLoreView.node(persona),
-      el('div', { class: 'chips' }, [
-        el('button', { class: 'send-btn', textContent: 'Save persona', onclick: () => void this.savePersona(persona) }),
-        el('button', { class: 'icon-btn danger', textContent: 'Delete', onclick: () => void this.deletePersona(persona) }),
-      ]),
-    ]);
   }
 
   private memoryGroup(title: string, items: Memory[], key: string): HTMLElement {
@@ -495,18 +367,11 @@ export class SettingsView {
     ]);
   }
 
-  private providerPanel(): HTMLElement {
-    return el('div', { class: 'provider-readiness-panel persona-card' }, [
-      el('strong', { textContent: 'Provider readiness' }),
-      ...PROVIDERS.map(([provider]) => this.providerControl(provider)),
-    ]);
-  }
-
   private providerControl(provider: string): HTMLElement {
     const label = PROVIDERS.find(([key]) => key === provider)?.[1] ?? provider;
     const running = Boolean(this.appState.providerChecksRunning[provider]);
     const result = this.appState.providerChecks[provider];
-    return el('div', { class: 'provider-check-row' }, [
+    return el('div', { class: 'provider-check-row', title: 'Tries the service with the values on this page, saved or not. Changes nothing.' }, [
       el('button', { class: 'pill-btn', textContent: running ? `Testing ${label}…` : `Test ${label}`, disabled: running, onclick: () => void this.testProvider(provider) }),
       el('span', { class: `provider-status ${providerStatusClass(result, running)}`, textContent: running ? 'Testing…' : providerStatusText(result) }),
       result?.message ? el('span', { class: 'provider-check-message', textContent: String(result.message) }) : null,
@@ -658,40 +523,6 @@ export class SettingsView {
     this.dialogs.info('Memory history', history.events.map((event) => `${formatDate(event.created_at)} — ${event.action}${event.undone_at ? ' (undone)' : ''}`).join('\n') || 'No events.');
   }
 
-  private async addPersona(): Promise<void> {
-    const workspace = this.appState.workspaces[0];
-    if (!workspace) {
-      this.appState.settingsError = 'Create a workspace before adding a persona.';
-      this.renderApp();
-      return;
-    }
-    const name = await this.dialogs.prompt('New persona', 'Choose a persona name.');
-    if (!name?.trim()) return;
-    const persona = await this.client.createPersona({
-      workspace_id: workspace.id,
-      workspace_ids: [workspace.id],
-      name: name.trim(),
-      system_prompt: this.appState.settings?.personas_default_system_prompt ?? SETTINGS_DEFAULTS.personas_default_system_prompt,
-      default_model: this.appState.models[0] ?? null,
-    });
-    this.appState.personas.push(persona);
-    this.renderApp();
-  }
-
-  private async savePersona(persona: Persona): Promise<void> {
-    const input = personaInput(persona);
-    const updated = await this.client.updatePersona(persona.id, input);
-    this.appState.personas = this.appState.personas.map((item) => (item.id === updated.id ? updated : item));
-    this.renderApp();
-  }
-
-  private async deletePersona(persona: Persona): Promise<void> {
-    if (!(await this.dialogs.confirm('Delete persona', `Delete ${persona.name}?`, 'Delete'))) return;
-    await this.client.deletePersona(persona.id);
-    this.appState.personas = this.appState.personas.filter((item) => item.id !== persona.id);
-    this.renderApp();
-  }
-
   private async addWorkspace(): Promise<void> {
     const name = await this.dialogs.prompt('New workspace', 'Choose a workspace name.');
     if (!name?.trim()) return;
@@ -699,11 +530,14 @@ export class SettingsView {
     this.renderApp();
   }
 
-  private async renameWorkspace(id: string, current: string): Promise<void> {
-    const name = await this.dialogs.prompt('Rename workspace', 'Choose a new name.', current);
-    if (!name?.trim()) return;
-    const updated = await this.client.updateWorkspace(id, name.trim());
-    this.appState.workspaces = this.appState.workspaces.map((item) => (item.id === id ? updated : item));
+  private async renameWorkspace(id: string, name: string): Promise<void> {
+    if (!name.trim()) return;
+    try {
+      const updated = await this.client.updateWorkspace(id, name.trim());
+      this.appState.workspaces = this.appState.workspaces.map((item) => (item.id === id ? updated : item));
+    } catch (error) {
+      this.appState.settingsError = errorMessage(error, 'Unable to rename the workspace.');
+    }
     this.renderApp();
   }
 
@@ -717,7 +551,6 @@ export class SettingsView {
     }
     this.renderApp();
   }
-
 }
 
 function providerStatusClass(result: ProviderCheckResult | undefined, running: boolean): string {
@@ -739,28 +572,8 @@ function groupMemories(items: Memory[]): { pending: Memory[]; active: Memory[]; 
   };
 }
 
-function personaInput(persona: Persona): PersonaInput {
-  const workspaceIds = persona.workspace_ids.length ? persona.workspace_ids : [persona.workspace_id];
-  return {
-    workspace_id: workspaceIds[0] ?? persona.workspace_id,
-    workspace_ids: workspaceIds,
-    name: persona.name,
-    avatar_url: persona.avatar_url,
-    allow_image_sends: persona.allow_image_sends !== false,
-    system_prompt: persona.system_prompt,
-    personality_details: persona.personality_details,
-    traits: persona.traits,
-    default_model: persona.default_model,
-    voice_preferences: persona.voice_preferences ?? {},
-  };
-}
-
 function normalizeSection(value: string): SettingsSection {
   return SETTINGS_SECTIONS.includes(value as SettingsSection) ? (value as SettingsSection) : 'General';
-}
-
-function slug(value: string): string {
-  return value.toLowerCase().replace(/\s+/g, '-');
 }
 
 function isVisualIdentityBlock(code: string | null | undefined): boolean {
@@ -770,11 +583,4 @@ function isVisualIdentityBlock(code: string | null | undefined): boolean {
     'identity_reference_unavailable',
     'identity_reference_changed',
   ].includes(code ?? '');
-}
-
-function conceptTip(label: string, help: string): HTMLElement {
-  return el('span', { class: 'settings-concept' }, [
-    el('span', { textContent: label }),
-    infoTip(help, `About ${label}`),
-  ]);
 }

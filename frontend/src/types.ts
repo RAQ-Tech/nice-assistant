@@ -1052,6 +1052,8 @@ export interface RouteState {
   kind: 'home' | 'chat' | 'settings';
   chatId?: Id;
   section?: string;
+  /** One thing inside a settings section: a persona, a model, a background role. */
+  item?: string;
 }
 
 export interface AppState {
@@ -1093,6 +1095,8 @@ export interface AppState {
   showJumpBottom: boolean;
   showSettings: boolean;
   settingsSection: string;
+  /** The thing open inside the section, when the section is a list of them. */
+  settingsItem: string | null;
   modal: ModalState | null;
   generationLog: MediaJournal | null;
   routingPreview: RoutingPreview | null;

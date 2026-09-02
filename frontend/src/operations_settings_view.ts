@@ -1,10 +1,19 @@
 import type { ApiClient } from './api';
 import { el, errorMessage, formatBytes, formatDate } from './dom';
-import { inputField, selectField, toggleField } from './settings_controls';
 import type { SettingsDialogs } from './settings_contracts';
-import { advancedSettings, operatorEditor, readinessRow, settingsCard, settingsHeading, settingsIntro, titleCase } from './settings_ui';
+import { actionRow, choiceField, numberField, pageHint, switchField } from './settings_page';
+import { advancedSettings, operatorEditor, settingsCard, titleCase } from './settings_ui';
 import type { AppState, ResourceEndpointStatus } from './types';
 
+/**
+ * GPU coordination and Data: the two administrator pages.
+ *
+ * Each is one sparse page. Coordination is a mode, a save, and the endpoints
+ * it may act on, each endpoint a row that opens; Data is the actions and the
+ * archives they produce. What each page used to explain in a banner and four
+ * readiness tiles now waits on hover, except the one warning that changes
+ * another service's state, which stays in the flow.
+ */
 export class OperationsSettingsView {
   private readonly openEndpoints = new Set<string>();
 
@@ -17,85 +26,69 @@ export class OperationsSettingsView {
 
   gpuNodes(): HTMLElement[] {
     if (!this.appState.session?.is_admin) {
-      return [
-        settingsIntro('Coordinate shared GPU work', 'This tab changes installation-wide provider scheduling and requires the administrator account.'),
-        el('div', { class: 'settings-empty-state', textContent: 'Sign in with the administrator account to inspect or change GPU coordination.' }),
-      ];
+      return [el('div', { class: 'settings-empty-state', textContent: 'Sign in as the administrator to change GPU coordination.' })];
     }
     const coordination = this.appState.resourceCoordination;
     if (!coordination) {
       return [
-        settingsIntro('Coordinate shared GPU work', 'Nice Assistant can observe measured capacity and release only explicitly authorized exclusive endpoints.'),
         el('div', {
           class: 'settings-empty-state',
           textContent: this.appState.resourceCoordinationBusy
-            ? 'Loading provider capacity and authorization…'
+            ? 'Asking the providers what they have…'
             : 'GPU coordination is unavailable. Retry, then check provider addresses and server logs.',
         }),
-        el('button', { class: 'pill-btn', textContent: 'Retry GPU status', disabled: this.appState.resourceCoordinationBusy, onclick: () => void this.refreshCoordination() }),
+        actionRow([
+          el('button', { class: 'pill-btn', textContent: 'Retry', disabled: this.appState.resourceCoordinationBusy, onclick: () => void this.refreshCoordination() }),
+        ]),
       ];
     }
-    const measured = coordination.endpoints.filter((endpoint) => endpoint.snapshot?.status === 'known');
-    const releasable = coordination.endpoints.filter((endpoint) => endpoint.capabilities.supports_release);
-    const authorized = coordination.endpoints.filter((endpoint) => endpoint.authorization.allow_release);
+    const busy = this.appState.resourceCoordinationBusy;
     return [
-      settingsIntro(
-        'Coordinate shared GPU work',
-        'Observe mode waits for measured capacity. Managed mode may release only endpoints you explicitly attest are exclusive to Nice Assistant.',
-      ),
-      el('div', { class: 'settings-readiness-list' }, [
-        readinessRow('Coordination mode', titleCase(coordination.settings.mode), coordination.settings.mode === 'disabled' ? 'off' : 'ready', 'Disabled preserves provider behavior. Observe waits without unloading. Managed adds verified release controls.'),
-        readinessRow('Measured capacity', `${measured.length} of ${coordination.endpoints.length} providers known`, measured.length === coordination.endpoints.length ? 'ready' : 'attention', 'Unknown capacity is never presented as free VRAM.'),
-        readinessRow('Release-capable providers', `${releasable.length} reported`, releasable.length ? 'ready' : 'off', 'Provider capability means an adapter exposes a supported release API; it does not grant permission to use it.'),
-        readinessRow('Authorized release', `${authorized.length} explicitly allowed`, authorized.length ? 'attention' : 'off', 'Authorization must match the current endpoint fingerprint and is invalidated when the address changes.'),
-      ]),
       settingsCard([
-        settingsHeading('Coordination policy', 'Choose the least powerful mode that meets the needs of this shared GPU.'),
-        selectField('Mode', coordination.settings.mode, ['disabled', 'observe', 'managed'], (value) => {
+        choiceField('Mode', coordination.settings.mode, ['disabled', 'observe', 'managed'], (value) => {
           coordination.settings.mode = value as typeof coordination.settings.mode;
           this.renderApp();
-        }, 'resource-coordination-mode', modeLabel, true, 'Managed mode can invoke release controls only for separately authorized endpoints.'),
+        }, {
+          testId: 'resource-coordination-mode',
+          display: modeLabel,
+          hover: 'Off leaves every provider alone. Observe waits for measured room before starting media work. Managed may also unload models, but only on endpoints authorized below.',
+        }),
         coordination.settings.mode === 'managed'
           ? el('div', {
               class: 'settings-warning',
-              textContent: 'Managed mode can unload models or checkpoints on authorized endpoints. Authorize only services used exclusively by Nice Assistant; shared providers must remain unauthorized.',
+              textContent: 'Managed mode can unload models on the endpoints authorized below. Authorize only services nothing else uses.',
             })
           : null,
-        el('div', { class: 'chips' }, [
+        actionRow([
           el('button', {
             class: 'send-btn',
-            textContent: this.appState.resourceCoordinationBusy ? 'Saving…' : 'Save coordination',
-            disabled: this.appState.resourceCoordinationBusy,
+            textContent: busy ? 'Saving…' : 'Save coordination',
+            disabled: busy,
             'data-testid': 'resource-coordination-save',
             onclick: () => void this.saveCoordination(),
           }),
           el('button', {
             class: 'pill-btn',
-            textContent: this.appState.resourceCoordinationBusy ? 'Checking…' : 'Refresh telemetry',
-            disabled: this.appState.resourceCoordinationBusy,
+            textContent: busy ? 'Checking…' : 'Refresh telemetry',
+            disabled: busy,
             onclick: () => void this.checkCoordination(),
           }),
         ]),
       ]),
-      advancedSettings(
-        'Capacity timing and reserve',
-        'Expert scheduling bounds used while waiting for enough measured GPU capacity.',
-        [
-          inputField('Reserved VRAM (MB)', String(coordination.settings.reserve_vram_mb), (value) => {
+      advancedSettings('More options', 'How much room to keep free, and how long to wait for it.', [
+        el('div', { class: 'settings-grid' }, [
+          numberField('Reserved VRAM (MB)', String(coordination.settings.reserve_vram_mb), (value) => {
             coordination.settings.reserve_vram_mb = boundedInteger(value, 0, 131072, 1024);
-          }, 'number', false, 'Capacity kept unused after admitting estimated demand.'),
-          inputField('Maximum capacity wait (seconds)', String(coordination.settings.max_wait_seconds), (value) => {
+          }, { hover: 'Kept unused after admitting a job’s estimated demand.' }),
+          numberField('Longest wait (seconds)', String(coordination.settings.max_wait_seconds), (value) => {
             coordination.settings.max_wait_seconds = boundedInteger(value, 1, 3600, 300);
-          }, 'number', false, 'Fails an admission attempt safely after this wait rather than hanging indefinitely.'),
-          inputField('Telemetry interval (seconds)', String(coordination.settings.poll_interval_seconds), (value) => {
+          }, { hover: 'A job that has waited this long for room fails safely instead of hanging.' }),
+          numberField('Check every (seconds)', String(coordination.settings.poll_interval_seconds), (value) => {
             coordination.settings.poll_interval_seconds = boundedNumber(value, 0.25, 60, 2);
-          }, 'number', false, 'How often Nice Assistant refreshes capacity while a job waits.'),
-        ],
-        { testId: 'gpu-advanced-settings' },
-      ),
-      settingsCard([
-        settingsHeading('Provider endpoints', 'Open an endpoint to review its measured status, adapter capabilities, and release authorization.'),
-      ]),
+          }, { hover: 'How often capacity is re-read while a job waits.' }),
+        ]),
+      ], { testId: 'gpu-advanced-settings' }),
+      pageHint('Unknown capacity is never presented as free VRAM.'),
       ...coordination.endpoints.map((endpoint) => this.endpointCard(endpoint)),
       this.coordinationEvents(),
     ];
@@ -103,53 +96,41 @@ export class OperationsSettingsView {
 
   dataNodes(): HTMLElement[] {
     if (!this.appState.session?.is_admin) {
-      return [
-        settingsIntro('Protect and inspect this installation', 'Backups and diagnostic logs contain installation-wide operational data and require the administrator account.'),
-        el('div', { class: 'settings-empty-state', textContent: 'Sign in with the administrator account to manage backups and diagnostic logs.' }),
-      ];
+      return [el('div', { class: 'settings-empty-state', textContent: 'Sign in as the administrator to manage backups and diagnostic logs.' })];
     }
+    const running = this.appState.backupActionRunning;
     return [
-      settingsIntro(
-        'Protect and inspect this installation',
-        'Create recoverable snapshots, verify them before relying on them, and download redacted diagnostic logs when troubleshooting.',
-      ),
-      el('div', { class: 'settings-readiness-list' }, [
-        readinessRow('Available backups', `${this.appState.backupItems.length} archives`, this.appState.backupItems.length ? 'ready' : 'attention', 'A backup is not proven usable until its database integrity and migration compatibility are verified.'),
-        readinessRow('Backup verification', 'Available for every listed archive', 'ready', 'Verification runs a temporary restore drill without replacing the live database.'),
-        readinessRow('Diagnostic logs', 'Redacted download available', 'ready', 'Logs omit configured secrets but may still contain operational timing and safe error context.'),
-        readinessRow('Media coverage', 'Chosen per backup', 'ready', 'Database-only snapshots are smaller. Full backups also include regular protected media files.'),
-      ]),
       settingsCard([
-        settingsHeading('Create a backup', 'Backups are written to the configured archive directory and should be copied to independent storage.'),
         el('div', { class: 'operator-action-grid' }, [
           el('button', {
             class: 'send-btn',
-            textContent: this.appState.backupActionRunning ? 'Creating…' : 'Create database backup',
-            disabled: this.appState.backupActionRunning,
+            textContent: running ? 'Creating…' : 'Create database backup',
+            title: 'Written to the archive directory. Copy it somewhere independent.',
+            disabled: running,
             onclick: () => void this.createBackup(false),
           }),
           el('button', {
             class: 'pill-btn',
-            textContent: this.appState.backupActionRunning ? 'Creating…' : 'Create backup with media',
-            disabled: this.appState.backupActionRunning,
+            textContent: running ? 'Creating…' : 'Create backup with media',
+            title: 'The database plus the protected media files. Larger.',
+            disabled: running,
             onclick: () => void this.createBackup(true),
           }),
           el('button', {
             class: 'pill-btn',
             textContent: 'Download diagnostic log',
+            title: 'Secrets are left out; timings and safe error context are not.',
             onclick: () => window.open(this.client.diagnosticLogUrl(), '_blank', 'noopener'),
           }),
           el('button', {
             class: 'pill-btn',
-            textContent: this.appState.backupsLoading ? 'Refreshing…' : 'Refresh backups',
+            textContent: this.appState.backupsLoading ? 'Refreshing…' : 'Refresh',
             disabled: this.appState.backupsLoading,
             onclick: () => void this.refreshBackups(),
           }),
         ]),
       ]),
-      settingsCard([
-        settingsHeading(`Backup archives (${this.appState.backupItems.length})`, 'Verify an archive before treating it as a recovery point. Deleting an archive cannot be undone.'),
-      ]),
+      pageHint('Verify an archive before relying on it. Deleting one cannot be undone.'),
       ...(this.appState.backupItems.length
         ? this.appState.backupItems.map((item) => operatorEditor(
             item.name,
@@ -160,8 +141,9 @@ export class OperationsSettingsView {
                 el('button', { class: 'pill-btn', textContent: 'Download', onclick: () => window.open(this.client.backupDownloadUrl(item.name), '_blank', 'noopener') }),
                 el('button', {
                   class: 'pill-btn',
-                  textContent: this.appState.backupActionRunning ? 'Verifying…' : 'Verify restore',
-                  disabled: this.appState.backupActionRunning,
+                  textContent: running ? 'Verifying…' : 'Verify restore',
+                  title: 'A temporary restore that checks integrity and migration compatibility. The live database is untouched.',
+                  disabled: running,
                   onclick: () => void this.verifyBackup(item.name),
                 }),
                 el('button', { class: 'pill-btn danger', textContent: 'Delete archive', onclick: () => void this.deleteBackup(item.name) }),
@@ -169,7 +151,7 @@ export class OperationsSettingsView {
             ],
             { testId: `backup-${item.name}`, className: 'backup-editor', statusClass: 'idle' },
           ))
-        : [el('div', { class: 'settings-empty-state', textContent: 'No backups are available yet. Create and verify one before making risky deployment or migration changes.' })]),
+        : [el('div', { class: 'settings-empty-state', textContent: 'No backups yet. Make and verify one before any risky change.' })]),
     ];
   }
 
@@ -206,33 +188,38 @@ export class OperationsSettingsView {
     }
   }
 
+  /** One provider endpoint: what it reports, and whether this app may act on it. */
   private endpointCard(endpoint: ResourceEndpointStatus): HTMLElement {
     const snapshot = endpoint.snapshot;
     const capacity = snapshot?.free_vram_mb == null
       ? titleCase(snapshot?.status ?? 'not checked')
       : `${snapshot.free_vram_mb} MB free of ${snapshot.total_vram_mb ?? 'unknown'} MB`;
     const status = snapshot?.status === 'known' ? 'Measured' : titleCase(snapshot?.status ?? 'Not checked');
+    const abilities = [
+      endpoint.capabilities.reports_capacity ? 'reports capacity' : null,
+      endpoint.capabilities.reports_queue ? 'reports its queue' : null,
+      endpoint.capabilities.supports_release ? 'can release models' : 'cannot release models',
+      endpoint.capabilities.supports_precise_cancel ? 'cancels precisely' : 'cancels cooperatively',
+    ].filter((item): item is string => item !== null).join(' · ');
     return operatorEditor(
       titleCase(endpoint.provider),
       `${endpoint.endpoint_label} · ${capacity}`,
       status,
       [
-        el('div', { class: 'settings-readiness-list' }, [
-          readinessRow('Capacity reporting', endpoint.capabilities.reports_capacity ? 'Supported' : 'Unavailable', endpoint.capabilities.reports_capacity ? 'ready' : 'off', 'Determines whether Nice Assistant can use measured free VRAM instead of unknown capacity.'),
-          readinessRow('Queue reporting', endpoint.capabilities.reports_queue ? 'Supported' : 'Unavailable', endpoint.capabilities.reports_queue ? 'ready' : 'off', 'Queue depth helps explain whether the external provider is already busy.'),
-          readinessRow('Release control', endpoint.capabilities.supports_release ? 'Adapter supports release' : 'Not supported', endpoint.capabilities.supports_release ? 'attention' : 'off', 'Support does not authorize release. Exclusive control and allow-release must both be explicitly enabled.'),
-          readinessRow('Precise cancellation', endpoint.capabilities.supports_precise_cancel ? 'Supported' : 'Cooperative or unavailable', endpoint.capabilities.supports_precise_cancel ? 'ready' : 'off', 'Providers without precise cancellation may finish work whose late result Nice Assistant discards.'),
-        ]),
+        el('p', { class: 'meta', textContent: abilities, title: 'What the adapter can do. Being able to release a model is not permission to.' }),
         snapshot?.message ? el('div', { class: 'meta', textContent: snapshot.message }) : null,
-        toggleField('This endpoint is exclusively managed by Nice Assistant', endpoint.authorization.exclusive_control, (checked) => {
+        switchField('Nothing else uses this endpoint', endpoint.authorization.exclusive_control, (checked) => {
           endpoint.authorization.exclusive_control = checked;
           if (!checked) endpoint.authorization.allow_release = false;
           this.renderApp();
-        }, 'Enable only if no other application or person uses this exact provider endpoint.'),
-        toggleField('Allow verified release controls', endpoint.authorization.allow_release, (checked) => {
+        }, { hover: 'Only if no other application or person uses this exact address.' }),
+        switchField('Allow releasing its models', endpoint.authorization.allow_release, (checked) => {
           endpoint.authorization.allow_release = checked && endpoint.authorization.exclusive_control;
           this.renderApp();
-        }, 'Requires exclusive control. Managed mode verifies provider state after every release attempt and records the result.'),
+        }, {
+          hover: 'Needs the switch above. Every release is verified afterwards and recorded.',
+          disabled: !endpoint.authorization.exclusive_control,
+        }),
       ],
       {
         open: this.openEndpoints.has(endpoint.provider),
@@ -252,10 +239,10 @@ export class OperationsSettingsView {
             el('div', { class: 'meta', textContent: `${titleCase(event.outcome)} · ${formatDate(event.created_at)}` }),
           ]),
         ]))
-      : [el('div', { class: 'settings-empty-state', textContent: 'No coordination events have been recorded yet.' })];
+      : [el('div', { class: 'settings-empty-state', textContent: 'No coordination events yet.' })];
     return advancedSettings(
-      `Recent coordination events (${this.appState.resourceCoordinationEvents.length})`,
-      'Content-free operational records of waits, admissions, release attempts, verification, and safe failures.',
+      `Recent events (${this.appState.resourceCoordinationEvents.length})`,
+      'Waits, admissions, releases and their verification. Never content.',
       rows,
       { testId: 'gpu-coordination-events' },
     );
@@ -336,9 +323,9 @@ export class OperationsSettingsView {
 
 function modeLabel(value: string): string {
   const labels: Record<string, string> = {
-    disabled: 'Disabled — preserve provider behavior',
-    observe: 'Observe — wait for measured capacity',
-    managed: 'Managed — allow authorized release controls',
+    disabled: 'Off — leave providers alone',
+    observe: 'Observe — wait for measured room',
+    managed: 'Managed — may unload models on authorized endpoints',
   };
   return labels[value] ?? titleCase(value);
 }

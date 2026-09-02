@@ -77,10 +77,12 @@ describe('GPU coordination settings', () => {
     const node = view.node();
 
     expect(node.textContent).toContain('6144 MB free of 12288 MB');
-    expect(node.textContent).toContain('release only endpoints you explicitly attest are exclusive');
     expect(node.textContent).toContain('Unknown capacity is never presented as free VRAM');
+    expect(node.querySelectorAll('.info-tip-trigger')).toHaveLength(0);
     const toggles = node.querySelectorAll('input[type="checkbox"]');
     expect(toggles).toHaveLength(2);
+    // Release cannot be allowed until the endpoint is declared exclusive.
+    expect((toggles[1] as HTMLInputElement).disabled).toBe(true);
     (toggles[1] as HTMLInputElement).click();
     expect(appState.resourceCoordination.endpoints[0]!.authorization.allow_release).toBe(false);
     (toggles[0] as HTMLInputElement).checked = true;

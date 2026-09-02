@@ -2705,9 +2705,10 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
   margin: 0;
 }
 
-/* The model page: one ingredient at a time. The name is the headline - it is
-   an input so renaming is direct, but it should read as a title, not a form. */
-.model-page-nav {
+/* A page for one thing - a model, a persona, a background role. The name is
+   the headline: an input when renaming is allowed, so it is direct, styled to
+   read as a title rather than a form. */
+.page-nav {
   display: flex;
   justify-content: space-between;
   align-items: center;
@@ -2716,7 +2717,7 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
   flex-wrap: wrap;
 }
 
-.model-page-name {
+.page-name {
   width: 100%;
   font-size: 1.6rem;
   font-weight: 700;
@@ -2727,18 +2728,18 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
   padding: 0.1rem 0;
 }
 
-.model-page-name:hover,
-.model-page-name:focus {
+.page-name:hover,
+.page-name:focus {
   border-bottom-color: var(--border, rgba(127, 127, 127, 0.4));
   outline: none;
 }
 
-.model-page-file {
+.page-line {
   margin-top: 0;
   overflow-wrap: anywhere;
 }
 
-.model-page-suggestion {
+.page-suggestion {
   display: flex;
   align-items: center;
   gap: 0.6rem;
@@ -2782,27 +2783,31 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
   background: rgba(20, 36, 52, 0.5);
 }
 
-/* A model's face: one sample picture beside its name, everywhere it appears. */
-.model-page-head { display: flex; gap: .9rem; align-items: center; }
-.model-page-head-titles { flex: 1 1 auto; min-width: 0; }
-.model-page-thumb-slot { display: flex; flex-direction: column; gap: .35rem; align-items: center; flex: 0 0 auto; }
-.model-page-thumb {
+/* A thing's face: one picture beside its name, everywhere it appears. */
+.page-head { display: flex; gap: .9rem; align-items: center; }
+.page-head-titles { flex: 1 1 auto; min-width: 0; }
+.page-thumb-slot { display: flex; flex-direction: column; gap: .35rem; align-items: center; flex: 0 0 auto; }
+.page-thumb {
   width: 96px;
   height: 96px;
   border-radius: 14px;
   object-fit: cover;
   border: 1px solid var(--border);
 }
-.model-page-thumb-empty {
+.page-thumb-empty {
   display: grid;
   place-items: center;
   color: var(--text-dim);
   font-size: 1.6rem;
   background: rgba(20, 36, 52, 0.4);
 }
-.model-page-sample { font-size: .74rem; padding: .25rem .55rem; }
-.model-open { display: inline-flex; align-items: center; gap: .45rem; }
-.model-open-thumb {
+.page-thumb-round { border-radius: 50%; }
+.page-thumb-action { font-size: .74rem; padding: .25rem .55rem; }
+.page-name-static { margin: 0; font-size: 1.6rem; font-weight: 700; padding: 0.1rem 0; overflow-wrap: anywhere; }
+.page-hint { margin: 0; }
+.thing-open { display: inline-flex; align-items: center; gap: .45rem; }
+.thing-open-note { font-size: .72rem; color: var(--text-dim); }
+.thing-open-thumb {
   width: 30px;
   height: 30px;
   border-radius: 8px;
