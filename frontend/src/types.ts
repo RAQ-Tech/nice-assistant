@@ -703,7 +703,9 @@ export interface WorkflowTemplate {
   name: string;
   template_version: number;
   summary: string;
-  mechanism: 'reference_adapter' | 'identity_pass';
+  // What it makes. A video graph has no identity mechanism.
+  kind: 'image' | 'video';
+  mechanism: 'reference_adapter' | 'identity_pass' | null;
   architectures: string[];
   // Plain language, because these are the parts nothing can check from here.
   required_assets: string[];
@@ -717,6 +719,7 @@ export interface WorkflowTemplate {
 
 export interface WorkflowTemplateList {
   model_id: string;
+  model_kind: string;
   model_architecture: string;
   templates: WorkflowTemplate[];
 }

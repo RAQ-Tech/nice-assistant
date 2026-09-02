@@ -1,0 +1,92 @@
+{
+  "version": 1,
+  "id": "wan22-ti2v-5b",
+  "name": "Wan 2.2 text-to-video (5B)",
+  "template_version": 1,
+  "kind": "video",
+  "summary": "Makes a five-second clip - 1280 by 704, 24 frames a second - from the prompt alone, with the Wan 2.2 5B model, the one that fits a consumer card. The graph carries the size because the model was trained at it; the request supplies the words, the negative, and the seed. A clip takes minutes, not seconds.",
+  "architectures": ["wan"],
+  "operations": ["generate"],
+  "features": ["text_to_video"],
+  "domains": [],
+  "required_assets": [
+    "wan2.2_ti2v_5B_fp16.safetensors in the ComfyUI models/diffusion_models folder - the video model paired with this workflow in the catalog. If yours has another name, pick the file when you check this template.",
+    "umt5_xxl_fp8_e4m3fn_scaled.safetensors, the text encoder, in models/text_encoders",
+    "wan2.2_vae.safetensors in models/vae",
+    "A ComfyUI recent enough to have the Wan 2.2 nodes and the Create Video and Save Video nodes. They ship with ComfyUI; nothing else to install."
+  ],
+  "bindings": {
+    "prompt_bindings": [{ "node_id": "5", "input_name": "text" }],
+    "negative_prompt_bindings": [{ "node_id": "6", "input_name": "text" }],
+    "seed_bindings": [{ "node_id": "8", "input_name": "seed" }],
+    "checkpoint_bindings": [{ "node_id": "1", "input_name": "unet_name" }]
+  },
+  "workflow": {
+    "1": {
+      "class_type": "UNETLoader",
+      "_meta": { "title": "Load Diffusion Model" },
+      "inputs": { "unet_name": "wan2.2_ti2v_5B_fp16.safetensors", "weight_dtype": "default" }
+    },
+    "2": {
+      "class_type": "CLIPLoader",
+      "_meta": { "title": "Load CLIP" },
+      "inputs": { "clip_name": "umt5_xxl_fp8_e4m3fn_scaled.safetensors", "type": "wan", "device": "default" }
+    },
+    "3": {
+      "class_type": "VAELoader",
+      "_meta": { "title": "Load VAE" },
+      "inputs": { "vae_name": "wan2.2_vae.safetensors" }
+    },
+    "4": {
+      "class_type": "ModelSamplingSD3",
+      "_meta": { "title": "ModelSamplingSD3" },
+      "inputs": { "model": ["1", 0], "shift": 8 }
+    },
+    "5": {
+      "class_type": "CLIPTextEncode",
+      "_meta": { "title": "Prompt" },
+      "inputs": { "clip": ["2", 0], "text": "" }
+    },
+    "6": {
+      "class_type": "CLIPTextEncode",
+      "_meta": { "title": "Negative prompt" },
+      "inputs": { "clip": ["2", 0], "text": "" }
+    },
+    "7": {
+      "class_type": "Wan22ImageToVideoLatent",
+      "_meta": { "title": "Wan 2.2 latent" },
+      "inputs": { "vae": ["3", 0], "width": 1280, "height": 704, "length": 121, "batch_size": 1 }
+    },
+    "8": {
+      "class_type": "KSampler",
+      "_meta": { "title": "KSampler" },
+      "inputs": {
+        "model": ["4", 0],
+        "seed": 0,
+        "steps": 20,
+        "cfg": 5,
+        "sampler_name": "uni_pc",
+        "scheduler": "simple",
+        "positive": ["5", 0],
+        "negative": ["6", 0],
+        "latent_image": ["7", 0],
+        "denoise": 1
+      }
+    },
+    "9": {
+      "class_type": "VAEDecode",
+      "_meta": { "title": "VAE Decode" },
+      "inputs": { "samples": ["8", 0], "vae": ["3", 0] }
+    },
+    "10": {
+      "class_type": "CreateVideo",
+      "_meta": { "title": "Create Video" },
+      "inputs": { "images": ["9", 0], "fps": 24 }
+    },
+    "11": {
+      "class_type": "SaveVideo",
+      "_meta": { "title": "Save Video" },
+      "inputs": { "video": ["10", 0], "filename_prefix": "video/nice-assistant", "format": "auto", "codec": "auto" }
+    }
+  }
+}

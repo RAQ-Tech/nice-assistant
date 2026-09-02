@@ -59,6 +59,9 @@ npm run frontend:e2e
 - `operations_settings_view.ts`: administrator-only GPU coordination and backup
   operations, including explicit provider-control authorization and restore
   verification.
+- `video_template_offer.ts`: the shipped Wan graph offered ahead of the paste
+  box when a workflow is to make video clips, paired with the video model it
+  should run on.
 - `settings_contracts.ts`: the small dialog boundary shared by focused settings
   views without coupling them back to the application shell.
 - `settings_controls.ts` and `settings_ui.ts`: common cards, closed advanced

@@ -42,7 +42,7 @@ export class WorkflowTemplateView {
     private readonly dialogs: SettingsDialogs,
   ) {}
 
-  node(modelId: string, modelName: string): HTMLElement {
+  node(modelId: string, modelName: string, kind: 'image' | 'video' = 'image'): HTMLElement {
     if (modelId && modelId !== this.loadedModelId) {
       // Claimed before the request starts, not after it succeeds. Rendering is
       // what triggers the load, so a failure that left this unset would start
@@ -54,7 +54,9 @@ export class WorkflowTemplateView {
     return el('div', { class: 'workflow-template-list', 'data-testid': 'workflow-templates' }, [
       settingsHeading(
         'Start from a known-good workflow',
-        'These graphs ship with Nice Assistant, already wired to receive the request and the persona reference. Checking one asks ComfyUI whether the nodes and files it names are installed. Nothing here has been generation-tested on this deployment.',
+        kind === 'video'
+          ? 'This graph ships with Nice Assistant, already wired to receive the request. Checking it asks ComfyUI whether the nodes and files it names are installed. No clip has been rendered from it on this deployment.'
+          : 'These graphs ship with Nice Assistant, already wired to receive the request and the persona reference. Checking one asks ComfyUI whether the nodes and files it names are installed. Nothing here has been generation-tested on this deployment.',
       ),
       this.list && !this.list.model_architecture
         ? el('div', {
@@ -77,7 +79,7 @@ export class WorkflowTemplateView {
       el('div', { class: 'task-model-head' }, [
         el('div', {}, [
           el('strong', { textContent: template.name }),
-          el('div', { class: 'meta', textContent: MECHANISM_LABELS[template.mechanism] ?? template.mechanism }),
+          el('div', { class: 'meta', textContent: techniqueLabel(template) }),
         ]),
         el('span', {
           class: `provider-status ${template.installed_resource_id ? 'ok' : 'idle'}`,
@@ -98,7 +100,9 @@ export class WorkflowTemplateView {
         : el('div', {
             class: 'settings-warning',
             'data-testid': `workflow-template-mismatch-${template.id}`,
-            textContent: `Built for ${template.architectures.join(', ')} checkpoints, and this model is declared as ${this.list?.model_architecture}. It can still be installed, but likeness on a different family is unmeasured.`,
+            textContent: template.kind === 'video'
+              ? `Built for ${template.architectures.join(', ')} models, and this model is declared as ${this.list?.model_architecture}. It can still be installed, but it was built for another family.`
+              : `Built for ${template.architectures.join(', ')} checkpoints, and this model is declared as ${this.list?.model_architecture}. It can still be installed, but likeness on a different family is unmeasured.`,
           }),
       template.update_available
         ? el('div', {
@@ -263,4 +267,10 @@ export class WorkflowTemplateView {
       this.renderApp();
     }
   }
+}
+
+/** What a graph does, in the words a person chose it by. */
+function techniqueLabel(template: WorkflowTemplate): string {
+  if (template.kind === 'video') return 'Makes a video clip from the prompt';
+  return (template.mechanism && MECHANISM_LABELS[template.mechanism]) || template.mechanism || '';
 }

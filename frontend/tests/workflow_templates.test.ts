@@ -11,6 +11,7 @@ function template(overrides: Partial<WorkflowTemplate> = {}): WorkflowTemplate {
     name: 'PhotoMaker v2 (SDXL)',
     template_version: 1,
     summary: 'Conditions generation on one approved reference photo.',
+    kind: 'image',
     mechanism: 'reference_adapter',
     architectures: ['sdxl'],
     required_assets: ['photomaker-v2.bin in the ComfyUI models/photomaker folder'],
@@ -174,6 +175,18 @@ describe('Workflow templates', () => {
     await loaded();
 
     // It is the first pass, so there is nothing to add it after.
+    expect(root.querySelector('[data-testid="workflow-template-preset"]')).toBeNull();
+  });
+
+  it('labels a video graph by what it makes, not by an identity mechanism', async () => {
+    const { root, loaded } = setup([template({
+      id: 'wan22-ti2v-5b', name: 'Wan 2.2 text-to-video (5B)', kind: 'video', mechanism: null, architectures: ['wan'], required_prompt_token: '',
+      summary: 'Makes a five-second clip from the prompt alone.',
+    })]);
+    await loaded();
+    expect(root.textContent).toContain('Makes a video clip from the prompt');
+    expect(root.textContent).not.toContain('Conditions generation');
+    // Nothing to add as a later pass: a clip is made whole.
     expect(root.querySelector('[data-testid="workflow-template-preset"]')).toBeNull();
   });
 

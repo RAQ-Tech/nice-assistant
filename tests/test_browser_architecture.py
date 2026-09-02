@@ -52,6 +52,7 @@ class BrowserArchitectureTests(unittest.TestCase):
             "transcript_segments.ts",
             "turn_detection.ts",
             "types.ts",
+            "video_template_offer.ts",
             "visualization.ts",
             "workflow_import_view.ts",
             "workflow_template_view.ts",
@@ -71,6 +72,7 @@ class BrowserArchitectureTests(unittest.TestCase):
         self.assertLess((SOURCE / "model_page_view.ts").read_text(encoding="utf-8").count("\n"), 460)
         self.assertLess((SOURCE / "model_lookup_view.ts").read_text(encoding="utf-8").count("\n"), 160)
         self.assertLess((SOURCE / "workflow_import_view.ts").read_text(encoding="utf-8").count("\n"), 280)
+        self.assertLess((SOURCE / "video_template_offer.ts").read_text(encoding="utf-8").count("\n"), 80)
         self.assertLess((SOURCE / "persona_card_view.ts").read_text(encoding="utf-8").count("\n"), 150)
         self.assertLess((SOURCE / "persona_lore_view.ts").read_text(encoding="utf-8").count("\n"), 300)
         self.assertLess((SOURCE / "persona_lore_copy_view.ts").read_text(encoding="utf-8").count("\n"), 150)

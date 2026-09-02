@@ -344,7 +344,8 @@ video decision (item 0b) left behind.
     `openai` video choice still lands as Off, and the documents say video is
     local only without describing a cloud adapter.
 
-4. **A shipped Wan 2.2 video template.** The local video path exists, but
+4. **A shipped Wan 2.2 video template - delivered 2026-09-02.** The local
+    video path existed, but
     nothing ships to run on it: a person must import a text-to-video graph of
     their own. Ship one the way the identity templates ship - node IDs fixed,
     bindings declared by construction, inspection verifying that the node
@@ -352,10 +353,11 @@ video decision (item 0b) left behind.
     see. Wan 2.2's nodes live in ComfyUI itself, so their names can be
     verified against the ComfyUI source; what needs the deployment is the
     model download and the first clip.
-    **Done when** the template installs from the video import card, inspection
-    names the missing model on a ComfyUI that has not downloaded it, and the
-    first clip on the deployment - **Blocked - deployment** - shows the
-    template's stages in its journal.
+    Delivered: the template ships with its node IDs fixed and its prompt,
+    negative, seed and model bindings declared, is offered on the video import
+    card to video models only, and its check names the model file this ComfyUI
+    has not downloaded together with the files it does have. The first clip is
+    item 16 in section 4.
 
 ## 2. Decided
 
@@ -385,9 +387,8 @@ listed item; none of them is open any more.
     content, so no cloud option is offered through the UI; the cloud adapter
     stays in the code for a future service worth linking, and a stored cloud
     choice saves as Off. The local ComfyUI video path shipped with this
-    decision; see `docs/media-catalog.md`. The work it left is items 1G-3
-    and 1G-4, plus one deployment step: download a Wan 2.2 model into
-    ComfyUI.
+    decision; see `docs/media-catalog.md`. The work it left is item 1G-3
+    and the first clip, item 16 in section 4.
 
 1. **Rejected and forgotten memory never expires automatically.** Manual
     deletion, individually or in bulk, stays the only way a record leaves.
@@ -524,6 +525,12 @@ acceptance.
     browser journey has confirmed the confirmation card, the reference the
     planner chose, or a real ComfyUI edit workflow on the deployment. Until then
     the feature is published, not accepted. Source: ADR 0029.
+
+16. **The first Wan clip.** Download `wan2.2_ti2v_5B_fp16.safetensors`, the
+    `umt5_xxl_fp8_e4m3fn_scaled` text encoder and `wan2.2_vae` into ComfyUI,
+    add the video model to the catalog, install the shipped template from the
+    video import card, and ask a chat for a clip. Done when the clip's journal
+    shows the template's stages. Source: item 1G-4, `docs/media-catalog.md`.
 
 ## 5. Temporary by agreement
 
