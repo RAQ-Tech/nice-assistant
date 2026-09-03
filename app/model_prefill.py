@@ -22,6 +22,8 @@ FAMILY_DEFAULTS: dict[str, dict] = {
         "height": 1024,
         "steps": 30,
         "cfg_scale": 6.0,
+        "sampler_name": "dpmpp_2m",
+        "scheduler": "karras",
         "prompt_style": "natural_language",
     },
     "sd15": {
@@ -30,6 +32,8 @@ FAMILY_DEFAULTS: dict[str, dict] = {
         "height": 512,
         "steps": 25,
         "cfg_scale": 7.0,
+        "sampler_name": "dpmpp_2m",
+        "scheduler": "karras",
         "prompt_style": "natural_language",
     },
     "flux": {
@@ -38,6 +42,8 @@ FAMILY_DEFAULTS: dict[str, dict] = {
         "height": 1024,
         "steps": 20,
         "cfg_scale": 1.0,
+        "sampler_name": "euler",
+        "scheduler": "simple",
         "prompt_style": "natural_language",
     },
     # De-distilled Flux lineage: real CFG again, so Flux's 1.0 would be
@@ -48,6 +54,8 @@ FAMILY_DEFAULTS: dict[str, dict] = {
         "height": 1024,
         "steps": 30,
         "cfg_scale": 4.0,
+        "sampler_name": "euler",
+        "scheduler": "beta",
         "prompt_style": "natural_language",
     },
 }
@@ -132,6 +140,45 @@ def prefill_suggestions(checkpoint: str, metadata: dict | None) -> dict:
         "height": defaults["height"],
         "steps": defaults["steps"],
         "cfg_scale": defaults["cfg_scale"],
+        "sampler_name": defaults["sampler_name"],
+        "scheduler": defaults["scheduler"],
         "prompt_style": defaults["prompt_style"],
         "message": f"Typical {defaults['label']} settings, {origin}.",
     }
+
+
+# What to run a recipe with when it has no numbers of its own. The Image
+# Generation page's numbers are for one-off direct pictures and may be tuned to
+# one particular model - four steps at CFG 2 suits a Lightning checkpoint and
+# turns anything else to mush - so a recipe with nothing recorded is served by
+# its family's published starting point, or by an ordinary one when the family
+# is unknown, and the journal says which.
+GENERIC_SAMPLER_DEFAULTS = {"steps": 25, "cfg_scale": 7.0, "sampler_name": "dpmpp_2m", "scheduler": "karras"}
+
+
+def sampler_defaults(checkpoint: str) -> tuple[dict, str]:
+    """Starting sampler settings for a checkpoint, and where they came from."""
+
+    family = family_from_filename(checkpoint)
+    if family and family in FAMILY_DEFAULTS:
+        defaults = FAMILY_DEFAULTS[family]
+        return (
+            {key: defaults[key] for key in ("steps", "cfg_scale", "sampler_name", "scheduler")},
+            f"{defaults['label']} family defaults, guessed from the file name",
+        )
+    return (
+        dict(GENERIC_SAMPLER_DEFAULTS),
+        "ordinary starting point; the file name does not say what family the model is",
+    )
+
+
+# What a checkpoint's filename says it is for. A guess, and said to be one
+# wherever it is applied: it stops an inpainting model or a refiner being
+# offered as a way to make a picture from a prompt, which neither does well.
+def checkpoint_role(filename: str) -> str:
+    lowered = str(filename or "").casefold()
+    if "inpaint" in lowered:
+        return "inpainting"
+    if "refiner" in lowered:
+        return "refiner"
+    return "base"

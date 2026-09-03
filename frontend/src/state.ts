@@ -102,6 +102,8 @@ export function createState(): AppState {
     chatImageGallery: [],
     chatVideoPreview: '',
     revealedImages: {},
+    coverNewestPending: false,
+    coveredImageSrc: null,
     showNewChatPersonaModal: false,
     newChatPersonaId: null,
     onboardingRunning: false,

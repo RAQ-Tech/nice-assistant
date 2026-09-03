@@ -17,6 +17,7 @@ from dataclasses import dataclass, field
 
 from app.chat import parse_model_options
 from app.job_service import JobExecution
+from app.media import subject_from_request
 from app.media_scene import EMPTY_SCENE
 from app.persona_output import PERSONA_OUTPUT_REMOVED_FALLBACK, PersonaOutputStreamFilter
 from app.provider_contracts import ChatRequest, ProviderError
@@ -341,13 +342,15 @@ class TurnPipeline:
     # -- capability planning ----------------------------------------------
 
     def _deterministic_image_plan(self) -> PlannedCapability:
-        # The user asked in their own words, so those words are the subject.
-        # Nothing is invented to fill the other scene fields.
+        # The user asked in their own words, so those words are the subject -
+        # minus the asking, and with "you" being the persona they are talking
+        # to. Nothing is invented to fill the other scene fields.
+        subject = subject_from_request(self.ctx.text, persona_name=self.ctx.persona_name if self.ctx.persona_id else "")
         return PlannedCapability(
             capability_key="media.generate_image",
             prompt=self.ctx.text[:1000],
             operation="generate",
-            scene={**EMPTY_SCENE, "subject": self.ctx.text[:200]},
+            scene={**EMPTY_SCENE, "subject": subject[:200]},
         )
 
     def _explicit_image_only(self) -> dict:

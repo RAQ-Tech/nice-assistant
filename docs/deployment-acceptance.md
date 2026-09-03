@@ -104,16 +104,18 @@ portable performance claim.
 
 Local transcription and real visual-identity deployment acceptance remain
 separate future work, as does a destructive live restore, which is an explicitly
-authorized operator drill. Local transcription is implemented and covered by
-tests here; what is unaccepted is a spoken turn completing against a Whisper
-service actually running on the private LAN.
+authorized operator drill. Local transcription was accepted on 2026-09-02: a
+held-button turn transcribed correctly against the Whisper service on the
+private LAN, from the installed browser, in the owner's walkthrough.
 
-Three speech behaviours are implemented against the local Kokoro path and are
-**not accepted on the installed deployment**: speech that starts before
-synthesis finishes, interruption that stops the provider work rather than only
-the sound, and hands-free listening that decides when a turn ended. Implemented
-is not accepted; none of it has run on the real topology. The speech provider
-is Kokoro by the owner's decision of 2026-09-02, not by an evaluation, and
+Three speech behaviours built against the local Kokoro path were **accepted on
+the installed deployment on 2026-09-02** in the owner's walkthrough: speech
+that starts before synthesis finishes, interruption that stops the provider
+work rather than only the sound, and hands-free listening that decides when a
+turn ended. Two findings came out of it and are backlog items 1G-7 and 1G-8:
+speech still waits for the reply to finish writing before it starts, and the
+hands-free pause cut the owner off at natural pauses. The speech provider is
+Kokoro by the owner's decision of 2026-09-02, not by an evaluation, and
 nothing here claims one was run.
 
 None of it may be described as live transcription. Transcription can now begin

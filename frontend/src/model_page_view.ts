@@ -204,6 +204,8 @@ export class ModelPageView {
     if (suggestion.steps !== undefined) this.edit.steps = String(suggestion.steps);
     if (suggestion.cfg_scale !== undefined) this.edit.cfg = String(suggestion.cfg_scale);
     if (suggestion.width && suggestion.height) this.edit.size = `${suggestion.width}x${suggestion.height}`;
+    if (suggestion.sampler_name) this.edit.sampler = suggestion.sampler_name;
+    if (suggestion.scheduler) this.edit.scheduler = suggestion.scheduler;
     if (suggestion.prompt_style) this.edit.style = suggestion.prompt_style;
     this.renderApp();
   }

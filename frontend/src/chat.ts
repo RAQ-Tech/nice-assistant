@@ -31,7 +31,11 @@ export class ChatController {
   async open(chatId: string): Promise<void> {
     // Arriving at a conversation covers its pictures again. A reveal is for the
     // moment somebody asked to look, not for every time they come back.
-    if (this.appState.currentChat?.id !== chatId) this.appState.revealedImages = {};
+    if (this.appState.currentChat?.id !== chatId) {
+      this.appState.revealedImages = {};
+      this.appState.coverNewestPending = true;
+      this.appState.coveredImageSrc = null;
+    }
     if (this.appState.currentChat?.id === chatId && this.appState.messages.length) return;
     if (this.appState.phase === 'error') this.stateMachine.recover();
     if (this.appState.phase !== 'idle') return;

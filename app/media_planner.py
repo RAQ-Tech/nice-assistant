@@ -15,6 +15,7 @@ from __future__ import annotations
 import json
 
 from app.identity_conditioning import IDENTITY_CONTROL_FEATURE
+from app.model_prefill import checkpoint_role
 
 
 PROVIDER_DEFAULT = "provider-default"
@@ -51,16 +52,19 @@ def _json(value: str | None, fallback):
     return parsed
 
 
-def _choose_preset(candidates, *, preferred_preset_id, persona_preset_ids, measured_preset_ids):
+def _choose_preset(candidates, *, preferred_preset_id, persona_preset_ids, measured_preset_ids, default_model=""):
     """Pick the winner from candidates that already passed every requirement.
 
-    Four tiers, most-informed first. The task model saw this request, so its
+    Five tiers, most-informed first. The task model saw this request, so its
     choice outranks a standing preference. A persona preference then outranks
     everything below it, because "this recipe works for this face" is knowledge
     no score represents. Measured signals come next: what actually happened to
-    the pictures each preset made. The deterministic score is what remains when
-    nothing else has anything to say, and it is also what happens when the model
-    fails, times out, or expresses nothing.
+    the pictures each preset made. Then the one model a person has chosen by
+    hand, on the Image Generation page - a request that named nothing should
+    land there rather than on whichever recipe sorts first by name. The
+    deterministic score is what remains when nothing else has anything to say,
+    and it is also what happens when the model fails, times out, or expresses
+    nothing.
 
     None of these tiers can select an incompatible preset. They only reorder a
     list the hard filter already produced.
@@ -73,10 +77,15 @@ def _choose_preset(candidates, *, preferred_preset_id, persona_preset_ids, measu
                 return match
         return None
 
+    default_choice = next(
+        (item for item in candidates if default_model and item["base"].external_id == default_model),
+        None,
+    )
     for source, choice in (
         ("task_model", first_of([preferred_preset_id] if preferred_preset_id else [])),
         ("persona_preference", first_of(persona_preset_ids)),
         ("measured_preference", first_of(measured_preset_ids)),
+        ("default_model", default_choice),
     ):
         if choice:
             return choice, source
@@ -105,6 +114,8 @@ def build_media_plan(repo, user_id: str, requirements: dict, providers, ready_ba
     resources = {row.id: row for row in repo.media_catalog_resources(user_id, enabled=True)}
     compatibility = repo.media_compatibility_map(user_id)
     setting = repo.media_catalog_setting(user_id)
+    preferences = (repo.settings(user_id) or {}).get("preferences") or {}
+    default_model = str(preferences.get("image_local_model") or "").strip()
 
     rejected = []
     candidates = []
@@ -180,6 +191,7 @@ def build_media_plan(repo, user_id: str, requirements: dict, providers, ready_ba
         preferred_preset_id=preferred_preset_id,
         persona_preset_ids=persona_preset_ids,
         measured_preset_ids=requirements.get("measured_preset_ids") or [],
+        default_model=default_model,
     )
     preferred = winner if selection_source == "task_model" else None
     preset = winner["preset"]
@@ -230,6 +242,8 @@ def build_media_plan(repo, user_id: str, requirements: dict, providers, ready_ba
                     if selection_source == "task_model"
                     else "this persona's preferred recipe"
                     if selection_source == "persona_preference"
+                    else "the model chosen on the Image Generation page, because nothing else preferred a recipe"
+                    if selection_source == "default_model"
                     else _preset_reason(preset, winner, requirements)
                 ),
                 "considered": [
@@ -320,6 +334,13 @@ def _requirement_failures(
     reasons = []
     if operation not in coverage_ops:
         reasons.append(f"operation '{operation}' is not declared compatible")
+    if operation == "generate" and checkpoint_role(base.external_id) == "inpainting":
+        # A model cataloged before the checkpoint list learned to tell an
+        # inpainting model apart still says it generates. Its name says
+        # otherwise, and a name-order tie once handed a request to one.
+        reasons.append(
+            "its filename says it is an inpainting checkpoint, which is not offered for making a picture from a prompt"
+        )
     if operation != "generate" and not workflow:
         reasons.append(f"operation '{operation}' requires an explicit compatible ComfyUI workflow")
     missing_content = sorted(required_content - coverage_content)

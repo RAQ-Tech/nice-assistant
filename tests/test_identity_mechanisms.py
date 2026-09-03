@@ -125,6 +125,7 @@ class MechanismPlanningTests(unittest.TestCase):
         base = Row(
             id="m1",
             resource_type="model",
+            external_id="base.safetensors",
             kind="image",
             provider_key="local-image",
             backend="comfyui",
@@ -219,6 +220,7 @@ class MechanismPlanningTests(unittest.TestCase):
         base = Row(
             id="m1",
             resource_type="model",
+            external_id="base.safetensors",
             kind="image",
             provider_key="local-image",
             backend="comfyui",
@@ -281,6 +283,7 @@ class MechanismPlanningTests(unittest.TestCase):
         base = Row(
             id="m1",
             resource_type="model",
+            external_id="base.safetensors",
             kind="image",
             provider_key="local-image",
             backend="comfyui",

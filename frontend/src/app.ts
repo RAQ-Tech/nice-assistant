@@ -3,7 +3,7 @@ import { AuthView } from './auth_view';
 import { ChatController } from './chat';
 import { avatarSource } from './avatar';
 import { clickDismissesDrawer, ChatDrawer } from './chat_drawer';
-import { coverNewestImage, ChatRenderer, modelNickname } from './chat_rendering';
+import { coverImage, ChatRenderer, modelNickname, newestImageSource } from './chat_rendering';
 import { CapabilityController } from './capabilities';
 import { composerState } from './composer_state';
 import { createDialogs } from './dialogs';
@@ -225,7 +225,15 @@ function render(): void {
   // After focus restore, so focus() cannot drag a pane the reader left.
   restoreScrollPositions(document, scrolls);
   const pane = document.querySelector<HTMLElement>(MESSAGES_PANE);
-  if (pane) coverNewestImage(pane, state.revealedImages);
+  if (pane) {
+    // Decided once the conversation has loaded: the picture that was already
+    // there is covered; one that arrives while somebody watches is not.
+    if (state.coverNewestPending && state.phase !== 'loading_chat') {
+      state.coveredImageSrc = newestImageSource(pane);
+      state.coverNewestPending = false;
+    }
+    coverImage(pane, state.coveredImageSrc, state.revealedImages);
+  }
   requestAnimationFrame(() => restoreMessageScroll(messageScroll));
 }
 

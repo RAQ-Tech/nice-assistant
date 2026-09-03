@@ -56,8 +56,15 @@ _PATH_KEY_NAMES = ("path", "local_path", "filename", "file")
 _ABSOLUTE_PATH = re.compile(r"(?:^|[\s\"'=(])((?:[A-Za-z]:[\\/]|/)[^\s\"'()]{2,})")
 
 
+# Keys that contain a sensitive-looking word and are not secrets. The trigger
+# word a technique needs in the prompt is exactly what a journal must show.
+_PLAIN_KEYS = frozenset({"required_prompt_token"})
+
+
 def _is_sensitive_key(key: str) -> bool:
     lowered = key.casefold()
+    if lowered in _PLAIN_KEYS:
+        return False
     return any(part in lowered for part in _SENSITIVE_KEY_PARTS)
 
 
