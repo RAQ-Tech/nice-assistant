@@ -83,6 +83,9 @@ npm run frontend:e2e
   pictures under the face, and inside its fold the verifier configuration,
   outcome policy, manual comparison with owner-protected thumbnail selection,
   and activity history.
+- `sentence_boundaries.ts` and `reply_speaker.ts`: where a reply can be spoken
+  from while the rest is still being written, and the queue that speaks each
+  finished sentence into the one stream, never past the text, stored once.
 - `media.ts`, `recording.ts`, `playback.ts`, and `visualization.ts`: async media
   jobs, push-to-talk transcription, completed-file speech playback, and real
   playback-driven visualization. While an owned conversation turn is queued or

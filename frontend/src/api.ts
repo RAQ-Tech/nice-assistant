@@ -832,6 +832,33 @@ export class ApiClient {
     return response;
   }
 
+  /** One reply about to be spoken a sentence at a time; the recording's id is known before a word is said. */
+  beginSpeechSession(input: Record<string, unknown>): Promise<{ session_id: string; audio_id: string; format: string }> {
+    return this.request('/speech/sessions', { method: 'POST', body: JSON.stringify(input) });
+  }
+
+  /** One finished sentence, as audio while it is produced. Handed back unread, like streamSpeech. */
+  async streamSpeechPiece(sessionId: string, text: string, signal?: AbortSignal): Promise<Response> {
+    const headers = new Headers({ 'Content-Type': 'application/json', 'X-Nice-Assistant-CSRF': '1' });
+    const response = await fetch(`${this.base}/speech/sessions/${encodeURIComponent(sessionId)}/pieces`, {
+      method: 'POST',
+      credentials: 'same-origin',
+      headers,
+      body: JSON.stringify({ text }),
+      ...(signal ? { signal } : {}),
+    });
+    if (!response.ok) throw new ApiError(`Speech piece failed (${response.status})`, response.status, response.status);
+    return response;
+  }
+
+  finishSpeechSession(sessionId: string): Promise<{ audio_id: string; format: string }> {
+    return this.request(`/speech/sessions/${encodeURIComponent(sessionId)}/finish`, { method: 'POST' });
+  }
+
+  abandonSpeechSession(sessionId: string): Promise<{ ok: boolean }> {
+    return this.request(`/speech/sessions/${encodeURIComponent(sessionId)}`, { method: 'DELETE' });
+  }
+
   transcribe(file: Blob, filename: string): Promise<{ text: string }> {
     const form = new FormData();
     form.append('file', file, filename);

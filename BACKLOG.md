@@ -399,7 +399,8 @@ video decision (item 0b) left behind.
     the persona's page, comparison and history sit inside the face's fold,
     the menu entry is gone, and the old address lands on the persona.
 
-7. **Speak while the reply is still being written.** Asked by the owner on
+7. **Speak while the reply is still being written - delivered 2026-09-03.**
+    Asked by the owner on
     2026-09-02 during the acceptance walkthrough: speech starts only once the
     reply has finished, and he wants it sooner, "so long as the speech never
     gets ahead of the writing". Today the wait before a persona speaks is
@@ -412,9 +413,11 @@ video decision (item 0b) left behind.
     be deciding where sentences end; this is that decision made
     conservatively - terminal punctuation followed by a break, and a minimum
     length - and it wants an ADR of its own.
-    **Done when** the first sound arrives before the reply has finished
-    writing, speech is never past the visible text, a stop cuts every queued
-    sentence at once, and replay plays the whole reply.
+    Delivered: each finished sentence is spoken as it appears, into the one
+    stream the reply is already playing; a stop cuts the piece being spoken
+    and every piece waiting; the server keeps the pieces as one session and
+    stores the whole reply once for replay. ADR 0042. Unaccepted on the
+    installed deployment until the owner hears it.
 
 8. **A longer, more forgiving pause before hands-free sends - delivered
     2026-09-03.** Asked by the

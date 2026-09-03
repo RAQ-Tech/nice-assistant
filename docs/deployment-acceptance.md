@@ -112,9 +112,11 @@ Three speech behaviours built against the local Kokoro path were **accepted on
 the installed deployment on 2026-09-02** in the owner's walkthrough: speech
 that starts before synthesis finishes, interruption that stops the provider
 work rather than only the sound, and hands-free listening that decides when a
-turn ended. Two findings came out of it and are backlog items 1G-7 and 1G-8:
-speech still waits for the reply to finish writing before it starts, and the
-hands-free pause cut the owner off at natural pauses. The speech provider is
+turn ended. Two findings came out of it, backlog items 1G-7 and 1G-8, both built on
+2026-09-03 and **unaccepted on the installed deployment** until the owner
+hears them: speech now starts at the first finished sentence rather than
+waiting for the whole reply (ADR 0042), and the hands-free sending pause is a
+choice on the Transcription page (ADR 0038, amended). The speech provider is
 Kokoro by the owner's decision of 2026-09-02, not by an evaluation, and
 nothing here claims one was run.
 

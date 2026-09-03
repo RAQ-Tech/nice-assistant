@@ -333,6 +333,20 @@ class SpeechSynthesisCreate(StrictModel):
     instructions: str | None = None
 
 
+class SpeechSessionCreate(StrictModel):
+    chat_id: str | None = None
+    persona_id: str | None = None
+    format: str | None = None
+    voice: str | None = None
+    model: str | None = None
+    speed: str | None = None
+    instructions: str | None = None
+
+
+class SpeechPieceCreate(StrictModel):
+    text: str
+
+
 class BackupCreate(StrictModel):
     include_media: bool = False
 
@@ -2378,6 +2392,47 @@ async def stream_speech(
             "X-Accel-Buffering": "no",
         },
     )
+
+
+@router.post("/speech/sessions", tags=["speech"])
+def begin_speech_session(
+    body: SpeechSessionCreate,
+    request: Request,
+    context: AuthContext = Depends(current_user),
+):
+    # One reply, spoken a sentence at a time while it is still being
+    # written, and stored once when it is finished. See ADR 0042.
+    return services(request).speech.begin_speech_session(context.user_id, body.model_dump(exclude_none=True))
+
+
+@router.post("/speech/sessions/{session_id}/pieces", tags=["speech"])
+async def stream_speech_piece(
+    session_id: str,
+    body: SpeechPieceCreate,
+    request: Request,
+    context: AuthContext = Depends(current_user),
+):
+    speech = services(request).speech
+    token = CancellationToken()
+    fmt, pieces = await asyncio.to_thread(
+        speech.stream_session_piece, context.user_id, session_id, body.text, lambda: token.cancelled
+    )
+    return StreamingResponse(
+        _streamed_audio(pieces, token),
+        media_type=AUDIO_MEDIA_TYPES.get(fmt, "application/octet-stream"),
+        headers={"Cache-Control": "no-store", "X-Accel-Buffering": "no"},
+    )
+
+
+@router.post("/speech/sessions/{session_id}/finish", tags=["speech"])
+def finish_speech_session(session_id: str, request: Request, context: AuthContext = Depends(current_user)):
+    return services(request).speech.finish_speech_session(context.user_id, session_id)
+
+
+@router.delete("/speech/sessions/{session_id}", tags=["speech"])
+def abandon_speech_session(session_id: str, request: Request, context: AuthContext = Depends(current_user)):
+    services(request).speech.abandon_speech_session(context.user_id, session_id)
+    return {"ok": True}
 
 
 @router.post("/speech/transcriptions", tags=["speech"])
