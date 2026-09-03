@@ -21,6 +21,7 @@ from app.media_preset import normalize_definition
 from app.preset_bundle import normalize_bundle, resolve_entry, starter_bundle
 from app.preset_export import export_bundle, export_entry, preview, withheld
 from app.prompt_dialect import normalize_dialect
+from app.model_prefill import checkpoint_role
 from app.workflow_template import (
     MODEL_ARCHITECTURES,
     available_templates,
@@ -162,6 +163,23 @@ def _export_filename(name: str) -> str:
 
     safe = "".join(character if character.isalnum() else "-" for character in name.casefold()).strip("-")
     return f"preset-{safe or 'unnamed'}.json"
+
+
+# What a model added from the checkpoint list is told about itself. The role
+# is guessed from the filename and says so, because a wrong guess is the
+# operator's to correct and a silent one is not.
+DISCOVERY_NOTES = {
+    "base": "Added from ComfyUI's installed checkpoint list.",
+    "inpainting": (
+        "Added from ComfyUI's installed checkpoint list. Its filename says it is an inpainting model, so it is "
+        "offered for inpainting rather than for making a picture from a prompt; change that in Operator tools "
+        "if the name is misleading."
+    ),
+    "refiner": (
+        "Added from ComfyUI's installed checkpoint list. Its filename says it is a refiner - a second pass over a "
+        "picture, not a base model - so it starts hidden; turn it on if the name is misleading."
+    ),
+}
 
 
 class MediaCatalogService:
@@ -536,7 +554,7 @@ class MediaCatalogService:
                 if row.resource_type == "model" and row.backend == "comfyui" and row.external_id
             }
 
-    def add_models_from_checkpoints(self, user_id: str, names: list) -> dict:
+    def add_models_from_checkpoints(self, user_id: str, names: list) -> dict:  # noqa: C901 - one loop, three roles
         """Catalog checkpoint files ComfyUI reported, by exact filename.
 
         Everything a model row needs beyond the filename gets a sensible
@@ -560,6 +578,10 @@ class MediaCatalogService:
                 skipped.append({"name": filename or "(empty)", "reason": "not a usable filename"})
                 continue
             title = filename.rsplit(".", 1)[0].replace("_", " ").strip()[:160] or filename[:160]
+            # The filename is the only evidence there is at this point, and
+            # it is enough to keep an inpainting model or a refiner from being
+            # offered as a way to make a picture from a prompt.
+            role = checkpoint_role(filename)
             try:
                 self.create_resource(
                     user_id,
@@ -570,14 +592,14 @@ class MediaCatalogService:
                         "backend": "comfyui",
                         "name": title,
                         "external_id": filename,
-                        "enabled": True,
+                        "enabled": role != "refiner",
                         "priority": 50,
-                        "operations": ["generate"],
+                        "operations": ["inpaint"] if role == "inpainting" else ["generate"],
                         "domains": [],
                         "content_tags": content_tags,
-                        "features": ["text_to_image"],
+                        "features": [] if role == "inpainting" else ["text_to_image"],
                         "estimated_vram_mb": 7168,
-                        "notes": "Added from ComfyUI's installed checkpoint list.",
+                        "notes": DISCOVERY_NOTES[role],
                     },
                 )
                 added.append(filename)

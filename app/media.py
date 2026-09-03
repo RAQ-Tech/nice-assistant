@@ -131,8 +131,9 @@ def clean_user_image_prompt(prompt):
     if not text:
         return ""
     prefixes = [
-        r"^(please\s+)?(can you\s+)?(generate|create|make|draw|render|produce)\s+(me\s+)?(an?|the)?\s*(image|picture|photo|illustration|artwork)?\s*(of|with)?\s+",
-        r"^(please\s+)?(show|give)\s+me\s+(an?|the)?\s*(image|picture|photo|illustration)\s*(of|with)?\s+",
+        r"^(please\s+)?(can you\s+|could you\s+|would you\s+)?(generate|create|make|draw|render|produce|paint|sketch|take|snap|photograph|send)\s+(me\s+|us\s+)?(an?|the)?\s*(image|picture|photo|illustration|artwork|pic|selfie)?\s*(of|with)?\s*",
+        r"^(please\s+)?(show|give|send)\s+(me|us)\s+(an?|the)?\s*(image|picture|photo|illustration|pic|selfie)?\s*(of|with)?\s*",
+        r"^(please\s+)?(i('d| would) like to see|i want to see|i wanna see|let me see|can i see|could i see)\s+",
     ]
     cleaned = text
     for pattern in prefixes:
@@ -141,6 +142,41 @@ def clean_user_image_prompt(prompt):
     cleaned = re.sub(r"^(the\s+following\s+prompt\s*:?\s*)", "", cleaned, flags=re.IGNORECASE).strip(" ,.:;-")
     cleaned = re.sub(r"^(prompt\s*:?\s*)", "", cleaned, flags=re.IGNORECASE).strip(" ,.:;-")
     return cleaned or text
+
+
+# "You" in a persona chat is the persona. Longest forms first, so "you are"
+# is not left as "Nova are".
+_SECOND_PERSON = (
+    (re.compile(r"\byou are\b", re.IGNORECASE), "{name} is"),
+    (re.compile(r"\byou're\b", re.IGNORECASE), "{name} is"),
+    (re.compile(r"\byourself\b", re.IGNORECASE), "{name}"),
+    (re.compile(r"\byour\b", re.IGNORECASE), "{name}'s"),
+    (re.compile(r"\byou\b", re.IGNORECASE), "{name}"),
+)
+
+
+_BARE_MEDIA_NOUNS = frozenset({"", "image", "picture", "photo", "pic", "selfie", "illustration", "artwork", "drawing"})
+
+
+def subject_from_request(prompt, persona_name=""):
+    """What a typed request is a picture of.
+
+    The asking is stripped - "send me a picture of" is not part of the picture -
+    and in a persona chat "you" means the persona, so it becomes the persona's
+    name. A compiler that once received "send me a picture of you at the beach"
+    verbatim rendered exactly that.
+    """
+
+    subject = clean_user_image_prompt(prompt).strip(" ,.:;!?-")
+    # "Send me a picture" names no subject at all. Better the words than a
+    # bare noun the cleaner left behind.
+    if subject.casefold() in _BARE_MEDIA_NOUNS:
+        subject = " ".join(str(prompt or "").split()).strip(" ,.:;!?-")
+    name = " ".join(str(persona_name or "").split()).strip()
+    if name:
+        for pattern, replacement in _SECOND_PERSON:
+            subject = pattern.sub(replacement.format(name=name), subject)
+    return subject
 
 
 def adjust_prompt_for_openai_image(prompt):

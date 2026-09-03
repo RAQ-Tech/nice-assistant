@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 
-import { coverNewestImage } from '../src/chat_rendering';
+import { coverImage, newestImageSource } from '../src/chat_rendering';
 import { clickDismissesDrawer } from '../src/chat_drawer';
 import { ChatDrawer } from '../src/chat_drawer';
 import type { ApiClient } from '../src/api';
@@ -111,7 +111,7 @@ describe('putting the chat list away', () => {
   });
 });
 
-describe('covering the newest picture', () => {
+describe('covering the picture that was on screen when the conversation opened', () => {
   function pane(count: number): HTMLElement {
     document.body.innerHTML = `<div id="pane">${
       Array.from({ length: count }, (_, index) => `<img class="msg-inline-image" src="/media/${index}">`).join('')
@@ -119,10 +119,12 @@ describe('covering the newest picture', () => {
     return document.querySelector('#pane') as HTMLElement;
   }
 
-  it('covers the last picture and leaves the earlier ones alone', () => {
+  it('names the last picture, and covers exactly that one', () => {
     const root = pane(3);
+    const src = newestImageSource(root);
+    expect(src).toContain('/media/2');
 
-    coverNewestImage(root, {});
+    coverImage(root, src, {});
 
     const images = [...root.querySelectorAll('img')];
     expect(images[2]?.classList.contains('image-blurred')).toBe(true);
@@ -132,29 +134,31 @@ describe('covering the newest picture', () => {
     expect(images[1]?.classList.contains('image-blurred')).toBe(false);
   });
 
+  it('does not cover a picture that arrived after the conversation was opened', () => {
+    const opened = pane(2);
+    const src = newestImageSource(opened);
+    // A third picture arrives while the person is watching. The decision was
+    // made on opening, so only the picture that was there then is covered.
+    const arrived = pane(3);
+    coverImage(arrived, src, {});
+    const images = [...arrived.querySelectorAll('img')];
+    expect(images[1]?.classList.contains('image-blurred')).toBe(true);
+    expect(images[2]?.classList.contains('image-blurred')).toBe(false);
+  });
+
   it('leaves a picture somebody already uncovered alone', () => {
     const root = pane(2);
-    const newest = root.querySelectorAll('img')[1] as HTMLImageElement;
+    const src = newestImageSource(root) as string;
 
-    coverNewestImage(root, { [newest.src]: true });
+    coverImage(root, src, { [src]: true });
 
     // Covering it again after a deliberate tap would read as a bug.
-    expect(newest.classList.contains('image-blurred')).toBe(false);
+    expect(root.querySelectorAll('img')[1]?.classList.contains('image-blurred')).toBe(false);
   });
 
   it('does nothing in a conversation with no pictures', () => {
     const root = pane(0);
-
-    expect(() => coverNewestImage(root, {})).not.toThrow();
-  });
-
-  it('says how to uncover it, for a pointer and a screen reader alike', () => {
-    const root = pane(1);
-
-    coverNewestImage(root, {});
-
-    const newest = root.querySelector('img') as HTMLImageElement;
-    expect(newest.title).toBe('Tap to reveal image');
-    expect(newest.getAttribute('aria-label')).toBe('Reveal image');
+    expect(newestImageSource(root)).toBeNull();
+    expect(() => coverImage(root, null, {})).not.toThrow();
   });
 });

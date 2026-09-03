@@ -35,6 +35,16 @@ card shows the installed state and copy count, and installing another copy asks
 first. Five identical InstantID graphs were once created by five hopeful clicks
 on a button that never said it had already worked.
 
+A checkpoint added from the list is told what it is for by its filename, and
+told that the guess came from the filename. One whose name says inpainting is
+offered for inpainting, not for making a picture from a prompt; one whose name
+says refiner starts hidden, because a refiner is a second pass over a picture
+rather than a base model. Both are one switch away from being corrected. The
+planner applies the inpainting rule to models cataloged before the list
+learned it, naming the reason in the plan's rejected list, because the first
+real request on a catalog of forty-five uncurated checkpoints went to
+`512-inpainting-ema` on the strength of the alphabet.
+
 ## The model page
 
 The owner's framing, adopted as the design language: a model is an ingredient,
@@ -309,6 +319,12 @@ degrades the choice rather than the result.
 The plan records which preset won, whether the model, a persona preference, or
 the deterministic score chose it, and what else was considered. All of it reaches the generation
 journal.
+
+When nothing prefers a recipe - no routing card matched, the task model named
+none, the persona has no preference and no picture has been measured - the
+model chosen by hand on the Image Generation page breaks the tie, and the plan
+says so. Before that rule the tie fell to the recipe whose name sorted first,
+which is a decision nobody made.
 
 ### Starter presets and the bundle format
 
@@ -868,6 +884,19 @@ remains blocked. Execution revalidates the saved policy and any snapshotted
 profile revision immediately before provider submission. Conditioned candidates
 still require current consent and reference evidence, may be compared inline,
 and keep every generation/comparison/correction attempt durable.
+
+A recipe that has no sampler numbers of its own runs on its model family's
+published starting point, guessed from the filename, or on an ordinary one
+when the family is unknown; the journal's prompt stage says which. The Image
+Generation page's numbers are for one-off direct pictures and may be tuned to
+one particular model - four steps at CFG 2 suits a Lightning checkpoint and
+turns anything else to mush - so they are never borrowed by a planned request.
+
+When the task model does not plan a picture and the request was plainly a
+request for one, the deterministic plan takes the person's words as the
+subject: minus the asking, because "send me a picture of" is not part of the
+picture, and with "you" being the persona they are talking to, so "a picture
+of you at the beach" is a picture of Nova at the beach.
 
 ComfyUI plans execute `generate`, `inpaint`, `outpaint`, and `image_to_image`
 only when their exact inputs are configured. Automatic1111 and cloud media

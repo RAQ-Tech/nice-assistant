@@ -613,6 +613,8 @@ export interface ModelPrefillSuggestion {
   height?: number;
   steps?: number;
   cfg_scale?: number;
+  sampler_name?: string;
+  scheduler?: string;
   prompt_style?: string;
   message: string;
 }
@@ -1139,6 +1141,9 @@ export interface AppState {
   chatImageGallery: string[];
   chatVideoPreview: string;
   revealedImages: Record<string, boolean>;
+  /** Cover the newest picture once this conversation has loaded, then stop deciding. */
+  coverNewestPending: boolean;
+  coveredImageSrc: string | null;
   showNewChatPersonaModal: boolean;
   newChatPersonaId: Id | null;
   onboardingRunning: boolean;

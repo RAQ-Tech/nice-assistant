@@ -447,21 +447,26 @@ export function modelNickname(model: string): string {
 }
 
 /**
- * Cover the newest picture in the conversation.
+ * The picture on screen when somebody opens a conversation.
  *
  * Whatever the blur setting says. That setting is about scrolling back through
- * a conversation; this is about the picture that is already on screen when
+ * a conversation; this is about the picture that is already there when
  * somebody opens one, which is the moment another person can see it over their
- * shoulder. One tap uncovers it, the same as any blurred picture.
- *
- * Decided here, after the whole conversation is on the page, because the
- * per-message binding cannot see which picture is last.
+ * shoulder. A picture that arrives while the person is watching is not
+ * covered: they asked for it and are looking at it. One tap uncovers a covered
+ * one, the same as any blurred picture.
  */
-export function coverNewestImage(root: HTMLElement, revealed: Record<string, boolean>): void {
+export function newestImageSource(root: HTMLElement): string | null {
   const images = [...root.querySelectorAll<HTMLImageElement>('.msg-inline-image, .attachment-image')];
-  const newest = images[images.length - 1];
-  if (!newest || revealed[newest.src]) return;
-  newest.classList.add('image-blurred');
-  newest.title = 'Tap to reveal image';
-  newest.setAttribute('aria-label', 'Reveal image');
+  return images[images.length - 1]?.src ?? null;
+}
+
+export function coverImage(root: HTMLElement, src: string | null, revealed: Record<string, boolean>): void {
+  if (!src || revealed[src]) return;
+  const image = [...root.querySelectorAll<HTMLImageElement>('.msg-inline-image, .attachment-image')]
+    .find((item) => item.src === src);
+  if (!image) return;
+  image.classList.add('image-blurred');
+  image.title = 'Tap to reveal image';
+  image.setAttribute('aria-label', 'Reveal image');
 }

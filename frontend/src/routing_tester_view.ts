@@ -14,6 +14,10 @@ import type { AppState } from './types';
  */
 export class RoutingTesterView {
   private text = '';
+  // Remembered because the fold is rebuilt on every render. Without this the
+  // result of a test was rendered into a fold that had just snapped shut,
+  // and pressing the button appeared to do nothing.
+  private open = false;
 
   constructor(
     private readonly appState: AppState,
@@ -50,7 +54,7 @@ export class RoutingTesterView {
           ]),
           preview ? this.result(preview) : null,
         ],
-        { testId: 'routing-tester' },
+        { testId: 'routing-tester', open: this.open, onToggle: (open) => { this.open = open; } },
       ),
     ]);
   }
@@ -79,7 +83,7 @@ export class RoutingTesterView {
             el('p', { textContent: `Chosen: ${winner.name}` }),
             el('p', {
               class: 'meta',
-              textContent: `${winner.source === 'task_model' ? 'Task model chose it' : 'Deterministic score chose it'} — ${winner.reason}`,
+              textContent: `${chooserLabel(winner.source)} — ${winner.reason}`,
             }),
           ])
         : null,
@@ -96,6 +100,7 @@ export class RoutingTesterView {
   }
 
   private async run(): Promise<void> {
+    this.open = true;
     this.appState.mediaCatalogBusy = true;
     this.appState.settingsError = '';
     this.renderApp();
@@ -108,4 +113,13 @@ export class RoutingTesterView {
       this.renderApp();
     }
   }
+}
+
+/** Who decided, in the words a person would use. */
+function chooserLabel(source: string): string {
+  if (source === 'task_model') return 'Task model chose it';
+  if (source === 'persona_preference') return "This persona's preferred recipe";
+  if (source === 'measured_preference') return 'What happened to earlier pictures chose it';
+  if (source === 'default_model') return 'The model chosen on the Image Generation page';
+  return 'Deterministic score chose it';
 }

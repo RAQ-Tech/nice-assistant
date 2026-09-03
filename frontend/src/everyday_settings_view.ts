@@ -272,7 +272,7 @@ export class EverydaySettingsView {
           (value) => this.change('image_local_model', value),
           'text',
           true,
-          'Used by direct image actions. Platform-planned persona images use the Media Catalog selection instead.',
+          'Used by direct image actions, and it breaks a tie when routing has nothing else to go on.',
         ),
         toggleField(
           'Allow explicit local prompts',

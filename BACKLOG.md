@@ -299,12 +299,11 @@ a Whisper service on the LAN for 1F-5, and the installed identity journey that
     policy at save time so "local" cannot mean a host on the internet, and a
     `text/plain` reply is accepted as the transcript it is. See
     [ADR 0040](docs/decisions/0040-a-spoken-turn-that-stays-here.md).
-    **Needs on the deployment:** pointing Transcription at the Whisper service
-    that already runs there - it speaks Wyoming on port 10300 - and, for a
-    conversation at speaking pace, running it on the GPU with a model sized
-    for it. The owner confirmed the container on 2026-09-02; the steps are in
-    `docs/operations.md`. Until then transcription is OpenAI or off, and the
-    microphone says which.
+    **Accepted on the deployment, 2026-09-02:** Transcription points at the
+    Whisper service the deployment already runs - Wyoming, port 10300 - and a
+    held-button turn transcribed correctly from the installed browser. The
+    service still runs on the CPU; the GPU tag and a model sized for the card
+    are the owner's next step, in `docs/operations.md`.
 
 ### 1G. Handing you the keys, continued
 
@@ -393,6 +392,50 @@ video decision (item 0b) left behind.
     **Done when** nothing a persona owns is shown on two pages, the settings
     menu has no Persona Pictures entry, and an identity block from a chat
     still lands on the persona's page.
+
+7. **Speak while the reply is still being written.** Asked by the owner on
+    2026-09-02 during the acceptance walkthrough: speech starts only once the
+    reply has finished, and he wants it sooner, "so long as the speech never
+    gets ahead of the writing". Today the wait before a persona speaks is
+    the whole reply plus the first piece of audio; ADR 0037 removed the
+    synthesis wait, not the writing wait. The way in is to synthesize each
+    finished sentence as the stream produces it and queue the sound behind
+    the text, never past it, with a stop cancelling every queued piece and
+    the stored recording remaining the whole reply. ADR 0037 rejected
+    sentence chunking for the completed-file path because the product would
+    be deciding where sentences end; this is that decision made
+    conservatively - terminal punctuation followed by a break, and a minimum
+    length - and it wants an ADR of its own.
+    **Done when** the first sound arrives before the reply has finished
+    writing, speech is never past the visible text, a stop cuts every queued
+    sentence at once, and replay plays the whole reply.
+
+8. **A longer, more forgiving pause before hands-free sends.** Asked by the
+    owner on 2026-09-02: natural pauses "slightly too long" ended his turn
+    and sent before he had finished. The turn ends 900 ms after speech
+    stops (ADR 0038). Separate the two things one timer does today: a short
+    pause may cut the recording for transcription, as ADR 0041 already does,
+    while a longer, calmer silence is what sends - and make that silence a
+    choice on the Transcription page, so a person who pauses to think is not
+    cut off. Holding the button stays exactly as it is.
+    **Done when** the sending pause is chosen on the Transcription page and
+    proven to change when a turn ends, a pause shorter than it never sends,
+    and the wait after the last word does not grow by the whole pause when
+    transcribing at pauses is on.
+
+9. **Setting up many models at once.** Raised by the owner on 2026-09-03:
+    with forty-five checkpoints, giving each one its family, its numbers and
+    a routing card one page at a time "is still a labor intensive process",
+    which is why none of it was done and routing had nothing to go on. The
+    model page's suggestions (family from the file, CivitAI by filename) exist
+    per model; what is missing is a way to run them across every model in one
+    sitting - read every file's family from ComfyUI's metadata in one pass,
+    look up every filename on CivitAI behind one consent, fill what each
+    answer supports, and show what is still blank. A routing card is the one
+    thing no lookup can write; the pass should say which models have none.
+    **Done when** a catalog of many models can be given families, numbers and
+    trigger words in one action with the provenance of each fill shown, and
+    the models still without a routing card are listed by name.
 
 ## 2. Decided
 
@@ -487,8 +530,9 @@ existing Kokoro path with no provider claimed, and are recorded as ADRs 0036 to
 (section 2, item 5) without a listening session, and both are closed below. No
 unverified provider support may be advertised before it exists.
 
-Everything delivered here is implemented, not accepted: none of it has run on
-the installed deployment. See `docs/deployment-acceptance.md`.
+The three delivered items were accepted on the installed deployment on
+2026-09-02 in the owner's walkthrough, with two findings that became items
+1G-7 and 1G-8. See `docs/deployment-acceptance.md`.
 
 5. **Streaming TTS - delivered 2026-08-17.** Playback begins on the first piece
     of audio rather than the finished file, so the silence before a persona
@@ -498,8 +542,9 @@ the installed deployment. See `docs/deployment-acceptance.md`.
     halfway through - keep the completed-file path and say so rather than
     pretending. See
     [ADR 0037](docs/decisions/0037-speech-starts-before-it-is-finished.md).
-    Built against the local Kokoro path; it is not accepted on the installed
-    deployment and does not choose a provider.
+    Built against the local Kokoro path. Accepted on the installed deployment
+    on 2026-09-02; the owner then asked for speech to start while the reply
+    is still being written, which is item 1G-7.
 
 6. **Automatic end-of-turn detection - delivered 2026-08-17.** Hands-free
     listening is a setting, off by default; with it on a tap starts the
@@ -510,7 +555,9 @@ the installed deployment. See `docs/deployment-acceptance.md`.
     the line cannot make the decision flap, and a minute is the ceiling. See
     [ADR 0038](docs/decisions/0038-deciding-when-somebody-has-finished-talking.md).
     It listens to loudness, not to language: nothing is transcribed while
-    somebody is still speaking.
+    somebody is still speaking. Accepted on the installed deployment on
+    2026-09-02, with one finding: natural pauses cut the owner off, which is
+    item 1G-8.
 
 7. **True barge-in - delivered 2026-08-17.** Interrupting playback used to mute
     the browser and leave the provider generating audio nobody would hear, then
@@ -520,6 +567,7 @@ the installed deployment. See `docs/deployment-acceptance.md`.
     See [ADR 0036](docs/decisions/0036-interrupting-speech-stops-the-work.md).
     This is manual interruption done properly. It is not the product noticing
     that somebody has started talking over it, which nothing here does.
+    Accepted on the installed deployment on 2026-09-02.
 
 8. **Fallback chains for TTS and STT - closed by decision, 2026-09-02.** The
     owner chose Kokoro as the voice and a Whisper service on the LAN as the
@@ -551,9 +599,18 @@ than from a checklist, and to exercise preset routing on the way.
     browser image journeys. Source: `docs/roadmap.md` step 24, ADR 0025,
     `docs/human-experience-realignment-plan.md`.
 
-11. **Installed acceptance for picture-message delivery.** Roadmap step 22 is
-    published but not accepted on the real topology. Source: `docs/roadmap.md`,
-    ADRs 0019-0020.
+11. **Installed acceptance for picture-message delivery.** The mechanics were
+    accepted in the owner's walkthrough on 2026-09-02: the persona's words
+    arrived first, the picture attached beneath them while it rendered, and
+    the picture arrived. What arrived was poor, and the walkthrough found why:
+    routing among forty-five uncurated recipes fell to the alphabet and chose
+    an inpainting checkpoint, the recipe borrowed the Image Generation page's
+    one-off numbers, the request went in verbatim with "you" unresolved, the
+    picture arrived covered though nobody was looking over a shoulder, and
+    the routing tester's fold hid its own result. All fixed on 2026-09-03; see
+    `docs/media-catalog.md`. Still open from the same picture: why the
+    background model did not plan the scene, which the repaired tester will
+    show. Source: `docs/roadmap.md`, ADRs 0019-0020.
 
 12. **Installed acceptance for conversation cleanup.** Roadmap step 23, same
     situation. Source: `docs/roadmap.md`, ADR 0021.
@@ -590,7 +647,8 @@ surface.
   than guesswork; when routing is trusted it is clutter. The owner said on
   2026-09-02 that routing is still largely untested and asked for it to stay,
   with routing exercised as part of the acceptance walkthrough in section 4.
-  Source: ADR 0030, `docs/settings-experience.md`.
+  Its fold snapped shut on every render, which is why a test appeared to do
+  nothing; fixed 2026-09-03. Source: ADR 0030, `docs/settings-experience.md`.
 - **Delete the OpenAI video adapter** after 2026-09-24, when its API stops
   answering. Item 1G-3.
 

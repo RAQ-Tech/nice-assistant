@@ -75,6 +75,25 @@ describe('routing tester', () => {
     expect(text).not.toContain('No image would be requested');
   });
 
+  it('keeps the fold open to show the result after a test', async () => {
+    const appState = createState();
+    const client = { previewMediaRouting: vi.fn().mockResolvedValue(preview()) } as unknown as ApiClient;
+    const root = document.createElement('div');
+    let view!: RoutingTesterView;
+    const render = () => root.replaceChildren(view.node());
+    view = new RoutingTesterView(appState, client, render);
+    render();
+    const box = root.querySelector('textarea') as HTMLTextAreaElement;
+    box.value = 'Send me a picture of you at the beach';
+    box.dispatchEvent(new Event('input'));
+    render();
+    (root.querySelector('[data-testid="routing-tester-run"]') as HTMLButtonElement).click();
+    await vi.waitFor(() => expect(root.querySelector('[data-testid="routing-tester-result"]')).not.toBeNull());
+    // The result used to render into a fold that had just been rebuilt
+    // closed, so pressing the button appeared to do nothing.
+    expect((root.querySelector('[data-testid="routing-tester"]') as HTMLDetailsElement).open).toBe(true);
+  });
+
   it('is labeled as a diagnostic that is expected to be removed', () => {
     const appState = createState();
     const view = new RoutingTesterView(appState, {} as ApiClient, () => undefined);

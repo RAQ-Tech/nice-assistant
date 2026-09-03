@@ -1006,7 +1006,9 @@ class MediaPlanPresetExplanation(BaseModel):
     # Who chose this preset, in the order they are consulted: the task model
     # for this request, an operator-set persona preference, the counts of what
     # happened to earlier pictures, or the deterministic score.
-    source: Literal["task_model", "persona_preference", "measured_preference", "deterministic"] = "deterministic"
+    source: Literal["task_model", "persona_preference", "measured_preference", "default_model", "deterministic"] = (
+        "deterministic"
+    )
     reason: str
     considered: list[MediaPlanConsideredPreset] = Field(default_factory=list)
 

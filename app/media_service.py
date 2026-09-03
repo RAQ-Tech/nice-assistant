@@ -18,6 +18,7 @@ from app.media import (
     user_safe_video_error,
 )
 from app.media_journal_service import NULL_JOURNAL as _NULL_JOURNAL
+from app.model_prefill import sampler_defaults
 from app.prompt_dialect import compile_prompt
 from app.provider_contracts import CancellationToken, MediaRequest, ProviderError
 from app.repositories import UnitOfWork, now_ts
@@ -507,6 +508,16 @@ class MediaService:
                     if values.get("allow_nsfw") is not None
                     else preferences.get("image_local_allow_nsfw", False)
                 )
+                # A recipe with no numbers of its own runs on its family's
+                # published starting point. The Image Generation page's numbers
+                # are for one-off direct pictures and may be tuned to one
+                # particular model; they are not a default for every other.
+                sampler_source = "the recipe" if values.get("_preset_id") else "the Image Generation page"
+                if values.get("_preset_id") and not all(
+                    values.get(key) for key in ("steps", "cfg_scale", "sampler_name")
+                ):
+                    defaults, sampler_source = sampler_defaults(str(values.get("model") or ""))
+                    values = {**values, **{key: value for key, value in defaults.items() if not values.get(key)}}
                 compiled = compile_prompt(
                     prompt,
                     values.get("prompt_dialect"),
@@ -528,6 +539,7 @@ class MediaService:
                         "dialect_configured": bool(values.get("prompt_dialect")),
                         "from_scene": compiled["from_scene"],
                         "scene": values.get("scene") or {},
+                        "sampler_settings_from": sampler_source,
                     },
                 )
                 options = {

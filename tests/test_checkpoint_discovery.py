@@ -304,7 +304,7 @@ class PrefillTests(unittest.TestCase):
         for family, defaults in FAMILY_DEFAULTS.items():
             self.assertEqual(
                 sorted(defaults),
-                ["cfg_scale", "height", "label", "prompt_style", "steps", "width"],
+                ["cfg_scale", "height", "label", "prompt_style", "sampler_name", "scheduler", "steps", "width"],
                 family,
             )
 
