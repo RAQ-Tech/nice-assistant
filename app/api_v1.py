@@ -19,6 +19,7 @@ from app.session_cookie import set_session_cookie
 from app.security import request_client_address
 from app.service_errors import AuthenticationError, NotFoundError, RequestError
 from app.speech_clients import SpeechCancelled
+from app.model_setup import setup_models
 from app.workflow_template import resolve_template
 
 
@@ -214,6 +215,14 @@ class ComfyUIWorkflowInspection(StrictModel):
 
 class CheckpointDiscovery(StrictModel):
     settings: dict = Field(default_factory=dict)
+
+
+class ModelSetupRequest(StrictModel):
+    limit: int = Field(default=5, ge=1, le=20)
+    # Only a person's consent sends file names off the machine; the browser
+    # asks before it sets this.
+    lookup: bool = False
+    force: bool = False
 
 
 class ModelsFromCheckpoints(StrictModel):
@@ -2127,6 +2136,22 @@ def models_from_checkpoints(
     context: AuthContext = Depends(current_user),
 ):
     return services(request).media_catalog.add_models_from_checkpoints(context.user_id, body.names)
+
+
+@router.post("/media-catalog/models/setup", tags=["media-catalog"])
+def setup_catalog_models(
+    body: ModelSetupRequest,
+    request: Request,
+    context: AuthContext = Depends(current_user),
+):
+    return setup_models(
+        services(request).media_catalog,
+        services(request).provider_service,
+        context.user_id,
+        limit=body.limit,
+        lookup=body.lookup,
+        force=body.force,
+    )
 
 
 @router.post(

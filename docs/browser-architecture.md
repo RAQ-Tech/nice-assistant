@@ -62,6 +62,9 @@ npm run frontend:e2e
 - `video_template_offer.ts`: the shipped Wan graph offered ahead of the paste
   box when a workflow is to make video clips, paired with the video model it
   should run on.
+- `catalog_setup_view.ts`: the one action that sets up every model - consent
+  for the CivitAI lookup, the pass five models at a time with a Stop, and the
+  report of what was filled from where and who still has no routing card.
 - `settings_contracts.ts`: the small dialog boundary shared by focused settings
   views without coupling them back to the application shell.
 - `settings_controls.ts` and `settings_ui.ts`: common cards, closed advanced

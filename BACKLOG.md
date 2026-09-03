@@ -423,7 +423,8 @@ video decision (item 0b) left behind.
     and the wait after the last word does not grow by the whole pause when
     transcribing at pauses is on.
 
-9. **Setting up many models at once.** Raised by the owner on 2026-09-03:
+9. **Setting up many models at once - delivered 2026-09-03.** Raised by the
+    owner on 2026-09-03:
     with forty-five checkpoints, giving each one its family, its numbers and
     a routing card one page at a time "is still a labor intensive process",
     which is why none of it was done and routing had nothing to go on. The
@@ -433,9 +434,10 @@ video decision (item 0b) left behind.
     look up every filename on CivitAI behind one consent, fill what each
     answer supports, and show what is still blank. A routing card is the one
     thing no lookup can write; the pass should say which models have none.
-    **Done when** a catalog of many models can be given families, numbers and
-    trigger words in one action with the provenance of each fill shown, and
-    the models still without a routing card are listed by name.
+    Delivered: "Set up all models" beside the model list does exactly that,
+    five models at a time with progress and a Stop, adopting only CivitAI's
+    exact file and naming the models still without a routing card. See
+    `docs/media-catalog.md`.
 
 ## 2. Decided
 

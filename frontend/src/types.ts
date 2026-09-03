@@ -619,6 +619,22 @@ export interface ModelPrefillSuggestion {
   message: string;
 }
 
+/** One pass of the set-up-all-models action: what was filled, and from where. */
+export interface ModelSetupReport {
+  processed: {
+    model_id: string;
+    file: string;
+    name: string;
+    filled: string[];
+    notes: string[];
+    lookup: 'skipped' | 'exact' | 'nearest' | 'none' | 'unreachable' | string;
+    routing_card: boolean;
+  }[];
+  remaining: number;
+  total: number;
+  without_routing_card: string[];
+}
+
 export interface StarterPreset {
   name: string;
   routing_card: string;

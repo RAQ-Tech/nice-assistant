@@ -77,7 +77,7 @@ export class MediaCatalogSettingsView {
     this.modelsView = new CatalogModelsView(appState, client, renderApp, () => this.refresh(), (modelId) => {
       this.modelPage.open(modelId);
       renderApp();
-    });
+    }, dialogs);
     this.importView = new WorkflowImportView(
       appState,
       client,
