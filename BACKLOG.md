@@ -366,7 +366,8 @@ video decision (item 0b) left behind.
     has not downloaded together with the files it does have. The first clip is
     item 16 in section 4.
 
-5. **The Pictures pages, in the model-page shape.** Chosen by the owner on
+5. **The Pictures pages, in the model-page shape - delivered 2026-09-03.**
+    Chosen by the owner on
     2026-09-02 as the next work once the four above were done. Image
     Generation, Video Generation, Media Catalog and Persona Pictures are the
     last group in the earlier shape - cards with an information icon on
@@ -378,10 +379,13 @@ video decision (item 0b) left behind.
     no page carries more than one visible hint or an information icon, the
     model page stays the door to a model, and the settings tests and browser
     journeys pass against the new shape.
-    Progress: Image Generation, Video Generation and Media Catalog moved over
-    on 2026-09-03. Persona Pictures goes with item 6.
+    Delivered: all four pages moved over on 2026-09-03 - the two generation
+    pages as sparse pages, the Media Catalog as four lists with a page per
+    recipe, workflow and LoRA, and Persona Pictures folded into the persona's
+    page (item 6). See `docs/settings-experience.md`.
 
-6. **Fold Persona Pictures into the persona's page.** Chosen by the owner on
+6. **Fold Persona Pictures into the persona's page - delivered 2026-09-03.**
+    Chosen by the owner on
     2026-09-02. The persona's page carries the face now, and Persona Pictures
     holds the same card again beside preferred recipes, kept pictures, and
     the folded comparison tools. One page per persona, nothing twice:
@@ -391,9 +395,9 @@ video decision (item 0b) left behind.
     entry leaves the settings menu. Every deep link that named it lands on
     the persona instead. Belongs with item 5, since Persona Pictures is one
     of the four Pictures pages.
-    **Done when** nothing a persona owns is shown on two pages, the settings
-    menu has no Persona Pictures entry, and an identity block from a chat
-    still lands on the persona's page.
+    Delivered: the preferred recipes and kept pictures sit under the face on
+    the persona's page, comparison and history sit inside the face's fold,
+    the menu entry is gone, and the old address lands on the persona.
 
 7. **Speak while the reply is still being written.** Asked by the owner on
     2026-09-02 during the acceptance walkthrough: speech starts only once the

@@ -2,7 +2,6 @@ import { api, type ApiClient } from './api';
 import { settingsNav } from './settings_nav';
 import { el, errorMessage, formatDate } from './dom';
 import { EverydaySettingsView, type EverydaySettingsSection } from './everyday_settings_view';
-import { IdentitySettingsView } from './identity_settings_view';
 import { MediaCatalogSettingsView } from './media_catalog_settings_view';
 import { ModelSettingsView } from './model_settings_view';
 import { OperationsSettingsView } from './operations_settings_view';
@@ -10,6 +9,7 @@ import { PersonaCardView } from './persona_card_view';
 import { PersonaFaceView } from './persona_face_view';
 import { PersonaLoreView } from './persona_lore_view';
 import { PersonaPageView } from './persona_page_view';
+import { PersonaPicturesView } from './persona_pictures_view';
 import {
   resetSettingsSection,
   SETTINGS_SECTIONS,
@@ -41,14 +41,13 @@ const PROVIDERS: readonly [string, string][] = [
 ];
 
 /** Sections whose pages save themselves, so the header's Save has nothing to write. */
-const SELF_SAVING_SECTIONS: readonly SettingsSection[] = ['Data', 'Task Models', 'Media Catalog', 'Persona Pictures', 'GPU Coordination'];
+const SELF_SAVING_SECTIONS: readonly SettingsSection[] = ['Data', 'Task Models', 'Media Catalog', 'GPU Coordination'];
 
 export type Dialogs = SettingsDialogs;
 
 export class SettingsView {
   private searchQuery = '';
 
-  private readonly identityView: IdentitySettingsView;
   private readonly everydayView: EverydaySettingsView;
   private readonly modelView: ModelSettingsView;
   private readonly taskModelView: TaskModelSettingsView;
@@ -86,7 +85,7 @@ export class SettingsView {
       required_features: ['identity_control'],
       block_code: null,
     });
-    this.identityView = new IdentitySettingsView(renderApp, appState, client, dialogs, setUpIdentityControl);
+    const pictures = new PersonaPicturesView(renderApp, appState, client);
     const change = <K extends keyof Settings>(key: K, value: Settings[K], shouldRender?: boolean) => this.set(key, value, shouldRender);
     this.everydayView = new EverydaySettingsView(appState, change, (provider) => this.providerControl(provider));
     this.modelView = new ModelSettingsView(
@@ -105,12 +104,9 @@ export class SettingsView {
       (personaId) => this.navigateSettings('Personas', personaId),
       new PersonaCardView(renderApp, appState, client),
       new PersonaLoreView(renderApp, appState, client),
-      new PersonaFaceView(appState, client, renderApp, dialogs, setUpIdentityControl, (personaId) => {
-        appState.identitySelectedPersonaId = personaId;
-        this.navigateSettings('Persona Pictures');
-        void this.identityView.refresh();
-      }),
+      new PersonaFaceView(appState, client, renderApp, dialogs, setUpIdentityControl, (persona) => pictures.foldContent(persona)),
       change,
+      pictures,
     );
     this.operationsView = new OperationsSettingsView(renderApp, appState, client, dialogs);
   }
@@ -125,8 +121,7 @@ export class SettingsView {
         this.navigateSettings('Personas', intent.persona_id);
         return;
       }
-      this.navigateSettings('Persona Pictures');
-      void this.identityView.refresh();
+      this.navigateSettings('Personas', this.appState.personas[0]?.id ?? null);
       return;
     }
     this.appState.mediaCatalogIdentitySetupIntent = intent;
@@ -137,15 +132,17 @@ export class SettingsView {
   node(): HTMLElement {
     const settings = this.appState.settings;
     if (!settings) return el('div', { class: 'settings-screen', textContent: 'Settings are unavailable.' });
+    // The old Persona Pictures address lands on the persona it meant.
+    if ((this.appState.settingsSection as string) === 'Persona Pictures') {
+      this.appState.settingsSection = 'Personas';
+      this.appState.settingsItem ??= this.appState.identitySelectedPersonaId ?? this.appState.personas[0]?.id ?? null;
+    }
     const section = normalizeSection(this.appState.settingsSection);
     const item = this.appState.settingsItem;
     // A persona's page saves itself; the list around it still holds one
     // ordinary setting, so the header's Save belongs to the list only.
     const selfSaving = SELF_SAVING_SECTIONS.includes(section) || (section === 'Personas' && Boolean(item));
     this.appState.settingsSection = section;
-    if (section === 'Persona Pictures' && !this.appState.identitySettings && !this.appState.identityBusy) {
-      void this.identityView.refresh();
-    }
     if (
       section === 'GPU Coordination'
       && this.appState.session?.is_admin
@@ -213,7 +210,6 @@ export class SettingsView {
       if (name === 'Memory') void this.refreshMemories();
       if (name === 'Task Models') void this.taskModelView.refresh();
       if (name === 'Media Catalog') void this.mediaCatalogView.refresh();
-      if (name === 'Persona Pictures') void this.identityView.refresh();
       if (name === 'GPU Coordination' && this.appState.session?.is_admin) {
         void this.operationsView.refreshCoordination();
       }
@@ -232,7 +228,6 @@ export class SettingsView {
     if (section === 'Models') return this.modelView.nodes(settings, item);
     if (section === 'Task Models') return this.taskModelView.nodes(item);
     if (section === 'Media Catalog') return this.mediaCatalogView.nodes(item);
-    if (section === 'Persona Pictures') return this.identityView.nodes();
     if (section === 'GPU Coordination') return this.operationsView.gpuNodes();
     return this.operationsView.dataNodes();
   }

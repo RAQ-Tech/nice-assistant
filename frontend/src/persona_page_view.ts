@@ -4,6 +4,7 @@ import { el, errorMessage } from './dom';
 import type { SettingChange } from './everyday_settings_view';
 import type { PersonaCardView } from './persona_card_view';
 import type { PersonaFaceView } from './persona_face_view';
+import type { PersonaPicturesView } from './persona_pictures_view';
 import type { PersonaLoreView } from './persona_lore_view';
 import { SETTINGS_DEFAULTS } from './settings';
 import type { SettingsDialogs } from './settings_contracts';
@@ -93,6 +94,7 @@ export class PersonaPageView {
     private readonly lore: PersonaLoreView,
     private readonly face: PersonaFaceView,
     private readonly change: SettingChange,
+    private readonly pictures: PersonaPicturesView | null = null,
   ) {}
 
   /** The Personas page: everybody, and the way a new person arrives. */
@@ -136,6 +138,7 @@ export class PersonaPageView {
       this.original = baseFields(persona);
       this.moreOpen = false;
       void this.face.load(personaId);
+      void this.pictures?.load(personaId);
     }
     const personas = this.appState.personas;
     const index = personas.indexOf(persona);
@@ -170,6 +173,7 @@ export class PersonaPageView {
         }, { hover: 'Pictures asked for in conversation. Direct image actions stay available either way.', testId: 'persona-pictures' }),
         this.appState.workspaces.length > 1 ? this.workspaceRow(persona) : null,
         this.face.node(persona),
+        this.pictures?.node(persona) ?? null,
         this.card.node(persona),
         this.lore.node(persona),
         advancedSettings('More options', 'Free-form instructions, and deleting this persona.', [
