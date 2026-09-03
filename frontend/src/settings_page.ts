@@ -137,6 +137,11 @@ export function pageHint(text: string, testId?: string): HTMLElement {
   return el('p', { class: 'meta page-hint', 'data-testid': testId, textContent: text });
 }
 
+/** A group's name on a list page, with its help on hover. */
+export function groupTitle(text: string, hover?: string, testId?: string): HTMLElement {
+  return el('h4', { class: 'settings-subheading', title: hover, 'data-testid': testId, textContent: text });
+}
+
 /** Back to the list, and arrows to the neighbours. */
 export function pageNav(options: {
   back: string;
@@ -218,7 +223,7 @@ export interface ThingChip {
 
 /** A list of plain things, each opening a page of its own. */
 export function thingList(items: ThingChip[], emptyText: string, testId?: string): HTMLElement {
-  if (!items.length) return el('p', { class: 'meta', 'data-testid': testId, textContent: emptyText });
+  if (!items.length) return el('p', { class: 'meta thing-list-empty', 'data-testid': testId, textContent: emptyText });
   return el('div', { class: 'chips thing-list', 'data-testid': testId }, items.map((item) =>
     el('button', {
       class: `pill-btn thing-open ${item.thumb ? 'has-thumb' : ''}`.trim(),

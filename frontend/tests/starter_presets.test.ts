@@ -31,9 +31,9 @@ function client(overrides: Partial<ApiClient> = {}): ApiClient {
 describe('starter presets', () => {
   it('says these are a starting point rather than a measurement', () => {
     const view = new StarterPresetsView(createState(), client(), () => undefined, async () => undefined);
-    const text = view.node().textContent ?? '';
-    expect(text).toContain('a starting point, not a measurement');
-    expect(text).toContain('tested on this deployment');
+    const hover = view.node().querySelector('.settings-subheading')?.getAttribute('title') ?? '';
+    expect(hover).toContain('a starting point, not a measurement');
+    expect(hover).toContain('tested on this deployment');
   });
 
   it('names the model file a starter needs instead of offering to install it', async () => {

@@ -47,7 +47,9 @@ describe('finding models on ComfyUI', () => {
 
     const node = view.node([model()]);
 
-    expect(node.textContent).toContain('One model means every picture shares its look');
+    // The warning waits on hover now; the catalog page says it out loud once.
+    expect(node.querySelector('.settings-subheading')?.getAttribute('title')).toContain('One model means every picture shares its look');
+    expect(node.querySelector('.info-tip-trigger')).toBeNull();
   });
 
   it('lists what ComfyUI has, minus what the catalog already knows', async () => {
@@ -147,7 +149,7 @@ describe('bringing your own workflow', () => {
   it('says what it accepts before anything is pasted', () => {
     const { view } = built({});
 
-    expect(view.node([model()]).textContent).toContain('Export (API)');
+    expect(view.node([model()]).querySelector('.settings-subheading')?.getAttribute('title')).toContain('Export (API)');
   });
 
   it('refuses non-JSON with directions instead of an error code', async () => {

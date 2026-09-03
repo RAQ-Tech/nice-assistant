@@ -1,7 +1,7 @@
 import type { ApiClient } from './api';
 import { el, errorMessage } from './dom';
-import { textareaField } from './settings_controls';
-import { advancedSettings, settingsCard, settingsHeading } from './settings_ui';
+import { groupTitle, longField } from './settings_page';
+import { settingsCard } from './settings_ui';
 import type { AppState } from './types';
 
 /**
@@ -17,7 +17,6 @@ export class RoutingTesterView {
   // Remembered because the fold is rebuilt on every render. Without this the
   // result of a test was rendered into a fold that had just snapped shut,
   // and pressing the button appeared to do nothing.
-  private open = false;
 
   constructor(
     private readonly appState: AppState,
@@ -28,35 +27,24 @@ export class RoutingTesterView {
   node(): HTMLElement {
     const preview = this.appState.routingPreview;
     return settingsCard([
-      settingsHeading(
+      groupTitle(
         'Routing tester',
-        'Paste a message and see which presets were offered, which one routing chose, and why. This is a diagnostic and is expected to be removed once routing is stable.',
+        'Paste a message and see which recipes were offered, which one routing chose, and why. A diagnostic, expected to be removed once routing is trusted.',
       ),
-      advancedSettings(
-        'Test routing',
-        'Runs the real shortlist, task model, and planner for one message. Nothing is generated.',
-        [
-          textareaField(
-            'Message to test',
-            this.text,
-            (value) => { this.text = value; },
-            false,
-            'The same shortlist, task model, and planner a real turn would use.',
-          ),
-          el('div', { class: 'chips' }, [
-            el('button', {
-              class: 'pill-btn',
-              textContent: this.appState.mediaCatalogBusy ? 'Testing…' : 'Test routing',
-              disabled: this.appState.mediaCatalogBusy || !this.text.trim(),
-              'data-testid': 'routing-tester-run',
-              onclick: () => void this.run(),
-            }),
-          ]),
-          preview ? this.result(preview) : null,
-        ],
-        { testId: 'routing-tester', open: this.open, onToggle: (open) => { this.open = open; } },
-      ),
-    ]);
+      longField('Message to test', this.text, (value) => { this.text = value; }, {
+        hover: 'The same shortlist, task model, and planner a real turn would use. Nothing is generated.',
+      }),
+      el('div', { class: 'chips' }, [
+        el('button', {
+          class: 'pill-btn',
+          textContent: this.appState.mediaCatalogBusy ? 'Testing…' : 'Test routing',
+          disabled: this.appState.mediaCatalogBusy || !this.text.trim(),
+          'data-testid': 'routing-tester-run',
+          onclick: () => void this.run(),
+        }),
+      ]),
+      preview ? this.result(preview) : null,
+    ], '', 'routing-tester');
   }
 
   private result(preview: NonNullable<AppState['routingPreview']>): HTMLElement {
@@ -100,7 +88,6 @@ export class RoutingTesterView {
   }
 
   private async run(): Promise<void> {
-    this.open = true;
     this.appState.mediaCatalogBusy = true;
     this.appState.settingsError = '';
     this.renderApp();

@@ -71,9 +71,9 @@ leaving with unsaved changes asks whether to save, discard, or stay, and the
 safe answer is the default.
 
 Under the hood the page edits the model resource and the model's own recipe
-together - the recipe machinery is unchanged, and the raw recipe list remains
-in Operator tools for multi-recipe and diagnostic work. Two honesty rules
-shape the page:
+together - the recipe machinery is unchanged, and every recipe also has a
+page of its own in the catalog's Recipes list, for the ones that belong to
+no single model. Two honesty rules shape the page:
 
 - Sampler and scheduler are dropdowns of what ComfyUI actually reports
   installed (from the same `/object_info` answer discovery uses), and fall

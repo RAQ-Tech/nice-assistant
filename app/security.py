@@ -3,6 +3,7 @@ from __future__ import annotations
 from collections import deque
 import hashlib
 import ipaddress
+import math
 import re
 import threading
 import time
@@ -114,7 +115,10 @@ class LoginThrottle:
             self._prune(key, now)
             locked_until = self._locked_until.get(key, 0)
             if locked_until > now:
-                raise RateLimitError(max(1, int(locked_until - now + 0.999)))
+                # Whole seconds, rounded up: a client told to wait 899 seconds of
+                # a 900-second lock would come back one second early and be
+                # refused again.
+                raise RateLimitError(max(1, math.ceil(locked_until - now)))
 
     def failure(self, key: str) -> None:
         now = self.clock()

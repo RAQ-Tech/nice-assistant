@@ -75,7 +75,7 @@ describe('Workflow templates', () => {
     expect(root.textContent).toContain('photomaker-v2.bin');
     // The whole point of the panel: nothing here asks which input receives the
     // prompt, and nothing claims a picture has been made.
-    expect(root.textContent).toContain('has been generation-tested on this deployment');
+    expect(root.querySelector('[data-testid="workflow-templates"] .settings-subheading')?.getAttribute('title')).toContain('has been generation-tested on this deployment');
     expect(root.querySelector('[data-testid="workflow-template-photomaker-v2-sdxl"]')).not.toBeNull();
   });
 

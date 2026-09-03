@@ -18,9 +18,9 @@ that proved it:
 - Sparse fields, labelled plainly. Help waits on hover - a `title` on the
   row, read by assistive technology as the control's description - and never
   takes up room. A page says at most one thing out loud.
-- Never an information icon explaining an explanation. Media Catalog and
-  Persona Pictures still carry the earlier icon-per-row shape until they are
-  redone; nothing new is built that way.
+- Never an information icon explaining an explanation. Persona Pictures still
+  carries the earlier icon-per-row shape until it folds into the persona's
+  page; nothing new is built that way.
 - Change the input type before adding words: a dropdown of what the provider
   actually reports beats a typed box, and a prefilled value says where it
   came from.
@@ -105,27 +105,29 @@ with a below-threshold image live in the fold with the verifier they belong to:
 comparison measures a finished image and cannot make generation resemble the
 reference.
 
-### Media Catalog is preset-first — delivered
+### Media Catalog, one page per thing - delivered 2026-09-03
 
-A preset is the thing an operator opens, so presets lead the screen and the
-individual models, LoRAs, and workflows they are built from sit behind an
-Inventory disclosure. Most work happens in a preset; the parts are where you go
-when something is missing.
+A recipe is the thing an operator opens, and so is a model, a workflow or a
+LoRA: the catalog is four lists of plain things, each chip opening a page of
+its own, and the operator tools sit behind the page's one fold. Most work
+happens on a recipe or a model; the parts are where you go when something is
+missing.
 
 Every value that decides how a picture comes out has a named field: prompt
 style, prefix and suffix, whether the model takes a negative prompt at all,
 where LoRA trigger words go, steps, guidance, sampler, scheduler, and permitted
 dimensions. A model that takes no negative prompt says so where the field would
 have been, including that the platform safety negative cannot be carried either.
-The raw definition stays reachable under disclosure for the cases named fields
-do not cover, but it is no longer the only way in.
+The raw definition stays reachable under the recipe page's fold for the cases
+named fields do not cover, and the named fields follow it once it parses.
 
-A preset with no routing card says so in its own summary, because routing reads
-that sentence and an empty one silently reduces the preset to tags and priority.
+A recipe with no routing card says so as its page's one visible line, because
+routing reads that sentence and an empty one silently reduces the recipe to
+tags and priority.
 
 ### Routing tester — delivered, temporary
 
-Media Catalog carries a routing tester behind advanced disclosure. It exists so
+Media Catalog carries a routing tester under its More options fold. It exists so
 preset routing cards can be observed rather than guessed, in the same spirit as
 the lorebook preview. It is labeled in the product as a diagnostic expected to
 be removed once routing is stable, and it must not become a permanent surface:
@@ -180,6 +182,21 @@ Pictures (the two generation pages moved over on 2026-09-03):
 - **Video Generation** is Off or the same local ComfyUI, and the one line
   says what local video needs: a video model and a video workflow in Media
   Catalog, paired as a recipe.
+- **Media Catalog** is four lists of plain things - models, recipes,
+  workflows, LoRAs - each thing a chip that opens a page of its own at
+  `#/settings/Media Catalog/<id>`, with two actions beside the workflows:
+  add one (the paste box and the shipped graphs, on a page of their own) and
+  identity control (the guided setup, likewise). The one line out loud is
+  whether pictures can be made at all. A model's page is unchanged; a
+  recipe's page is its name, the note that says when to use it (the one
+  hint, until there is a note), whether it is offered, its model, its
+  numbers and sizes, with wording, negatives, priority and the raw
+  definition folded, and Export and Delete beside Save; a workflow's or
+  LoRA's page is its name, whether it may be chosen, what it works with,
+  a LoRA's weight and trigger words, and the planner's metadata folded.
+  Starter recipes, coordinator limits, adding by hand, recipe files, the
+  picture counts, the routing tester and the plan preview are the one fold,
+  "More options", each with its help on hover.
 
 Personas:
 
@@ -221,11 +238,12 @@ the memory distinctions, the persona image permission, the in-app avatar
 viewer, and every provider control naming which kind it is. Authoring
 guidance for cards and lorebooks stays in `docs/persona-authoring.md`.
 
-### Media Catalog and Persona Pictures - earlier shape
+### Persona Pictures - earlier shape
 
-Media Catalog and Persona Pictures keep the goal-oriented cards with
-information icons and closed advanced sections until they are redone. The
-generation pages moved over on 2026-09-03; what they still guarantee:
+Persona Pictures keeps the goal-oriented cards with information icons and
+closed advanced sections until it folds into the persona's page. The
+generation pages and the Media Catalog moved over on 2026-09-03; what the
+generation pages still guarantee:
 
 - Local image connection choices remain readily available while sampling,
   authentication, and raw JSON controls live under advanced disclosure.
@@ -261,9 +279,9 @@ deterministic plan previews remain explicit.
 
 ## What has happened to the pictures
 
-Media Catalog ends with the counts recorded against each preset: pictures kept,
-sent again, and removed, with the score they produce. It sits after the presets
-rather than before them, because it describes them.
+Media Catalog's fold carries the counts recorded against each recipe: pictures
+kept, sent again, and removed, with the score they produce. They sit among the
+operator tools rather than beside the recipes, because they describe them.
 
 Shown with the counts rather than as a score alone. A score of one from a single
 signal is not the same as a score of one from twenty, and an operator deciding
@@ -271,7 +289,7 @@ whether to trust it needs both numbers. Each preset's counts reset on their own.
 
 ## Exporting a preset
 
-Each preset editor has an Export action. It does not write a file: it shows what
+Each recipe's page has an Export action. It does not write a file: it shows what
 a file would contain, field by field, together with what is deliberately left
 out and anything the recipe needs that a file cannot carry. The file is written
 only when the operator saves it from that preview.

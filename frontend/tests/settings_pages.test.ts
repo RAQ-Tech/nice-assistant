@@ -60,6 +60,7 @@ const REDONE: readonly { section: SettingsSection; item?: string }[] = [
   { section: 'STT' },
   { section: 'Image Generation' },
   { section: 'Video Generation' },
+  { section: 'Media Catalog' },
   { section: 'Personas' },
   { section: 'Personas', item: 'nova' },
   { section: 'Workspaces' },

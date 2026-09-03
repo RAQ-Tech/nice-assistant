@@ -2,7 +2,7 @@ import type { ApiClient } from './api';
 import { el, errorMessage } from './dom';
 import { CatalogSetupView } from './catalog_setup_view';
 import type { SettingsDialogs } from './settings_contracts';
-import { settingsCard, settingsHeading } from './settings_ui';
+import { groupTitle } from './settings_page';
 import type { AppState, MediaCatalogResource } from './types';
 
 /**
@@ -39,9 +39,9 @@ export class CatalogModelsView {
   node(models: MediaCatalogResource[]): HTMLElement {
     const shown = models.filter((model) => model.enabled);
     const hidden = models.filter((model) => !model.enabled);
-    return settingsCard([
-      settingsHeading(
-        `Models — the look (${shown.length} enabled)`,
+    return el('div', { class: 'catalog-group', 'data-testid': 'catalog-models' }, [
+      groupTitle(
+        `Models (${shown.length} enabled)`,
         shown.length === 0
           ? 'No models yet, so nothing can be generated. Find the checkpoints ComfyUI already has below.'
           : shown.length === 1

@@ -1,6 +1,7 @@
 import type { ApiClient } from './api';
 import { el, errorMessage } from './dom';
-import { settingsCard, settingsHeading } from './settings_ui';
+import { groupTitle } from './settings_page';
+import { settingsCard } from './settings_ui';
 import type { AppState, StarterPreset } from './types';
 
 /**
@@ -27,8 +28,8 @@ export class StarterPresetsView {
 
   node(): HTMLElement {
     return settingsCard([
-      settingsHeading(
-        'Starter presets',
+      groupTitle(
+        'Starter recipes',
         'Published settings for common model families: sampler, steps, guidance, dimensions, and prompt style. They are a starting point, not a measurement — nothing here has been tested on this deployment.',
       ),
       el('div', { class: 'chips' }, [

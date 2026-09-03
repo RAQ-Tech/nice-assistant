@@ -70,7 +70,14 @@ export class SettingsView {
       renderApp();
     },
   ) {
-    this.mediaCatalogView = new MediaCatalogSettingsView(renderApp, appState, client, dialogs, close);
+    this.mediaCatalogView = new MediaCatalogSettingsView(
+      renderApp,
+      appState,
+      client,
+      dialogs,
+      close,
+      (item) => this.navigateSettings('Media Catalog', item),
+    );
     const setUpIdentityControl = (personaId: string) => this.startIdentitySetup({
       capability_request_id: null,
       chat_id: appState.currentChat?.id ?? null,
@@ -124,7 +131,6 @@ export class SettingsView {
     }
     this.appState.mediaCatalogIdentitySetupIntent = intent;
     this.mediaCatalogView.openIdentitySetup();
-    this.navigateSettings('Media Catalog');
     void this.mediaCatalogView.refresh();
   }
 
@@ -202,7 +208,7 @@ export class SettingsView {
 
   /** Switch sections, and load whatever that section reads on arrival. */
   private openSection(name: SettingsSection): void {
-    this.personaPages.beforeLeave(() => {
+    this.personaPages.beforeLeave(() => this.mediaCatalogView.beforeLeave(() => {
       this.navigateSettings(name, null);
       if (name === 'Memory') void this.refreshMemories();
       if (name === 'Task Models') void this.taskModelView.refresh();
@@ -213,7 +219,7 @@ export class SettingsView {
       }
       if (name === 'Data' && this.appState.session?.is_admin) void this.operationsView.refreshBackups();
       this.renderApp();
-    });
+    }));
   }
 
   private section(section: SettingsSection, item: string | null, settings: Settings): HTMLElement[] {
@@ -225,7 +231,7 @@ export class SettingsView {
     if (section === 'Workspaces') return this.workspaces(settings);
     if (section === 'Models') return this.modelView.nodes(settings, item);
     if (section === 'Task Models') return this.taskModelView.nodes(item);
-    if (section === 'Media Catalog') return this.mediaCatalogView.nodes();
+    if (section === 'Media Catalog') return this.mediaCatalogView.nodes(item);
     if (section === 'Persona Pictures') return this.identityView.nodes();
     if (section === 'GPU Coordination') return this.operationsView.gpuNodes();
     return this.operationsView.dataNodes();

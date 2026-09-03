@@ -2805,6 +2805,12 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
 .page-thumb-action { font-size: .74rem; padding: .25rem .55rem; }
 .page-name-static { margin: 0; font-size: 1.6rem; font-weight: 700; padding: 0.1rem 0; overflow-wrap: anywhere; }
 .page-hint { margin: 0; }
+/* A group's name on a list page, and the line that stands in for an empty list. */
+.settings-subheading { margin: .9rem 0 .35rem; font-size: .92rem; }
+.settings-card > .settings-subheading:first-child, .catalog-group > .settings-subheading:first-child { margin-top: 0; }
+.thing-list-empty { margin: 0 0 .4rem; }
+.catalog-group { display: flex; flex-direction: column; gap: .5rem; align-items: flex-start; }
+.catalog-group > .chips, .catalog-group > details { align-self: stretch; }
 .thing-open { display: inline-flex; align-items: center; gap: .45rem; }
 .thing-open-note { font-size: .72rem; color: var(--text-dim); }
 .thing-open-thumb {

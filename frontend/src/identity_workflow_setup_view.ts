@@ -1,6 +1,6 @@
 import type { ApiClient } from './api';
 import { el, errorMessage } from './dom';
-import { inputField, selectField, textareaField } from './settings_controls';
+import { choiceField, longField, textField } from './settings_page';
 import type { SettingsDialogs } from './settings_contracts';
 import { advancedSettings, settingsCard, settingsHeading, titleCase } from './settings_ui';
 import type { AppState, IdentityWorkflowInspection, MediaCatalogResource } from './types';
@@ -135,44 +135,42 @@ export class IdentityWorkflowSetupView {
     const canSave = Boolean(
       inspection?.provider_compatible && this.workflowPatch && selected && selectedPrompt && this.modelId,
     );
-    const workflowField = textareaField(
-      'Or paste API workflow JSON',
-      this.workflowJson,
-      (value) => this.workflowChanged(value),
-      false,
-      'Use ComfyUI API-format JSON. Browser-format workflow files cannot be executed by the provider API.',
-    );
-    workflowField.querySelector('textarea')?.setAttribute('data-testid', 'identity-workflow-json');
+    const workflowField = longField('Or paste API workflow JSON', this.workflowJson, (value) => this.workflowChanged(value), {
+      testId: 'identity-workflow-json',
+      hover: 'ComfyUI API-format JSON. Browser-format workflow files cannot be executed by the provider API.',
+    });
     this.inspectionResultNode = inspection ? this.inspectionResult(inspection) : el('div', {
       class: 'meta',
       textContent: 'No provider check has run. Saving metadata alone is not proof that ComfyUI can execute the workflow.',
     });
     this.inspectionResultNode.dataset.testid = 'identity-workflow-inspection-result';
     this.bindingFieldNode = inspection && candidates.length
-      ? selectField(
+      ? choiceField(
           'Persona reference image input',
           this.binding,
           candidates.map((item) => bindingKey(item.node_id, item.input_name)),
           (value) => { this.binding = value; },
-          'identity-workflow-binding',
-          (value) => candidates.find((item) => bindingKey(item.node_id, item.input_name) === value)?.label || value,
-          false,
-          'Nice Assistant uploads the approved reference only to this selected node and input. It does not infer custom-node bindings.',
+          {
+            testId: 'identity-workflow-binding',
+            display: (value) => candidates.find((item) => bindingKey(item.node_id, item.input_name) === value)?.label || value,
+            hover: 'The approved reference is uploaded only to this node and input. Custom-node bindings are never inferred.',
+          },
         )
       : null;
     this.promptBindingFieldNode = inspection && promptCandidates.length
-      ? selectField(
+      ? choiceField(
           'Prompt input',
           this.promptBinding,
           promptCandidates.map((item) => bindingKey(item.node_id, item.input_name)),
           (value) => { this.promptBinding = value; },
-          'identity-workflow-prompt-binding',
-          (value) => {
-            const item = promptCandidates.find((entry) => bindingKey(entry.node_id, entry.input_name) === value);
-            return item ? `${item.label} — currently "${item.current_value}"` : value;
+          {
+            testId: 'identity-workflow-prompt-binding',
+            display: (value) => {
+              const item = promptCandidates.find((entry) => bindingKey(entry.node_id, entry.input_name) === value);
+              return item ? `${item.label} — currently "${item.current_value}"` : value;
+            },
+            hover: 'The request is written into this input. Choose the positive prompt node; without it the workflow would render the text saved inside it and ignore what was asked for.',
           },
-          false,
-          'The request is written into this input. Choose the positive prompt node; without it the workflow would render the text saved inside it and ignore what was asked for.',
         )
       : inspection
         ? el('div', {
@@ -195,14 +193,9 @@ export class IdentityWorkflowSetupView {
       onclick: () => void this.saveWorkflow(),
     }) as HTMLButtonElement;
     const manualFields = [
-      inputField(
-        'Workflow name',
-        this.workflowName,
-        (value) => { this.workflowName = value; },
-        'text',
-        false,
-        'A recognizable catalog name, such as Persona IPAdapter portrait workflow.',
-      ),
+      textField('Workflow name', this.workflowName, (value) => { this.workflowName = value; }, {
+        hover: 'A recognizable catalog name, such as Persona IPAdapter portrait workflow.',
+      }),
       el('label', { class: 'setting-row identity-workflow-file-row' }, [
         el('span', { textContent: 'Import ComfyUI API workflow JSON' }),
         el('input', {
@@ -229,15 +222,16 @@ export class IdentityWorkflowSetupView {
     const model = models.find((item) => item.id === this.modelId);
     return [
       models.length
-        ? selectField(
+        ? choiceField(
             'Catalog base model to pair with this workflow',
             this.modelId,
             models.map((item) => item.id),
             (value) => { this.modelId = value; this.renderApp(); },
-            'identity-workflow-model',
-            (value) => models.find((item) => item.id === value)?.name ?? value,
-            false,
-            'This declares planning compatibility with the selected catalog model. Provider inspection does not verify that pairing; the first generation remains its live test.',
+            {
+              testId: 'identity-workflow-model',
+              display: (value) => models.find((item) => item.id === value)?.name ?? value,
+              hover: 'Declares planning compatibility with this model. Provider inspection does not verify the pairing; the first generation remains its live test.',
+            },
           )
         : el('div', {
             class: 'settings-warning',

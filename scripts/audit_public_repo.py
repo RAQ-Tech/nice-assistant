@@ -178,6 +178,10 @@ def audit_repository(root: Path, private_values: list[str]) -> list[Finding]:
     findings: list[Finding] = []
     for relative_path in public_candidate_files(root):
         path = root / relative_path
+        # A tracked file deleted in the working tree is not public content;
+        # the audit runs before the deletion is committed.
+        if not path.is_file():
+            continue
         content = path.read_bytes()
         if b"\0" in content[:8192]:
             findings.extend(audit_image(path, relative_path))

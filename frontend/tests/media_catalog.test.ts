@@ -32,6 +32,20 @@ function resource(): MediaCatalogResource {
   };
 }
 
+function workflow(): MediaCatalogResource {
+  return {
+    ...resource(),
+    id: 'wf-1',
+    resource_type: 'workflow',
+    backend: 'comfyui',
+    name: 'Plain workflow',
+    external_id: 'plain-workflow',
+    enabled: false,
+    default_settings: { workflow_patch: { '1': { class_type: 'KSampler', inputs: {} } } },
+    compatible_model_ids: ['model-1'],
+  };
+}
+
 function catalog(): MediaCatalog {
   return {
     settings: { vram_budget_mb: 10240, max_loras: 4 },
@@ -89,89 +103,121 @@ describe('Media catalog settings', () => {
     }));
   });
 
-  it('edits explicit catalog metadata and saves through the typed API', async () => {
+  it('edits a workflow on its own page and saves through the typed API', async () => {
     const appState = createState();
     appState.settings = normalizeSettings({
-      global_default_model: null,
-      default_memory_mode: 'saved',
-      stt_provider: 'disabled',
-      tts_provider: 'disabled',
-      tts_format: 'wav',
-      openai_api_key: null,
-      onboarding_done: true,
-      preferences: {},
+      global_default_model: null, default_memory_mode: 'saved', stt_provider: 'disabled',
+      tts_provider: 'disabled', tts_format: 'wav', openai_api_key: null, onboarding_done: true, preferences: {},
     });
     appState.settingsSection = 'Media Catalog';
-    appState.mediaCatalog = catalog();
-    const saved = { ...resource(), name: 'Fantasy portrait model', revision: 2 };
+    appState.settingsItem = 'wf-1';
+    appState.mediaCatalog = { ...catalog(), resources: [resource(), workflow()] };
+    const saved = { ...workflow(), name: 'Fantasy portrait workflow', revision: 2 };
     const client = {
       updateMediaCatalogResource: vi.fn().mockResolvedValue(saved),
-      mediaCatalog: vi.fn().mockResolvedValue({ ...catalog(), resources: [saved] }),
+      mediaCatalog: vi.fn().mockResolvedValue({ ...catalog(), resources: [resource(), saved] }),
     } as unknown as ApiClient;
-    const node = new SettingsView(vi.fn(), vi.fn(), dialogs, appState, client).node();
+    const view = new SettingsView(vi.fn(), vi.fn(), dialogs, appState, client);
+    let node = view.node();
 
-    expect(node.textContent).toContain('A preset pairs a model (the look) with a workflow (the method)');
-    const name = [...node.querySelectorAll('input')].find((input) =>
-      input.parentElement?.textContent?.includes('Name'),
-    ) as HTMLInputElement;
-    name.value = 'Fantasy portrait model';
+    // One page, the model page's shape: a headline, help on hover, no icons.
+    expect(node.querySelectorAll('.info-tip-trigger')).toHaveLength(0);
+    expect(node.querySelectorAll('.settings-intro')).toHaveLength(0);
+    const name = node.querySelector('[data-testid="resource-page-name"]') as HTMLInputElement;
+    expect(name.value).toBe('Plain workflow');
+    name.value = 'Fantasy portrait workflow';
     name.dispatchEvent(new Event('input'));
-    (node.querySelector('[data-testid="media-resource-save-model-1"]') as HTMLButtonElement).click();
-    await new Promise((resolve) => window.setTimeout(resolve, 0));
+    node = view.node();
+    (node.querySelector('[data-testid="resource-page-save"]') as HTMLButtonElement).click();
 
-    expect(client.updateMediaCatalogResource).toHaveBeenCalledWith(expect.objectContaining({
-      id: 'model-1',
-      name: 'Fantasy portrait model',
+    await vi.waitFor(() => expect(client.updateMediaCatalogResource).toHaveBeenCalledWith(expect.objectContaining({
+      id: 'wf-1',
+      name: 'Fantasy portrait workflow',
       domains: ['fantasy'],
-    }));
-    expect(appState.mediaCatalog?.resources[0]?.revision).toBe(2);
+    })));
+    await vi.waitFor(() => expect(appState.mediaCatalog?.resources[1]?.revision).toBe(2));
   });
 
-  it('preserves unsaved resource metadata when a late catalog refresh completes', async () => {
+  it('keeps what was typed on a page when a late catalog refresh completes', async () => {
     const appState = createState();
     appState.settings = normalizeSettings({
-      global_default_model: null,
-      default_memory_mode: 'saved',
-      stt_provider: 'disabled',
-      tts_provider: 'disabled',
-      tts_format: 'wav',
-      openai_api_key: null,
-      onboarding_done: true,
-      preferences: {},
+      global_default_model: null, default_memory_mode: 'saved', stt_provider: 'disabled',
+      tts_provider: 'disabled', tts_format: 'wav', openai_api_key: null, onboarding_done: true, preferences: {},
     });
     appState.settingsSection = 'General';
-    appState.mediaCatalog = catalog();
+    appState.mediaCatalog = { ...catalog(), resources: [resource(), workflow()] };
     let finishRefresh!: (value: MediaCatalog) => void;
     const pendingRefresh = new Promise<MediaCatalog>((resolve) => {
       finishRefresh = resolve;
     });
-    const saved = { ...resource(), name: 'Fantasy portrait model', revision: 2 };
+    const saved = { ...workflow(), name: 'Fantasy portrait workflow', revision: 2 };
     const client = {
       mediaCatalog: vi.fn()
         .mockReturnValueOnce(pendingRefresh)
-        .mockResolvedValue({ ...catalog(), resources: [saved] }),
+        .mockResolvedValue({ ...catalog(), resources: [resource(), saved] }),
       updateMediaCatalogResource: vi.fn().mockResolvedValue(saved),
     } as unknown as ApiClient;
     const view = new SettingsView(vi.fn(), vi.fn(), dialogs, appState, client);
 
     (view.node().querySelector('[data-testid="settings-nav-media-catalog"]') as HTMLButtonElement).click();
-    const catalogNode = view.node();
-    const name = [...catalogNode.querySelectorAll('input')].find((input) =>
-      input.parentElement?.textContent?.includes('Name'),
-    ) as HTMLInputElement;
-    name.value = 'Fantasy portrait model';
+    (view.node().querySelector('[data-testid="catalog-workflow-open-wf-1"]') as HTMLButtonElement).click();
+    let page = view.node();
+    const name = page.querySelector('[data-testid="resource-page-name"]') as HTMLInputElement;
+    name.value = 'Fantasy portrait workflow';
     name.dispatchEvent(new Event('input', { bubbles: true }));
-    finishRefresh(catalog());
+    finishRefresh({ ...catalog(), resources: [resource(), workflow()] });
     await new Promise((resolve) => window.setTimeout(resolve, 0));
 
-    expect(appState.mediaCatalog?.resources[0]?.name).toBe('Fantasy portrait model');
-    (view.node().querySelector('[data-testid="media-resource-save-model-1"]') as HTMLButtonElement).click();
+    page = view.node();
+    expect((page.querySelector('[data-testid="resource-page-name"]') as HTMLInputElement).value).toBe('Fantasy portrait workflow');
+    (page.querySelector('[data-testid="resource-page-save"]') as HTMLButtonElement).click();
     await vi.waitFor(() => {
       expect(client.updateMediaCatalogResource).toHaveBeenCalledWith(expect.objectContaining({
-        id: 'model-1',
-        name: 'Fantasy portrait model',
+        id: 'wf-1',
+        name: 'Fantasy portrait workflow',
       }));
     });
+  });
+
+  it('lists the catalog as plain things, says one line out loud, and opens a recipe by its address', async () => {
+    const appState = createState();
+    appState.settings = normalizeSettings({
+      global_default_model: null, default_memory_mode: 'saved', stt_provider: 'disabled',
+      tts_provider: 'disabled', tts_format: 'wav', openai_api_key: null, onboarding_done: true, preferences: {},
+    });
+    appState.settingsSection = 'Media Catalog';
+    appState.mediaCatalog = { ...catalog(), resources: [resource(), workflow()] };
+    const recipe = {
+      id: 'recipe-1', name: 'Fantasy portraits', kind: 'image', enabled: true, priority: 50, routing_card: '',
+      operations: ['generate'], domains: [], content_tags: [], features: [],
+      definition: { base_model_resource_id: 'model-1' }, estimated_vram_mb: 0, notes: '', revision: 1, created_at: 1, updated_at: 1,
+    };
+    const client = {
+      mediaCatalog: vi.fn().mockResolvedValue(appState.mediaCatalog),
+      mediaPresets: vi.fn().mockResolvedValue({ items: [recipe] }),
+      presetSignals: vi.fn().mockResolvedValue({ items: [] }),
+    } as unknown as ApiClient;
+    const navigate = vi.fn();
+    const view = new SettingsView(vi.fn(), vi.fn(), dialogs, appState, client, navigate);
+
+    (view.node().querySelector('[data-testid="settings-nav-media-catalog"]') as HTMLButtonElement).click();
+    await vi.waitFor(() => expect(client.mediaPresets).toHaveBeenCalled());
+    await new Promise((resolve) => window.setTimeout(resolve, 0));
+    appState.settingsSection = 'Media Catalog';
+    const node = view.node();
+
+    expect(node.querySelectorAll('.page-hint')).toHaveLength(1);
+    expect(node.querySelector('[data-testid="catalog-readiness"]')?.textContent).toContain('One model');
+    expect(node.querySelector('[data-testid="catalog-model-open-model-1"]')).not.toBeNull();
+    expect(node.querySelector('[data-testid="catalog-workflow-open-wf-1"]')?.textContent).toContain('Plain workflow');
+    expect((node.querySelector('[data-testid="catalog-inventory"]') as HTMLDetailsElement).open).toBe(false);
+    (node.querySelector('[data-testid="catalog-recipe-open-recipe-1"]') as HTMLButtonElement).click();
+    expect(navigate).toHaveBeenCalledWith('Media Catalog', 'recipe-1');
+
+    appState.settingsItem = 'recipe-1';
+    const page = view.node();
+    expect((page.querySelector('[data-testid="recipe-page-name"]') as HTMLInputElement).value).toBe('Fantasy portraits');
+    expect(page.querySelector('[data-testid="recipe-page-hint"]')?.textContent).toContain('tags and priority');
   });
 
   it('previews an explainable deterministic selection without prompt content', async () => {

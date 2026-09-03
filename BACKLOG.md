@@ -378,8 +378,8 @@ video decision (item 0b) left behind.
     no page carries more than one visible hint or an information icon, the
     model page stays the door to a model, and the settings tests and browser
     journeys pass against the new shape.
-    Progress: Image Generation and Video Generation moved over on
-    2026-09-03. Media Catalog remains, and Persona Pictures goes with item 6.
+    Progress: Image Generation, Video Generation and Media Catalog moved over
+    on 2026-09-03. Persona Pictures goes with item 6.
 
 6. **Fold Persona Pictures into the persona's page.** Chosen by the owner on
     2026-09-02. The persona's page carries the face now, and Persona Pictures
