@@ -3,6 +3,7 @@ import { errorMessage } from './dom';
 import { machine, state, type ClientStateMachine } from './state';
 import {
   EndOfTurnDetector,
+  TURN_DETECTION_DEFAULTS,
   PauseDetector,
   createLevelMeter,
   type LevelMeter,
@@ -32,7 +33,7 @@ export class RecordingController {
   private onTranscript: (text: string) => Promise<void> = async () => undefined;
   private meter: LevelMeter | null = null;
   private listener: ReturnType<typeof setInterval> | null = null;
-  private readonly detector: EndOfTurnDetector;
+  private detector: EndOfTurnDetector;
   private readonly pauses: PauseDetector;
   private readonly segments = new TranscriptSegments();
 
@@ -42,10 +43,24 @@ export class RecordingController {
     private readonly client: ApiClient = api,
     private readonly openMeter: (stream: MediaStream) => LevelMeter = createLevelMeter,
     private readonly now: () => number = () => Date.now(),
-    detection: TurnDetectorOptions = {},
+    private readonly detection: TurnDetectorOptions = {},
   ) {
     this.detector = new EndOfTurnDetector(detection);
     this.pauses = new PauseDetector(detection);
+  }
+
+  /**
+   * How long silence must last before a hands-free turn is sent.
+   *
+   * A person's own choice, because the pause that ends a turn is the pause
+   * that cuts somebody off, and how long people pause to think is not the
+   * product's to know. The pause that cuts a recording for early
+   * transcription is unchanged and stays shorter.
+   */
+  private get sendPauseMs(): number {
+    if (this.detection.silenceMs !== undefined) return this.detection.silenceMs;
+    const chosen = Number(this.appState.settings?.stt_send_pause_ms);
+    return Number.isFinite(chosen) && chosen > 0 ? chosen : TURN_DETECTION_DEFAULTS.silenceMs;
   }
 
   /** Whether to transcribe at pauses instead of waiting for the whole turn. */
@@ -116,6 +131,7 @@ export class RecordingController {
     const stream = this.stream;
     if (!stream) return;
     this.meter = this.openMeter(stream);
+    this.detector = new EndOfTurnDetector({ ...this.detection, silenceMs: this.sendPauseMs });
     this.detector.begin(this.now());
     this.pauses.begin();
     this.listener = setInterval(() => {
@@ -185,6 +201,10 @@ export class RecordingController {
   async stop(): Promise<void> {
     const recorder = this.recorder;
     if (!recorder || recorder.state !== 'recording') return;
+    // A cut at the last pause already sent everything said; what the
+    // recorder holds since then is the silence that ended the turn, and
+    // transcribing silence would make the wait grow by the whole pause.
+    const silentTail = this.streaming && this.listener !== null && this.pauses.cutPending;
     this.stopListening();
     const blob = await new Promise<Blob>((resolve) => {
       recorder.addEventListener(
@@ -204,10 +224,10 @@ export class RecordingController {
     this.stateMachine.transition('transcribing');
     this.onChange();
     try {
-      const result = await this.client.transcribe(blob, recordingFilename(blob.type));
       // Whatever was cut at pauses is already transcribed or on its way; this
       // is only the tail, and it is the sole part anybody waited for.
-      const transcript = await this.segments.finish(result.text);
+      const tail = silentTail ? '' : (await this.client.transcribe(blob, recordingFilename(blob.type))).text;
+      const transcript = await this.segments.finish(tail);
       this.appState.partialTranscript = '';
       if (transcript) await this.onTranscript(transcript);
       else if (this.appState.phase === 'transcribing') this.stateMachine.transition('idle');

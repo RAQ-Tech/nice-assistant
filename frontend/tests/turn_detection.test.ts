@@ -109,6 +109,8 @@ function recordingSetup(levels: number[], handsFreeSupported = true) {
     start() { this.state = 'recording'; }
     stop() {
       this.state = 'inactive';
+      // A recorder that stops always has something to hand over.
+      for (const handler of this.handlers.dataavailable ?? []) handler({ data: new Blob(['x']) });
       for (const handler of this.handlers.stop ?? []) handler({});
     }
   }
@@ -125,7 +127,7 @@ function recordingSetup(levels: number[], handsFreeSupported = true) {
     () => clock,
   );
   controller.configure(() => undefined, async () => undefined);
-  return { appState, controller, meter, tick: (ms: number) => { clock += ms; } };
+  return { appState, client, controller, meter, tick: (ms: number) => { clock += ms; } };
 }
 
 describe('Hands-free recording', () => {
@@ -144,6 +146,52 @@ describe('Hands-free recording', () => {
       expect(controller.recording).toBe(false);
       // The level meter is released with the microphone, not left running.
       expect(meter.closed).toBe(true);
+    } finally {
+      vi.useRealTimers();
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it('waits as long as the chosen sending pause before it sends', async () => {
+    vi.useFakeTimers();
+    try {
+      const { appState, controller, tick } = recordingSetup([LOUD, LOUD, QUIET]);
+      appState.settings = { ...appState.settings, stt_send_pause_ms: 2500 } as Settings;
+      await controller.start(true);
+
+      for (let step = 0; step < 20; step += 1) {
+        tick(LEVEL_SAMPLE_MS);
+        await vi.advanceTimersByTimeAsync(LEVEL_SAMPLE_MS);
+      }
+      // Well past the default pause, short of the chosen one: still theirs.
+      expect(controller.recording).toBe(true);
+      for (let step = 0; step < 10; step += 1) {
+        tick(LEVEL_SAMPLE_MS);
+        await vi.advanceTimersByTimeAsync(LEVEL_SAMPLE_MS);
+      }
+      expect(controller.recording).toBe(false);
+    } finally {
+      vi.useRealTimers();
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it('does not transcribe the silence that ended the turn when transcribing at pauses', async () => {
+    vi.useFakeTimers();
+    try {
+      const { appState, client, controller, tick } = recordingSetup([LOUD, LOUD, QUIET]);
+      appState.settings = { ...appState.settings, stt_streaming: true, stt_send_pause_ms: 1500 } as Settings;
+      await controller.start(true);
+
+      for (let step = 0; step < 30; step += 1) {
+        tick(LEVEL_SAMPLE_MS);
+        await vi.advanceTimersByTimeAsync(LEVEL_SAMPLE_MS);
+      }
+
+      expect(controller.recording).toBe(false);
+      // The words went at the pause; the silence after them is not sent to
+      // be transcribed, so the wait after the last word did not grow by it.
+      expect(client.transcribe).toHaveBeenCalledTimes(1);
     } finally {
       vi.useRealTimers();
       vi.unstubAllGlobals();

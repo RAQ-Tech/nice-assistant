@@ -33,6 +33,7 @@ export const SETTINGS_DEFAULTS: Settings = {
   stt_language: 'auto',
   stt_store_recordings: false,
   stt_hands_free: false,
+  stt_send_pause_ms: 900,
   image_provider: 'disabled',
   chat_blur_images: false,
   // The deployment supplies the real starting values on first load; these
@@ -173,6 +174,7 @@ export const SETTINGS_SECTION_KEYS: Record<SettingsSection, readonly (keyof Sett
     'stt_provider',
     'stt_language',
     'stt_hands_free',
+    'stt_send_pause_ms',
     'stt_store_recordings',
     'stt_local_base_url',
     'stt_model_local',
@@ -255,6 +257,7 @@ export function normalizeSettings(wire: SettingsWire): Settings {
   values.image_local_backend = ['automatic1111', 'comfyui'].includes(String(values.image_local_backend).toLowerCase())
     ? String(values.image_local_backend).toLowerCase()
     : SETTINGS_DEFAULTS.image_local_backend;
+  values.stt_send_pause_ms = boundedPause(values.stt_send_pause_ms);
   values.video_model = normalizeVideoModel(values.video_model);
   values.video_duration = normalizeVideoDuration(values.video_duration);
   values.video_size = normalizeVideoSize(values.video_model, values.video_size);
@@ -264,6 +267,12 @@ export function normalizeSettings(wire: SettingsWire): Settings {
     ? (values.model_overrides as Record<string, Record<string, SettingScalar>>)
     : {};
   return values;
+}
+
+/** A sending pause within reason: never so short it cuts a word, never so long it holds the microphone open. */
+function boundedPause(value: unknown): number {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) && parsed >= 300 && parsed <= 5000 ? Math.round(parsed) : SETTINGS_DEFAULTS.stt_send_pause_ms;
 }
 
 export function settingsWire(settings: Settings): SettingsWire {

@@ -113,5 +113,20 @@ class MediaSettingsEndpointTests(unittest.TestCase):
         self.assertTrue(response.json()["preferences"]["chat_blur_images"])
 
 
+class HandsFreePauseTests(unittest.TestCase):
+    """The hands-free sending pause is a duration the browser reads (ADR 0038, amended)."""
+
+    def test_the_pause_is_kept_within_reason(self):
+        from app.settings import normalize_media_preferences
+
+        self.assertEqual(normalize_media_preferences({"stt_send_pause_ms": "2500"})["stt_send_pause_ms"], 2500)
+        # Too short would cut a word; too long would hold the microphone open.
+        self.assertEqual(normalize_media_preferences({"stt_send_pause_ms": 100})["stt_send_pause_ms"], 900)
+        self.assertEqual(normalize_media_preferences({"stt_send_pause_ms": 99_999})["stt_send_pause_ms"], 900)
+        self.assertEqual(normalize_media_preferences({"stt_send_pause_ms": "soon"})["stt_send_pause_ms"], 900)
+        # Absent stays absent: the browser's default is the browser's.
+        self.assertNotIn("stt_send_pause_ms", normalize_media_preferences({}))
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -901,6 +901,10 @@ export interface Settings extends Record<string, SettingScalar | Record<string, 
   // Off by default: holding the button is always right about when somebody
   // finished, and this is a judgement that can be wrong.
   stt_hands_free: boolean;
+  // How long a pause must last, with hands-free on, before what was said is
+  // sent. The pause that cuts a recording for early transcription is shorter
+  // and not a setting.
+  stt_send_pause_ms: number;
   image_provider: string;
   chat_blur_images: boolean;
   // Stored with the other preferences, so the homepage and the settings page

@@ -149,6 +149,13 @@ export class EverydaySettingsView {
                 + 'Holding the button always works and is never guessed at.',
               testId: 'stt-hands-free',
             }),
+            settings.stt_hands_free
+              ? choiceField('Send after a pause of', String(settings.stt_send_pause_ms), pauseChoices(settings.stt_send_pause_ms), (value) => this.change('stt_send_pause_ms', Number(value)), {
+                  testId: 'stt-send-pause',
+                  display: pauseLabel,
+                  hover: 'How long you can stop talking before what you said is sent. Longer is calmer, and the wait after your last word grows with it. Holding the button never waits.',
+                })
+              : null,
             switchField('Transcribe while I am still talking', settings.stt_streaming, (value) => this.change('stt_streaming', value), {
               hover: 'Transcribes at each natural pause, so the wait at the end is one sentence rather than the whole turn. '
                 + 'It transcribes more audio in total, so it suits a fast model on a machine with room.',
@@ -395,6 +402,21 @@ function shapeLabel(value: string): string {
   if (!width || !height) return value;
   const shape = width === height ? 'Square' : width > height ? 'Landscape' : 'Portrait';
   return `${shape} — ${width}×${height}`;
+}
+
+// The pauses offered by name. A stored value outside the list stays
+// selectable rather than being silently rewritten.
+const PAUSE_CHOICES = [900, 1500, 2500];
+
+function pauseChoices(current: number): string[] {
+  return [...new Set([...PAUSE_CHOICES, current])].sort((left, right) => left - right).map(String);
+}
+
+function pauseLabel(value: string): string {
+  const ms = Number(value);
+  const seconds = ms % 1000 === 0 ? String(ms / 1000) : (ms / 1000).toFixed(1);
+  const name = ms <= 900 ? 'Quick' : ms <= 1500 ? 'Relaxed' : ms <= 2500 ? 'Patient' : 'Very patient';
+  return `${name} — ${seconds} s`;
 }
 
 function sttBackendLabel(value: string): string {
