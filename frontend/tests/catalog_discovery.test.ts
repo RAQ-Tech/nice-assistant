@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from 'vitest';
 import type { ApiClient } from '../src/api';
 import { CatalogModelsView } from '../src/catalog_models_view';
 import { WorkflowImportView } from '../src/workflow_import_view';
+import { normalizeSettings } from '../src/settings';
 import { createState } from '../src/state';
 import type { MediaCatalogResource } from '../src/types';
 
@@ -266,5 +267,65 @@ describe('bringing your own workflow', () => {
     await vi.waitFor(() => {
       expect(view.node([model()]).textContent).toContain('could not confirm');
     });
+  });
+});
+
+describe('setting up every model at once', () => {
+  function report(remaining: number, name: string) {
+    return {
+      processed: [{
+        model_id: name.toLowerCase(), file: `${name}.safetensors`, name,
+        filled: ['family: SDXL (read from the file)', 'steps and CFG (SDXL family defaults)', 'name (CivitAI)', 'trigger words (CivitAI)'],
+        notes: [], lookup: 'exact', routing_card: false,
+      }],
+      remaining,
+      total: 2,
+      without_routing_card: ['Juggernaut XL', 'RealVis'],
+    };
+  }
+
+  function built(setupModels: ReturnType<typeof vi.fn>, consentOk = true) {
+    const appState = createState();
+    appState.settings = normalizeSettings({
+      global_default_model: null, default_memory_mode: 'saved', stt_provider: 'disabled', tts_provider: 'disabled',
+      tts_format: 'wav', openai_api_key: null, onboarding_done: true, preferences: {},
+    });
+    const client = { setupModels, updateSettings: vi.fn().mockResolvedValue({}) } as unknown as ApiClient;
+    const consent = vi.fn().mockResolvedValue({ ok: consentOk, remember: false });
+    const root = document.createElement('div');
+    let view!: CatalogModelsView;
+    const render = () => root.replaceChildren(view.node([model(), model({ id: 'model-2', name: 'RealVis', external_id: 'realvis.safetensors' })]));
+    view = new CatalogModelsView(appState, client, render, vi.fn(async () => undefined), () => undefined, { consent });
+    render();
+    return { root, consent, setupModels };
+  }
+
+  it('asks once, takes the pass a page at a time, and names who still has no routing card', async () => {
+    const setupModels = vi.fn()
+      .mockResolvedValueOnce(report(1, 'Juggernaut XL'))
+      .mockResolvedValueOnce(report(0, 'RealVis'));
+    const { root, consent } = built(setupModels);
+
+    (root.querySelector('[data-testid="catalog-setup-models"]') as HTMLButtonElement).click();
+    await vi.waitFor(() => expect(root.querySelector('[data-testid="catalog-setup-report"]')).not.toBeNull());
+
+    expect(consent).toHaveBeenCalledTimes(1);
+    expect(setupModels).toHaveBeenCalledTimes(2);
+    expect(setupModels).toHaveBeenCalledWith({ limit: 5, lookup: true });
+    const summary = root.querySelector('[data-testid="catalog-setup-report"]')?.textContent ?? '';
+    expect(summary).toContain('2 of 2 set up');
+    expect(summary).toContain('Family for 2');
+    expect(root.querySelector('[data-testid="catalog-setup-without-card"]')?.textContent).toBe('Juggernaut XL, RealVis');
+  });
+
+  it('sets up from the files alone when the person declines the lookup', async () => {
+    const setupModels = vi.fn().mockResolvedValue(report(0, 'Juggernaut XL'));
+    const { root } = built(setupModels, false);
+
+    (root.querySelector('[data-testid="catalog-setup-models"]') as HTMLButtonElement).click();
+    await vi.waitFor(() => expect(root.querySelector('[data-testid="catalog-setup-report"]')).not.toBeNull());
+
+    expect(setupModels).toHaveBeenCalledWith({ limit: 5, lookup: false });
+    expect(root.querySelector('[data-testid="catalog-setup-report"]')?.textContent).toContain('CivitAI was skipped');
   });
 });

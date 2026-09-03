@@ -29,6 +29,7 @@ import type {
   MediaPlanRequirements,
   MediaReadiness,
   ModelPrefillSuggestion,
+  ModelSetupReport,
   IdentityEvent,
   IdentityReference,
   IdentityValidation,
@@ -671,6 +672,10 @@ export class ApiClient {
       method: 'POST',
       body: JSON.stringify({ checkpoint }),
     });
+  }
+
+  setupModels(body: { limit: number; lookup: boolean; force?: boolean }): Promise<ModelSetupReport> {
+    return this.request('/media-catalog/models/setup', { method: 'POST', body: JSON.stringify(body) });
   }
 
   addModelsFromCheckpoints(names: string[]): Promise<{ added: string[]; skipped: { name: string; reason: string }[] }> {

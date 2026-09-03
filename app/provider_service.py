@@ -591,7 +591,7 @@ class ProviderService:
             "message": f"{len(checkpoints)} checkpoint file(s) reported by ComfyUI.",
         }
 
-    def civitai_model_lookup(self, checkpoint: str) -> dict:
+    def civitai_model_lookup(self, checkpoint: str, *, exact_only: bool = False) -> dict:
         """Search civitai.com for a checkpoint by filename, for a person to pick.
 
         Runs only when somebody presses the lookup button behind its consent
@@ -613,6 +613,16 @@ class ProviderService:
         except Exception:  # noqa: BLE001 - content-free network diagnostics
             return {"ok": False, "matches": [], "message": "civitai.com could not be reached."}
         matches = parse_matches(payload if isinstance(payload, dict) else {}, checkpoint)
+        if exact_only:
+            # The setup pass adopts only the exact file, so only its showcase
+            # is worth a second request; near matches come back bare, for a
+            # person to look at on the model's page.
+            exact = [match for match in matches if match.get("file_match")]
+            if not exact:
+                for match in matches:
+                    apply_family_defaults(match)
+                return {"ok": True, "matches": matches, "message": f"Nothing on CivitAI is the file “{checkpoint}”."}
+            matches = exact[:1]
         for match in matches:
             # Most 2026 uploads hide their generation meta, so the listing
             # rarely carries settings; the community-images endpoint is where

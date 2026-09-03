@@ -101,20 +101,30 @@ def apply_family_defaults(match: dict) -> None:
     # suggestion beats a wrong one.
     if any(tag in declared for tag in ("lightning", "turbo", "hyper", "lcm")):
         return
+    family = family_from_base_model(declared)
+    if not family:
+        return
+    defaults = FAMILY_DEFAULTS[family]
+    match.update(
+        {
+            "steps": defaults["steps"],
+            "cfg_scale": defaults["cfg_scale"],
+            "width": defaults["width"],
+            "height": defaults["height"],
+            "settings_source": "family",
+            "family_label": defaults["label"],
+        }
+    )
+
+
+def family_from_base_model(base_model) -> str | None:
+    """The family a CivitAI base-model string names, in the prefill table's terms."""
+
+    declared = str(base_model or "").lower()
     for fragment, family in _BASE_MODEL_FAMILIES:
         if fragment in declared:
-            defaults = FAMILY_DEFAULTS[family]
-            match.update(
-                {
-                    "steps": defaults["steps"],
-                    "cfg_scale": defaults["cfg_scale"],
-                    "width": defaults["width"],
-                    "height": defaults["height"],
-                    "settings_source": "family",
-                    "family_label": defaults["label"],
-                }
-            )
-            return
+            return family
+    return None
 
 
 def _showcase_settings(images: list) -> dict:

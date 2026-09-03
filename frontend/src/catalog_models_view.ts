@@ -1,5 +1,7 @@
 import type { ApiClient } from './api';
 import { el, errorMessage } from './dom';
+import { CatalogSetupView } from './catalog_setup_view';
+import type { SettingsDialogs } from './settings_contracts';
 import { settingsCard, settingsHeading } from './settings_ui';
 import type { AppState, MediaCatalogResource } from './types';
 
@@ -20,6 +22,7 @@ export class CatalogModelsView {
   private discovered: { name: string; cataloged: boolean }[] | null = null;
   private discoveryMessage = '';
   private busy = false;
+  private readonly setupView: CatalogSetupView;
   private readonly selected = new Set<string>();
 
   constructor(
@@ -28,7 +31,10 @@ export class CatalogModelsView {
     private readonly renderApp: () => void,
     private readonly refreshCatalog: () => Promise<void>,
     private readonly openModel: (modelId: string) => void = () => undefined,
-  ) {}
+    dialogs: Pick<SettingsDialogs, 'consent'> | null = null,
+  ) {
+    this.setupView = new CatalogSetupView(appState, client, renderApp, refreshCatalog, dialogs);
+  }
 
   node(models: MediaCatalogResource[]): HTMLElement {
     const shown = models.filter((model) => model.enabled);
@@ -59,7 +65,9 @@ export class CatalogModelsView {
           'data-testid': 'catalog-discover-models',
           onclick: () => void this.discover(),
         }),
+        models.length ? this.setupView.button(this.busy) : null,
       ]),
+      this.setupView.summary(),
       this.discoveryMessage
         ? el('p', { class: 'meta', 'data-testid': 'catalog-discovery-message', textContent: this.discoveryMessage })
         : null,

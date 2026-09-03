@@ -2018,6 +2018,9 @@ class MediaCatalogService:
                 # The one sample picture this model rendered, shown wherever
                 # the model is listed - a look you can see, not a filename.
                 "sample_media_id",
+                # Where the set-up-all-models pass got each answer, and
+                # when, so a fill is never mistaken for a person's choice.
+                "setup",
             }
         elif resource_type == "lora":
             allowed = {"weight", "trigger_words"}
@@ -2035,6 +2038,8 @@ class MediaCatalogService:
         if set(values) - allowed:
             raise RequestError("default settings include unsupported fields", 400)
         result = dict(values)
+        if resource_type == "model" and "setup" in result and not isinstance(result["setup"], dict):
+            raise RequestError("the setup record must be an object", 400)
         if resource_type == "lora":
             weight = float(result.get("weight", 1.0))
             if not 0 <= weight <= 4:

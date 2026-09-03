@@ -45,6 +45,19 @@ learned it, naming the reason in the plan's rejected list, because the first
 real request on a catalog of forty-five uncurated checkpoints went to
 `512-inpainting-ema` on the strength of the alphabet.
 
+Next to the list is one action for all of them: set up all models. It reads
+each file's metadata through ComfyUI for its family, looks the file name up
+on CivitAI once a person has said so in the same consent popup the model page
+uses, and fills what each answer supports - the family, the recipe's steps,
+guidance, sampler and size, the model's proper name and its trigger words -
+saying where every fill came from: read from the file, guessed from the file
+name, the creator's showcase on CivitAI, or the family's published defaults.
+It adopts only CivitAI's exact file; a near match is a person's call and stays
+on the model's page. It runs a few models at a time so the page shows
+progress and Stop means stop, and it never writes a routing card: no lookup
+knows when a model should be used, so it ends by naming the models that still
+have none. A model it has passed over is not passed over again unless asked.
+
 ## The model page
 
 The owner's framing, adopted as the design language: a model is an ingredient,
