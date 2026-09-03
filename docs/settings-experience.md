@@ -166,7 +166,9 @@ Voice:
   which of its two shapes it is: OpenAI-compatible (speaches, whisper.cpp,
   LocalAI) or Wyoming, the one Home Assistant voice already runs. Hands-free
   listening and transcribing at natural pauses appear once something can
-  transcribe; keeping recordings is folded.
+  transcribe; with hands-free on, how long a pause sends is a choice - quick,
+  relaxed or patient - because the pause that ends a turn is the pause that
+  cuts a person off; keeping recordings is folded.
 
 Pictures (the two generation pages moved over on 2026-09-03):
 

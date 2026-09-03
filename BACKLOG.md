@@ -416,7 +416,8 @@ video decision (item 0b) left behind.
     writing, speech is never past the visible text, a stop cuts every queued
     sentence at once, and replay plays the whole reply.
 
-8. **A longer, more forgiving pause before hands-free sends.** Asked by the
+8. **A longer, more forgiving pause before hands-free sends - delivered
+    2026-09-03.** Asked by the
     owner on 2026-09-02: natural pauses "slightly too long" ended his turn
     and sent before he had finished. The turn ends 900 ms after speech
     stops (ADR 0038). Separate the two things one timer does today: a short
@@ -424,10 +425,11 @@ video decision (item 0b) left behind.
     while a longer, calmer silence is what sends - and make that silence a
     choice on the Transcription page, so a person who pauses to think is not
     cut off. Holding the button stays exactly as it is.
-    **Done when** the sending pause is chosen on the Transcription page and
-    proven to change when a turn ends, a pause shorter than it never sends,
-    and the wait after the last word does not grow by the whole pause when
-    transcribing at pauses is on.
+    Delivered: "Send after a pause of" on the Transcription page - quick,
+    relaxed or patient - read when hands-free listening starts; the pause that
+    cuts for early transcription is unchanged, and the silence that ends a
+    turn after such a cut is no longer transcribed. See the amendment to ADR
+    0038. Unaccepted on the installed deployment until the owner tries it.
 
 9. **Setting up many models at once - delivered 2026-09-03.** Raised by the
     owner on 2026-09-03:

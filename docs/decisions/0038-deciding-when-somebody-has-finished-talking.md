@@ -78,3 +78,18 @@ editing logic.
 What this does not do: it does not transcribe while somebody is speaking, and it
 does not know what was said before deciding they stopped. It is listening to
 loudness, not to language.
+
+## Amendment, 2026-09-03: the sending pause is a choice
+
+The owner's natural pauses were "slightly too long" for 900 ms, and the
+turn was sent before he had finished. How long somebody pauses to think is
+not the product's to know, so the silence that sends is now a setting on the
+Transcription page - quick (0.9 s, the default), relaxed (1.5 s) or patient
+(2.5 s), bounded between 0.3 s and 5 s - read when hands-free listening
+starts. The rules above are unchanged; only the length of the silence is.
+
+The pause that cuts a recording for early transcription (ADR 0041) stays at
+450 ms and stays separate. And when a turn ends after such a cut with nothing
+said since, the silence that ended it is not sent to be transcribed: it
+would cost the fixed transcription time and return nothing, which is how the
+wait after the last word would otherwise grow by the whole pause.

@@ -51,6 +51,15 @@ def normalize_media_preferences(value):
         backend = str(preferences.get("stt_local_backend") or "").strip().lower()
         if backend in {"openai_api", "wyoming"}:
             preferences["stt_local_backend"] = backend
+    # The hands-free sending pause is a duration the browser reads. Keep it a
+    # sane number, so a bad value can neither cut a word nor hold the
+    # microphone open for minutes.
+    if "stt_send_pause_ms" in preferences:
+        try:
+            pause = int(float(preferences.get("stt_send_pause_ms") or 0))
+        except (TypeError, ValueError):
+            pause = 0
+        preferences["stt_send_pause_ms"] = pause if 300 <= pause <= 5000 else 900
     return preferences
 
 

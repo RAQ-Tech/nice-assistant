@@ -124,6 +124,11 @@ export class PauseDetector {
     this.cutAlready = false;
   }
 
+  /** A cut happened and nobody has spoken since: whatever follows is silence. */
+  get cutPending(): boolean {
+    return this.cutAlready;
+  }
+
   /** True exactly once per pause, and never before anybody has spoken. */
   observe(level: number, atMs: number): boolean {
     if (level >= this.speechLevel) {
