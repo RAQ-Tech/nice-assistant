@@ -1,12 +1,6 @@
 import { el, formatDate } from './dom';
-import {
-  boundedNumber,
-  selectControl as select,
-  settingField as field,
-  settingsHeading,
-  textControl as input,
-  titleCase,
-} from './settings_ui';
+import { groupTitle } from './settings_page';
+import { boundedNumber, selectControl as select, textControl as input, titleCase } from './settings_ui';
 import type { AppState, VisualIdentityProfile } from './types';
 
 export function identityImageButton(
@@ -26,7 +20,7 @@ export function identityImageButton(
 
 export function identityAuditCard(events: AppState['identityEvents'][string]): HTMLElement {
   return el('div', { class: 'persona-card' }, [
-    settingsHeading('Activity history', 'An owner-scoped audit of reference, profile, and comparison changes.'),
+    groupTitle('Activity history', 'What changed about the photos, the profile and comparison, and when.'),
     events.length
       ? el('div', { class: 'identity-audit-list' }, events.slice(0, 30).map((event) =>
           el('div', { class: 'manager-row' }, [
@@ -52,17 +46,17 @@ export function identityComparisonPolicyCard(
     block_claim: 'Hide the image when comparison fails',
   };
   return el('div', { class: 'persona-card' }, [
-    settingsHeading(
+    groupTitle(
       'Comparison outcome',
-      'What to do with a finished image when the optional comparison service scores it below the threshold. None of this runs unless a comparison service is configured.',
+      'What to do with a finished picture when the optional comparison service scores it below the threshold. None of this runs unless a comparison service is configured.',
     ),
-    field('When optional comparison fails', select(profile.failure_policy, ['show_unverified', 'block_claim'], (value) => {
+    hoverRow('When optional comparison fails', select(profile.failure_policy, ['show_unverified', 'block_claim'], (value) => {
       profile.failure_policy = value as VisualIdentityProfile['failure_policy'];
     }, (value) => failureLabels[value] ?? value), 'This applies only after a configured comparison service evaluates a generated image.'),
-    field('Comparison threshold', input(String(profile.acceptance_threshold), (value) => {
+    hoverRow('Comparison threshold', input(String(profile.acceptance_threshold), (value) => {
       profile.acceptance_threshold = boundedNumber(value, 0, 1, profile.acceptance_threshold);
     }, 'number'), 'A higher score is stricter. Calibrate this with representative generated images before enabling blocking.'),
-    field('Maximum generation attempts', input(String(profile.max_generation_attempts), (value) => {
+    hoverRow('Maximum generation attempts', input(String(profile.max_generation_attempts), (value) => {
       profile.max_generation_attempts = Math.round(boundedNumber(value, 1, 10, profile.max_generation_attempts));
     }, 'number'), 'The cap on bounded generation or correction attempts for one request.'),
     el('button', {
@@ -75,15 +69,7 @@ export function identityComparisonPolicyCard(
   ]);
 }
 
-export function identityPersonaSelector(
-  selectedId: string,
-  personaIds: readonly string[],
-  name: (id: string) => string,
-  change: (value: string) => void,
-): HTMLElement {
-  return field(
-    'Persona',
-    select(selectedId, personaIds, change, name),
-    'Choose whose face, recipes, kept pictures, and comparison history you want to manage.',
-  );
+/** A labelled control whose help waits on hover. */
+function hoverRow(label: string, control: HTMLElement, hover: string): HTMLElement {
+  return el('div', { class: 'setting-row', title: hover }, [el('label', { textContent: label }), control]);
 }

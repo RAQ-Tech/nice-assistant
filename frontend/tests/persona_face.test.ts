@@ -90,13 +90,15 @@ function setup(current: VisualIdentityProfile | null = profile()) {
   } as unknown as ApiClient;
   const dialogs = { prompt: vi.fn().mockResolvedValue('Not them.'), confirm: vi.fn().mockResolvedValue(true) };
   const openSetup = vi.fn();
-  const openMore = vi.fn();
+  const extra = document.createElement('p');
+  extra.textContent = 'Comparison lives here';
+  const more = vi.fn(() => [extra]);
   const root = document.createElement('div');
   let view!: PersonaFaceView;
   const render = () => root.replaceChildren(view.node(persona()));
-  view = new PersonaFaceView(appState, client, render, dialogs, openSetup, openMore);
+  view = new PersonaFaceView(appState, client, render, dialogs, openSetup, more);
   render();
-  return { appState, client, dialogs, openSetup, openMore, root, render, view };
+  return { appState, client, dialogs, openSetup, more, root, render, view };
 }
 
 function flip(root: HTMLElement, on: boolean): void {
@@ -199,10 +201,11 @@ describe('a persona’s face', () => {
     expect((root.querySelector('[data-testid="persona-face-switch"]') as HTMLInputElement).checked).toBe(true);
   });
 
-  it('reaches the rest in one press, and loads a face it has not seen', async () => {
-    const { client, openMore, root, view } = setup();
-    (root.querySelector('[data-testid="persona-face-more"]') as HTMLButtonElement).click();
-    expect(openMore).toHaveBeenCalledWith('nova');
+  it('keeps the rest inside its own fold, and loads a face it has not seen', async () => {
+    const { client, more, root, view } = setup();
+    expect(root.querySelector('[data-testid="persona-face-more"]')).toBeNull();
+    expect(more).toHaveBeenCalled();
+    expect(root.querySelector('[data-testid="persona-face-more-nova"]')?.textContent).toContain('Comparison lives here');
 
     const fresh = setup(null);
     expect(fresh.root.textContent).toContain('Checking…');

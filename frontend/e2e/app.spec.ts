@@ -643,14 +643,14 @@ test('a persona gets a face from its own page, and the rest stays folded', async
   await page.getByRole('button', { name: 'Close preview' }).click();
   await expect(page.getByRole('button', { name: 'Use as reference' })).toBeEnabled();
 
-  // Persona Pictures shows the same face, with the recipes, the kept
-  // pictures, and comparison folded beneath.
-  await page.goto('/#/settings/Persona%20Pictures');
-  await expect(page.getByRole('heading', { name: 'Persona Pictures' })).toBeVisible();
-  await expect(page.getByText("Everything about a persona's pictures")).toBeVisible();
-  await expect(page.getByTestId('persona-face-switch')).toBeChecked();
+  // The recipes and kept pictures sit under the face; comparison is inside
+  // the face's own fold; and the old Persona Pictures address lands here.
   await expect(page.getByTestId('library-refresh')).toBeVisible();
-  await expect(page.getByTestId('identity-advanced-settings')).not.toHaveAttribute('open', '');
+  await expect(page.getByTestId('persona-face-more-persona-1')).not.toHaveAttribute('open', '');
+  await expect(page.getByTestId('settings-nav-persona-pictures')).toHaveCount(0);
+  await page.goto('/#/settings/Persona%20Pictures');
+  await expect(page.getByTestId('persona-page-name')).toHaveValue('Nova');
+  await expect(page.getByTestId('persona-face-switch')).toBeChecked();
 });
 
 test('model video requests remain pending until the user approves them', async ({ page }) => {

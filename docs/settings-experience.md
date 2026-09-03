@@ -18,9 +18,7 @@ that proved it:
 - Sparse fields, labelled plainly. Help waits on hover - a `title` on the
   row, read by assistive technology as the control's description - and never
   takes up room. A page says at most one thing out loud.
-- Never an information icon explaining an explanation. Persona Pictures still
-  carries the earlier icon-per-row shape until it folds into the persona's
-  page; nothing new is built that way.
+- Never an information icon explaining an explanation.
 - Change the input type before adding words: a dropdown of what the provider
   actually reports beats a typed box, and a prefilled value says where it
   came from.
@@ -75,35 +73,37 @@ settings pages.
 - Keep verifier settings, thresholds, manual validation, history, and deletion
   in an optional advanced section.
 
-### Persona Pictures - the face, the recipes, the kept pictures
+### A persona's pictures live on the persona's page - delivered 2026-09-03
 
-Persona Pictures is one surface for a persona's appearance. It leads with the
-same face card the persona's own page carries (see the Personas page below):
-one switch, "Looks like this photo", and the photos, with a line only when
-something needs a hand. Beneath it are the preferred recipes and the kept
-pictures, and under one fold what comparison needs: the optional verifier, the
-outcome policy and threshold, manual comparison, and the activity history.
+Persona Pictures was a section of its own that showed the same face card the
+persona's page carries, so one persona had two pages and the face was on
+both. It folded into the persona's page: under the face sit the preferred
+recipes and the kept pictures, and inside the face's own fold, "More about
+the face", sits what comparison needs - the optional verifier, the outcome
+policy and threshold, manual comparison, and the activity history. The
+section left the menu, its search words moved to Personas, and its old
+address lands on the persona it meant.
 
 Kept pictures show the description they were stored under, because that
 description is what a later request is matched against; an entry nobody can
 interpret is one nobody can decide to remove. The action is "Forget", and it
 says the picture itself stays - removing a library entry stops reuse, it does
 not delete an image. A retired entry explains that it is past the keep limit
-rather than appearing broken.
+rather than appearing broken. They load with the persona, not behind a button.
 
-Preferred recipes sit above the kept pictures: which presets are known to work
-for this persona, best first. Routing prefers them when a request does not call
-for something else, and a preference that names a preset which can no longer run
-is ignored rather than blocking the picture. A preference is persona-specific
-knowledge that a routing score cannot represent, which is why it is recorded
-rather than inferred.
+Preferred recipes sit above the kept pictures: which recipes are known to work
+for this persona, best first. Routing prefers them when a request does not
+call for something else, and a preference that names a recipe which can no
+longer run is ignored rather than blocking the picture. A preference is
+persona-specific knowledge that a routing score cannot represent, which is
+why it is recorded rather than inferred.
 
 The face names how it is produced rather than offering a choice, unless the
 catalog can apply more than one mechanism, because a control that can only
 block is worse than a plain statement. The comparison threshold and what to do
-with a below-threshold image live in the fold with the verifier they belong to:
-comparison measures a finished image and cannot make generation resemble the
-reference.
+with a below-threshold image live in the fold with the verifier they belong
+to: comparison measures a finished image and cannot make generation resemble
+the reference.
 
 ### Media Catalog, one page per thing - delivered 2026-09-03
 
@@ -205,8 +205,9 @@ Personas:
   may send pictures, which workspaces it is available in (only when there is
   more than one), the face - one switch, "Looks like this photo", and the
   photos, with a line only when something needs a hand: add a photo, or
-  install a workflow that can use one - then the Character card and Lorebook
-  editors - each still
+  install a workflow that can use one - the preferred recipes and the kept
+  pictures under it, with comparison inside the face's own fold - then the
+  Character card and Lorebook editors - each still
   with its own save, its cost meter and its preview - and free-form
   instructions and deletion folded. The page saves itself; leaving with
   unsaved changes asks. Instructions for a new persona sit under the list.
@@ -238,11 +239,9 @@ the memory distinctions, the persona image permission, the in-app avatar
 viewer, and every provider control naming which kind it is. Authoring
 guidance for cards and lorebooks stays in `docs/persona-authoring.md`.
 
-### Persona Pictures - earlier shape
+### What the generation pages still guarantee
 
-Persona Pictures keeps the goal-oriented cards with information icons and
-closed advanced sections until it folds into the persona's page. The
-generation pages and the Media Catalog moved over on 2026-09-03; what the
+Every Pictures page moved to the one-page-per-thing shape on 2026-09-03. The
 generation pages still guarantee:
 
 - Local image connection choices remain readily available while sampling,

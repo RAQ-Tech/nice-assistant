@@ -99,10 +99,9 @@ not proof of a real person's legal identity.
 ## Operator flow
 
 A persona's face lives on the persona's own page (Settings -> Personas -> the
-persona): one switch, "Looks like this photo", and the photos. Persona Pictures
-shows the same card for the persona it has selected, with the preferred recipes,
-the kept pictures, and comparison folded beneath. The two are one component, so
-there is one face and not two.
+persona): one switch, "Looks like this photo", and the photos. Under it sit
+the preferred recipes and the kept pictures, and inside the face's own fold
+what comparison needs. There is one page per persona, and one face.
 
 1. Turn the switch on. The confirmation is the consent grant: for a fictional
    persona it confirms only that the operator created the images or has the
@@ -121,9 +120,9 @@ there is one face and not two.
    face when the catalog offers more than one, and what happens without an
    identity workflow - make the picture anyway, labelled as unconditioned, or
    refuse until one is installed. Each saves as it is changed.
-5. Under the fold on Persona Pictures, optionally configure the separate LAN
+5. Under "More about the face", optionally configure the separate LAN
    verifier, choose the visible policy used after a measured comparison
-   failure, compare a generated image by hand, and read the audit history.
+   failure, compare a generated image by hand, and read the activity history.
 
 CompreFace is only a stateless verifier: it can compare a result to an approved
 reference, but it cannot improve generation or make an image resemble that

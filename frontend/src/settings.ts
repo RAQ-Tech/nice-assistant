@@ -85,7 +85,6 @@ export const SETTINGS_SECTIONS = [
   'Models',
   'Task Models',
   'Media Catalog',
-  'Persona Pictures',
   'GPU Coordination',
   'Data',
 ] as const;
@@ -105,7 +104,7 @@ export type SettingsSection = (typeof SETTINGS_SECTIONS)[number];
 export const SETTINGS_GROUPS: readonly { name: string; sections: readonly SettingsSection[] }[] = [
   { name: 'Conversation', sections: ['General', 'Models', 'Memory'] },
   { name: 'Voice', sections: ['TTS', 'STT'] },
-  { name: 'Pictures', sections: ['Image Generation', 'Video Generation', 'Media Catalog', 'Persona Pictures'] },
+  { name: 'Pictures', sections: ['Image Generation', 'Video Generation', 'Media Catalog'] },
   { name: 'Personas', sections: ['Personas', 'Workspaces', 'User'] },
   { name: 'System', sections: ['Task Models', 'GPU Coordination', 'Data'] },
 ] as const;
@@ -138,8 +137,7 @@ export const SECTION_SEARCH_TERMS: Record<SettingsSection, readonly string[]> = 
   'Image Generation': ['pictures', 'blur', 'size', 'quality', 'comfyui', 'provider', 'nsfw', 'generate'],
   'Video Generation': ['video', 'clips', 'duration'],
   'Media Catalog': ['presets', 'workflows', 'checkpoints', 'lora', 'recipes', 'templates'],
-  'Persona Pictures': ['identity', 'face', 'reference photos', 'likeness', 'overnight', 'scenes', 'pregeneration'],
-  Personas: ['character', 'card', 'lore', 'avatar', 'personality', 'voice preferences'],
+  Personas: ['character', 'card', 'lore', 'avatar', 'personality', 'voice preferences', 'identity', 'face', 'reference photos', 'likeness', 'kept pictures', 'comparison'],
   Workspaces: ['organize', 'separate', 'spaces'],
   User: ['profile', 'about me', 'name', 'owner'],
   'Task Models': ['titles', 'summaries', 'extraction', 'capability', 'scene', 'helper models'],
@@ -216,7 +214,6 @@ export const SETTINGS_SECTION_KEYS: Record<SettingsSection, readonly (keyof Sett
   ],
   'Task Models': [],
   'Media Catalog': [],
-  'Persona Pictures': [],
   'GPU Coordination': [],
   Data: [],
 };

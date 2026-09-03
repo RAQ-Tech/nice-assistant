@@ -233,7 +233,8 @@ the only way to edit a recipe. See ADR 0030 and `docs/settings-experience.md`.
 Visual Identity became Persona Pictures: one surface holding a persona's
 appearance, its reviewed references, and the pictures kept for reuse, with no
 increase in top-level settings tabs. Kept pictures show the description they are
-matched against, and forgetting one stops reuse without deleting the image. See
+matched against, and forgetting one stops reuse without deleting the image. On
+2026-09-03 that surface folded into the persona's own page. See
 `docs/settings-experience.md`.
 
 A persona records which presets are known to work for it, best first, editable

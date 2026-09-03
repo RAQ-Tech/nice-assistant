@@ -62,8 +62,8 @@ export class PersonaFaceView {
     private readonly renderApp: () => void,
     private readonly dialogs: Pick<SettingsDialogs, 'prompt' | 'confirm'>,
     private readonly openIdentitySetup: (personaId: string) => void,
-    /** Where the rest lives - comparison, history, kept pictures. Null when this card is already there. */
-    private readonly openMore: ((personaId: string) => void) | null,
+    /** What else belongs in the fold - comparison, history - rendered by whoever hosts the card. */
+    private readonly moreContent: ((persona: Persona) => HTMLElement[]) | null,
     /** Runs after the profile changed, for a host that shows more than the face. */
     private readonly afterChange: (personaId: string) => Promise<void> = async () => undefined,
   ) {
@@ -240,7 +240,7 @@ export class PersonaFaceView {
           })
         : el('div', { class: 'setting-row', title: 'The one technique this catalog can apply. Every picture records which technique produced its face.' }, [
             el('label', { textContent: 'How the face is made' }),
-            el('span', { class: 'meta', 'data-testid': 'identity-mechanism', textContent: MECHANISM_LABELS[profile.conditioning_mechanism ?? 'reference_adapter'] }),
+            el('span', { class: 'meta setting-value', 'data-testid': 'identity-mechanism', textContent: MECHANISM_LABELS[profile.conditioning_mechanism ?? 'reference_adapter'] }),
           ]),
       choiceField('Without an identity workflow', profile.conditioning_fallback ?? 'allow_unconditioned', ['allow_unconditioned', 'require_conditioning'], (value) => {
         profile.conditioning_fallback = value as Fallback;
@@ -266,16 +266,7 @@ export class PersonaFaceView {
               }),
             ])))
         : null,
-      this.openMore
-        ? actionRow([
-            el('button', {
-              class: 'pill-btn',
-              textContent: 'Comparison, history and kept pictures ›',
-              'data-testid': 'persona-face-more',
-              onclick: () => this.openMore?.(persona.id),
-            }),
-          ])
-        : null,
+      ...(this.moreContent?.(persona) ?? []),
     ], { testId: `persona-face-more-${persona.id}` });
   }
 

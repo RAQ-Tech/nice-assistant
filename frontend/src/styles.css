@@ -2809,6 +2809,10 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
 .settings-subheading { margin: .9rem 0 .35rem; font-size: .92rem; }
 .settings-card > .settings-subheading:first-child, .catalog-group > .settings-subheading:first-child { margin-top: 0; }
 .thing-list-empty { margin: 0 0 .4rem; }
+.persona-pictures { display: flex; flex-direction: column; gap: .45rem; align-items: flex-start; }
+/* A stated value where a control would be: on its own line, like the control it stands in for. */
+.setting-value { display: block; padding: .3rem 0 .1rem; }
+.persona-pictures > .library-entries, .persona-pictures > .preset-preferences { align-self: stretch; }
 .catalog-group { display: flex; flex-direction: column; gap: .5rem; align-items: flex-start; }
 .catalog-group > .chips, .catalog-group > details { align-self: stretch; }
 .thing-open { display: inline-flex; align-items: center; gap: .45rem; }

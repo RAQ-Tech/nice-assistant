@@ -72,15 +72,17 @@ npm run frontend:e2e
 - `settings_contracts.ts`: the small dialog boundary shared by focused settings
   views without coupling them back to the application shell.
 - `settings_controls.ts` and `settings_ui.ts`: common cards, closed advanced
-  disclosure, truthful readiness rows, and the earlier icon-per-row controls
-  the pictures pages still use.
+  disclosure, truthful readiness rows, and the earlier icon-per-row controls,
+  kept only until their last callers move over.
 - `persona_face_view.ts`: a persona's face as one switch and the photos, with
-  the machinery shown only when it needs a hand, rendered on the persona page
-  and on Persona Pictures alike.
-- `identity_settings_view.ts`, `identity_settings_components.ts`, and
-  `identity_media_picker.ts`: Persona Pictures around that face - preferred
-  recipes, kept pictures, owner-protected thumbnail selection, and the folded
-  verifier configuration, manual comparison, and audit history.
+  the machinery shown only when it needs a hand, and a fold that takes in
+  whatever else its host puts there.
+- `persona_pictures_view.ts`, `picture_library_view.ts`,
+  `identity_settings_components.ts`, and `identity_media_picker.ts`: the rest
+  of a persona's pictures on the persona's page - preferred recipes and kept
+  pictures under the face, and inside its fold the verifier configuration,
+  outcome policy, manual comparison with owner-protected thumbnail selection,
+  and activity history.
 - `media.ts`, `recording.ts`, `playback.ts`, and `visualization.ts`: async media
   jobs, push-to-talk transcription, completed-file speech playback, and real
   playback-driven visualization. While an owned conversation turn is queued or

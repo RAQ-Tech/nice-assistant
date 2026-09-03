@@ -1,6 +1,6 @@
 import type { ApiClient } from './api';
 import { el, errorMessage } from './dom';
-import { settingsCard, settingsHeading } from './settings_ui';
+import { groupTitle } from './settings_page';
 import type { AppState, LibraryEntry, MediaPreset, VisualIdentityProfile } from './types';
 
 /**
@@ -46,24 +46,24 @@ export class PictureLibraryView {
     const preferred = profile?.preferred_preset_ids ?? [];
     const save = (ids: string[]) => void this.savePreferred(personaId, profile, ids, onSaved);
     const stale = personaId !== this.loadedPersonaId;
-    return settingsCard([
-      settingsHeading('Preferred recipes', 'Which presets are known to work for this persona, best first. Routing prefers them when a request does not call for something else.'),
+    return el('div', { class: 'persona-pictures', 'data-testid': 'persona-pictures' }, [
+      groupTitle('Preferred recipes', 'Which recipes are known to work for this persona, best first. Routing prefers them when a request does not call for something else.'),
       this.preferences(preferred, save),
-      settingsHeading(
+      groupTitle(
         `Kept pictures (${stale ? 0 : this.entries.length})`,
         'Pictures kept for reuse, with the description they were kept under. A later request is matched against that description, never against prompt text.',
       ),
       el('div', { class: 'chips' }, [
         el('button', {
           class: 'pill-btn',
-          textContent: this.busy ? 'Loading…' : 'Show kept pictures',
+          textContent: this.busy ? 'Loading…' : stale ? 'Show kept pictures' : 'Refresh',
           disabled: this.busy || !personaId,
           'data-testid': 'library-refresh',
           onclick: () => void this.refresh(personaId),
         }),
       ]),
       stale
-        ? el('p', { class: 'meta', textContent: 'Choose a persona and show its kept pictures.' })
+        ? el('p', { class: 'meta', textContent: 'The kept pictures load with the persona.' })
         : this.entries.length
           ? el('ul', { class: 'library-entries', 'data-testid': 'library-entries' }, this.entries.map((entry) => this.entry(entry)))
           : el('p', {
