@@ -3,15 +3,27 @@ import { el, errorMessage } from './dom';
 import { CatalogModelsView } from './catalog_models_view';
 import { IdentityWorkflowSetupView } from './identity_workflow_setup_view';
 import { ModelPageView } from './model_page_view';
+import { RecipePageView } from './recipe_page_view';
+import { RecipeToolsView } from './recipe_tools_view';
+import { ResourcePageView } from './resource_page_view';
 import { WorkflowImportView } from './workflow_import_view';
 import { VideoTemplateOffer } from './video_template_offer';
 import { WorkflowTemplateView } from './workflow_template_view';
-import { PresetSettingsView } from './preset_settings_view';
 import { RoutingTesterView } from './routing_tester_view';
 import { StarterPresetsView } from './starter_presets_view';
-import { inputField, selectField, textareaField, toggleField } from './settings_controls';
 import type { SettingsDialogs } from './settings_contracts';
-import { advancedSettings, operatorEditor, readinessRow, settingsCard, settingsHeading, settingsIntro, titleCase } from './settings_ui';
+import {
+  actionRow,
+  choiceField,
+  groupTitle,
+  numberField,
+  pageHint,
+  pageNav,
+  textField,
+  thingList,
+  type ThingChip,
+} from './settings_page';
+import { advancedSettings, settingsCard, titleCase } from './settings_ui';
 import type {
   AppState,
   MediaCatalogResource,
@@ -19,6 +31,19 @@ import type {
   MediaResourceType,
 } from './types';
 
+/** The two pages in this section that are not a thing in the catalog. */
+export const NEW_WORKFLOW = 'new-workflow';
+export const IDENTITY_CONTROL = 'identity-control';
+
+/**
+ * The Media Catalog: a list of plain things, each opening a page of its own.
+ *
+ * Models, recipes, workflows and LoRAs are the four kinds of thing here, and
+ * every one of them opens to a page in the model page's shape. The page says
+ * one line out loud - whether pictures can be made at all - and everything an
+ * operator reaches for rarely sits behind one fold. A thing's address is
+ * `#/settings/Media Catalog/<id>`, so it can be linked to and returned to.
+ */
 export class MediaCatalogSettingsView {
   async refresh(): Promise<void> {
     const settingsVersionAtStart = this.settingsVersion;
@@ -26,7 +51,8 @@ export class MediaCatalogSettingsView {
     this.appState.mediaCatalogBusy = true;
     try {
       const catalog = await this.client.mediaCatalog();
-      void this.presets.refresh();
+      void this.tools.refresh();
+      void this.recipePage.refresh().then(() => this.renderApp());
       this.appState.mediaCatalog = this.mergeSnapshot(catalog, settingsVersionAtStart, resourceVersionsAtStart);
     } catch (error) {
       this.appState.settingsError = errorMessage(error, 'Unable to load the media catalog.');
@@ -37,14 +63,17 @@ export class MediaCatalogSettingsView {
   }
 
   private settingsDirty = false;
+  private recipesRequested = false;
+  private identityShown = false;
   private operatorToolsOpen = false;
   private settingsVersion = 0;
   private readonly dirtyResourceIds = new Set<string>();
   private readonly resourceVersions = new Map<string, number>();
-  private readonly openResourceIds = new Set<string>();
   private readonly identitySetup: IdentityWorkflowSetupView;
   private readonly routingTester: RoutingTesterView;
-  private readonly presets: PresetSettingsView;
+  private readonly tools: RecipeToolsView;
+  private readonly recipePage: RecipePageView;
+  private readonly resourcePage: ResourcePageView;
   private readonly starterPresets: StarterPresetsView;
   private readonly modelsView: CatalogModelsView;
   private readonly importView: WorkflowImportView;
@@ -62,6 +91,10 @@ export class MediaCatalogSettingsView {
     private readonly client: ApiClient,
     private readonly dialogs: SettingsDialogs,
     private readonly finishIdentitySetup: () => void = () => undefined,
+    private readonly navigate: (item: string | null) => void = (item) => {
+      appState.settingsItem = item;
+      renderApp();
+    },
   ) {
     this.identitySetup = new IdentityWorkflowSetupView(
       renderApp,
@@ -72,12 +105,19 @@ export class MediaCatalogSettingsView {
       () => this.refresh(),
     );
     this.routingTester = new RoutingTesterView(appState, client, renderApp);
-    this.presets = new PresetSettingsView(appState, client, renderApp);
+    this.tools = new RecipeToolsView(appState, client, renderApp, () => this.refresh());
+    this.recipePage = new RecipePageView(appState, client, renderApp, dialogs, (item) => this.navigate(item));
+    this.resourcePage = new ResourcePageView(
+      appState,
+      client,
+      renderApp,
+      dialogs,
+      (item) => this.navigate(item),
+      (resource) => this.saveResource(resource),
+      (resource) => this.deleteResource(resource),
+    );
     this.starterPresets = new StarterPresetsView(appState, client, renderApp, () => this.refresh());
-    this.modelsView = new CatalogModelsView(appState, client, renderApp, () => this.refresh(), (modelId) => {
-      this.modelPage.open(modelId);
-      renderApp();
-    }, dialogs);
+    this.modelsView = new CatalogModelsView(appState, client, renderApp, () => this.refresh(), (modelId) => this.navigate(modelId), dialogs);
     this.importView = new WorkflowImportView(
       appState,
       client,
@@ -85,91 +125,155 @@ export class MediaCatalogSettingsView {
       () => this.refresh(),
       new VideoTemplateOffer(new WorkflowTemplateView(renderApp, appState, client, () => this.refresh(), dialogs), renderApp),
     );
-    this.modelPage = new ModelPageView(appState, client, renderApp, dialogs, () => this.refresh());
+    this.modelPage = new ModelPageView(appState, client, renderApp, dialogs, () => this.refresh(), (modelId) => this.navigate(modelId));
   }
 
   openIdentitySetup(): void {
     this.identitySetup.open();
+    this.navigate(IDENTITY_CONTROL);
   }
 
-  nodes(): HTMLElement[] {
+  nodes(item: string | null = null): HTMLElement[] {
     const catalog = this.appState.mediaCatalog;
     if (!catalog) {
       return [
-        settingsIntro(
-          'Teach the media coordinator what is available',
-          'The catalog is currently unavailable, so Nice Assistant cannot inspect or change coordinated media resources.',
-        ),
-        el('div', { class: 'settings-empty-state', textContent: 'No media catalog was returned. Retry the request, then check server logs if it remains unavailable.' }),
-        el('button', { class: 'pill-btn', textContent: 'Retry catalog', onclick: () => void this.refresh() }),
+        settingsCard([
+          pageHint('The catalog could not be loaded, so nothing about pictures can be inspected or changed.', 'catalog-unavailable'),
+          actionRow([el('button', { class: 'pill-btn', textContent: 'Retry', onclick: () => void this.refresh() })]),
+        ]),
       ];
     }
-    // One model at a time: the open model replaces the catalog rather than
-    // stacking on top of it, which is the whole point of the page.
-    if (this.modelPage.modelId) return [this.modelPage.node(() => this.renderApp())];
-    const enabled = catalog.resources.filter((item) => item.enabled);
-    const models = enabled.filter((item) => item.resource_type === 'model');
-    const workflows = enabled.filter((item) => item.resource_type === 'workflow');
-    const loras = enabled.filter((item) => item.resource_type === 'lora');
-    const allImageModels = catalog.resources.filter((item) => item.resource_type === 'model' && item.kind === 'image');
+    // Arriving by address skips the section's refresh, so the recipes are
+    // asked for here the first time they are needed.
+    if (!this.recipePage.loaded && !this.recipesRequested) {
+      this.recipesRequested = true;
+      void this.recipePage.refresh().then(() => this.renderApp());
+    }
+    if (item !== IDENTITY_CONTROL) this.identityShown = false;
+    if (item) return this.page(item, catalog.resources);
+    return this.list(catalog.resources);
+  }
+
+  /** Leave only with intact work, whichever page is open. */
+  beforeLeave(go: () => void): void {
+    const item = this.appState.settingsItem;
+    if (item && this.modelPage.modelId === item) {
+      void this.modelPage.close(go);
+      return;
+    }
+    if (item && this.resourcePage.resourceId === item) {
+      this.resourcePage.beforeLeave(go);
+      return;
+    }
+    if (item && this.recipePage.presetId === item) {
+      this.recipePage.beforeLeave(go);
+      return;
+    }
+    go();
+  }
+
+  /** What an address names: a model, a recipe, a workflow or LoRA, or one of the two named pages. */
+  private page(item: string, resources: MediaCatalogResource[]): HTMLElement[] {
+    const back = pageNav({ back: 'Media Catalog', onBack: () => this.navigate(null), testId: 'catalog-page' });
+    if (item === NEW_WORKFLOW) {
+      return [back, this.importView.node(resources.filter((entry) => entry.resource_type === 'model' && entry.enabled))];
+    }
+    if (item === IDENTITY_CONTROL) {
+      // Reached by its address, the guide opens rather than showing a closed
+      // summary - once, so its own toggle still works afterwards.
+      if (!this.identityShown) {
+        this.identityShown = true;
+        this.identitySetup.open();
+      }
+      return [back, this.identitySetup.node()];
+    }
+    const resource = resources.find((entry) => entry.id === item);
+    if (resource?.resource_type === 'model') {
+      if (this.modelPage.modelId !== item) this.modelPage.open(item);
+      return [this.modelPage.node(() => this.navigate(null))];
+    }
+    if (resource) {
+      if (this.resourcePage.resourceId !== item) this.resourcePage.open(item);
+      return [this.resourcePage.node()];
+    }
+    if (this.recipePage.knows(item)) {
+      if (this.recipePage.presetId !== item) this.recipePage.open(item);
+      return [this.recipePage.node()];
+    }
+    if (!this.recipePage.loaded) return [back, settingsCard([pageHint('Opening…', 'catalog-page-opening')])];
+    return [back, settingsCard([pageHint('Nothing in the catalog has that address.', 'catalog-page-missing')])];
+  }
+
+  private list(resources: MediaCatalogResource[]): HTMLElement[] {
+    const models = resources.filter((entry) => entry.resource_type === 'model' && entry.enabled);
+    const workflows = resources.filter((entry) => entry.resource_type === 'workflow');
+    const loras = resources.filter((entry) => entry.resource_type === 'lora');
+    const recipes = this.recipePage.list();
+    const identityReady = workflows.some((entry) =>
+      entry.enabled && entry.features.includes('identity_control') && entry.compatible_model_ids.length > 0);
+    const chip = (entry: MediaCatalogResource, kind: string): ThingChip => ({
+      id: entry.id,
+      label: entry.name,
+      note: entry.enabled ? undefined : 'off',
+      title: entry.external_id,
+      testId: `catalog-${kind}-open-${entry.id}`,
+      onOpen: () => this.navigate(entry.id),
+    });
+    const readiness = models.length === 0
+      ? 'Nothing can be generated until a model is enabled. Find models on ComfyUI below.'
+      : models.length === 1
+        ? 'One model means every picture shares its look. Add more from ComfyUI, and open one to say when to use it.'
+        : `${models.length} models, ${workflows.filter((entry) => entry.enabled).length} workflows and ${recipes.filter((entry) => entry.enabled).length} recipes are enabled.`;
     return [
-      settingsIntro(
-        'How pictures get made',
-        'A chat picks one of your presets. A preset pairs a model (the look) with a workflow (the method), '
-          + 'and the note on each preset is how the chat knows when to pick it. More presets means more variety.',
-      ),
-      el('div', { class: 'settings-readiness-list' }, [
-        readinessRow(
-          'Models',
-          `${models.length} enabled`,
-          models.length > 1 ? 'ready' : 'attention',
-          models.length === 0
-            ? 'Nothing can be generated until a model is enabled. Find models below.'
-            : models.length === 1
-              ? 'One model means every picture shares its look. Find more below.'
-              : 'Each enabled model gives its recipes a different look.',
-        ),
-        readinessRow('Workflows', `${workflows.length} enabled`, workflows.length ? 'ready' : 'off', 'A workflow is the method: plain generation, identity conditioning, face swap, correction.'),
-        readinessRow('LoRAs', `${loras.length} enabled`, loras.length ? 'ready' : 'off', 'LoRAs adjust a compatible model and join a recipe when their metadata matches the request.'),
-      ]),
-      this.modelsView.node(allImageModels),
       settingsCard([
-        settingsHeading(
-          'Workflows — the method',
-          'Start from a shipped, known-good workflow below, or paste your own export. '
-            + 'Identity workflows keep a persona recognisable; the guided setup walks that end to end.',
-        ),
+        pageHint(readiness, 'catalog-readiness'),
+        this.modelsView.node(resources.filter((entry) => entry.resource_type === 'model' && entry.kind === 'image')),
+        groupTitle(`Recipes (${recipes.length})`, 'A recipe pairs a model with a workflow and its numbers, and its note says when to use it. Chats choose between recipes.', 'catalog-recipes'),
+        thingList(recipes.map((preset) => ({
+          id: preset.id,
+          label: preset.name,
+          note: preset.enabled ? undefined : 'off',
+          title: preset.routing_card || 'No note yet - open it to say when to use it.',
+          testId: `catalog-recipe-open-${preset.id}`,
+          onOpen: () => this.navigate(preset.id),
+        })), 'No recipes yet. Every model added from ComfyUI gets one.', 'catalog-recipe-list'),
+        groupTitle(`Workflows (${workflows.length})`, 'The method: plain generation, identity conditioning, face swap, correction. A recipe runs its model through one.', 'catalog-workflows'),
+        thingList(workflows.map((entry) => chip(entry, 'workflow')), 'No workflows yet. Add one below, or start from a shipped graph.', 'catalog-workflow-list'),
+        actionRow([
+          el('button', {
+            class: 'pill-btn',
+            textContent: 'Add a workflow',
+            title: 'Paste a workflow exported from ComfyUI in API format, or start from a shipped graph.',
+            'data-testid': 'catalog-new-workflow',
+            onclick: () => this.navigate(NEW_WORKFLOW),
+          }),
+          el('button', {
+            class: 'pill-btn',
+            textContent: identityReady ? 'Identity control · configured' : 'Identity control · not set up',
+            title: 'A workflow that keeps a persona recognisable from a photo, checked against ComfyUI before it is saved.',
+            'data-testid': 'catalog-identity-control',
+            onclick: () => this.openIdentitySetup(),
+          }),
+        ]),
+        groupTitle(`LoRAs (${loras.length})`, 'A LoRA leans a compatible model and joins a recipe when its metadata matches the request.', 'catalog-loras'),
+        thingList(loras.map((entry) => chip(entry, 'lora')), 'No LoRAs yet.', 'catalog-lora-list'),
       ]),
-      this.identitySetup.node(),
-      this.importView.node(models),
       advancedSettings(
-        'Operator tools',
-        'The machinery behind the sections above: the raw recipe list, inventory, manual adds, starter bundles, limits, and planner diagnostics.',
+        'More options',
+        'Operator tools: starter recipes, coordinator limits, manual adds, recipe files, routing tests and plan previews.',
         [
-          // The raw recipe list lives here now: models are the front door for
-          // day-to-day settings, and this remains the place for multi-recipe
-          // and diagnostic work.
-          ...this.presets.node(),
+          this.starterPresets.node(),
+          this.policyCard(),
           settingsCard([
-            settingsHeading(
-              `Inventory (${catalog.resources.length})`,
-              'Every cataloged part. Open one to edit compatibility, strengths, estimates, or the provider payload — or to delete duplicate copies.',
-            ),
-            el('div', { class: 'chips' }, [
+            groupTitle('Add by hand', 'For a file ComfyUI does not list, or a resource of another kind.'),
+            actionRow([
               el('button', { class: 'pill-btn', textContent: 'Add model manually', onclick: () => void this.addResource('model') }),
               el('button', { class: 'pill-btn', textContent: 'Add LoRA', onclick: () => void this.addResource('lora') }),
               el('button', { class: 'pill-btn', textContent: 'Add workflow', onclick: () => void this.addResource('workflow') }),
               el('button', { class: 'pill-btn', textContent: 'Refresh catalog', onclick: () => void this.refresh() }),
             ]),
-            ...(catalog.resources.length
-              ? catalog.resources.map((resource) => this.resourceCard(resource))
-              : [el('div', {
-                  class: 'settings-empty-state',
-                  textContent: 'Nothing is cataloged yet. Find models on ComfyUI above to begin.',
-                })]),
           ]),
-          this.policyCard(),
-          this.starterPresets.node(),
+          ...this.tools.nodes(),
           this.routingTester.node(),
           this.planPreview(),
         ],
@@ -191,16 +295,16 @@ export class MediaCatalogSettingsView {
     const catalog = this.appState.mediaCatalog;
     if (!catalog) return el('div');
     return settingsCard([
-      settingsHeading('Coordinator limits', 'Planning limits prevent a single request from selecting an unbounded estimated VRAM load or LoRA chain.'),
+      groupTitle('Coordinator limits', 'Planning limits keep one request from selecting an unbounded estimated VRAM load or LoRA chain.'),
       el('div', { class: 'settings-grid' }, [
-        inputField('Shared VRAM budget (MB)', String(catalog.settings.vram_budget_mb), (value) => {
+        numberField('Shared VRAM budget (MB)', String(catalog.settings.vram_budget_mb), (value) => {
           catalog.settings.vram_budget_mb = boundedInteger(value, 0, 131072, catalog.settings.vram_budget_mb);
           this.markSettingsDirty();
-        }, 'number', false, 'Set 0 to disable the catalog estimate limit. This does not disable live GPU admission checks.'),
-        inputField('Maximum selected LoRAs', String(catalog.settings.max_loras), (value) => {
+        }, { hover: '0 turns the catalog estimate limit off. Live GPU admission checks still run.' }),
+        numberField('Maximum selected LoRAs', String(catalog.settings.max_loras), (value) => {
           catalog.settings.max_loras = boundedInteger(value, 0, 8, catalog.settings.max_loras);
           this.markSettingsDirty();
-        }, 'number', false, 'Caps how many compatible LoRAs one coordinated plan may select.'),
+        }, { hover: 'How many compatible LoRAs one plan may select.' }),
       ]),
       el('button', {
         class: 'send-btn',
@@ -212,172 +316,20 @@ export class MediaCatalogSettingsView {
     ]);
   }
 
-  private resourceCard(resource: MediaCatalogResource): HTMLElement {
-    const models = (this.appState.mediaCatalog?.resources ?? []).filter((item) =>
-      item.resource_type === 'model'
-      && item.kind === resource.kind
-      && item.provider_key === resource.provider_key
-      && item.backend === resource.backend
-      && item.id !== resource.id
-    );
-    // Video is local-only by decision; an existing cloud row stays renderable
-    // but new video resources are ComfyUI's.
-    const providerOptions = resource.kind === 'video'
-      ? [...new Set(['local-video', resource.provider_key])]
-      : (resource.resource_type === 'model' ? ['local-image', 'openai-image'] : ['local-image']);
-    const backendOptions = resource.provider_key === 'local-image'
-      ? (resource.resource_type === 'workflow' ? ['comfyui'] : ['automatic1111', 'comfyui'])
-      : resource.provider_key === 'local-video'
-        ? ['comfyui']
-        : ['openai'];
-    const compatible = models.filter((model) => resource.compatible_model_ids.includes(model.id));
-    const status = resource.enabled ? 'Enabled' : 'Draft';
-    const subtitle = `${titleCase(resource.resource_type)} · ${resource.backend} · revision ${resource.revision}`;
-    return operatorEditor(
-      resource.name || 'Unnamed resource',
-      subtitle,
-      status,
-      [
-        toggleField('Enabled for planning', resource.enabled, (value) => { resource.enabled = value; }, 'Disabled resources remain editable drafts and are never selected for new plans.'),
-        el('div', { class: 'settings-grid' }, [
-          inputField('Name', resource.name, (value) => { resource.name = value; }, 'text', false, 'Human-readable name shown in plans and operator pickers.'),
-          selectField('Resource type', resource.resource_type, ['model', 'lora', 'workflow'], (value) => {
-            resource.resource_type = value as MediaResourceType;
-          }, undefined, titleCase, false, 'Models generate; LoRAs specialize a compatible model; workflows declare an executable ComfyUI operation.'),
-          selectField('Media kind', resource.kind, ['image', 'video'], (value) => {
-            resource.kind = value as 'image' | 'video';
-          }, undefined, titleCase, false, 'The output family this resource can produce or modify.'),
-          selectField('Provider adapter', resource.provider_key, providerOptions, (value) => {
-            resource.provider_key = value as MediaCatalogResource['provider_key'];
-          }, undefined, titleCase, false, 'The Nice Assistant provider contract used to execute this resource.'),
-          selectField('Backend', resource.backend, backendOptions, (value) => {
-            resource.backend = value as MediaCatalogResource['backend'];
-          }, undefined, titleCase, false, 'The actual service that owns the model, LoRA, or workflow.'),
-          inputField(
-            resource.resource_type === 'workflow' ? 'Catalog workflow ID' : 'Provider resource ID or filename',
-            resource.external_id,
-            (value) => { resource.external_id = value; },
-            'text',
-            false,
-            resource.resource_type === 'workflow'
-              ? 'An operator-facing catalog identifier. The executable workflow patch is stored in Advanced resource metadata.'
-              : 'Exact provider identifier or checkpoint filename. Selection still depends on explicit metadata, not this name.',
-          ),
-        ]),
-        resource.resource_type !== 'model'
-          ? el('div', { class: 'compatibility-list' }, [
-              settingsHeading(
-                'Compatible base models',
-                'Only checked models can be paired with this resource. Compatibility is exact and same-provider/backend.',
-                'strong',
-              ),
-              models.length
-                ? el('div', { class: 'chips' }, models.map((model) =>
-                    el('label', { class: 'checkbox-row' }, [
-                      el('input', {
-                        type: 'checkbox',
-                        checked: resource.compatible_model_ids.includes(model.id),
-                        onchange: (event: Event) => {
-                          const checked = (event.currentTarget as HTMLInputElement).checked;
-                          resource.compatible_model_ids = checked
-                            ? [...new Set([...resource.compatible_model_ids, model.id])]
-                            : resource.compatible_model_ids.filter((id) => id !== model.id);
-                        },
-                      }),
-                      model.name,
-                    ]),
-                  ))
-                : el('div', { class: 'settings-empty-state', textContent: 'No same-provider, same-backend base model is available.' }),
-              compatible.length
-                ? el('span', { class: 'meta', textContent: `${compatible.length} compatible model${compatible.length === 1 ? '' : 's'} selected` })
-                : null,
-            ])
-          : null,
-        advancedSettings(
-          'Selection metadata and provider payload',
-          'Expert metadata used by deterministic planning and provider execution.',
-          [
-            el('div', { class: 'settings-grid' }, [
-              inputField('Priority (0–100)', String(resource.priority), (value) => {
-                resource.priority = boundedInteger(value, 0, 100, resource.priority);
-              }, 'number', false, 'Breaks otherwise equal compatible choices; higher numbers are preferred.'),
-              inputField('Estimated VRAM (MB)', String(resource.estimated_vram_mb), (value) => {
-                resource.estimated_vram_mb = boundedInteger(value, 0, 131072, resource.estimated_vram_mb);
-              }, 'number', false, 'Operator estimate used by planning. Set 0 when unknown rather than inventing capacity.'),
-              inputField('Estimated load seconds', String(resource.estimated_load_seconds), (value) => {
-                resource.estimated_load_seconds = boundedNumber(value, 0, 3600, resource.estimated_load_seconds);
-              }, 'number', false, 'Expected cold-load time used for explanation and future scheduling decisions.'),
-              inputField('Operations', resource.operations.join(', '), (value) => {
-                resource.operations = tagList(value) as MediaCatalogResource['operations'];
-              }, 'text', false, 'Comma-separated executable operations such as generate, inpaint, outpaint, or image_to_image.'),
-              inputField('Domain strengths', resource.domains.join(', '), (value) => { resource.domains = tagList(value); }, 'text', false, 'Comma-separated subject strengths such as fantasy, portrait, or photorealism.'),
-              inputField('Content strengths', resource.content_tags.join(', '), (value) => { resource.content_tags = tagList(value); }, 'text', false, 'Comma-separated content categories that this resource is intentionally allowed and suited to handle.'),
-              inputField('Features', resource.features.join(', '), (value) => { resource.features = tagList(value); }, 'text', false, 'Hard capability flags such as text_to_image or identity_control.'),
-            ]),
-            textareaField('Default settings JSON', JSON.stringify(resource.default_settings, null, 2), (value) => {
-              try {
-                const parsed = JSON.parse(value || '{}');
-                if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) resource.default_settings = parsed;
-                this.appState.settingsError = '';
-              } catch {
-                this.appState.settingsError = `Default settings for ${resource.name || 'resource'} are not valid JSON.`;
-              }
-            }, false, 'Provider-specific defaults. Invalid or unsupported values can block execution.'),
-            resource.resource_type === 'workflow'
-              ? el('div', {
-                  class: 'settings-warning',
-                  textContent: 'Workflows stay safest as disabled drafts until their inline patch, exact bindings, compatible base model, and declared features have been reviewed.',
-                })
-              : null,
-            textareaField('Operator notes', resource.notes, (value) => { resource.notes = value; }, false, 'Private operational context for future catalog maintenance.'),
-          ],
-          { testId: `media-resource-advanced-${resource.id}` },
-        ),
-        el('div', { class: 'operator-actions' }, [
-          el('button', {
-            class: 'send-btn',
-            textContent: this.appState.mediaCatalogBusy ? 'Saving…' : 'Save resource',
-            disabled: this.appState.mediaCatalogBusy,
-            'data-testid': `media-resource-save-${resource.id}`,
-            onclick: () => void this.saveResource(resource),
-          }),
-          el('button', {
-            class: 'pill-btn danger',
-            textContent: 'Delete resource',
-            disabled: this.appState.mediaCatalogBusy,
-            onclick: () => void this.deleteResource(resource),
-          }),
-        ]),
-      ],
-      {
-        open: this.openResourceIds.has(resource.id),
-        onToggle: (open) => open ? this.openResourceIds.add(resource.id) : this.openResourceIds.delete(resource.id),
-        testId: `media-resource-${resource.id}`,
-        className: 'media-resource-card',
-        statusClass: resource.enabled ? 'ok' : 'idle',
-        onInput: () => this.markResourceDirty(resource.id),
-        onChange: () => this.markResourceDirty(resource.id),
-      },
-    );
-  }
-
   private planPreview(): HTMLElement {
     const plan = this.appState.mediaPlanPreview;
     return settingsCard([
-      settingsHeading(
-        'Preview coordinator selection',
-        'Tests deterministic metadata selection without storing or sending prompt content. This does not generate media.',
-      ),
+      groupTitle('Preview coordinator selection', 'Tests deterministic metadata selection without storing or sending prompt content. Nothing is generated.'),
       el('div', { class: 'settings-grid' }, [
-        selectField('Media kind', this.requirements.kind, ['image', 'video'], (value) => {
+        choiceField('Media kind', this.requirements.kind, ['image', 'video'], (value) => {
           this.requirements.kind = value as 'image' | 'video';
-        }, undefined, titleCase, false, 'Limits selection to image or video resources.'),
-        selectField('Operation', this.requirements.operation, ['generate', 'inpaint', 'outpaint', 'image_to_image'], (value) => {
+        }, { display: titleCase, hover: 'Limits selection to image or video resources.' }),
+        choiceField('Operation', this.requirements.operation, ['generate', 'inpaint', 'outpaint', 'image_to_image'], (value) => {
           this.requirements.operation = value as MediaPlanRequirements['operation'];
-        }, undefined, titleCase, false, 'Hard operation requirement. Editing operations also require exact protected source/mask bindings at execution time.'),
-        inputField('Preferred domains', this.requirements.domains.join(', '), (value) => { this.requirements.domains = tagList(value); }, 'text', false, 'Soft semantic strengths such as fantasy, portrait, or photorealism.'),
-        inputField('Required content tags', this.requirements.content_tags.join(', '), (value) => { this.requirements.content_tags = tagList(value); }, 'text', false, 'Content categories the selected resources must explicitly support.'),
-        inputField('Required features', this.requirements.required_features.join(', '), (value) => { this.requirements.required_features = tagList(value); }, 'text', false, 'Hard features such as identity_control.'),
+        }, { display: titleCase, hover: 'A hard requirement. Editing operations also need exact protected source and mask bindings when they run.' }),
+        textField('Preferred domains', this.requirements.domains.join(', '), (value) => { this.requirements.domains = tagList(value); }, { hover: 'Soft strengths such as fantasy, portrait, or photorealism.' }),
+        textField('Required content tags', this.requirements.content_tags.join(', '), (value) => { this.requirements.content_tags = tagList(value); }, { hover: 'Content categories the selected resources must explicitly support.' }),
+        textField('Required features', this.requirements.required_features.join(', '), (value) => { this.requirements.required_features = tagList(value); }, { hover: 'Hard features such as identity_control.' }),
       ]),
       el('button', {
         class: 'pill-btn',
@@ -410,11 +362,6 @@ export class MediaCatalogSettingsView {
   private markSettingsDirty(): void {
     this.settingsDirty = true;
     this.settingsVersion += 1;
-  }
-
-  private markResourceDirty(resourceId: string): void {
-    this.dirtyResourceIds.add(resourceId);
-    this.resourceVersions.set(resourceId, (this.resourceVersions.get(resourceId) ?? 0) + 1);
   }
 
   private mergeSnapshot(
@@ -524,7 +471,7 @@ export class MediaCatalogSettingsView {
     }
   }
 
-  private async saveResource(resource: MediaCatalogResource): Promise<void> {
+  private async saveResource(resource: MediaCatalogResource): Promise<boolean> {
     this.appState.mediaCatalogBusy = true;
     this.appState.settingsError = '';
     this.renderApp();
@@ -536,26 +483,29 @@ export class MediaCatalogSettingsView {
         this.dirtyResourceIds.delete(saved.id);
         this.appState.mediaCatalog.vocabulary = (await this.client.mediaCatalog()).vocabulary;
       }
+      return true;
     } catch (error) {
       this.appState.settingsError = errorMessage(error, `Unable to save ${resource.name}.`);
+      return false;
     } finally {
       this.appState.mediaCatalogBusy = false;
       this.renderApp();
     }
   }
 
-  private async deleteResource(resource: MediaCatalogResource): Promise<void> {
-    if (!(await this.dialogs.confirm('Delete media resource', `Delete ${resource.name}? Existing plans remain auditable but cannot run.`, 'Delete'))) return;
+  private async deleteResource(resource: MediaCatalogResource): Promise<boolean> {
+    if (!(await this.dialogs.confirm('Delete media resource', `Delete ${resource.name}? Existing plans remain auditable but cannot run.`, 'Delete'))) return false;
     this.appState.mediaCatalogBusy = true;
     this.renderApp();
     try {
       await this.client.deleteMediaCatalogResource(resource.id);
       this.dirtyResourceIds.delete(resource.id);
       this.resourceVersions.set(resource.id, (this.resourceVersions.get(resource.id) ?? 0) + 1);
-      this.openResourceIds.delete(resource.id);
       this.appState.mediaCatalog = this.mergeSnapshot(await this.client.mediaCatalog());
+      return true;
     } catch (error) {
       this.appState.settingsError = errorMessage(error, `Unable to delete ${resource.name}.`);
+      return false;
     } finally {
       this.appState.mediaCatalogBusy = false;
       this.renderApp();
@@ -583,10 +533,5 @@ function tagList(value: string): string[] {
 
 function boundedInteger(value: string, minimum: number, maximum: number, fallback: number): number {
   const parsed = Number.parseInt(value, 10);
-  return Number.isFinite(parsed) ? Math.max(minimum, Math.min(maximum, parsed)) : fallback;
-}
-
-function boundedNumber(value: string, minimum: number, maximum: number, fallback: number): number {
-  const parsed = Number(value);
   return Number.isFinite(parsed) ? Math.max(minimum, Math.min(maximum, parsed)) : fallback;
 }

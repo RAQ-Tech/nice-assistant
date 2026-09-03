@@ -14,6 +14,9 @@ class BrowserArchitectureTests(unittest.TestCase):
             "avatar.ts",
             "catalog_models_view.ts",
             "catalog_setup_view.ts",
+            "recipe_page_view.ts",
+            "recipe_tools_view.ts",
+            "resource_page_view.ts",
             "chat.ts",
             "chat_drawer.ts",
             "home_cards.ts",
@@ -36,7 +39,6 @@ class BrowserArchitectureTests(unittest.TestCase):
             "persona_card_view.ts",
             "persona_lore_copy_view.ts",
             "persona_lore_view.ts",
-            "preset_settings_view.ts",
             "playback.ts",
             "recording.ts",
             "routing.ts",
@@ -69,16 +71,20 @@ class BrowserArchitectureTests(unittest.TestCase):
         self.assertLess((SOURCE / "media_catalog_settings_view.ts").read_text(encoding="utf-8").count("\n"), 600)
         self.assertLess((SOURCE / "catalog_models_view.ts").read_text(encoding="utf-8").count("\n"), 200)
         self.assertLess((SOURCE / "catalog_setup_view.ts").read_text(encoding="utf-8").count("\n"), 130)
+        # A recipe, a workflow or LoRA, and the recipe file tools each keep
+        # to one page or one block.
+        self.assertLess((SOURCE / "recipe_page_view.ts").read_text(encoding="utf-8").count("\n"), 420)
+        self.assertLess((SOURCE / "resource_page_view.ts").read_text(encoding="utf-8").count("\n"), 280)
+        self.assertLess((SOURCE / "recipe_tools_view.ts").read_text(encoding="utf-8").count("\n"), 170)
         # The model page owns its four jobs - nickname, recipe, lookup, and
         # the sample picture that gives the model a face.
-        self.assertLess((SOURCE / "model_page_view.ts").read_text(encoding="utf-8").count("\n"), 460)
+        self.assertLess((SOURCE / "model_page_view.ts").read_text(encoding="utf-8").count("\n"), 480)
         self.assertLess((SOURCE / "model_lookup_view.ts").read_text(encoding="utf-8").count("\n"), 160)
         self.assertLess((SOURCE / "workflow_import_view.ts").read_text(encoding="utf-8").count("\n"), 280)
         self.assertLess((SOURCE / "video_template_offer.ts").read_text(encoding="utf-8").count("\n"), 80)
         self.assertLess((SOURCE / "persona_card_view.ts").read_text(encoding="utf-8").count("\n"), 150)
         self.assertLess((SOURCE / "persona_lore_view.ts").read_text(encoding="utf-8").count("\n"), 300)
         self.assertLess((SOURCE / "persona_lore_copy_view.ts").read_text(encoding="utf-8").count("\n"), 150)
-        self.assertLess((SOURCE / "preset_settings_view.ts").read_text(encoding="utf-8").count("\n"), 550)
         self.assertLess((SOURCE / "home_view.ts").read_text(encoding="utf-8").count("\n"), 300)
         self.assertLess((SOURCE / "home_cards.ts").read_text(encoding="utf-8").count("\n"), 220)
         self.assertLess((SOURCE / "home_controls.ts").read_text(encoding="utf-8").count("\n"), 250)

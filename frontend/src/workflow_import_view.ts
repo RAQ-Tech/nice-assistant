@@ -1,7 +1,7 @@
 import type { ApiClient } from './api';
 import { el, errorMessage } from './dom';
-import { inputField, textareaField } from './settings_controls';
-import { settingsCard, settingsHeading } from './settings_ui';
+import { groupTitle, longField, textField } from './settings_page';
+import { settingsCard } from './settings_ui';
 import type { AppState, IdentityWorkflowInspection, MediaCatalogResource } from './types';
 import type { VideoTemplateOffer } from './video_template_offer';
 
@@ -48,13 +48,12 @@ export class WorkflowImportView {
   node(models: MediaCatalogResource[]): HTMLElement {
     const comfyModels = models.filter((model) => model.backend === 'comfyui' && model.kind === this.kind);
     return settingsCard([
-      settingsHeading(
+      groupTitle(
         'Bring your own workflow',
         'Paste a workflow exported from ComfyUI in API format: in ComfyUI, open the Workflow menu and choose '
           + 'Export (API). Ordinary saves, screenshots, and spreadsheets cannot be imported.',
       ),
-      inputField('Workflow name', this.name, (value) => { this.name = value; }, 'text', false,
-        'Your label for this workflow in the catalog.'),
+      textField('Workflow name', this.name, (value) => { this.name = value; }, { hover: 'Your label for this workflow in the catalog.' }),
       el('div', { class: 'setting-row' }, [
         el('label', { textContent: 'This workflow makes' }),
         el('select', {
@@ -70,8 +69,10 @@ export class WorkflowImportView {
         ]),
       ]),
       ...(this.kind === 'video' && this.videoTemplates ? this.videoTemplates.nodes(comfyModels) : []),
-      textareaField('Workflow JSON (API format)', this.raw, (value) => { this.raw = value; }, false,
-        'The pasted graph is checked against ComfyUI before it is saved; nothing runs during the check.'),
+      longField('Workflow JSON (API format)', this.raw, (value) => { this.raw = value; }, {
+        rows: 6,
+        hover: 'The pasted graph is checked against ComfyUI before it is saved; nothing runs during the check.',
+      }),
       el('div', { class: 'chips' }, [
         el('button', {
           class: 'send-btn',

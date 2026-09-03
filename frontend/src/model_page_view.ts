@@ -1,7 +1,7 @@
 import type { ApiClient } from './api';
 import { el, errorMessage } from './dom';
 import { ModelLookupView } from './model_lookup_view';
-import { inputField, selectField, textareaField, toggleField } from './settings_controls';
+import { choiceField, longField, numberField, switchField, textField } from './settings_page';
 import type { SettingsDialogs } from './settings_contracts';
 import { advancedSettings, settingsCard } from './settings_ui';
 import type { AppState, CivitaiMatch, MediaCatalogResource, MediaPreset, ModelPrefillSuggestion } from './types';
@@ -61,6 +61,7 @@ export class ModelPageView {
     private readonly renderApp: () => void,
     private readonly dialogs: SettingsDialogs,
     private readonly refreshCatalog: () => Promise<void>,
+    private readonly navigate: ((modelId: string) => void) | null = null,
   ) {
     this.lookup = new ModelLookupView(appState, client, renderApp, dialogs, (match) => this.applyMatch(match));
   }
@@ -195,7 +196,8 @@ export class ModelPageView {
     const index = models.findIndex((item) => item.id === this.modelId);
     const target = models[index + offset];
     if (!target) return;
-    await this.guard(() => this.open(target.id));
+    // The address changes when there is one to change; the page follows it.
+    await this.guard(() => (this.navigate ? this.navigate(target.id) : this.open(target.id)));
   }
 
   private applyPrefill(): void {
@@ -289,12 +291,14 @@ export class ModelPageView {
               title: model.external_id,
               'aria-label': 'Model nickname',
               'data-testid': 'model-page-name',
-              oninput: (event: Event) => { edit.name = (event.currentTarget as HTMLInputElement).value; },
+              oninput: (event: Event) => { edit.name = (event.currentTarget as HTMLInputElement).value; this.renderApp(); },
             }),
             el('p', { class: 'meta page-line', textContent: family ? `${model.external_id} · ${family}` : model.external_id }),
           ]),
         ]),
-        toggleField('Show in Nice Assistant', edit.enabled, (value) => { edit.enabled = value; this.renderApp(); }),
+        switchField('Show in Nice Assistant', edit.enabled, (value) => { edit.enabled = value; this.renderApp(); }, {
+          hover: 'Off keeps the model but never offers it to chats.',
+        }),
         ...(this.preset ? this.recipeFields(edit) : [el('p', {
           class: 'meta',
           textContent: 'Turn on “Show in Nice Assistant” and save — its settings appear here once it has a recipe.',
@@ -317,8 +321,10 @@ export class ModelPageView {
     const sizeOptions = [...new Set([edit.size, ...SHAPES].filter(Boolean)), CUSTOM];
     const pickSize = this.customSize || (edit.size !== '' && !SHAPES.includes(edit.size)) ? CUSTOM : edit.size;
     return [
-      textareaField('When should this model be used?', edit.routingCard, (value) => { edit.routingCard = value; }, false,
-        'Plain language. Chats read this note when choosing between models.'),
+      longField('When should this model be used?', edit.routingCard, (value) => { edit.routingCard = value; this.renderApp(); }, {
+        testId: 'model-page-card',
+        hover: 'Plain language. Chats read this note when choosing between models.',
+      }),
       suggestion && suggestion.source !== 'none'
         ? el('div', { class: 'page-suggestion', 'data-testid': 'model-page-suggestion' }, [
             el('span', { class: 'meta', textContent: `${suggestion.message} ${suggestion.steps} steps · CFG ${suggestion.cfg_scale} · ${suggestion.width}×${suggestion.height}` }),
@@ -327,32 +333,44 @@ export class ModelPageView {
         : null,
       this.lookup.node(this.model()?.external_id ?? ''),
       el('div', { class: 'settings-grid' }, [
-        inputField('Steps', edit.steps, (value) => { edit.steps = value; }, 'number', false),
-        inputField('CFG', edit.cfg, (value) => { edit.cfg = value; }, 'number', false, undefined, '0.1'),
+        numberField('Steps', edit.steps, (value) => { edit.steps = value; }, { hover: 'More steps refine a picture and take longer.' }),
+        numberField('CFG', edit.cfg, (value) => { edit.cfg = value; }, { step: '0.1', hover: 'How strongly the picture follows the prompt.' }),
         this.optionField('Sampler', edit.sampler, this.options?.samplers ?? [], (value) => { edit.sampler = value; }, 'model-page-sampler'),
         this.optionField('Scheduler', edit.scheduler, this.options?.schedulers ?? [], (value) => { edit.scheduler = value; }, 'model-page-scheduler'),
-        selectField('Size', pickSize, sizeOptions, (value) => {
+        choiceField('Size', pickSize, sizeOptions, (value) => {
           this.customSize = value === CUSTOM;
           if (value !== CUSTOM) edit.size = value;
           this.renderApp();
-        }, 'model-page-size', shapeLabel, false),
+        }, { testId: 'model-page-size', display: shapeLabel, hover: 'The usual size. Other sizes live under More options.' }),
         pickSize === CUSTOM
-          ? inputField('Custom size', edit.size, (value) => { edit.size = value.trim(); }, 'text', false)
+          ? textField('Custom size', edit.size, (value) => { edit.size = value.trim(); }, { hover: 'Width×height, for example 1152x896.' })
           : null,
       ].filter((nodeItem): nodeItem is HTMLElement => nodeItem !== null)),
       advancedSettings('More options', 'Prompt wording, negatives, extra sizes, priority.', [
         el('div', { class: 'settings-grid' }, [
-          selectField('Prompt style', edit.style, ['natural_language', 'booru', 'hybrid'], (value) => { edit.style = value; }, undefined, styleLabel, false),
-          selectField('LoRA trigger words go', edit.triggerPlacement, ['prefix', 'suffix'], (value) => { edit.triggerPlacement = value; }, undefined,
-            (value) => (value === 'prefix' ? 'Before the description' : 'After the description'), false),
-          inputField('Prompt prefix', edit.prefix, (value) => { edit.prefix = value; }, 'text', false),
-          inputField('Prompt suffix', edit.suffix, (value) => { edit.suffix = value; }, 'text', false),
-          inputField('All sizes', edit.allSizes, (value) => { edit.allSizes = value; }, 'text', false),
-          inputField('Priority', edit.priority, (value) => { edit.priority = value; }, 'number', false),
+          choiceField('Prompt style', edit.style, ['natural_language', 'booru', 'hybrid'], (value) => { edit.style = value; }, {
+            display: styleLabel,
+            hover: 'Booru means comma-separated tags; natural language means a sentence.',
+          }),
+          choiceField('LoRA trigger words go', edit.triggerPlacement, ['prefix', 'suffix'], (value) => { edit.triggerPlacement = value; }, {
+            display: (value) => (value === 'prefix' ? 'Before the description' : 'After the description'),
+          }),
+          textField('Prompt prefix', edit.prefix, (value) => { edit.prefix = value; }, {
+            hover: 'Score or quality tags, if this family expects them. Trigger words from CivitAI land here.',
+          }),
+          textField('Prompt suffix', edit.suffix, (value) => { edit.suffix = value; }),
+          textField('All sizes', edit.allSizes, (value) => { edit.allSizes = value; }, {
+            hover: 'Comma separated. A request that needs another shape picks from these.',
+          }),
+          numberField('Priority', edit.priority, (value) => { edit.priority = value; }, {
+            hover: 'Breaks ties when several models fit equally well.',
+          }),
         ]),
-        toggleField('This model accepts a negative prompt', edit.supportsNegative, (value) => { edit.supportsNegative = value; this.renderApp(); }),
+        switchField('This model accepts a negative prompt', edit.supportsNegative, (value) => { edit.supportsNegative = value; this.renderApp(); }, {
+          hover: 'Off means no negative prompt is sent, and the safety negative cannot be carried either.',
+        }),
         edit.supportsNegative
-          ? textareaField('Negative prompt', edit.negative, (value) => { edit.negative = value; }, false)
+          ? longField('Negative prompt', edit.negative, (value) => { edit.negative = value; })
           : null,
       ].filter((nodeItem): nodeItem is HTMLElement => nodeItem !== null),
       { testId: 'model-page-more', open: this.moreOpen, onToggle: (open) => { this.moreOpen = open; } }),
@@ -422,8 +440,8 @@ export class ModelPageView {
 
   /** A dropdown of what ComfyUI has; a plain box when it could not be asked. */
   private optionField(label: string, value: string, values: string[], change: (value: string) => void, testId: string): HTMLElement {
-    if (!values.length) return inputField(label, value, change, 'text', false);
-    return selectField(label, value, [...new Set([value, ...values].filter(Boolean))], change, testId, (item) => item, false);
+    if (!values.length) return textField(label, value, change, { testId, hover: 'By the name ComfyUI uses; ComfyUI could not be asked for its list.' });
+    return choiceField(label, value, [...new Set([value, ...values].filter(Boolean))], change, { testId, hover: 'What ComfyUI reports it has.' });
   }
 }
 

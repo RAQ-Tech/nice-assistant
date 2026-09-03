@@ -47,15 +47,19 @@ npm run frontend:e2e
   hover, the single visible hint, and the leave guard.
 - `persona_page_view.ts`: the persona list and one page per persona,
   composing the character card and lorebook editors and saving itself.
-- `everyday_settings_view.ts`: General, Spoken replies, Transcription and Your
-  profile as sparse pages; the pictures pages in the earlier shape.
+- `everyday_settings_view.ts`: General, Spoken replies, Transcription, Image
+  Generation, Video Generation and Your profile as sparse pages.
 - `model_settings_view.ts`: the conversation models Ollama reports as a list,
   the shared defaults, and one page per model whose numbers say whether they
   are customized.
 - `task_model_settings_view.ts` and `media_catalog_settings_view.ts`: the
-  background roles as a list with one page each, and the media-resource
-  editors, with refresh conflict protection, readiness checks, plan previews,
-  and content-free audits.
+  background roles as a list with one page each, and the catalog as a list
+  of models, recipes, workflows and LoRAs with an address per thing, refresh
+  conflict protection, and the operator tools folded.
+- `recipe_page_view.ts`, `resource_page_view.ts` and `recipe_tools_view.ts`:
+  one page per recipe and one per workflow or LoRA, in the model page's
+  shape, and the recipe-file import and picture counts that live under the
+  catalog's fold.
 - `operations_settings_view.ts`: administrator-only GPU coordination and backup
   operations, including explicit provider-control authorization and restore
   verification.

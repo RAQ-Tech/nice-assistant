@@ -458,15 +458,16 @@ test('settings review memory and media use only canonical APIs', async ({ page }
   expect((await taskModelSaveRequest).postDataJSON().model).toBe('demo');
   await expect(page.getByText(/Ready: Task model is ready/)).toBeVisible();
   await page.getByTestId('settings-nav-media-catalog').click();
-  const resourceCard = page.getByTestId('media-resource-media-model-1');
-  await page.getByTestId('catalog-inventory').locator(':scope > summary').click();
-  await resourceCard.locator(':scope > summary').click();
-  await resourceCard.locator('.setting-row').filter({ hasText: 'Name' }).locator('input').first().fill('Fantasy portrait model');
+  // A model is a page of its own, reached from the list, and saved from there.
+  await page.getByTestId('catalog-model-open-media-model-1').click();
+  await page.getByTestId('model-page-name').fill('Fantasy portrait model');
   const mediaResourceSaveRequest = page.waitForRequest((request) =>
     request.method() === 'PUT' && new URL(request.url()).pathname === '/api/v1/media-catalog/resources/media-model-1',
   );
-  await page.getByTestId('media-resource-save-media-model-1').click();
+  await page.getByTestId('model-page-save').click();
   expect((await mediaResourceSaveRequest).postDataJSON().name).toBe('Fantasy portrait model');
+  await page.getByTestId('model-page-back').click();
+  await page.getByTestId('catalog-inventory').locator(':scope > summary').click();
   await page.getByTestId('media-plan-preview').click();
   await expect(page.locator('.media-plan-preview')).toContainText('Ready');
   await page.getByRole('button', { name: '✕ Close' }).click();
@@ -514,8 +515,9 @@ test('everyday settings are sparse pages with help on hover and the rest folded'
   await expect(speak).toHaveAttribute('title', /Plays each finished reply/);
 
   await page.getByTestId('settings-nav-image-generation').click();
-  await expect(page.getByText('Choose the default image path')).toBeVisible();
   await expect(page.getByText('Local image service', { exact: true })).toBeVisible();
+  await expect(page.locator('.info-tip-trigger')).toHaveCount(0);
+  await expect(page.locator('.settings-intro')).toHaveCount(0);
   await expect(page.getByTestId('image-advanced-settings')).not.toHaveAttribute('open', '');
 
   // A persona is a page of its own, reached from the list.
@@ -606,15 +608,17 @@ test('operator settings are lists of things, each opening a page with the expert
   await expect(page.getByTestId('task-model-advanced-title_generation')).not.toHaveAttribute('open', '');
 
   await page.getByTestId('settings-nav-media-catalog').click();
-  await expect(page.getByText('How pictures get made')).toBeVisible();
-  const inventory = page.getByTestId('catalog-inventory');
-  await expect(inventory).not.toHaveAttribute('open', '');
-  await inventory.locator(':scope > summary').click();
-  const mediaResource = page.getByTestId('media-resource-media-model-1');
-  await expect(mediaResource).not.toHaveAttribute('open', '');
-  await mediaResource.locator(':scope > summary').click();
-  await expect(mediaResource).toHaveAttribute('open', '');
-  await expect(page.getByTestId('media-resource-advanced-media-model-1')).not.toHaveAttribute('open', '');
+  // A list of plain things, one line out loud, and the operator tools folded.
+  await expect(page.getByTestId('catalog-readiness')).toBeVisible();
+  await expect(page.locator('.page-hint')).toHaveCount(1);
+  await expect(page.locator('.info-tip-trigger')).toHaveCount(0);
+  await expect(page.locator('.settings-intro')).toHaveCount(0);
+  await expect(page.getByTestId('catalog-inventory')).not.toHaveAttribute('open', '');
+  await page.getByTestId('catalog-model-open-media-model-1').click();
+  await expect(page.getByTestId('model-page-name')).toHaveValue('Fantasy model');
+  // This model has no recipe yet, so the page says so instead of folding numbers it does not have.
+  await expect(page.getByTestId('model-page-save')).toBeVisible();
+  await expect(page.locator('.info-tip-trigger')).toHaveCount(0);
 });
 
 test('a persona gets a face from its own page, and the rest stays folded', async ({ page }) => {
@@ -866,6 +870,8 @@ async function installAuthenticatedFixture(
         window: '02:00-06:00', enabled: true, start_hour: 2, end_hour: 6, max_per_run: 3,
         deployment_forbids: false, inside_window: false,
       });
+    } else if (path === '/api/v1/media-catalog/presets' && method === 'GET') {
+      await json(route, { items: [] });
     } else if (path === '/api/v1/media-catalog' && method === 'GET') {
       await json(route, {
         settings: { vram_budget_mb: 10240, max_loras: 4 },

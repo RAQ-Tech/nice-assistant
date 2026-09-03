@@ -1,7 +1,8 @@
 import type { ApiClient } from './api';
 import type { SettingsDialogs } from './settings_contracts';
 import { el, errorMessage } from './dom';
-import { selectControl as select, settingField as field, settingsHeading, titleCase } from './settings_ui';
+import { groupTitle } from './settings_page';
+import { selectControl as select, titleCase } from './settings_ui';
 import type {
   AppState,
   IdentityWorkflowInspection,
@@ -52,7 +53,7 @@ export class WorkflowTemplateView {
     }
     const templates = this.list?.templates ?? [];
     return el('div', { class: 'workflow-template-list', 'data-testid': 'workflow-templates' }, [
-      settingsHeading(
+      groupTitle(
         'Start from a known-good workflow',
         kind === 'video'
           ? 'This graph ships with Nice Assistant, already wired to receive the request. Checking it asks ComfyUI whether the nodes and files it names are installed. No clip has been rendered from it on this deployment.'
@@ -121,7 +122,7 @@ export class WorkflowTemplateView {
       // picture exists. Choosing the recipe here is what keeps that out of a
       // hand-edited definition JSON.
       template.mechanism === 'identity_pass' && this.presets.length
-        ? field(
+        ? hoverRow(
             'Add it to this recipe as a second pass',
             this.presetSelect(),
             'The recipe generates the picture, and this pass replaces the face in it afterwards.',
@@ -159,7 +160,7 @@ export class WorkflowTemplateView {
         this.assetChoices[template.id] = { ...(this.assetChoices[template.id] ?? {}), [key]: value };
       }, (value) => value || `Keep ${item.value}`);
       control.dataset.testid = `workflow-template-asset-${template.id}-${item.input_name}`;
-      return field(
+      return hoverRow(
         `${item.node_type} needs a file for ${item.input_name}`,
         control,
         `The template names ${item.value}, which ComfyUI does not report. These are the files it does have for this input. Choosing one points the graph at your file instead of asking you to rename it.`,
@@ -273,4 +274,9 @@ export class WorkflowTemplateView {
 function techniqueLabel(template: WorkflowTemplate): string {
   if (template.kind === 'video') return 'Makes a video clip from the prompt';
   return (template.mechanism && MECHANISM_LABELS[template.mechanism]) || template.mechanism || '';
+}
+
+/** A labelled control whose help waits on hover. */
+function hoverRow(label: string, control: HTMLElement, hover: string): HTMLElement {
+  return el('div', { class: 'setting-row', title: hover }, [el('label', { textContent: label }), control]);
 }

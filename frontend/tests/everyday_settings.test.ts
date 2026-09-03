@@ -3,7 +3,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { EverydaySettingsView } from '../src/everyday_settings_view';
 import { SETTINGS_DEFAULTS } from '../src/settings';
 import { createState } from '../src/state';
-import type { Settings } from '../src/types';
+import type { AppState, Settings } from '../src/types';
 
 function setup(overrides: Partial<Settings> = {}) {
   const appState = createState();
@@ -74,6 +74,10 @@ describe('video is local only', () => {
     expect(root.textContent).toContain('What local video needs');
     expect(root.textContent).toContain('Media Catalog');
     expect(root.textContent).toContain('check comfyui');
+    // One sparse page: help on hover, one line out loud, no icons, no intro.
+    expect(root.querySelector('.info-tip-trigger')).toBeNull();
+    expect(root.querySelector('.settings-intro')).toBeNull();
+    expect(root.querySelectorAll('.page-hint')).toHaveLength(1);
   });
 });
 
@@ -134,6 +138,29 @@ describe('the everyday pages are sparse', () => {
     expect(root.textContent).toContain('Service address');
     expect(root.textContent).toContain('Additional JSON parameters');
     expect((root.querySelector('[data-testid="image-advanced-settings"]') as HTMLDetailsElement).open).toBe(false);
+    expect(root.querySelector('.info-tip-trigger')).toBeNull();
+    expect(root.querySelector('.settings-intro')).toBeNull();
+    expect(root.querySelectorAll('.page-hint').length).toBeLessThanOrEqual(1);
+    const service = root.querySelector('.setting-row[title]') as HTMLElement;
+    expect(service.getAttribute('title')).toBeTruthy();
+  });
+
+  it('offers the one-off checkpoint from the catalog by name, and keeps a stored stranger selectable', () => {
+    const { root, settings, view } = setup({ image_provider: 'local', image_local_model: 'old.safetensors' });
+    view['appState'].mediaCatalog = {
+      settings: { vram_budget_mb: 0, max_loras: 2 },
+      resources: [
+        { id: 'm1', resource_type: 'model', kind: 'image', name: 'Juggernaut XL', external_id: 'juggernautXL_v9.safetensors', enabled: true },
+        { id: 'm2', resource_type: 'model', kind: 'image', name: 'RealVis', external_id: 'realvis.safetensors', enabled: true },
+        { id: 'w1', resource_type: 'workflow', kind: 'image', name: 'Plain', external_id: 'plain', enabled: true },
+      ],
+      vocabulary: { operations: [], domains: [], content_tags: [], features: [] },
+    } as unknown as AppState['mediaCatalog'];
+    root.append(...view.nodes('Image Generation', settings));
+
+    const model = root.querySelector('[data-testid="image-local-model"]') as HTMLSelectElement;
+    expect(model.value).toBe('old.safetensors');
+    expect([...model.options].map((option) => option.textContent)).toEqual(['old.safetensors', 'Juggernaut XL', 'RealVis']);
   });
 
   it('keeps provider credentials behind the fold on the profile page', () => {

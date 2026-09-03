@@ -91,12 +91,15 @@ describe('routing tester', () => {
     await vi.waitFor(() => expect(root.querySelector('[data-testid="routing-tester-result"]')).not.toBeNull());
     // The result used to render into a fold that had just been rebuilt
     // closed, so pressing the button appeared to do nothing.
-    expect((root.querySelector('[data-testid="routing-tester"]') as HTMLDetailsElement).open).toBe(true);
+    // No fold to snap shut: the result stays in the tester's own card.
+    expect(root.querySelector('[data-testid="routing-tester"]')?.contains(root.querySelector('[data-testid="routing-tester-result"]'))).toBe(true);
+    expect(root.querySelector('.info-tip-trigger')).toBeNull();
   });
 
   it('is labeled as a diagnostic that is expected to be removed', () => {
     const appState = createState();
     const view = new RoutingTesterView(appState, {} as ApiClient, () => undefined);
-    expect(view.node().textContent).toContain('expected to be removed');
+    // The label waits on hover, like every other explanation on the page.
+    expect(view.node().querySelector('.settings-subheading')?.getAttribute('title')).toContain('expected to be removed');
   });
 });
