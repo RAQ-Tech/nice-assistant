@@ -1,7 +1,6 @@
 import { el } from './dom';
-import { inputField, selectField, textareaField, toggleField } from './settings_controls';
-import { choiceField, longField, numberField, pageHint, switchField, textField } from './settings_page';
-import { advancedSettings, settingsCard, settingsHeading, settingsIntro } from './settings_ui';
+import { actionRow, choiceField, longField, numberField, pageHint, switchField, textField } from './settings_page';
+import { advancedSettings, settingsCard } from './settings_ui';
 import type { AppState, Settings } from './types';
 
 export type EverydaySettingsSection =
@@ -21,10 +20,10 @@ export type SettingChange = <K extends keyof Settings>(
 /**
  * The everyday pages.
  *
- * General, Spoken replies, Transcription and Your profile are each one sparse
- * page: the choices that matter, labelled plainly, help on hover, and the rest
- * behind one "More options" fold. The two pictures pages keep the earlier
- * shape until they are redone in the same pass as the rest of Pictures.
+ * General, Spoken replies, Transcription, Image Generation, Video Generation
+ * and Your profile are each one sparse page: the choices that matter,
+ * labelled plainly, help on hover, one line said out loud, and the rest
+ * behind one "More options" fold.
  */
 export class EverydaySettingsView {
   constructor(
@@ -197,147 +196,127 @@ export class EverydaySettingsView {
   }
 
   private image(settings: Settings): HTMLElement[] {
-    const common: HTMLElement[] = [
-      selectField(
-        'Image provider',
-        settings.image_provider,
-        ['disabled', 'local', 'openai'],
-        (value) => this.change('image_provider', value),
-        'image-provider',
-        providerLabel,
-        true,
-        'Local uses Automatic1111 or ComfyUI on your LAN. OpenAI sends the prompt to OpenAI.',
-      ),
-      toggleField(
-        'Blur pictures in chat',
-        settings.chat_blur_images,
-        (value) => this.change('chat_blur_images', value),
-        'When enabled, the first tap reveals a picture and the second opens the large preview. The default is off.',
-      ),
+    const provider = settings.image_provider;
+    const local = provider === 'local';
+    const readiness = this.appState.mediaReadiness;
+    const fields: (HTMLElement | null)[] = [
+      choiceField('Image provider', provider, ['disabled', 'local', 'openai'], (value) => this.change('image_provider', value), {
+        testId: 'image-provider',
+        display: providerLabel,
+        hover: 'Local is Automatic1111 or ComfyUI on this network. OpenAI sends the prompt to OpenAI.',
+      }),
+      local
+        ? choiceField('Local image service', settings.image_local_backend, ['automatic1111', 'comfyui'], (value) => this.change('image_local_backend', value), {
+            display: (value) => (value === 'automatic1111' ? 'Automatic1111' : 'ComfyUI'),
+            hover: 'Which API the local image container exposes.',
+          })
+        : null,
+      local
+        ? textField('Service address', settings.image_local_base_url, (value) => this.change('image_local_base_url', value), {
+            type: 'url',
+            hover: 'Its address on this network.',
+          })
+        : null,
+      local ? this.oneOffModel(settings) : null,
+      local
+        ? switchField('Allow explicit local prompts', settings.image_local_allow_nsfw, (value) => this.change('image_local_allow_nsfw', value), {
+            hover: 'Only for the self-hosted local path. Nothing explicit is ever sent to a cloud service.',
+          })
+        : null,
       // A picker cannot be misspelled: "1024 x 1024" typed with spaces used
       // to fail quietly at the provider.
-      selectField(
+      choiceField(
         'Shape',
         SHAPE_CHOICES.includes(settings.image_size) ? settings.image_size : 'custom',
         [...SHAPE_CHOICES, 'custom'],
         (value) => { if (value !== 'custom') this.change('image_size', value); },
-        'image-shape',
-        shapeLabel,
-        true,
-        'The default size for one-off pictures. Recipes carry their own sizes.',
+        { testId: 'image-shape', display: shapeLabel, hover: 'The size of one-off pictures. Recipes carry their own sizes.' },
       ),
-      ...(SHAPE_CHOICES.includes(settings.image_size)
-        ? []
-        : [inputField('Custom size', settings.image_size, (value) => this.change('image_size', value), 'text', true,
-            'Width × height, for example 1152x896.')]),
+      SHAPE_CHOICES.includes(settings.image_size)
+        ? null
+        : textField('Custom size', settings.image_size, (value) => this.change('image_size', value), {
+            hover: 'Width × height, for example 1152x896.',
+          }),
+      switchField('Blur pictures in chat', settings.chat_blur_images, (value) => this.change('chat_blur_images', value), {
+        hover: 'The first tap reveals a picture and the second opens it large. Off by default.',
+      }),
       // OpenAI is the only provider that reads this; showing it beside a
       // ComfyUI setup taught people the page could not be trusted.
-      ...(settings.image_provider === 'openai'
-        ? [selectField(
-            'Prompt enhancement quality',
-            settings.image_quality,
-            ['none', 'low', 'medium', 'high', 'auto'],
-            (value) => this.change('image_quality', value),
-            undefined,
-            titleCase,
-            true,
-            'How much OpenAI rewrites your prompt before generating. None preserves it most directly.',
-          )]
-        : []),
-    ];
-    const advanced: HTMLElement[] = [];
-    if (settings.image_provider === 'local') {
-      common.push(
-        selectField(
-          'Local image service',
-          settings.image_local_backend,
-          ['automatic1111', 'comfyui'],
-          (value) => this.change('image_local_backend', value),
-          undefined,
-          (value) => value === 'automatic1111' ? 'Automatic1111' : 'ComfyUI',
-          true,
-          'Choose the API exposed by the local image container.',
-        ),
-        inputField(
-          'Service address',
-          settings.image_local_base_url,
-          (value) => this.change('image_local_base_url', value),
-          'url',
-          true,
-          'The private-LAN address of the selected image service.',
-        ),
-        inputField(
-          'Model or checkpoint',
-          settings.image_local_model,
-          (value) => this.change('image_local_model', value),
-          'text',
-          true,
-          'Used by direct image actions, and it breaks a tie when routing has nothing else to go on.',
-        ),
-        toggleField(
-          'Allow explicit local prompts',
-          settings.image_local_allow_nsfw,
-          (value) => this.change('image_local_allow_nsfw', value),
-          'Allows explicit prompt content only for the self-hosted local image path.',
-        ),
-      );
-      advanced.push(
-        inputField(
-          'Basic authentication',
-          settings.image_local_api_auth,
-          (value) => this.change('image_local_api_auth', value),
-          'password',
-          true,
-          'Optional user:password credentials for the local image service.',
-        ),
-        inputField('Steps', settings.image_local_steps, (value) => this.change('image_local_steps', value), 'number', true, 'Higher values may refine an image but take longer.'),
-        inputField('Sampler', settings.image_local_sampler_name, (value) => this.change('image_local_sampler_name', value), 'text', true, 'Sampling algorithm passed to compatible local backends.'),
-        inputField('Scheduler', settings.image_local_scheduler, (value) => this.change('image_local_scheduler', value), 'text', true, 'Optional scheduler name for compatible local backends.'),
-        inputField('CFG', settings.image_local_cfg_scale, (value) => this.change('image_local_cfg_scale', value), 'number', true, 'Controls how strongly generation follows the prompt.', '0.1'),
-        inputField('Seed', settings.image_local_seed, (value) => this.change('image_local_seed', value), 'text', true, 'Reuse a seed for repeatability, or leave blank for a new result.'),
-        textareaField(
-          'Additional JSON parameters',
-          settings.image_local_additional_parameters,
-          (value) => this.change('image_local_additional_parameters', value),
-          true,
-          'Advanced provider payload values. Invalid or unsupported fields can make generation fail.',
-        ),
-      );
-    }
-    return [
-      settingsIntro(
-        'Choose the default image path',
-        'These defaults power direct image actions. Persona-planned generation may select richer Media Catalog resources.',
-      ),
-      settingsCard(common),
-      this.appState.mediaReadiness
-        ? settingsCard([
-            settingsHeading('Images readiness', this.appState.mediaReadiness.basic_generation.message),
-            el('div', {
-              class: 'settings-readiness-facts',
-              textContent: [
-                `Provider: ${this.appState.mediaReadiness.provider.reachable ? 'reachable' : this.appState.mediaReadiness.provider.status}`,
-                `Basic generation: ${this.appState.mediaReadiness.basic_generation.ready ? 'ready' : 'not ready'}`,
-                `Optional identity enhancement: ${this.appState.mediaReadiness.optional_identity.ready ? 'ready' : 'not configured'}`,
-              ].join(' · '),
-            }),
-          ])
+      provider === 'openai'
+        ? choiceField('Prompt enhancement quality', settings.image_quality, ['none', 'low', 'medium', 'high', 'auto'], (value) => this.change('image_quality', value), {
+            display: titleCase,
+            hover: 'How much OpenAI rewrites the prompt before generating. None keeps it as written.',
+          })
         : null,
-      settings.image_provider === 'disabled'
-        ? el('div', { class: 'settings-empty-state', textContent: 'Image generation is off.' })
-        : settingsCard([
-            settingsHeading('Connection check', 'Tests the selected image service with the current unsaved values.'),
-            this.providerControl(settings.image_provider === 'local' ? settings.image_local_backend : 'openai'),
-          ]),
-      settings.image_provider === 'local'
-        ? advancedSettings(
-            'Tuning for one-off pictures',
-            'Only direct image actions read these. Recipes in Media Catalog carry their own numbers.',
-            advanced,
-            { testId: 'image-advanced-settings' },
-          )
+      provider === 'disabled'
+        ? pageHint('Image generation is off.', 'image-readiness')
+        : readiness
+          ? pageHint(readiness.basic_generation.message, 'image-readiness')
+          : null,
+      provider === 'disabled' ? null : actionRow([this.providerControl(local ? settings.image_local_backend : 'openai')]),
+    ];
+    return [
+      settingsCard(fields.filter((node): node is HTMLElement => node !== null)),
+      local
+        ? advancedSettings('More options', 'The service login, and tuning for one-off pictures. Recipes carry their own numbers.', [
+            textField('Basic authentication', settings.image_local_api_auth, (value) => this.change('image_local_api_auth', value), {
+              type: 'password',
+              hover: 'user:password, only if the service asks for one.',
+            }),
+            numberField('Steps', settings.image_local_steps, (value) => this.change('image_local_steps', value), {
+              hover: 'More steps refine a picture and take longer.',
+            }),
+            textField('Sampler', settings.image_local_sampler_name, (value) => this.change('image_local_sampler_name', value), {
+              hover: 'The sampling algorithm, by the name the service uses.',
+            }),
+            textField('Scheduler', settings.image_local_scheduler, (value) => this.change('image_local_scheduler', value), {
+              hover: 'Optional, by the name the service uses.',
+            }),
+            numberField('CFG', settings.image_local_cfg_scale, (value) => this.change('image_local_cfg_scale', value), {
+              step: '0.1',
+              hover: 'How strongly the picture follows the prompt.',
+            }),
+            textField('Seed', settings.image_local_seed, (value) => this.change('image_local_seed', value), {
+              hover: 'Reuse a seed to repeat a result. Blank means a new one each time.',
+            }),
+            longField('Additional JSON parameters', settings.image_local_additional_parameters, (value) => this.change('image_local_additional_parameters', value), {
+              hover: 'Raw provider payload values. A field the service does not know can make generation fail.',
+            }),
+          ], { testId: 'image-advanced-settings' })
         : null,
     ].filter((node): node is HTMLElement => node !== null);
+  }
+
+  /**
+   * The checkpoint for one-off pictures, chosen from the catalog by name.
+   *
+   * A filename typed into a box is one typo from a picture that never comes.
+   * When the catalog knows the models, they are offered by the names they were
+   * given; the typed box remains for a deployment with no catalog yet, and a
+   * stored value the catalog does not know stays selectable rather than being
+   * silently rewritten.
+   */
+  private oneOffModel(settings: Settings): HTMLElement {
+    const hover = 'Used for one-off pictures, and it breaks a tie when routing has nothing else to go on.';
+    const models = (this.appState.mediaCatalog?.resources ?? [])
+      .filter((item) => item.resource_type === 'model' && item.kind === 'image' && item.external_id && item.external_id !== 'provider-default');
+    if (!models.length) {
+      return textField('Model or checkpoint', settings.image_local_model, (value) => this.change('image_local_model', value), {
+        testId: 'image-local-model',
+        hover,
+      });
+    }
+    const names = new Map<string, string>();
+    models.forEach((item) => { if (!names.has(item.external_id)) names.set(item.external_id, item.name); });
+    const current = settings.image_local_model;
+    const values = [...names.keys()];
+    if (current && !names.has(current)) values.unshift(current);
+    if (!current) values.unshift('');
+    return choiceField('Model or checkpoint', current, values, (value) => this.change('image_local_model', value), {
+      testId: 'image-local-model',
+      display: (value) => (value ? names.get(value) ?? value : 'Choose a model'),
+      hover,
+    });
   }
 
   // Local only, by decision (2026-08-26): every cloud video API either shut
@@ -347,31 +326,17 @@ export class EverydaySettingsView {
   private video(settings: Settings): HTMLElement[] {
     const provider = settings.video_provider === 'local' ? 'local' : 'disabled';
     return [
-      settingsIntro(
-        'Choose how video clips get made',
-        'Video runs on your own ComfyUI — the same service that makes pictures.',
-      ),
       settingsCard([
-        selectField(
-          'Video provider',
-          provider,
-          ['disabled', 'local'],
-          (value) => this.change('video_provider', value),
-          'video-provider',
-          providerLabel,
-          true,
-          'No cloud video service is currently offered. Local uses the ComfyUI configured on the Image Generation page.',
-        ),
-      ]),
-      provider === 'local'
-        ? settingsCard([
-            settingsHeading(
-              'What local video needs',
-              'A video model and a video workflow in Media Catalog, paired as a recipe. A chat that asks for a clip picks one, exactly as pictures do.',
-            ),
-            this.providerControl('comfyui'),
-          ])
-        : el('div', { class: 'settings-empty-state', textContent: 'Video generation is off.' }),
+        choiceField('Video provider', provider, ['disabled', 'local'], (value) => this.change('video_provider', value), {
+          testId: 'video-provider',
+          display: providerLabel,
+          hover: 'Local is the ComfyUI set on the Image Generation page. No cloud video service is offered: each one shut down or refuses this product’s content.',
+        }),
+        provider === 'local'
+          ? pageHint('What local video needs: a video model and a video workflow in Media Catalog, paired as a recipe. A chat that asks for a clip picks one, exactly as pictures do.', 'video-needs')
+          : pageHint('Video generation is off.', 'video-needs'),
+        provider === 'local' ? actionRow([this.providerControl('comfyui')]) : null,
+      ].filter((node): node is HTMLElement => node !== null)),
     ];
   }
 

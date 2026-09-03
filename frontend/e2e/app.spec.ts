@@ -514,8 +514,9 @@ test('everyday settings are sparse pages with help on hover and the rest folded'
   await expect(speak).toHaveAttribute('title', /Plays each finished reply/);
 
   await page.getByTestId('settings-nav-image-generation').click();
-  await expect(page.getByText('Choose the default image path')).toBeVisible();
   await expect(page.getByText('Local image service', { exact: true })).toBeVisible();
+  await expect(page.locator('.info-tip-trigger')).toHaveCount(0);
+  await expect(page.locator('.settings-intro')).toHaveCount(0);
   await expect(page.getByTestId('image-advanced-settings')).not.toHaveAttribute('open', '');
 
   // A persona is a page of its own, reached from the list.

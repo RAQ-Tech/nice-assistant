@@ -47,8 +47,8 @@ npm run frontend:e2e
   hover, the single visible hint, and the leave guard.
 - `persona_page_view.ts`: the persona list and one page per persona,
   composing the character card and lorebook editors and saving itself.
-- `everyday_settings_view.ts`: General, Spoken replies, Transcription and Your
-  profile as sparse pages; the pictures pages in the earlier shape.
+- `everyday_settings_view.ts`: General, Spoken replies, Transcription, Image
+  Generation, Video Generation and Your profile as sparse pages.
 - `model_settings_view.ts`: the conversation models Ollama reports as a list,
   the shared defaults, and one page per model whose numbers say whether they
   are customized.

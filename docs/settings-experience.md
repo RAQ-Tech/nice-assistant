@@ -18,10 +18,9 @@ that proved it:
 - Sparse fields, labelled plainly. Help waits on hover - a `title` on the
   row, read by assistive technology as the control's description - and never
   takes up room. A page says at most one thing out loud.
-- Never an information icon explaining an explanation. Image Generation,
-  Video Generation, Media Catalog and Persona Pictures still carry the earlier
-  icon-per-row shape until they are redone in the same pass as the rest of
-  Pictures; nothing new is built that way.
+- Never an information icon explaining an explanation. Media Catalog and
+  Persona Pictures still carry the earlier icon-per-row shape until they are
+  redone; nothing new is built that way.
 - Change the input type before adding words: a dropdown of what the provider
   actually reports beats a typed box, and a prefilled value says where it
   came from.
@@ -167,6 +166,21 @@ Voice:
   listening and transcribing at natural pauses appear once something can
   transcribe; keeping recordings is folded.
 
+Pictures (the two generation pages moved over on 2026-09-03):
+
+- **Image Generation** is where pictures come from - Off, a local service on
+  this network, or OpenAI - then only what that choice reads: for a local
+  service which of its two APIs it speaks, its address, the model for
+  one-off pictures chosen from the catalog by name (a typed box only while
+  the catalog is empty, and a stored name the catalog lacks stays
+  selectable), and whether explicit prompts are allowed; then the shape,
+  and whether pictures arrive blurred in chat. The one line out loud is
+  readiness, the connection check sits under it, and the service login and
+  the tuning for one-off pictures are folded.
+- **Video Generation** is Off or the same local ComfyUI, and the one line
+  says what local video needs: a video model and a video workflow in Media
+  Catalog, paired as a recipe.
+
 Personas:
 
 - **Personas** is the people, each a chip with their picture or initials, and
@@ -207,11 +221,11 @@ the memory distinctions, the persona image permission, the in-app avatar
 viewer, and every provider control naming which kind it is. Authoring
 guidance for cards and lorebooks stays in `docs/persona-authoring.md`.
 
-### The pictures pages - earlier shape
+### Media Catalog and Persona Pictures - earlier shape
 
-Image Generation and Video Generation keep the goal-oriented cards with
-information icons, readiness facts and closed advanced sections, and are redone
-with the rest of Pictures:
+Media Catalog and Persona Pictures keep the goal-oriented cards with
+information icons and closed advanced sections until they are redone. The
+generation pages moved over on 2026-09-03; what they still guarantee:
 
 - Local image connection choices remain readily available while sampling,
   authentication, and raw JSON controls live under advanced disclosure.
