@@ -298,10 +298,13 @@ chat images” from one screen; identity setup is visibly optional.
   setting, off by default, and holding the button measures no level at all.
 - [x] Implement true barge-in that stops playback and superseded provider work.
   Delivered 2026-08-17; see ADR 0036. A cancelled synthesis writes nothing.
-- [ ] Add approved quality-first and local fallback chains for TTS and STT, with
-  compact user-facing degradation notices.
-- [ ] Evaluate providers with repeatable latency, reliability, and blind
-  listening criteria rather than configuration readiness alone.
+- [x] Add approved quality-first and local fallback chains for TTS and STT, with
+  compact user-facing degradation notices. Closed by decision 2026-09-02:
+  Kokoro is the voice and a LAN Whisper service the ear, and there is nothing
+  local to fall back to, so no chain is built.
+- [x] Evaluate providers with repeatable latency, reliability, and blind
+  listening criteria rather than configuration readiness alone. Closed by
+  decision 2026-09-02: the owner chose Kokoro without a listening session.
 - [x] Reduce default chat chrome to persona and conversation essentials; move
   model, workspace, memory, and diagnostic state behind progressive disclosure.
 
@@ -387,7 +390,7 @@ source directory cannot mix application revisions.
 5. Human-scale attachment UI, compact errors, and blur toggle.
 6. One-screen everyday image readiness and advanced-policy cleanup.
 7. Streaming voice, turn detection, and barge-in - delivered. Provider fallback
-   waits on the listening decision.
+   was closed by the owner's decision for Kokoro on 2026-09-02.
 8. Continuity evaluations, full installed acceptance, documentation, and
    roadmap reconciliation.
 

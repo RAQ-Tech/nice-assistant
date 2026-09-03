@@ -193,8 +193,9 @@ change that alters them.
   end-of-turn detection (ADR 0038) are implemented against the local Kokoro
   path. Transcription at natural pauses shipped on 2026-08-18 (ADR 0041) and is
   off by default. What remains deferred is partial results refined as more audio
-  arrives, which no transcription service reachable from here offers, and
-  choosing what to fall back to - which is the listening decision.
+  arrives, which no transcription service reachable from here offers. There is
+  no fallback chain by decision: Kokoro is the voice, and there is nothing
+  local to fall back to.
 - Lorebook matching is literal keywords plus common English plurals over a
   three-message window, so it will still miss a paraphrase that shares no key. This is a deliberate trade for predictable,
   debuggable behavior with no embedding model or extra service; the preview route
@@ -232,9 +233,6 @@ change that alters them.
   resampling and can reject every candidate, and it makes an optional service
   load-bearing. ADR 0031 redirects resemblance to a declared structural
   mechanism and demotes comparison to advisory measurement.
-- Current TTS supports corrected request/response generation and basic OpenAI
-  voice direction, but not the streaming, cancellation, fallback, or evaluation
-  behavior needed by the voice-first target.
 - Login throttling and metrics are in-process because the supported deployment
   is one private-LAN application process. A future multi-replica/public design
   would require shared rate-limit and telemetry infrastructure and a new threat

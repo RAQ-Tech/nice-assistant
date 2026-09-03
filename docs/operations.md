@@ -282,6 +282,46 @@ Provider hosts outside private/Tailscale literals and recognized `.lan`,
 `NICE_ASSISTANT_PROVIDER_HOST_ALLOWLIST`. Do not add a public hostname merely to
 silence validation; an entry authorizes server-side requests to that host.
 
+## Local speech services
+
+The voice the product speaks with is a Kokoro-compatible service on the LAN,
+and the ear is a Whisper service on the LAN. Both are separate containers, and
+neither is required for chat; without them speech is off and the settings say
+so. This is the arrangement the owner chose on 2026-09-02, and it is the only
+one that keeps a spoken turn on the machine.
+
+**Transcription with the LinuxServer faster-whisper container.** The image
+`lscr.io/linuxserver/faster-whisper` speaks the Wyoming protocol on port 10300,
+which Transcription already offers as a connection shape. Three settings on the
+container matter:
+
+- The tag. `latest` runs on the CPU, where a large model transcribes at about
+  twice real time - eight seconds for four seconds of speech - which is too slow
+  to talk to. `gpu` runs on an Nvidia card and needs the Nvidia container
+  toolkit with the GPU exposed to the container (on Unraid, the Nvidia driver
+  plugin and `--runtime=nvidia` in the container's extra parameters).
+- `WHISPER_MODEL`. A model sized for the card it shares: on a 12 GB card that
+  also holds the chat model, `turbo` (large-v3-turbo) is the best fit when the
+  container accepts the name - near large-v3 accuracy at a fraction of the
+  time - and `medium.en` or `small.en` when memory is tight. `large-v3` on the
+  GPU is accurate but takes the most memory. Nothing here has measured these on
+  the deployment; the first hands-free turn is the test.
+- `WHISPER_LANG`. `en` for English; `auto` detects, at a small cost.
+
+Then in Settings, Transcription: Transcribed by "Local service - on this
+machine", Connection "Wyoming", Service address the server's LAN host and port
+10300. The address must pass the private-LAN policy, so a public host is refused
+at save time. Hands-free listening and transcribing at pauses are off by
+default; turn them on once a held-button turn transcribes correctly.
+
+An OpenAI-compatible Whisper server (speaches, whisper.cpp's server, LocalAI) is
+the other shape Transcription offers. It buys nothing over Wyoming here; the
+container the deployment already runs is the one to keep.
+
+**Speech with Kokoro.** A Kokoro-compatible HTTP service on the LAN, port 8880
+by convention. Spoken replies: "Local service - on this machine", the service
+address, and a voice name the service reports.
+
 ## Runtime lifecycle
 
 Start development and installed deployments with `python -m app.asgi`. Uvicorn is

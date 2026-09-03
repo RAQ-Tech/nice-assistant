@@ -112,8 +112,9 @@ Three speech behaviours are implemented against the local Kokoro path and are
 **not accepted on the installed deployment**: speech that starts before
 synthesis finishes, interruption that stops the provider work rather than only
 the sound, and hands-free listening that decides when a turn ended. Implemented
-is not accepted; none of it has run on the real topology, and none of it selects
-a speech provider - that still needs the listening evaluation.
+is not accepted; none of it has run on the real topology. The speech provider
+is Kokoro by the owner's decision of 2026-09-02, not by an evaluation, and
+nothing here claims one was run.
 
 None of it may be described as live transcription. Transcription can now begin
 at a pause rather than at the end of a turn (ADR 0041), but nothing is refined

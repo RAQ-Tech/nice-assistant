@@ -273,20 +273,23 @@ each other by design. See ADR 0030.
 
 ## Voice core
 
-10. Blind TTS evaluation and provider decision. **Still deferred** - it needs an
-    operator listening session, and nothing else here selects a provider.
+10. Blind TTS evaluation and provider decision. **Decided 2026-09-02** - the
+    owner chose the local Kokoro service as the voice without a listening
+    session; see `BACKLOG.md` section 2, item 5.
 11. Streaming, provider-neutral TTS v2. **Delivered 2026-08-17**, against the
     local Kokoro path; see ADR 0037.
 12. Hybrid STT and turn detection. **Turn detection delivered 2026-08-17**; see
-    ADR 0038. Hybrid STT still waits on step 10.
+    ADR 0038. Local transcription is a Whisper service on the LAN, which is a
+    deployment step rather than a provider question.
 13. Natural turn-taking and barge-in. **Barge-in delivered 2026-08-17**; see
     ADR 0036.
 
 What separated the delivered half from the deferred half is whether it implies
 choosing a provider. Streaming, interruption, and turn detection are properties
 of the transport and the browser, and were built without claiming any provider
-had been evaluated. Fallback chains and provider replacement are the decision
-itself, and remain deferred while the working Kokoro path is available. They are not prerequisites for the media
+had been evaluated. Fallback chains and provider replacement were the decision
+itself, and the owner closed it on 2026-09-02: Kokoro is the voice, and there
+is nothing local to fall back to. They are not prerequisites for the media
 and platform foundation below. Once the current human-experience restoration is
 accepted in production, these voice steps are the next capability expansion;
 additional catalog breadth does not take priority over them.

@@ -201,7 +201,9 @@ match a shipped graph would be the hand-editing templates exist to remove.
 Install the
 PhotoMaker v2 template against an SDXL photoreal checkpoint, add one approved
 reference, and ask for a picture. That is the first honest end-to-end proof, and
-no test here can substitute for it.
+no test here can substitute for it. The owner confirmed on 2026-09-02 that the
+PhotoMaker v2 node and model are installed on the deployment's ComfyUI, so
+what remains is the template install, a photo, and the picture.
 **Done when** a picture with a recognizable face exists and its generation log
 shows the conditioning stage.
 
@@ -225,8 +227,10 @@ because several items below only make sense against it: **the persona should
 feel real, and an explicit conversation should be fully contained on this
 machine with no cloud service involved.** Chat, images, the voice you hear and -
 since 1F-5 landed on 2026-08-17 - the voice you speak can all run here. Every
-part of that goal is now built in this repository. What it waits on is a Whisper
-service running on the LAN, which is a deployment step rather than work here.
+part of that goal is now built in this repository. What it waits on is the
+Transcription setting being pointed at the Whisper service the deployment
+already runs, which is a deployment step rather than work here; the steps are
+in `docs/operations.md` under local speech services.
 
 Order was: 1F-1 first because it closed a hole for the price of some words, then
 1F-3 and 1F-4 because they are what make a persona feel like itself, then 1F-5,
@@ -295,8 +299,12 @@ a Whisper service on the LAN for 1F-5, and the installed identity journey that
     policy at save time so "local" cannot mean a host on the internet, and a
     `text/plain` reply is accepted as the transcript it is. See
     [ADR 0040](docs/decisions/0040-a-spoken-turn-that-stays-here.md).
-    **Needs on the deployment:** a Whisper service running on the LAN. Until
-    there is one, transcription is OpenAI or off and the microphone says which.
+    **Needs on the deployment:** pointing Transcription at the Whisper service
+    that already runs there - it speaks Wyoming on port 10300 - and, for a
+    conversation at speaking pace, running it on the GPU with a model sized
+    for it. The owner confirmed the container on 2026-09-02; the steps are in
+    `docs/operations.md`. Until then transcription is OpenAI or off, and the
+    microphone says which.
 
 ### 1G. Handing you the keys, continued
 
@@ -359,6 +367,33 @@ video decision (item 0b) left behind.
     has not downloaded together with the files it does have. The first clip is
     item 16 in section 4.
 
+5. **The Pictures pages, in the model-page shape.** Chosen by the owner on
+    2026-09-02 as the next work once the four above were done. Image
+    Generation, Video Generation, Media Catalog and Persona Pictures are the
+    last group in the earlier shape - cards with an information icon on
+    every row, and folds inside folds. Redo them the way the rest was done:
+    the group page is a list of plain things, each preset, workflow and LoRA
+    opens a page of its own, help waits on hover, and the identity
+    machinery stays behind the face.
+    **Done when** every Pictures page opens to a list or to one sparse page,
+    no page carries more than one visible hint or an information icon, the
+    model page stays the door to a model, and the settings tests and browser
+    journeys pass against the new shape.
+
+6. **Fold Persona Pictures into the persona's page.** Chosen by the owner on
+    2026-09-02. The persona's page carries the face now, and Persona Pictures
+    holds the same card again beside preferred recipes, kept pictures, and
+    the folded comparison tools. One page per persona, nothing twice:
+    preferred recipes and kept pictures move under the persona, the
+    comparison service, its outcome policy, manual comparison and the
+    activity record fold under the face's own fold, and the Persona Pictures
+    entry leaves the settings menu. Every deep link that named it lands on
+    the persona instead. Belongs with item 5, since Persona Pictures is one
+    of the four Pictures pages.
+    **Done when** nothing a persona owns is shown on two pages, the settings
+    menu has no Persona Pictures entry, and an identity block from a chat
+    still lands on the persona's page.
+
 ## 2. Decided
 
 Answered by the owner on 2026-08-17, with additions from the settings
@@ -420,6 +455,13 @@ listed item; none of them is open any more.
     which kind it is, and the homepage says where each part of a conversation
     currently goes. Becomes item 1F-1.
 
+5. **Kokoro is the voice** (owner, 2026-09-02). The two voice-core items that
+    waited on a listening session are closed: the local Kokoro service is the
+    speech provider, a Whisper service on the LAN is the ear, and no fallback
+    chain is built because there is nothing local to fall back to. OpenAI
+    speech and transcription stay available as options, named as leaving the
+    machine, for people whose hardware cannot do better.
+
 Also settled, from the open questions:
 
 - **Memories follow the persona across workspaces.** One persona is one
@@ -434,16 +476,16 @@ Also settled, from the open questions:
 ## 3. Blocked - operator
 
 Phase 6 of `docs/human-experience-realignment-plan.md`. These were the five open
-voice-core items and the highest product priority once unblocked, and three of
-them are now delivered.
+voice-core items and the highest product priority once unblocked. All five are
+settled now: three delivered, two closed by the owner's decision of 2026-09-02.
 
 What separated the three from the two is whether a thing implies choosing a
 speech provider. Streaming, interruption, and end-of-turn detection are
 properties of the transport and the browser; they were built against the
 existing Kokoro path with no provider claimed, and are recorded as ADRs 0036 to
-0038. Items 8 and 9 are the decision itself, and neither can move until an
-operator listening session has happened. No unverified provider support may be
-advertised before it exists.
+0038. Items 8 and 9 were the decision itself; the owner made it on 2026-09-02
+(section 2, item 5) without a listening session, and both are closed below. No
+unverified provider support may be advertised before it exists.
 
 Everything delivered here is implemented, not accepted: none of it has run on
 the installed deployment. See `docs/deployment-acceptance.md`.
@@ -479,13 +521,17 @@ the installed deployment. See `docs/deployment-acceptance.md`.
     This is manual interruption done properly. It is not the product noticing
     that somebody has started talking over it, which nothing here does.
 
-8. **Approved quality-first and local fallback chains for TTS and STT**, with
-    compact user-facing degradation notices. Requires the approved provider
-    chain from item 16.
+8. **Fallback chains for TTS and STT - closed by decision, 2026-09-02.** The
+    owner chose Kokoro as the voice and a Whisper service on the LAN as the
+    ear (section 2, item 5). There is nothing local to fall back to, and
+    falling back to a cloud service would contradict a conversation that
+    stays on this machine, so no chain is built. A service that is down says
+    so in the words the product already has.
 
-9. **Repeatable provider evaluation** on latency, reliability, and blind
-    listening criteria - not configuration readiness alone. This is the
-    evaluation that unblocks item 15 and deferred roadmap steps 10-13.
+9. **Provider evaluation - closed by decision, 2026-09-02.** The listening
+    session it waited on was the choice itself, and the owner made it without
+    one: Kokoro. Comparing the voices the Kokoro service offers is something
+    anybody can do by ear from the speech settings; it gates nothing.
 
 Also blocked here: **final task-model selection**, which needs live latency and
 quality evaluation on the deployment GPU rather than the developer screening
@@ -495,7 +541,9 @@ checks that exist today. Source: `docs/debt-register.md`.
 
 Requires the installed private-LAN deployment and, where noted, a supervised
 session. Implementation is published for all of these; what remains is
-acceptance.
+acceptance. The owner chose on 2026-09-02 to walk these through together in a
+session - one item at a time, with what to do and what to look for - rather
+than from a checklist, and to exercise preset routing on the way.
 
 10. **Deployment guard migration.** Complete the one-time supervised migration
     from the legacy direct guard, then prove remote guard update, guard
@@ -539,8 +587,10 @@ surface.
 
 - **Remove the routing tester** once preset routing is demonstrably stable on
   the deployment. It exists to make routing-card authoring observable rather
-  than guesswork; when routing is trusted it is clutter. Source: ADR 0030,
-  `docs/settings-experience.md`.
+  than guesswork; when routing is trusted it is clutter. The owner said on
+  2026-09-02 that routing is still largely untested and asked for it to stay,
+  with routing exercised as part of the acceptance walkthrough in section 4.
+  Source: ADR 0030, `docs/settings-experience.md`.
 - **Delete the OpenAI video adapter** after 2026-09-24, when its API stops
   answering. Item 1G-3.
 
@@ -559,16 +609,17 @@ no stub is ever shipped in its place. See `docs/debt-register.md`.
   its pauses and transcribing each piece while the next is still being spoken,
   which is off by default because it does more total work. See
   [ADR 0041](docs/decisions/0041-transcribing-before-somebody-has-finished.md).
-- Speech provider fallback chains. Choosing what to fall back to is the
-  listening decision, which has not been made.
+- Speech provider fallback chains. Kokoro is the voice by decision (section
+  2, item 5) and there is nothing local to fall back to; a chain that fell
+  back to a cloud service would contradict a conversation that stays here.
 - Masking the server's outbound address (VPN or Tailscale) for optional
   internet lookups such as the CivitAI model lookup. Owner-wanted long term
   (2026-08-26). Today the honest statement is that a lookup goes out from the
   server's own address, and routing it through a tunnel is an Unraid-level
   choice; an in-app option must not ship as a checkbox that does nothing.
-- Speech from a provider this deployment has not evaluated. Streaming and
-  interruption are built against the local Kokoro path; neither is a claim that
-  any particular provider has been chosen or heard.
+- Speech from a provider this deployment has not heard. Streaming and
+  interruption are built against the local Kokoro path, which is the provider
+  by decision; nothing else is claimed to have been evaluated.
 - Automatic mask creation. Multi-reference identity fusion was on this list and
   is not any more: it was approved on 2026-08-17 and is item 1F-4.
 - Preset discovery, ratings, or a shared registry. Export and import deliver a file
