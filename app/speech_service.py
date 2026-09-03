@@ -15,6 +15,7 @@ from app.wyoming_client import (
 )
 from app.repositories import UnitOfWork
 from app.service_errors import NotFoundError, RequestError
+from app.speech_sessions import SpeechSessionRegistry
 from app.speech_clients import (
     STREAMABLE_FORMATS,
     SpeechCancelled,
@@ -42,6 +43,7 @@ class SpeechService:
         self.logger = logger
         self.provider_url_policy = provider_url_policy
         self.metrics = metrics
+        self.sessions = SpeechSessionRegistry()
 
     def _uow(self):
         return UnitOfWork(self.session_factory, self.secret_store)
@@ -104,6 +106,95 @@ class SpeechService:
         audio_id = secrets.token_hex(8)
         return audio_id, plan["format"], self._streamed_audio(user_id, plan, audio_id, cancelled)
 
+    def begin_speech_session(self, user_id: str, values: dict) -> dict:
+        """One reply about to be spoken a sentence at a time. See ADR 0042.
+
+        The voice, model, speed and format are settled once, here, so every
+        piece of the reply is spoken the same way. The id the recording will
+        be stored under is known now, before a word has been said.
+        """
+
+        plan = self._speech_plan(user_id, values, text_required=False)
+        if plan["format"] not in STREAMABLE_FORMATS:
+            raise RequestError(
+                f"'{plan['format']}' audio cannot be played before it is complete. "
+                f"Choose one of: {', '.join(STREAMABLE_FORMATS)}.",
+                400,
+            )
+        session = self.sessions.begin(user_id, plan)
+        return {"session_id": session.id, "audio_id": session.id, "format": plan["format"]}
+
+    def stream_session_piece(self, user_id: str, session_id: str, text, cancelled=None) -> tuple[str, object]:
+        """Speak one finished sentence of the reply, as it is produced."""
+
+        session = self.sessions.get(user_id, session_id)
+        text = str(text or "").strip()
+        if not text:
+            raise RequestError("text required", 400)
+        if len(text) > self.config.max_tts_text_chars:
+            raise RequestError("TTS text too long", 413)
+        if session.abandoned:
+            raise RequestError("This reply's speech was stopped; nothing more of it is spoken.", 409)
+        plan = {**session.plan, "text": text}
+        return plan["format"], self._session_piece(session, plan, cancelled)
+
+    def _session_piece(self, session, plan: dict, cancelled):
+        started = time.monotonic()
+        outcome = "failed"
+        produced = []
+        try:
+            for piece in self._provider_stream(plan, cancelled):
+                produced.append(piece)
+                yield piece
+            outcome = "completed"
+        except SpeechCancelled:
+            outcome = "cancelled"
+            session.abandoned = True
+            raise
+        except GeneratorExit:
+            # The browser stopped listening mid-piece. Nothing half-said
+            # may become part of the recording, so the session is over.
+            outcome = "cancelled"
+            session.abandoned = True
+            raise
+        except RequestError:
+            session.abandoned = True
+            raise
+        except Exception as exc:
+            session.abandoned = True
+            raise self._provider_failure(plan["provider"], exc) from exc
+        finally:
+            if self.metrics:
+                self.metrics.provider(
+                    plan["provider"], "speech_piece", outcome, int((time.monotonic() - started) * 1000)
+                )
+        # Only a piece that finished joins the recording.
+        with session.lock:
+            session.collected.append(b"".join(produced))
+
+    def finish_speech_session(self, user_id: str, session_id: str) -> dict:
+        """The reply is written and spoken: store it once, as one recording."""
+
+        session = self.sessions.get(user_id, session_id)
+        self.sessions.drop(session_id)
+        if session.abandoned:
+            raise RequestError("This reply's speech was stopped, so no recording was kept.", 409)
+        with session.lock:
+            audio = b"".join(session.collected)
+        if not audio:
+            raise RequestError("Nothing was spoken in this session.", 400)
+        return self._store_audio(user_id, session.plan, session.id, audio)
+
+    def abandon_speech_session(self, user_id: str, session_id: str) -> None:
+        """The person stopped it. Quiet if it is already gone: a stop may race the reply's end."""
+
+        try:
+            session = self.sessions.get(user_id, session_id)
+        except NotFoundError:
+            return
+        session.abandoned = True
+        self.sessions.drop(session_id)
+
     def _streamed_audio(self, user_id: str, plan: dict, audio_id: str, cancelled):
         started = time.monotonic()
         outcome = "failed"
@@ -165,11 +256,11 @@ class SpeechService:
             retryable=True,
         )
 
-    def _speech_plan(self, user_id: str, values: dict) -> dict:
+    def _speech_plan(self, user_id: str, values: dict, text_required: bool = True) -> dict:
         """Everything a synthesis needs, resolved once from settings and persona."""
 
         text = str(values.get("text") or "").strip()
-        if not text:
+        if not text and text_required:
             raise RequestError("text required", 400)
         if len(text) > self.config.max_tts_text_chars:
             raise RequestError("TTS text too long", 413)

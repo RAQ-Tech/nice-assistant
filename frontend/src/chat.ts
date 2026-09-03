@@ -6,11 +6,13 @@ import { modelSettings } from './settings';
 import { clearIdentitySetupContextForChat, machine, state, type ClientStateMachine } from './state';
 import type { AppState, CapabilityRequest, Chat, Job, Message, TurnEvent } from './types';
 import type { PlaybackController } from './playback';
+import { ReplySpeaker } from './reply_speaker';
 
 export class ChatController {
   private onChange: () => void = () => undefined;
   private onNavigate: (chatId: string) => void = () => undefined;
   private streamAbort: AbortController | null = null;
+  private speaker: ReplySpeaker | null = null;
   private readonly capabilityPolls = new Set<string>();
 
   constructor(
@@ -90,7 +92,10 @@ export class ChatController {
   async send(rawText: string): Promise<void> {
     const text = rawText.trim();
     if (!text) return;
-    if (this.appState.phase === 'speaking') this.playback.stop(false);
+    // Speech while the reply is still being written is not barge-in: the
+    // stop control ends the turn and its speech together. Once the reply is
+    // complete, typing over the voice stops it, as before.
+    if (this.appState.phase === 'speaking' && !this.appState.pendingRequest) this.playback.stop(false);
     if (this.appState.pendingRequest) return;
     if (this.appState.phase === 'error') this.stateMachine.recover();
     if (!['idle', 'transcribing'].includes(this.appState.phase)) return;
@@ -132,12 +137,19 @@ export class ChatController {
       ownedJobId = accepted.job.id;
       ownedAbort = abort;
       this.streamAbort = abort;
+      // Each finished sentence is spoken as it is written (ADR 0042); a
+      // format that cannot start early speaks the completed reply below.
+      this.speaker?.stop();
+      this.speaker = this.playback.beginPieces(typing.id)
+        ? new ReplySpeaker(this.playback, this.client, chat.id, chat.persona_id, settings.tts_format || 'wav')
+        : null;
       this.appState.pendingRequest = {
         jobId: accepted.job.id,
         turnId: accepted.turn.id,
         progress: accepted.job.progress || 'Queued',
         cancel: async () => {
           abort.abort();
+          this.speaker?.stop();
           await this.client.cancelJob(accepted.job.id);
         },
       };
@@ -147,7 +159,8 @@ export class ChatController {
       if (job.status !== 'completed') throw new Error(job.error || `Turn ${job.status}`);
       const detail = await this.reconcileChat(chat.id);
       this.releaseRequest(ownedJobId, ownedAbort);
-      this.stateMachine.transition('idle');
+      // A reply already being spoken keeps its phase; playback ends it.
+      if (this.appState.phase !== 'speaking') this.stateMachine.transition('idle');
       this.onChange();
       const followupJobIds = Array.isArray(job.result?.followup_job_ids)
         ? job.result.followup_job_ids.filter((item): item is string => typeof item === 'string' && Boolean(item))
@@ -156,9 +169,12 @@ export class ChatController {
           : [];
       followupJobIds.forEach((followupJobId) => void this.reconcileFollowup(chat.id, followupJobId));
       const assistant = [...detail.messages].reverse().find((message) => message.role === 'assistant');
+      const speaker = this.speaker;
+      this.speaker = null;
       if (assistant?.text.trim()) {
         try {
-          await this.playback.synthesize(assistant.text, assistant.id, chat.id, chat.persona_id);
+          if (speaker) await speaker.finish(assistant.text, assistant.id);
+          if (!speaker?.spokeAnything) await this.playback.synthesize(assistant.text, assistant.id, chat.id, chat.persona_id);
         } catch (error) {
           const message = errorMessage(error, 'Audio could not be played.');
           this.appState.messageAudioErrors[assistant.id] = message;
@@ -171,6 +187,8 @@ export class ChatController {
         }
       }
     } catch (error) {
+      this.speaker?.stop();
+      this.speaker = null;
       const aborted = ownedAbort?.signal.aborted || (error instanceof DOMException && error.name === 'AbortError');
       this.appState.messages = this.appState.messages.filter((message) => message !== typing);
       try {
@@ -255,6 +273,7 @@ export class ChatController {
       const delta = event.data.text;
       if (typeof delta === 'string') typing.text += delta;
       typing.isTyping = true;
+      this.speaker?.observe(typing.text);
     } else if (event.event === 'turn.failed') {
       const error = event.data.error;
       if (typeof error === 'object' && error !== null && 'message' in error) {

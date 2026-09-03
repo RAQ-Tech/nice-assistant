@@ -12,6 +12,8 @@ export class PlaybackController {
   private sequence = 0;
   private activePlaybackToken: number | null = null;
   private synthesis: AbortController | null = null;
+  /** A reply being spoken in pieces into one stream (ADR 0042). */
+  private pieces: { token: number; sink: AudioStreamSink; started: boolean; mimeType: string; messageId: string } | null = null;
 
   constructor(
     private readonly audio: HTMLAudioElement,
@@ -122,6 +124,71 @@ export class PlaybackController {
     }
   }
 
+  /**
+   * Start a reply that will be spoken a sentence at a time, while it is
+   * still being written. False when this format cannot start early, so the
+   * caller speaks the completed reply instead, exactly as before.
+   */
+  beginPieces(messageId: string): boolean {
+    const settings = this.appState.settings;
+    if (!settings || settings.tts_provider === 'disabled' || !this.appState.voiceResponsesEnabled) return false;
+    const mimeType = streamableMimeType(settings.tts_format || 'wav');
+    if (!mimeType) return false;
+    const token = this.begin(messageId);
+    this.pieces = { token, sink: this.createSink(), started: false, mimeType, messageId };
+    return true;
+  }
+
+  /**
+   * Speak one piece into the stream as it arrives. False once the stream is
+   * over - stopped by the person, or failed - so nothing more is queued.
+   */
+  async appendPiece(fetchPiece: (signal: AbortSignal) => Promise<Response>): Promise<boolean> {
+    const current = this.pieces;
+    if (!current || current.token !== this.sequence) return false;
+    const request = new AbortController();
+    this.synthesis = request;
+    try {
+      const response = await fetchPiece(request.signal);
+      const body = response.body;
+      if (!body) return false;
+      if (!current.started) {
+        const url = await current.sink.open(current.mimeType);
+        if (current.token !== this.sequence) return false;
+        current.started = true;
+        // The element is given the growing source before any piece has
+        // arrived, so it begins the moment there is enough to begin with.
+        void this.playPrepared(current.messageId, url, current.token);
+      }
+      const reader = body.getReader();
+      for (;;) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        if (current.token !== this.sequence) return false;
+        await current.sink.append(value);
+      }
+      return current.token === this.sequence;
+    } catch {
+      return false;
+    } finally {
+      if (this.synthesis === request) this.synthesis = null;
+    }
+  }
+
+  /** No more pieces. The element plays out what it has; replay uses the stored whole. */
+  async endPieces(audioUrl: string | null, messageId: string): Promise<void> {
+    const current = this.pieces;
+    if (!current) return;
+    this.pieces = null;
+    if (current.token !== this.sequence) return;
+    // The reply's final id may differ from the one it was typed under.
+    if (this.appState.currentAudioMessageId === current.messageId) this.appState.currentAudioMessageId = messageId;
+    if (audioUrl) this.appState.messageAudioById[messageId] = audioUrl;
+    if (current.started) await current.sink.end();
+    current.sink.close();
+    this.onChange();
+  }
+
   async play(messageId: string, url: string): Promise<void> {
     const token = this.begin(messageId);
     await this.playPrepared(messageId, url, token);
@@ -130,6 +197,8 @@ export class PlaybackController {
   stop(render = true): void {
     this.sequence += 1;
     this.activePlaybackToken = null;
+    this.pieces?.sink.close();
+    this.pieces = null;
     // Muting the output while the provider keeps generating is what barge-in
     // is not. Aborting tells the server nobody is waiting, and it stops.
     this.synthesis?.abort();
@@ -153,7 +222,8 @@ export class PlaybackController {
     this.appState.currentAudioMessageId = messageId;
     try {
       await this.audio.play();
-      if (token !== this.sequence || this.appState.phase !== 'idle') {
+      // A reply spoken while it is written starts from thinking, not idle.
+      if (token !== this.sequence || !['idle', 'thinking'].includes(this.appState.phase)) {
         if (this.activePlaybackToken === token) {
           this.activePlaybackToken = null;
           this.haltAudio();

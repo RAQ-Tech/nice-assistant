@@ -129,6 +129,7 @@ describe('ChatController', () => {
     const playback = {
       stop: vi.fn(() => { appState.phase = 'idle'; }),
       synthesize: vi.fn().mockResolvedValue(undefined),
+      beginPieces: vi.fn().mockReturnValue(false),
     } as unknown as PlaybackController;
     const controller = new ChatController(
       playback,
@@ -156,6 +157,7 @@ describe('ChatController', () => {
     const playback = {
       stop: vi.fn(),
       synthesize: vi.fn().mockReturnValue(speechPending),
+      beginPieces: vi.fn().mockReturnValue(false),
     } as unknown as PlaybackController;
     const renderedTitles: Array<string | null | undefined> = [];
     const controller = new ChatController(
@@ -188,7 +190,7 @@ describe('ChatController', () => {
       ...completedTurnClient(named),
       streamTurn: vi.fn().mockReturnValue(runningTurn),
     };
-    const playback = { stop: vi.fn(), synthesize: vi.fn() } as unknown as PlaybackController;
+    const playback = { stop: vi.fn(), synthesize: vi.fn(), beginPieces: vi.fn().mockReturnValue(false) } as unknown as PlaybackController;
     const controller = new ChatController(
       playback,
       appState,
@@ -210,6 +212,7 @@ describe('ChatController', () => {
     const playback = {
       stop: vi.fn(),
       synthesize: vi.fn().mockRejectedValue(new Error('speaker unavailable')),
+      beginPieces: vi.fn().mockReturnValue(false),
     } as unknown as PlaybackController;
     const controller = new ChatController(
       playback,
@@ -224,5 +227,52 @@ describe('ChatController', () => {
     expect(appState.uiError).toBe('');
     expect(appState.messageAudioErrors['assistant-1']).toContain('speaker unavailable');
     expect(client.clientEvent).toHaveBeenCalledWith('tts.playback_error', expect.stringContaining('speaker unavailable'));
+  });
+
+  it('speaks each finished sentence while the reply is written, never past the text', async () => {
+    const chat = chatWithTitle('Existing title');
+    const appState = readyState(chat);
+    appState.settings = { ...appState.settings, tts_format: 'mp3' } as Settings;
+    const spoken: string[] = [];
+    const client = {
+      ...completedTurnClient(chat),
+      streamTurn: vi.fn(async (_turnId: string, onEvent: (event: unknown) => void) => {
+        onEvent({ event: 'assistant.delta', data: { text: 'Here is the first sentence, long enough to speak. ' } });
+        onEvent({ event: 'assistant.delta', data: { text: 'And the second' } });
+      }),
+      chat: vi.fn().mockResolvedValue({
+        chat,
+        messages: [
+          { id: 'user-1', role: 'user', text: 'Hello', created_at: 1 },
+          { id: 'assistant-1', role: 'assistant', text: 'Here is the first sentence, long enough to speak. And the second, done.', created_at: 2 },
+        ],
+      }),
+      beginSpeechSession: vi.fn().mockResolvedValue({ session_id: 's1', audio_id: 'a1', format: 'mp3' }),
+      streamSpeechPiece: vi.fn(async (_session: string, text: string) => {
+        spoken.push(text);
+        return new Response(new Blob(['x']));
+      }),
+      finishSpeechSession: vi.fn().mockResolvedValue({ audio_id: 'a1', format: 'mp3' }),
+      abandonSpeechSession: vi.fn().mockResolvedValue({ ok: true }),
+    };
+    const playback = {
+      stop: vi.fn(),
+      synthesize: vi.fn(),
+      beginPieces: vi.fn().mockReturnValue(true),
+      appendPiece: vi.fn(async (fetchPiece: (signal: AbortSignal) => Promise<Response>) => {
+        await fetchPiece(new AbortController().signal);
+        return true;
+      }),
+      endPieces: vi.fn(async () => undefined),
+    } as unknown as PlaybackController;
+    const controller = new ChatController(playback, appState, new ClientStateMachine(appState), client as unknown as ApiClient);
+
+    await controller.send('Hello');
+
+    // The first sentence went while the second was still being written; the
+    // second went when the reply was complete; nothing went twice.
+    expect(spoken).toEqual(['Here is the first sentence, long enough to speak.', 'And the second, done.']);
+    expect(playback.endPieces).toHaveBeenCalledWith('/api/v1/audio/a1', 'assistant-1');
+    expect(playback.synthesize).not.toHaveBeenCalled();
   });
 });

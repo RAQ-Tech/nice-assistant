@@ -15,6 +15,8 @@ class BrowserArchitectureTests(unittest.TestCase):
             "catalog_models_view.ts",
             "catalog_setup_view.ts",
             "recipe_page_view.ts",
+            "reply_speaker.ts",
+            "sentence_boundaries.ts",
             "recipe_tools_view.ts",
             "resource_page_view.ts",
             "chat.ts",
@@ -94,7 +96,11 @@ class BrowserArchitectureTests(unittest.TestCase):
         self.assertLess((SOURCE / "turn_detection.ts").read_text(encoding="utf-8").count("\n"), 220)
         self.assertLess((SOURCE / "recording.ts").read_text(encoding="utf-8").count("\n"), 280)
         self.assertLess((SOURCE / "transcript_segments.ts").read_text(encoding="utf-8").count("\n"), 120)
-        self.assertLess((SOURCE / "playback.ts").read_text(encoding="utf-8").count("\n"), 250)
+        # Playback gained a second way in - a reply spoken in pieces into the one
+        # stream (ADR 0042) - on the same element and sink machinery.
+        self.assertLess((SOURCE / "playback.ts").read_text(encoding="utf-8").count("\n"), 300)
+        self.assertLess((SOURCE / "reply_speaker.ts").read_text(encoding="utf-8").count("\n"), 160)
+        self.assertLess((SOURCE / "sentence_boundaries.ts").read_text(encoding="utf-8").count("\n"), 80)
         self.assertLess((SOURCE / "identity_workflow_setup_view.ts").read_text(encoding="utf-8").count("\n"), 520)
         self.assertIn("strict", (ROOT / "tsconfig.json").read_text(encoding="utf-8"))
         self.assertIn('src="/app.js"', (ROOT / "web" / "index.html").read_text(encoding="utf-8"))
