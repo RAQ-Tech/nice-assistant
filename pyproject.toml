@@ -9,7 +9,7 @@ description = "Private-LAN, voice-first assistant"
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
-  "alembic==1.19.1",
+  "alembic==1.19.2",
   "cryptography==50.0.1",
   "fastapi==0.141.1",
   "Pillow==12.3.0",
@@ -22,7 +22,7 @@ dependencies = [
 dev = [
   "coverage==7.16.0",
   "httpx==0.28.1",
-  "ruff==0.16.5",
+  "ruff==0.16.6",
 ]
 
 [tool.setuptools.packages.find]
