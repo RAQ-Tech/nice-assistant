@@ -8,6 +8,9 @@ change that alters them.
 - Cookie-session authentication and first-user administration for private-LAN
   use, subject to the hardening items below.
 - Owner-scoped chat, job, media, audio, and memory API coverage.
+- Video generation is local-only through cataloged ComfyUI workflows. The
+  retired cloud adapter and its misleading settings were deleted; existing
+  generated media and historical execution-plan snapshots remain readable.
 - A persona's voice settings are keyed by provider rather than stored in columns
   named after one. Nine text-to-speech columns became one object holding the
   providers a persona has an opinion about, plus an optional `default` any

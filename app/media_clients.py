@@ -18,9 +18,6 @@ from app.media import (
     local_seed_for_backend,
     local_steps_from_quality,
     normalize_openai_image_quality,
-    normalize_video_model,
-    normalize_video_seconds,
-    normalize_video_size,
     parse_additional_parameters,
     parse_image_size,
 )
@@ -98,126 +95,6 @@ def openai_auth_json_request(url, payload, api_key, timeout=180):
     )
     with urllib.request.urlopen(request, timeout=timeout) as response:
         return json.loads(response.read().decode())
-
-
-def openai_get_json(url, api_key, timeout=120):
-    request = urllib.request.Request(url, headers={"Authorization": f"Bearer {api_key}"}, method="GET")
-    with urllib.request.urlopen(request, timeout=timeout) as response:
-        return json.loads(response.read().decode())
-
-
-def openai_get_bytes(url, api_key, timeout=300):
-    request = urllib.request.Request(url, headers={"Authorization": f"Bearer {api_key}"}, method="GET")
-    with urllib.request.urlopen(request, timeout=timeout) as response:
-        return response.read(), (response.headers.get("Content-Type") or "").lower()
-
-
-def extract_video_url(payload):
-    if isinstance(payload, dict):
-        for key in ("url", "video_url", "output_video_url"):
-            value = payload.get(key)
-            if isinstance(value, str) and value.startswith(("http://", "https://")):
-                return value
-        for key in ("data", "output", "result"):
-            nested = payload.get(key)
-            if isinstance(nested, (dict, list)):
-                found = extract_video_url(nested)
-                if found:
-                    return found
-    elif isinstance(payload, list):
-        for item in payload:
-            found = extract_video_url(item)
-            if found:
-                return found
-    return ""
-
-
-def openai_auth_multipart_request(url, fields, file_field, api_key, timeout=240):
-    boundary = "----NiceAssistantBoundary" + secrets.token_hex(8)
-    parts = []
-    for name, value in fields.items():
-        parts.append(f"--{boundary}\r\n".encode())
-        parts.append(f'Content-Disposition: form-data; name="{name}"\r\n\r\n{value}\r\n'.encode())
-    if file_field:
-        parts.append(f"--{boundary}\r\n".encode())
-        parts.append(
-            f'Content-Disposition: form-data; name="input_reference"; filename="{file_field.get("filename") or "reference.png"}"\r\n'.encode()
-        )
-        parts.append(f"Content-Type: {file_field.get('content_type') or 'application/octet-stream'}\r\n\r\n".encode())
-        parts.extend((file_field.get("value") or b"", b"\r\n"))
-    parts.append(f"--{boundary}--\r\n".encode())
-    request = urllib.request.Request(
-        url,
-        data=b"".join(parts),
-        headers={
-            "Content-Type": f"multipart/form-data; boundary={boundary}",
-            "Authorization": f"Bearer {api_key}",
-        },
-        method="POST",
-    )
-    with urllib.request.urlopen(request, timeout=timeout) as response:
-        return json.loads(response.read().decode())
-
-
-def openai_video(prompt, size, seconds, api_key, model="sora-2", input_reference=None):
-    normalized_model = normalize_video_model(model)
-    normalized_seconds = normalize_video_seconds(seconds)
-    normalized_size = normalize_video_size(size, normalized_model)
-    base = {"model": normalized_model, "prompt": str(prompt or "").strip()}
-    attempts = [
-        {**base, "seconds": normalized_seconds, "size": normalized_size},
-        {**base, "seconds": normalized_seconds},
-        {**base, "size": normalized_size},
-        base,
-    ]
-    response_payload = None
-    last_error = None
-    for payload in attempts:
-        try:
-            response_payload = (
-                openai_auth_multipart_request(
-                    "https://api.openai.com/v1/videos",
-                    {key: str(value) for key, value in payload.items()},
-                    input_reference,
-                    api_key,
-                )
-                if input_reference
-                else openai_auth_json_request("https://api.openai.com/v1/videos", payload, api_key, timeout=240)
-            )
-            break
-        except urllib.error.HTTPError as exc:
-            if exc.code != 400:
-                raise
-            last_error = exc
-    if response_payload is None:
-        if last_error:
-            raise last_error
-        raise ValueError("OpenAI video generation did not return a response payload")
-    video_url = extract_video_url(response_payload)
-    video_id = response_payload.get("id") if isinstance(response_payload, dict) else None
-    status = str((response_payload or {}).get("status") or "").lower()
-    if video_id and status in {"queued", "in_progress", "processing", "running", "pending", ""}:
-        for _ in range(45):
-            time.sleep(2)
-            polled = openai_get_json(f"https://api.openai.com/v1/videos/{video_id}", api_key)
-            status = str((polled or {}).get("status") or "").lower()
-            video_url = video_url or extract_video_url(polled)
-            if status in {"failed", "cancelled", "canceled", "error"}:
-                error = (polled or {}).get("error") or {}
-                suffix = f": {error.get('message')}" if isinstance(error, dict) and error.get("message") else ""
-                raise ValueError(f"OpenAI video generation failed with status '{status}'{suffix}")
-            if status in {"completed", "succeeded", "done"}:
-                break
-    if video_id and status in {"completed", "succeeded", "done"}:
-        content, content_type = openai_get_bytes(f"https://api.openai.com/v1/videos/{video_id}/content", api_key)
-    elif video_url:
-        with urllib.request.urlopen(video_url, timeout=300) as response:
-            content = response.read()
-            content_type = (response.headers.get("Content-Type") or "").lower()
-    else:
-        raise ValueError("OpenAI video response did not include downloadable content")
-    extension = ".webm" if "webm" in content_type else (".mov" if "quicktime" in content_type else ".mp4")
-    return content, extension
 
 
 def automatic1111_image(prompt, size, quality, allow_nsfw, base_url, local_settings=None):

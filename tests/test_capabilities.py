@@ -170,16 +170,47 @@ class CapabilityTests(unittest.TestCase):
         video_provider = FakeVideoProvider()
         with tempfile.TemporaryDirectory() as tmp, TestApp(Path(tmp), chat_provider=provider) as running:
             owner_id = running.create_and_login()
-            running.services.providers.media_providers["openai-video"] = video_provider
+            running.services.providers.media_providers["local-video"] = video_provider
             running.client.put(
                 "/api/v1/settings",
                 json={
-                    "openai_api_key": "sk-video-approval-test",
                     "preferences": {
-                        "video_provider": "openai",
+                        "video_provider": "local",
                     },
                 },
             )
+            model = running.client.post(
+                "/api/v1/media-catalog/resources",
+                json={
+                    "resource_type": "model",
+                    "kind": "video",
+                    "name": "Local video model",
+                    "provider_key": "local-video",
+                    "backend": "comfyui",
+                    "external_id": "local-video.safetensors",
+                    "operations": ["generate"],
+                    "features": ["text_to_video"],
+                },
+            )
+            self.assertEqual(model.status_code, 201, model.text)
+            workflow = running.client.post(
+                "/api/v1/media-catalog/resources",
+                json={
+                    "resource_type": "workflow",
+                    "kind": "video",
+                    "name": "Local video workflow",
+                    "provider_key": "local-video",
+                    "backend": "comfyui",
+                    "external_id": "local-video-workflow",
+                    "operations": ["generate"],
+                    "default_settings": {
+                        "workflow_patch": {"1": {"class_type": "CLIPTextEncode", "inputs": {"text": "saved prompt"}}},
+                        "prompt_bindings": [{"node_id": "1", "input_name": "text"}],
+                    },
+                    "compatible_model_ids": [model.json()["id"]],
+                },
+            )
+            self.assertEqual(workflow.status_code, 201, workflow.text)
             definitions = running.client.get("/api/v1/capabilities").json()["items"]
             self.assertFalse(next(item for item in definitions if item["key"] == "media.generate_image")["available"])
             video_definition = next(item for item in definitions if item["key"] == "media.generate_video")

@@ -8,7 +8,6 @@ from app.media_clients import (
     comfyui_image,
     comfyui_video,
     openai_image,
-    openai_video,
 )
 from app.provider_contracts import (
     CancellationToken,
@@ -96,28 +95,5 @@ class LocalVideoProvider:
         content_type = next(
             (ctype for known, ctype in VIDEO_OUTPUT_TYPES if known == extension),
             "video/mp4",
-        )
-        return MediaArtifact("video", content, extension, content_type)
-
-
-class OpenAIVideoProvider:
-    name = "openai-video"
-
-    def health(self):
-        return ProviderHealth(self.name, ProviderStatus.DEGRADED, "Use the authenticated provider check.")
-
-    def generate(self, request: MediaRequest, cancellation: CancellationToken) -> MediaArtifact:
-        cancellation.raise_if_cancelled()
-        content, extension = openai_video(
-            request.prompt,
-            request.options.get("size"),
-            request.options.get("seconds"),
-            request.options.get("api_key"),
-            model=request.options.get("model"),
-            input_reference=request.options.get("input_reference"),
-        )
-        cancellation.raise_if_cancelled()
-        content_type = (
-            "video/webm" if extension == ".webm" else ("video/quicktime" if extension == ".mov" else "video/mp4")
         )
         return MediaArtifact("video", content, extension, content_type)

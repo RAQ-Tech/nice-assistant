@@ -56,9 +56,6 @@ export const SETTINGS_DEFAULTS: Settings = {
   image_local_seed: '',
   image_local_additional_parameters: '',
   video_provider: 'disabled',
-  video_model: 'sora-2',
-  video_size: '720x1280',
-  video_duration: '4',
   models_context_window_tokens: '8192',
   user_display_name: '',
   user_profile: '',
@@ -222,17 +219,13 @@ export const SETTINGS_SECTION_KEYS: Record<SettingsSection, readonly (keyof Sett
 
 const IMAGE_QUALITY = new Set(['none', 'low', 'medium', 'high', 'auto']);
 const IMAGE_SIZES = new Set(['1024x1024', '1024x1536', '1536x1024', 'auto']);
-const VIDEO_MODELS = new Set(['sora-2', 'sora-2-pro']);
-const VIDEO_SECONDS = new Set(['4', '8', '12']);
-const VIDEO_SIZES: Record<string, readonly string[]> = {
-  'sora-2': ['720x1280', '1280x720'],
-  'sora-2-pro': ['720x1280', '1280x720', '1024x1792', '1792x1024'],
-};
-
 export function normalizeSettings(wire: SettingsWire): Settings {
   const preferences = { ...wire.preferences };
   delete preferences.image_prompt_generation;
   delete preferences.image_confirmation_policy;
+  delete preferences.video_model;
+  delete preferences.video_size;
+  delete preferences.video_duration;
   const rawImageProvider = String(preferences.image_provider ?? '').trim().toLowerCase();
   if (rawImageProvider === 'local/automatic1111') {
     preferences.image_provider = 'local';
@@ -258,9 +251,7 @@ export function normalizeSettings(wire: SettingsWire): Settings {
     ? String(values.image_local_backend).toLowerCase()
     : SETTINGS_DEFAULTS.image_local_backend;
   values.stt_send_pause_ms = boundedPause(values.stt_send_pause_ms);
-  values.video_model = normalizeVideoModel(values.video_model);
-  values.video_duration = normalizeVideoDuration(values.video_duration);
-  values.video_size = normalizeVideoSize(values.video_model, values.video_size);
+  values.video_provider = values.video_provider === 'local' ? 'local' : 'disabled';
   values.tts_voice_filter_regions = stringArray(values.tts_voice_filter_regions);
   values.tts_voice_filter_genders = stringArray(values.tts_voice_filter_genders);
   values.model_overrides = isRecord(values.model_overrides)
@@ -294,9 +285,6 @@ export function settingsWire(settings: Settings): SettingsWire {
   // Local only, by decision: a stored cloud choice saves as Off rather
   // than keeping an option alive that the page no longer offers.
   preferences.video_provider = settings.video_provider === 'local' ? 'local' : 'disabled';
-  preferences.video_model = normalizeVideoModel(settings.video_model);
-  preferences.video_size = normalizeVideoSize(settings.video_model, settings.video_size);
-  preferences.video_duration = normalizeVideoDuration(settings.video_duration);
   return {
     global_default_model: settings.global_default_model || null,
     default_memory_mode: settings.default_memory_mode,
@@ -342,26 +330,6 @@ export function normalizeImageQuality(value: unknown): string {
   const candidate = String(value ?? '').trim().toLowerCase();
   const normalized = candidate === 'standard' ? 'medium' : candidate === 'hd' ? 'high' : candidate;
   return IMAGE_QUALITY.has(normalized) ? normalized : SETTINGS_DEFAULTS.image_quality;
-}
-
-export function normalizeVideoModel(value: unknown): string {
-  const candidate = String(value ?? '').trim().toLowerCase();
-  return VIDEO_MODELS.has(candidate) ? candidate : SETTINGS_DEFAULTS.video_model;
-}
-
-export function availableVideoSizes(model: unknown): readonly string[] {
-  return VIDEO_SIZES[normalizeVideoModel(model)] ?? VIDEO_SIZES['sora-2'] ?? [];
-}
-
-export function normalizeVideoSize(model: unknown, value: unknown): string {
-  const options = availableVideoSizes(model);
-  const candidate = String(value ?? '').trim().toLowerCase();
-  return options.includes(candidate) ? candidate : (options[0] ?? SETTINGS_DEFAULTS.video_size);
-}
-
-export function normalizeVideoDuration(value: unknown): string {
-  const candidate = String(value ?? '').trim();
-  return VIDEO_SECONDS.has(candidate) ? candidate : SETTINGS_DEFAULTS.video_duration;
 }
 
 function stringArray(value: unknown): string[] {

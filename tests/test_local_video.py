@@ -1,7 +1,7 @@
 """Video through the operator's own ComfyUI, end to end.
 
-Sora's API shuts down on 2026-09-24 and no surviving cloud video service
-accepts this product's content, so video became local-only by decision. These
+The retired cloud-video API shut down on 2026-09-24 and no surviving cloud
+video service accepts this product's content, so video became local-only by decision. These
 pin the new path: the adapter runs a cataloged video workflow and returns a
 real container, a video without a cataloged workflow is refused in plain
 words rather than rendered through a graph nobody chose, and a chat's video

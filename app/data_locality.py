@@ -23,7 +23,6 @@ CLOUD_PROVIDERS = frozenset(
     {
         "openai",
         "openai-image",
-        "openai-video",
     }
 )
 LOCAL_PROVIDERS = frozenset(
@@ -33,6 +32,7 @@ LOCAL_PROVIDERS = frozenset(
         # calls its ComfyUI and Automatic1111 backends "local-image".
         "local",
         "local-image",
+        "local-video",
         "kokoro",
         # A LAN face-comparison service. Not this machine, but not the internet
         # either, and it is the owner's own box either way.

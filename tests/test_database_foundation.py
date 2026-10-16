@@ -42,7 +42,7 @@ class DatabaseFoundationTests(unittest.TestCase):
             journal_mode = conn.execute("PRAGMA journal_mode").fetchone()[0]
             conn.close()
 
-            self.assertEqual(version, "0040_local_video_provider")
+            self.assertEqual(version, "0041_remove_retired_cloud_video")
             self.assertIn("setting_values", tables)
             self.assertIn("conversation_turns", tables)
             self.assertIn("conversation_summaries", tables)
@@ -66,6 +66,91 @@ class DatabaseFoundationTests(unittest.TestCase):
             self.assertIn("resource_coordination_events", tables)
             self.assertEqual(foreign_keys, 1)
             self.assertEqual(journal_mode.lower(), "wal")
+
+    def test_retired_cloud_video_migration_preserves_media_and_local_catalog(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "retired-cloud-video.db"
+            config = Config()
+            config.set_main_option("script_location", str(Path(__file__).resolve().parents[1] / "migrations"))
+            config.set_main_option("sqlalchemy.url", database.sqlite_url(path))
+            engine = database.build_engine(path)
+            with engine.begin() as connection:
+                config.attributes["connection"] = connection
+                command.upgrade(config, "0040_local_video_provider")
+            engine.dispose()
+
+            conn = database.connect_sqlite(path)
+            conn.execute("INSERT INTO users(id,username,password_hash,is_admin,created_at) VALUES('u','owner','h',1,1)")
+            conn.execute(
+                "INSERT INTO app_settings(user_id,preferences_json) VALUES('u',?)",
+                (
+                    json.dumps(
+                        {
+                            "video_provider": "openai",
+                            "video_model": "retired-model",
+                            "video_size": "720x1280",
+                            "video_duration": "4",
+                            "unrelated": "preserved",
+                        }
+                    ),
+                ),
+            )
+            conn.execute(
+                "INSERT INTO media_files(id,user_id,kind,filename,local_path,created_at) "
+                "VALUES('finished','u','video','finished.mp4','finished.mp4',1)"
+            )
+            for resource_id, name, provider, backend, external in (
+                ("retired", "Retired cloud model", "openai-video", "openai", "retired-model"),
+                ("local", "Local model", "local-video", "comfyui", "local-model"),
+            ):
+                conn.execute(
+                    "INSERT INTO media_catalog_resources("
+                    "id,user_id,resource_type,kind,name,provider_key,backend,external_id,created_at,updated_at"
+                    ") VALUES(?,?,?,?,?,?,?,?,1,1)",
+                    (resource_id, "u", "model", "video", name, provider, backend, external),
+                )
+            conn.execute(
+                "INSERT INTO media_resource_compatibility(id,resource_id,model_resource_id) "
+                "VALUES('compat','retired','local')"
+            )
+            conn.execute(
+                "INSERT INTO media_generation_presets("
+                "id,user_id,name,kind,definition_json,created_at,updated_at"
+                ") VALUES('preset','u','Old cloud clip','video',?,1,1)",
+                (json.dumps({"base_model_resource_id": "retired"}),),
+            )
+            conn.commit()
+            conn.close()
+
+            engine = database.build_engine(path)
+            with engine.begin() as connection:
+                config.attributes["connection"] = connection
+                command.upgrade(config, "head")
+            engine.dispose()
+
+            conn = database.connect_sqlite(path)
+            preferences = json.loads(
+                conn.execute("SELECT preferences_json FROM app_settings WHERE user_id='u'").fetchone()[0]
+            )
+            self.assertEqual(preferences, {"video_provider": "disabled", "unrelated": "preserved"})
+            self.assertEqual(
+                [tuple(row) for row in conn.execute("SELECT id,provider_key FROM media_catalog_resources ORDER BY id")],
+                [("local", "local-video")],
+            )
+            self.assertEqual(conn.execute("SELECT COUNT(*) FROM media_resource_compatibility").fetchone()[0], 0)
+            preset = conn.execute("SELECT enabled,notes FROM media_generation_presets WHERE id='preset'").fetchone()
+            self.assertEqual(preset[0], 0)
+            self.assertIn("preserved but disabled", preset[1])
+            self.assertEqual(
+                conn.execute("SELECT filename FROM media_files WHERE id='finished'").fetchone()[0], "finished.mp4"
+            )
+            with self.assertRaises(sqlite3.IntegrityError):
+                conn.execute(
+                    "INSERT INTO media_catalog_resources("
+                    "id,user_id,resource_type,kind,name,provider_key,backend,external_id,created_at,updated_at"
+                    ") VALUES('bad','u','model','video','Bad','openai-video','openai','bad',1,1)"
+                )
+            conn.close()
 
     def test_turn_migration_preserves_existing_rows_and_enforces_states(self):
         with tempfile.TemporaryDirectory() as tmp:

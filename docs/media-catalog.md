@@ -125,13 +125,11 @@ hints as `pin_preset_id` and `exclude_preset_ids` in plan requirements.
 
 ## Local video
 
-Video is local-only by decision (2026-08-26). OpenAI's Sora API - the only
-cloud video path this product ever had - shuts down on 2026-09-24, and every
-surviving cloud video service both moderates away this product's content and
-would receive persona reference faces to do anything persona-shaped. The
-OpenAI video adapter remains in the code, unreachable from the UI; the
-settings page offers Off and Local, and a stored cloud choice renders and
-saves as Off.
+Video is local-only by decision (2026-08-26). The retired cloud-video adapter
+was removed after its API shut down. The settings page offers Off and Local;
+an older stored cloud choice migrates to Off and is never silently redirected
+to the operator's ComfyUI. Existing generated video and plan history remain
+intact, while a preset tied to the retired provider is preserved but disabled.
 
 Local video is the image machinery with a different output: a video model
 (provider `local-video`, backend ComfyUI - Wan and its relatives load as

@@ -24,7 +24,6 @@ RUNTIME_OPERATIONS = {
     ("openai-image", "openai"): {"generate"},
     ("local-image", "automatic1111"): {"generate"},
     ("local-image", "comfyui"): {"generate", "inpaint", "outpaint", "image_to_image"},
-    ("openai-video", "openai"): {"generate"},
     ("local-video", "comfyui"): {"generate"},
 }
 SAMPLER_KEYS = ("steps", "cfg_scale", "sampler_name", "scheduler")

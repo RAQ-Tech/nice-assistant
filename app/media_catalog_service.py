@@ -37,7 +37,6 @@ MEDIA_KINDS = {"image", "video"}
 PROVIDER_BACKENDS = {
     "openai-image": ("image", "openai"),
     "local-image": ("image", None),
-    "openai-video": ("video", "openai"),
     "local-video": ("video", "comfyui"),
 }
 LOCAL_BACKENDS = {"automatic1111", "comfyui"}
@@ -1857,32 +1856,6 @@ class MediaCatalogService:
                         }
                     )
                 )
-        if str(preferences.get("video_provider") or "disabled").lower() == "openai":
-            values.append(
-                MediaCatalogService._resource_row_values(
-                    {
-                        "resource_type": "model",
-                        "kind": "video",
-                        "name": "Imported OpenAI video model",
-                        "provider_key": "openai-video",
-                        "backend": "openai",
-                        "external_id": str(preferences.get("video_model") or "sora-2"),
-                        "enabled": True,
-                        "priority": 50,
-                        "operations": ["generate"],
-                        "domains": [],
-                        "content_tags": ["general"],
-                        "features": ["text_to_video"],
-                        "estimated_vram_mb": 0,
-                        "estimated_load_seconds": 0,
-                        "default_settings": {
-                            "size": preferences.get("video_size") or "720x1280",
-                            "seconds": preferences.get("video_duration") or "4",
-                        },
-                        "notes": "Imported from the pre-catalog video settings.",
-                    }
-                )
-            )
         return values
 
     def _normalize_resource(self, values: dict) -> tuple[dict, list[str]]:  # noqa: C901
@@ -1907,8 +1880,6 @@ class MediaCatalogService:
             raise RequestError("workflow resources currently require ComfyUI", 400)
         if provider_key == "openai-image" and external_id != PROVIDER_DEFAULT:
             raise RequestError("the OpenAI image adapter currently supports only its provider-default model", 400)
-        if provider_key == "openai-video" and external_id not in {"sora-2", "sora-2-pro"}:
-            raise RequestError("unsupported OpenAI video model", 400)
         if not name or len(name) > 160 or not external_id or len(external_id) > 500:
             raise RequestError("media resource name or external ID is invalid", 400)
         operations = _tags(values.get("operations") or [], label="operations")
@@ -2002,8 +1973,6 @@ class MediaCatalogService:
             raise RequestError("default settings must be an object", 400)
         if resource_type == "model" and provider_key == "openai-image":
             allowed = {"size", "quality"}
-        elif resource_type == "model" and provider_key == "openai-video":
-            allowed = {"size", "seconds"}
         elif resource_type == "model":
             allowed = {
                 "size",

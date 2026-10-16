@@ -11,9 +11,6 @@ from app.media import (
     normalize_image_quality,
     normalize_image_size,
     normalize_local_image_backend,
-    normalize_video_model,
-    normalize_video_seconds,
-    normalize_video_size,
     user_safe_image_error,
     user_safe_video_error,
 )
@@ -760,66 +757,52 @@ class MediaService:
         selected = str(values.get("provider") or preferences.get("video_provider") or "disabled").lower()
         if selected == "disabled":
             raise RequestError("Video generation is disabled. Enable a video provider in Settings.", 409)
-        if selected not in ("openai", "local"):
+        if selected != "local":
             raise RequestError(f"Video provider '{selected}' is not recognized by the server.", 400)
-        if selected == "local":
-            adapter = "local-video"
-            # Video rides the same ComfyUI the image path is configured for -
-            # one address, one service, two kinds of output.
-            base_url = values.get("base_url") or preferences.get("image_local_base_url") or self.config.comfyui_base_url
-            if self.provider_url_policy:
-                base_url = self.provider_url_policy.normalize(base_url, label="Local video service")
-            workflow_patch = values.get("workflow_patch")
-            if not isinstance(workflow_patch, dict) or not workflow_patch:
-                raise RequestError(
-                    "Local video needs a ComfyUI video workflow. Add a video model and workflow in Media Catalog, then try again.",
-                    409,
-                )
-            compiled = compile_prompt(
-                prompt,
-                values.get("prompt_dialect"),
-                loras=values.get("loras") or [],
-                allow_nsfw=bool(preferences.get("image_local_allow_nsfw", False)),
-                scene=values.get("scene"),
+        adapter = "local-video"
+        # Video rides the same ComfyUI the image path is configured for -
+        # one address, one service, two kinds of output.
+        base_url = values.get("base_url") or preferences.get("image_local_base_url") or self.config.comfyui_base_url
+        if self.provider_url_policy:
+            base_url = self.provider_url_policy.normalize(base_url, label="Local video service")
+        workflow_patch = values.get("workflow_patch")
+        if not isinstance(workflow_patch, dict) or not workflow_patch:
+            raise RequestError(
+                "Local video needs a ComfyUI video workflow. Add a video model and workflow in Media Catalog, then try again.",
+                409,
             )
-            options = {
-                "backend": "comfyui",
-                "base_url": base_url,
-                "size": values.get("size") or "1280x720",
-                "local_settings": {
-                    "workflow_patch": workflow_patch,
-                    "steps": values.get("steps"),
-                    "cfg_scale": values.get("cfg_scale"),
-                    "sampler_name": values.get("sampler_name"),
-                    "scheduler": values.get("scheduler"),
-                    "seed": values.get("seed"),
-                    "model": values.get("model") or "",
-                    "api_auth": preferences.get("image_local_api_auth"),
-                    "loras": values.get("loras") or [],
-                    "prompt_bindings": values.get("prompt_bindings") or [],
-                    "negative_prompt_bindings": values.get("negative_prompt_bindings") or [],
-                    "seed_bindings": values.get("seed_bindings") or [],
-                    "width_bindings": values.get("width_bindings") or [],
-                    "height_bindings": values.get("height_bindings") or [],
-                    "checkpoint_bindings": values.get("checkpoint_bindings") or [],
-                    "required_prompt_token": values.get("required_prompt_token") or "",
-                    "compiled_prompt": compiled["positive"],
-                    "compiled_negative": compiled["negative"],
-                },
-            }
-        else:
-            adapter = "openai-video"
-            key = settings.get("openai_api_key")
-            if not key:
-                raise RequestError("OPENAI API key missing", 400)
-            model = normalize_video_model(values.get("model") or preferences.get("video_model"))
-            options = {
-                "api_key": key,
-                "model": model,
-                "seconds": normalize_video_seconds(values.get("seconds") or preferences.get("video_seconds")),
-                "size": normalize_video_size(values.get("size") or preferences.get("video_size"), model),
-                "input_reference": values.get("input_reference"),
-            }
+        compiled = compile_prompt(
+            prompt,
+            values.get("prompt_dialect"),
+            loras=values.get("loras") or [],
+            allow_nsfw=bool(preferences.get("image_local_allow_nsfw", False)),
+            scene=values.get("scene"),
+        )
+        options = {
+            "backend": "comfyui",
+            "base_url": base_url,
+            "size": values.get("size") or "1280x720",
+            "local_settings": {
+                "workflow_patch": workflow_patch,
+                "steps": values.get("steps"),
+                "cfg_scale": values.get("cfg_scale"),
+                "sampler_name": values.get("sampler_name"),
+                "scheduler": values.get("scheduler"),
+                "seed": values.get("seed"),
+                "model": values.get("model") or "",
+                "api_auth": preferences.get("image_local_api_auth"),
+                "loras": values.get("loras") or [],
+                "prompt_bindings": values.get("prompt_bindings") or [],
+                "negative_prompt_bindings": values.get("negative_prompt_bindings") or [],
+                "seed_bindings": values.get("seed_bindings") or [],
+                "width_bindings": values.get("width_bindings") or [],
+                "height_bindings": values.get("height_bindings") or [],
+                "checkpoint_bindings": values.get("checkpoint_bindings") or [],
+                "required_prompt_token": values.get("required_prompt_token") or "",
+                "compiled_prompt": compiled["positive"],
+                "compiled_negative": compiled["negative"],
+            },
+        }
         recorder.record(
             "provider_request",
             summary=f"submitting to {adapter}",

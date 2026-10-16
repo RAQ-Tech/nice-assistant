@@ -342,14 +342,11 @@ video decision (item 0b) left behind.
     a hand, and it leads to the workflow setup. Persona Pictures shows the same
     card, with comparison folded beneath. See `docs/persona-visual-identity.md`.
 
-3. **Delete the OpenAI video adapter after 2026-09-24.** Sora's API stops
-    answering that day. Until then the adapter stays as a stored choice that
-    saves as Off; afterwards it is dead code, and dead code is deleted rather
-    than kept for a service that no longer exists. Dated, not blocked: nothing
-    here can be done before that day.
-    **Done when** no code path names the OpenAI video provider, a stored
-    `openai` video choice still lands as Off, and the documents say video is
-    local only without describing a cloud adapter.
+3. **Delete the retired cloud-video adapter - delivered 2026-10-15.** The API
+    it served stopped on 2026-09-24. The adapter, provider registration,
+    settings and catalog path are gone; a stored cloud choice migrates to Off,
+    generated media and historical plans remain, and an obsolete preset is
+    preserved but disabled rather than pointed at a different provider.
 
 4. **A shipped Wan 2.2 video template - delivered 2026-09-02.** The local
     video path existed, but
@@ -473,13 +470,11 @@ listed item; none of them is open any more.
     resource-save wire fix, and the Shape picker replacing typed resolution.
     Nothing from the mandate is still open.
 
-0b. **Video is local-only** (owner, 2026-08-26). Sora's API shuts down
-    2026-09-24 and no surviving cloud video service accepts this product's
-    content, so no cloud option is offered through the UI; the cloud adapter
-    stays in the code for a future service worth linking, and a stored cloud
-    choice saves as Off. The local ComfyUI video path shipped with this
-    decision; see `docs/media-catalog.md`. The work it left is item 1G-3
-    and the first clip, item 16 in section 4.
+0b. **Video is local-only** (owner, 2026-08-26). No cloud option is offered
+    through the UI, and the retired cloud adapter was deleted on 2026-10-15.
+    A stored cloud choice becomes Off instead of silently selecting local
+    ComfyUI. See `docs/media-catalog.md`. The first real Wan clip remains item
+    16 in section 4.
 
 1. **Rejected and forgotten memory never expires automatically.** Manual
     deletion, individually or in bulk, stays the only way a record leaves.
@@ -662,8 +657,6 @@ surface.
   with routing exercised as part of the acceptance walkthrough in section 4.
   Its fold snapped shut on every render, which is why a test appeared to do
   nothing; fixed 2026-09-03. Source: ADR 0030, `docs/settings-experience.md`.
-- **Delete the OpenAI video adapter** after 2026-09-24, when its API stops
-  answering. Item 1G-3.
 
 ## 6. Not advertised
 

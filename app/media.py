@@ -10,13 +10,6 @@ IMAGE_QUALITY_ALIASES = {
 }
 IMAGE_QUALITY_VALUES = {"low", "medium", "high", "auto", "none"}
 SUPPORTED_IMAGE_SIZES = {"1024x1024", "1024x1536", "1536x1024", "auto"}
-SUPPORTED_VIDEO_MODELS = {"sora-2", "sora-2-pro"}
-SUPPORTED_VIDEO_SECONDS = {"4", "8", "12"}
-SUPPORTED_VIDEO_SIZES = {"720x1280", "1280x720", "1024x1792", "1792x1024"}
-SUPPORTED_VIDEO_SIZES_BY_MODEL = {
-    "sora-2": {"720x1280", "1280x720"},
-    "sora-2-pro": SUPPORTED_VIDEO_SIZES,
-}
 OPENAI_IMAGE_TERM_REPLACEMENTS = {
     "nsfw": "safe-for-work",
     "nude": "fully clothed",
@@ -28,31 +21,6 @@ OPENAI_IMAGE_TERM_REPLACEMENTS = {
     "gore": "dramatic",
     "graphic violence": "intense action",
 }
-
-
-def normalize_video_model(model):
-    candidate = (model or "").strip().lower()
-    if candidate in SUPPORTED_VIDEO_MODELS:
-        return candidate
-    return "sora-2"
-
-
-def normalize_video_seconds(seconds):
-    candidate = str(seconds or "").strip()
-    if candidate in SUPPORTED_VIDEO_SECONDS:
-        return candidate
-    return "4"
-
-
-def normalize_video_size(size, model="sora-2"):
-    candidate = (size or "").strip().lower()
-    normalized_model = normalize_video_model(model)
-    allowed_sizes = SUPPORTED_VIDEO_SIZES_BY_MODEL.get(normalized_model, SUPPORTED_VIDEO_SIZES_BY_MODEL["sora-2"])
-    if candidate in allowed_sizes:
-        return candidate
-    if normalized_model == "sora-2-pro":
-        return "1024x1792"
-    return "720x1280"
 
 
 def normalize_local_image_base_url(base_url, default_base_url):
@@ -368,33 +336,20 @@ def user_safe_video_error(exc):
         status = exc.code
         if status in (401, 403):
             return (
-                "Video generation failed: OpenAI rejected the request (check API key and video model access).",
+                "Video generation failed: ComfyUI rejected authentication. Check the API authentication settings.",
                 detail,
                 req_id,
             )
-        if status == 429:
-            return "Video generation is rate limited by OpenAI right now. Please retry in a moment.", detail, req_id
-        if status in (400, 404, 422):
-            if detail:
-                return (
-                    (
-                        "OpenAI rejected the video request settings or payload. "
-                        "Try video model 'sora-2' with 4 seconds and size 720x1280 or 1280x720, then retry."
-                    ),
-                    detail,
-                    req_id,
-                )
-            return (
-                "OpenAI couldn't generate that video from the current request. Please revise the prompt and try again.",
-                detail,
-                req_id,
-            )
+        if status == 404:
+            return "ComfyUI's video route was not found. Check the configured ComfyUI address.", detail, req_id
+        if status in (400, 422):
+            return "ComfyUI rejected the video workflow or one of its bound settings.", detail, req_id
         if 500 <= status <= 599:
-            return "Video generation is temporarily unavailable from OpenAI. Please try again shortly.", detail, req_id
-        return f"Video generation failed with OpenAI error HTTP {status}.", detail, req_id
+            return "ComfyUI failed while generating the video. Please retry after it is ready.", detail, req_id
+        return f"Video generation failed with ComfyUI HTTP {status}.", detail, req_id
     if isinstance(exc, urllib.error.URLError):
         return (
-            "Video generation is currently unavailable because the OpenAI provider could not be reached. Please try again in a moment.",
+            "Video generation is unavailable because ComfyUI could not be reached. Check its address and readiness.",
             detail,
             req_id,
         )

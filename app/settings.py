@@ -4,9 +4,6 @@ from app.media import (
     IMAGE_QUALITY_ALIASES,
     IMAGE_QUALITY_VALUES,
     SUPPORTED_IMAGE_SIZES,
-    SUPPORTED_VIDEO_MODELS,
-    SUPPORTED_VIDEO_SECONDS,
-    SUPPORTED_VIDEO_SIZES_BY_MODEL,
 )
 from app.pregeneration import validate_preferences as validate_pregeneration
 from app.service_errors import RequestError
@@ -45,6 +42,13 @@ def normalize_media_preferences(value):
         backend = str(preferences.get("image_local_backend") or "").strip().lower()
         if backend in {"automatic1111", "comfyui"}:
             preferences["image_local_backend"] = backend
+    if "video_provider" in preferences:
+        # Video is local-only. A legacy cloud choice is retired rather than
+        # silently redirected to the owner's ComfyUI.
+        provider = str(preferences.get("video_provider") or "disabled").strip().lower()
+        preferences["video_provider"] = "disabled" if provider == "openai" else provider
+    for retired_key in ("video_model", "video_size", "video_duration"):
+        preferences.pop(retired_key, None)
     # Two kinds of local transcription service, the way there are two kinds of
     # local image backend. They are different protocols, not different vendors.
     if "stt_local_backend" in preferences:
@@ -63,10 +67,6 @@ def normalize_media_preferences(value):
     return preferences
 
 
-def _accepted_video_sizes() -> set[str]:
-    return {size for sizes in SUPPORTED_VIDEO_SIZES_BY_MODEL.values() for size in sizes}
-
-
 # Values the media runtime actually recognizes. Anything else is replaced with a default at
 # generation time, so accepting it here would store a choice the deployment never honors.
 MEDIA_PREFERENCE_CHOICES: dict[str, set[str]] = {
@@ -75,10 +75,7 @@ MEDIA_PREFERENCE_CHOICES: dict[str, set[str]] = {
     "stt_local_backend": {"openai_api", "wyoming"},
     "image_size": set(SUPPORTED_IMAGE_SIZES),
     "image_quality": set(IMAGE_QUALITY_VALUES) | set(IMAGE_QUALITY_ALIASES),
-    "video_provider": {"disabled", "openai"},
-    "video_model": set(SUPPORTED_VIDEO_MODELS),
-    "video_size": _accepted_video_sizes(),
-    "video_duration": set(SUPPORTED_VIDEO_SECONDS),
+    "video_provider": {"disabled", "local"},
 }
 
 

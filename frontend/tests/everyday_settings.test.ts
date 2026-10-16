@@ -53,8 +53,7 @@ describe('video is local only', () => {
     const provider = root.querySelector('[data-testid="video-provider"]') as HTMLSelectElement;
     const options = [...provider.options].map((option) => option.value);
     expect(options).toEqual(['disabled', 'local']);
-    // The sora-era controls are gone with the provider they served.
-    expect(root.textContent).not.toContain('sora');
+    // The retired cloud controls are gone with the provider they served.
     expect(root.textContent).not.toContain('Duration');
   });
 

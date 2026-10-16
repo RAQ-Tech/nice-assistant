@@ -6,11 +6,8 @@ from app.media import (
     normalize_image_quality,
     normalize_image_size,
     normalize_local_image_backend,
-    normalize_video_model,
-    normalize_video_seconds,
-    normalize_video_size,
 )
-from app.settings import MEDIA_PREFERENCE_CHOICES, validate_media_preferences
+from app.settings import MEDIA_PREFERENCE_CHOICES, normalize_media_preferences, validate_media_preferences
 from app.service_errors import RequestError
 from tests.support import TestApp
 
@@ -25,18 +22,12 @@ class MediaPreferenceValidationTests(unittest.TestCase):
             self.assertIsNotNone(normalize_image_quality(quality))
         for backend in MEDIA_PREFERENCE_CHOICES["image_local_backend"]:
             self.assertEqual(normalize_local_image_backend(backend), backend)
-        for model in MEDIA_PREFERENCE_CHOICES["video_model"]:
-            self.assertEqual(normalize_video_model(model), model)
-        for seconds in MEDIA_PREFERENCE_CHOICES["video_duration"]:
-            self.assertEqual(normalize_video_seconds(seconds), seconds)
-        for size in MEDIA_PREFERENCE_CHOICES["video_size"]:
-            model = "sora-2-pro" if size in {"1024x1792", "1792x1024"} else "sora-2"
-            self.assertEqual(normalize_video_size(size, model), size)
+        self.assertEqual(MEDIA_PREFERENCE_CHOICES["video_provider"], {"disabled", "local"})
 
     def test_absent_and_empty_values_are_left_alone(self):
         validate_media_preferences({})
         validate_media_preferences({"image_size": ""})
-        validate_media_preferences({"video_model": None})
+        validate_media_preferences({"video_provider": None})
 
     def test_a_value_the_runtime_cannot_honor_is_rejected(self):
         with self.assertRaises(RequestError) as caught:
@@ -48,7 +39,7 @@ class MediaPreferenceValidationTests(unittest.TestCase):
         # The browser resubmits every stored value on each save, so an account that predates
         # this validation must not be locked out of saving anything at all.
         stored = {"image_size": "4096x4096"}
-        validate_media_preferences({"image_size": "4096x4096", "video_model": "sora-2"}, stored)
+        validate_media_preferences({"image_size": "4096x4096", "video_provider": "local"}, stored)
         with self.assertRaises(RequestError):
             validate_media_preferences({"image_size": "8192x8192"}, stored)
 
@@ -77,9 +68,6 @@ class MediaSettingsEndpointTests(unittest.TestCase):
             "image_size": "4096x4096",
             "image_quality": "ultra",
             "video_provider": "runway",
-            "video_model": "veo",
-            "video_size": "8k",
-            "video_duration": "99",
         }
         for key, value in unusable.items():
             response = self._save(**{key: value})
@@ -102,10 +90,24 @@ class MediaSettingsEndpointTests(unittest.TestCase):
         self.assertEqual(preferences["image_size"], "1024x1536")
 
     def test_a_saved_media_choice_is_the_one_generation_uses(self):
-        self.assertEqual(self._save(image_size="1536x1024", video_duration="8").status_code, 200)
+        self.assertEqual(self._save(image_size="1536x1024", video_provider="local").status_code, 200)
         preferences = self.client.get("/api/v1/settings").json()["preferences"]
         self.assertEqual(normalize_image_size(preferences["image_size"]), "1536x1024")
-        self.assertEqual(normalize_video_seconds(preferences["video_duration"]), "8")
+        self.assertEqual(preferences["video_provider"], "local")
+
+    def test_retired_cloud_video_settings_land_off_without_sora_fields(self):
+        normalized = normalize_media_preferences(
+            {
+                "video_provider": "openai",
+                "video_model": "retired-model",
+                "video_size": "720x1280",
+                "video_duration": "4",
+            }
+        )
+        self.assertEqual(normalized["video_provider"], "disabled")
+        self.assertNotIn("video_model", normalized)
+        self.assertNotIn("video_size", normalized)
+        self.assertNotIn("video_duration", normalized)
 
     def test_settings_unrelated_to_media_are_unaffected(self):
         response = self._save(chat_blur_images=True, general_theme="light")

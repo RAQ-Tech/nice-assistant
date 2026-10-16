@@ -659,7 +659,7 @@ export interface MediaCatalogResource {
   resource_type: MediaResourceType;
   kind: 'image' | 'video';
   name: string;
-  provider_key: 'openai-image' | 'local-image' | 'openai-video' | 'local-video';
+  provider_key: 'openai-image' | 'local-image' | 'local-video';
   backend: 'openai' | 'automatic1111' | 'comfyui';
   external_id: string;
   enabled: boolean;
@@ -927,9 +927,6 @@ export interface Settings extends Record<string, SettingScalar | Record<string, 
   image_local_seed: string;
   image_local_additional_parameters: string;
   video_provider: string;
-  video_model: string;
-  video_size: string;
-  video_duration: string;
   models_context_window_tokens: string;
   user_display_name: string;
   user_profile: string;

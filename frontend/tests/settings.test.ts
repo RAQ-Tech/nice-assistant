@@ -15,18 +15,20 @@ describe('typed settings', () => {
       preferences: {
         image_quality: 'hd',
         image_confirmation_policy: 'always_ask',
-        video_model: 'not-real',
+        video_provider: 'openai',
+        video_model: 'retired-model',
         general_show_viz: true,
         image_prompt_generation: true,
       },
     });
     expect(settings.default_memory_mode).toBe('saved');
     expect(settings.image_quality).toBe('high');
-    expect(settings.video_model).toBe('sora-2');
+    expect(settings.video_provider).toBe('disabled');
     expect(settings.general_show_viz).toBe(true);
     expect(settingsWire(settings).preferences.general_show_viz).toBe(true);
     expect(settingsWire(settings).preferences).not.toHaveProperty('image_confirmation_policy');
     expect(settingsWire(settings).preferences).not.toHaveProperty('image_prompt_generation');
+    expect(settingsWire(settings).preferences).not.toHaveProperty('video_model');
   });
 
   it('uses per-model generation overrides without losing safe defaults', () => {

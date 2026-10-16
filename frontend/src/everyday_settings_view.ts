@@ -326,10 +326,8 @@ export class EverydaySettingsView {
     });
   }
 
-  // Local only, by decision (2026-08-26): every cloud video API either shut
-  // down or refuses this product's content, so the UI offers what can work.
-  // The cloud adapter stays in the code for the day a service worth linking
-  // exists; a stored cloud choice renders and saves as Off.
+  // Local only, by decision (2026-08-26): the retired cloud path is gone and
+  // a stored legacy cloud choice renders and saves as Off.
   private video(settings: Settings): HTMLElement[] {
     const provider = settings.video_provider === 'local' ? 'local' : 'disabled';
     return [
@@ -373,8 +371,8 @@ export class EverydaySettingsView {
 
 // Providers that send data to somebody else's computer. Kept in step with
 // `app/data_locality.py`, which is what the homepage summary reads.
-const CLOUD_PROVIDERS = new Set(['openai', 'openai-image', 'openai-video']);
-const LOCAL_PROVIDERS = new Set(['ollama', 'local', 'local-image', 'kokoro', 'compreface']);
+const CLOUD_PROVIDERS = new Set(['openai', 'openai-image']);
+const LOCAL_PROVIDERS = new Set(['ollama', 'local', 'local-image', 'local-video', 'kokoro', 'compreface']);
 
 /**
  * A provider name with where it runs attached.

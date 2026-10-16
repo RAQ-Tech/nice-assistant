@@ -41,9 +41,6 @@ export class MediaController {
       prompt: prompt.trim(),
       chat_id: chatId,
       provider: settings.video_provider,
-      model: settings.video_model,
-      size: settings.video_size,
-      seconds: settings.video_duration,
     });
   }
 
