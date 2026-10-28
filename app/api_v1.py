@@ -33,6 +33,8 @@ class StrictModel(BaseModel):
 class Credentials(StrictModel):
     username: str = Field(min_length=1, max_length=120)
     password: str = Field(min_length=8, max_length=512)
+    # Stay signed in on this device; see ADR 0047.
+    remember: bool = False
 
 
 class SettingsUpdate(StrictModel):
@@ -1282,7 +1284,7 @@ def login(body: Credentials, request: Request, response: Response):
     )
     app_services.login_throttle.check(throttle_key)
     try:
-        context, payload = app_services.resources.login(body.username, body.password)
+        context, payload = app_services.resources.login(body.username, body.password, body.remember)
     except AuthenticationError:
         app_services.login_throttle.failure(throttle_key)
         raise
@@ -1298,7 +1300,15 @@ def session(request: Request, context: AuthContext = Depends(current_user)):
         "expires_at": context.expires_at,
         "ttl_seconds": services(request).runtime.config.session_ttl_seconds,
         "is_admin": context.is_admin,
+        "persistent": context.persistent,
     }
+
+
+@router.get("/signup", tags=["session"])
+def signup_status(request: Request):
+    """Whether an account can be created here, so sign-in offers only what works."""
+
+    return services(request).resources.signup_status()
 
 
 @router.delete("/session", tags=["session"])

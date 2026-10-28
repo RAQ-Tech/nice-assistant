@@ -134,13 +134,14 @@ class ApplicationRepository:
             select(Session, User).join(User, User.id == Session.user_id).where(Session.token == token)
         ).first()
 
-    def create_session(self, user_id: str, ttl_seconds: int) -> Session:
+    def create_session(self, user_id: str, ttl_seconds: int, persistent: bool = False) -> Session:
         stamp = now_ts()
         record = Session(
             token=secrets.token_hex(24),
             user_id=user_id,
             created_at=stamp,
             expires_at=stamp + ttl_seconds,
+            persistent=int(persistent),
         )
         self.session.add(record)
         self.session.flush()

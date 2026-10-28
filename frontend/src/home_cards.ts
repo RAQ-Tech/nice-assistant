@@ -56,7 +56,8 @@ export function continueCard(
     el('div', { class: 'home-hero-body' }, [
       el('p', { class: 'home-hero-eyebrow', textContent: persona?.name ?? 'Conversation' }),
       el('h2', { class: 'home-hero-title', textContent: (recent.title ?? '').trim() || 'Untitled conversation' }),
-      el('p', { class: 'home-hero-meta', textContent: `Last spoken ${formatDate(recent.updated_at)}` }),
+      // A turn moves `updated_at`; a chat nobody has spoken in has never been spoken in.
+      el('p', { class: 'home-hero-meta', textContent: recent.updated_at > recent.created_at ? `Last spoken ${formatDate(recent.updated_at)}` : 'Nothing said yet' }),
     ]),
     el('button', {
       class: 'send-btn home-hero-action',

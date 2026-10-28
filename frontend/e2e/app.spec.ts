@@ -74,30 +74,43 @@ const visualIdentityProfile = {
   verification_configured: false, validation_ready: false, references: [],
 };
 
-test('login completes the first-run workspace and persona journey', async ({ page }) => {
+test('the first visit makes the account, meets a companion and lands in a conversation', async ({ page }) => {
   let authenticated = false;
   let createdWorkspace = false;
-  let createdPersona = false;
+  let personaBody: Record<string, unknown> | null = null;
+  let loginBody: Record<string, unknown> | null = null;
+  let chatBody: Record<string, unknown> | null = null;
   let onboardingDone = false;
+  const firstChat = {
+    id: 'chat-first', workspace_id: workspace.id, persona_id: persona.id, model_override: 'seeing',
+    memory_mode: 'saved', title: 'New chat', hidden_in_ui: false, created_at: 200, updated_at: 200,
+  };
   await page.route('**/api/v1/**', async (route) => {
     const request = route.request();
     const path = new URL(request.url()).pathname;
     const method = request.method();
     if (path === '/api/v1/session' && method === 'GET' && !authenticated) {
       await json(route, { error: { code: 'authentication_required', message: 'authentication required' } }, 401);
-    } else if (path === '/api/v1/session' && method === 'POST') {
+    } else if (path === '/api/v1/signup') await json(route, { open: true, first_account: true });
+    else if (path === '/api/v1/users' && method === 'POST') await json(route, { id: 'user-1' }, 201);
+    else if (path === '/api/v1/session' && method === 'POST') {
       authenticated = true;
-      await json(route, session);
-    } else if (path === '/api/v1/models') await json(route, { models: ['demo'] });
+      loginBody = request.postDataJSON();
+      await json(route, { ...session, persistent: true });
+    } else if (path === '/api/v1/models') await json(route, { models: ['demo', 'seeing'], vision_models: ['seeing'] });
     else if (path === '/api/v1/workspaces' && method === 'GET') await json(route, { items: createdWorkspace ? [workspace] : [] });
     else if (path === '/api/v1/workspaces' && method === 'POST') {
       createdWorkspace = true;
       await json(route, workspace);
-    } else if (path === '/api/v1/personas' && method === 'GET') await json(route, { items: createdPersona ? [persona] : [] });
+    } else if (path === '/api/v1/personas' && method === 'GET') await json(route, { items: personaBody ? [persona] : [] });
     else if (path === '/api/v1/personas' && method === 'POST') {
-      createdPersona = true;
+      personaBody = request.postDataJSON();
       await json(route, persona);
-    } else if (path === '/api/v1/chats') await json(route, { items: [] });
+    } else if (path === '/api/v1/chats' && method === 'POST') {
+      chatBody = request.postDataJSON();
+      await json(route, firstChat);
+    } else if (path === '/api/v1/chats') await json(route, { items: chatBody ? [firstChat] : [] });
+    else if (path === `/api/v1/chats/${firstChat.id}`) await json(route, { chat: firstChat, messages: [] });
     else if (path === '/api/v1/memories') await json(route, { items: [] });
     else if (path === '/api/v1/capability-requests') await json(route, { items: [] });
     else if (path === '/api/v1/settings' && method === 'GET') await json(route, { ...settings, onboarding_done: false });
@@ -108,27 +121,49 @@ test('login completes the first-run workspace and persona journey', async ({ pag
   });
 
   await page.goto('/');
-  await page.getByTestId('auth-username').fill('owner');
-  await page.getByTestId('auth-password').fill('correct horse');
-  await page.getByTestId('auth-login').click();
-  await expect(page.getByRole('dialog', { name: 'Welcome to Nice Assistant' })).toBeVisible();
-  await page.getByRole('dialog').locator('input').fill('Main Workspace');
-  await page.getByRole('dialog').getByRole('button', { name: 'Continue' }).click();
-  await expect(page.getByRole('dialog', { name: 'Create first persona' })).toBeVisible();
-  await page.getByRole('dialog').locator('input').fill('Nova');
-  await page.getByRole('dialog').getByRole('button', { name: 'Continue' }).click();
-  await expect(page.getByRole('dialog', { name: 'Default personality' })).toBeVisible();
-  await page.getByRole('dialog').getByRole('button', { name: 'Continue' }).click();
-  // First-run setup now finishes on the homepage rather than in whichever chat
-  // happened to exist. `client-phase` belongs to the chat shell, so the settled
-  // state to assert here is the homepage itself.
-  await expect(page.getByTestId('home')).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Welcome' })).toBeVisible();
+  // A first visit has no session to have ended.
+  await expect(page.getByRole('alert')).toHaveCount(0);
+  await expect(page.getByTestId('auth-password')).toHaveAttribute('autocomplete', 'new-password');
+  await page.getByLabel('Username').fill('owner');
+  await page.getByLabel('Password').fill('correct horse');
+  await page.getByLabel('Password').press('Enter');
+
+  // Nothing else is reachable until there is somebody to talk to.
+  await expect(page.getByTestId('setup-view')).toBeVisible();
+  await expect(page.getByTestId('chat-input')).toHaveCount(0);
+  await expect(page.getByTestId('setup-model')).toHaveValue('seeing');
+  await page.getByLabel('Their name').fill('Nova');
+  await page.getByTestId('setup-start').click();
+
+  await expect(page.getByTestId('chat-empty')).toHaveText('Say hello to Nova.');
+  await expect(page.getByTestId('chat-input')).toBeVisible();
+  expect(loginBody).toMatchObject({ username: 'owner', remember: true });
   expect(createdWorkspace).toBe(true);
-  expect(createdPersona).toBe(true);
-  // The homepage renders as soon as setup has what it needs, which is before
-  // the settings write returns. Waiting on the write itself rather than on a
-  // screen that appears slightly earlier.
-  await expect.poll(() => onboardingDone).toBe(true);
+  expect(personaBody).toMatchObject({ name: 'Nova', default_model: 'seeing' });
+  expect(String((personaBody as Record<string, unknown> | null)?.system_prompt)).toContain('like a close friend');
+  expect(chatBody).toMatchObject({ persona_id: persona.id, model: 'seeing' });
+  expect(onboardingDone).toBe(true);
+});
+
+test('a wrong password says so and keeps what was typed', async ({ page }) => {
+  await page.route('**/api/v1/**', async (route) => {
+    const path = new URL(route.request().url()).pathname;
+    if (path === '/api/v1/signup') await json(route, { open: false, first_account: false });
+    else await json(route, { error: { code: 'authentication_required', message: 'invalid credentials' } }, 401);
+  });
+  await page.goto('/');
+  await expect(page.getByRole('heading', { name: 'Sign in' })).toBeVisible();
+  await expect(page.getByTestId('auth-password')).toHaveAttribute('autocomplete', 'current-password');
+  // Sign-in offers nothing that would only be refused.
+  await expect(page.getByTestId('auth-switch')).toHaveCount(0);
+  await page.getByLabel('Username').fill('owner');
+  await page.getByLabel('Password').fill('not the one');
+  await page.getByTestId('auth-login').click();
+  await expect(page.getByRole('alert')).toHaveText('Wrong username or password.');
+  await expect(page.getByLabel('Username')).toHaveValue('owner');
+  await expect(page.getByLabel('Password')).toHaveValue('not the one');
+  await expect(page.getByTestId('auth-login')).toBeEnabled();
 });
 
 test('loading with no chat in the url shows the homepage and stays there', async ({ page }) => {

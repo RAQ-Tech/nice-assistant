@@ -38,7 +38,12 @@ the browser-facing origin is HTTPS. Authenticated activity renews both the
 server expiry and browser cookie when inactive-session expiry is enabled. When
 the user disables automatic inactivity logout, the server keeps the session
 valid and the browser uses a session cookie rather than a contradictory fixed
-30-minute cookie. Login failures are bounded per client and normalized username
+30-minute cookie. A sign-in with "Keep me signed in on this device" (ADR 0047,
+the default) is stored as a kept session: it lasts sixty days from its last
+use, is renewed by every authenticated request, is never ended for inactivity,
+and its cookie carries the same sixty-day `Max-Age`. Signing out deletes either
+kind at once. Credentials are never kept in browser storage; the sign-in page is
+a real form so a password manager can keep them instead. Login failures are bounded per client and normalized username
 and do not disclose whether a username exists.
 
 User-configurable LAN provider base URLs accept only HTTP(S), contain no

@@ -14,13 +14,13 @@ import { captureFocus, captureScroll, captureScrollPositions, el, errorMessage, 
 import { imageOverlay, stepChatImage, videoOverlay } from './media_overlays';
 import { generationLogOverlay } from './generation_log_view';
 import { HomeView } from './home_view';
-import { runFirstRunSetup } from './onboarding';
 import { MediaController } from './media';
 import { PlaybackController } from './playback';
 import { RecordingController } from './recording';
 import { Router } from './routing';
 import { normalizeSettings, settingsWire } from './settings';
 import { SettingsView, type Dialogs } from './settings_view';
+import { SetupView } from './setup_view';
 import { clearIdentitySetupContext, machine, state } from './state';
 import type { ModalState, RouteState, Session } from './types';
 import { Visualizer } from './visualization';
@@ -37,6 +37,7 @@ const dialogs = createDialogs(state, () => render());
 const router = new Router((route) => void handleRoute(route));
 const settingsView = new SettingsView(render, closeSettings, dialogs, state, api, (section, item) => router.settings(section, false, item ?? null));
 const authView = new AuthView(authenticated, render);
+const setupView = new SetupView(state, api, machine, render, (chatId) => router.chat(chatId));
 const chatRenderer = new ChatRenderer(
   media,
   playback,
@@ -78,7 +79,8 @@ media.setChangeHandler(render);
 playback.setChangeHandler(render);
 connectConversation(recording, loop, (text) => chat.send(text), render);
 
-window.addEventListener('nice:unauthorized', () => void signedOut('Your session ended. Please sign in again.'));
+// Only a session that existed can have ended; a first visit is simply not signed in yet.
+window.addEventListener('nice:unauthorized', () => { if (state.session) void signedOut('Your session ended. Please sign in again.'); });
 window.addEventListener('unhandledrejection', (event) => {
   event.preventDefault();
   reportUnhandled(event.reason);
@@ -95,7 +97,7 @@ void initialize();
 
 async function initialize(): Promise<void> {
   try {
-    await authenticated(await api.session(), false);
+    await authenticated(await api.session());
   } catch (error) {
     if (!(error instanceof ApiError && error.status === 401)) {
       state.authError = errorMessage(error, 'Unable to contact Nice Assistant.');
@@ -104,7 +106,7 @@ async function initialize(): Promise<void> {
   }
 }
 
-async function authenticated(session: Session, runOnboarding = true): Promise<void> {
+async function authenticated(session: Session): Promise<void> {
   state.session = session;
   const [models, workspaces, personas, chats, wire, memories, taskModels, taskRuns, mediaCatalog, mediaReadiness] = await Promise.all([
     api.models().catch(() => ({ models: [] as string[], vision_models: [] as string[] })),
@@ -137,19 +139,26 @@ async function authenticated(session: Session, runOnboarding = true): Promise<vo
   state.lastActivityAt = Date.now();
   armSessionTimer();
 
-  const needsOnboarding = !state.settings.onboarding_done || !state.workspaces.length || !state.personas.length;
-  if (needsOnboarding && runOnboarding) {
+  // Without a persona there is nobody to talk to, so the setup page is all there is.
+  if (!state.personas.length) {
     machine.transition('onboarding');
     render();
-    await runFirstRunSetup(state, api, dialogs, machine, render);
-  } else if (state.phase === 'signed_out' || state.phase === 'onboarding') {
-    machine.transition('idle');
+    return;
   }
+  if (!state.settings.onboarding_done) void markSetUp();
+  if (state.phase === 'signed_out' || state.phase === 'onboarding') machine.transition('idle');
 
   state.selectedPersonaId = state.selectedPersonaId ?? state.personas[0]?.id ?? null;
   state.newChatPersonaId = state.newChatPersonaId ?? state.selectedPersonaId;
   await applyCurrentRoute();
   render();
+}
+
+/** An install that already has a persona was set up in all but name. */
+async function markSetUp(): Promise<void> {
+  if (!state.settings) return;
+  state.settings.onboarding_done = true;
+  await api.updateSettings(settingsWire(state.settings)).catch(() => undefined);
 }
 
 async function handleRoute(route: RouteState): Promise<void> {
@@ -159,7 +168,7 @@ async function handleRoute(route: RouteState): Promise<void> {
     if (state.phase === 'recording') recording.cancel();
   }
   state.route = route;
-  if (!state.session) return;
+  if (!state.session || !state.personas.length) return;
   await applyCurrentRoute();
   render();
 }
@@ -214,6 +223,7 @@ const homeView = new HomeView(state, api, {
 }, render);
 
 let frame = 0;
+let gatePage: AuthView | SetupView | null = null;
 
 /** Redraw on the next frame, however many times this is asked for before then. */
 function renderSoon(): void {
@@ -227,11 +237,16 @@ function render(): void {
   const messageScroll = captureScroll(MESSAGES_PANE);
   visualizer.setEnabled(state.showViz);
   root.replaceChildren();
-  if (!state.session) {
-    root.append(authView.node());
-    restoreFocus(root, focus, Boolean(state.modal));
+  if (!state.session || !state.personas.length) {
+    const page = state.session ? setupView : authView;
+    root.append(page.node());
+    // Typing carries on in the first field of a new page, not whichever sits where the last one was.
+    if (page === gatePage) restoreFocus(root, focus, Boolean(state.modal));
+    else if (focus) root.querySelector<HTMLInputElement>('input')?.focus();
+    gatePage = page;
     return;
   }
+  gatePage = null;
   if (state.showSettings) root.append(settingsView.node());
   else if (state.route.kind === 'home') root.append(homeView.node());
   else root.append(shell());
@@ -292,6 +307,8 @@ function shell(): HTMLElement {
         !messages.some((message) => message.id === request.assistant_message_id),
     )
     .map((request) => capabilities.node(request));
+  // Nothing said yet: an invitation, not an empty box.
+  const emptyChat = Boolean(state.currentChat) && !messages.length && state.phase !== 'loading_chat';
   const pane = el(
     'section',
     {
@@ -300,7 +317,7 @@ function shell(): HTMLElement {
       onscroll: onMessageScroll,
       'data-testid': 'message-pane',
     },
-    [...messageNodes, ...unanchoredRequests],
+    [...messageNodes, ...unanchoredRequests, ...(emptyChat ? [el('p', { class: 'chat-empty', textContent: `Say hello to ${persona?.name ?? 'your persona'}.`, 'data-testid': 'chat-empty' })] : [])],
   );
   return el('div', { class: 'app-shell' }, [
     chatDrawer.node(),
@@ -579,7 +596,8 @@ function noteActivity(): void {
 function armSessionTimer(): void {
   if (state.sessionTimer !== null) window.clearInterval(state.sessionTimer);
   state.sessionTimer = window.setInterval(() => {
-    if (!state.session || !state.settings?.general_auto_logout) return;
+    // A device somebody chose to stay signed in on is never signed out for being idle.
+    if (!state.session || state.session.persistent || !state.settings?.general_auto_logout) return;
     if (Date.now() - state.lastActivityAt >= state.session.ttl_seconds * 1000) void logout();
   }, 15_000);
 }

@@ -105,10 +105,12 @@ browser and all public application routes use `/api/v1`, with interactive
 documentation at `/api/v1/docs`. The legacy `/api` browser surface, raw HTTP
 server, proxy, bridge, and second listener have been removed.
 
-- Multi-user account creation + login (cookie session)
+- Account creation and sign-in on a real form password managers recognise,
+  with "Keep me signed in on this device" for a phone or tablet (ADR 0047)
 - Same-origin write-header/origin enforcement, bounded login lockout, strict
   cookies, optional HTTPS `Secure` cookies, and private-LAN provider URL policy
-- First-login onboarding wizard (workspace + persona + default model + default memory mode)
+- First-run setup page: name a companion, describe them, choose the model they
+  think with, and start talking; nothing else is reachable until it is done
 - Chat list/new chat + transcript + per-chat model and memory mode, with
   explicit individual and bulk hide/delete actions
 - Tiered memory CRUD APIs + basic UI controls:

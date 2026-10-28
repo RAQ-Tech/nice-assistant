@@ -190,8 +190,13 @@ export class ApiClient {
     return this.request('/users', { method: 'POST', body: JSON.stringify({ username, password }) });
   }
 
-  login(username: string, password: string): Promise<Session> {
-    return this.request('/session', { method: 'POST', body: JSON.stringify({ username, password }) });
+  login(username: string, password: string, remember = false): Promise<Session> {
+    return this.request('/session', { method: 'POST', body: JSON.stringify({ username, password, remember }) });
+  }
+
+  /** Whether an account can be created here, and whether it would be the first. */
+  signupStatus(): Promise<{ open: boolean; first_account: boolean }> {
+    return this.request('/signup');
   }
 
   session(): Promise<Session> {

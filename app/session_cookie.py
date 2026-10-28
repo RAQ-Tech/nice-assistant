@@ -1,6 +1,6 @@
 from fastapi import Response
 
-from app.resource_service import AuthContext
+from app.resource_service import REMEMBERED_SESSION_SECONDS, AuthContext
 from app.runtime import SESSION_COOKIE
 
 
@@ -17,6 +17,9 @@ def set_session_cookie(
         "path": "/",
         "secure": secure,
     }
-    if context.auto_logout:
+    if context.persistent:
+        # Outlives closing the browser, which is the point of keeping a device.
+        options["max_age"] = REMEMBERED_SESSION_SECONDS
+    elif context.auto_logout:
         options["max_age"] = ttl_seconds
     response.set_cookie(SESSION_COOKIE, context.token, **options)
