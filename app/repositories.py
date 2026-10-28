@@ -33,6 +33,7 @@ from app.models import (
     Memory,
     MemoryEvent,
     Message,
+    MessagePhoto,
     Persona,
     PersonaImageLibraryEntry,
     PersonaPhotoSet,
@@ -1470,6 +1471,43 @@ class ApplicationRepository:
         self.session.add(row)
         self.session.flush()
         return row
+
+    def add_message_photo(
+        self, *, user_id: str, message_id: str, content: bytes, width: int, height: int, mime_type: str
+    ):
+        row = MessagePhoto(
+            id=secrets.token_hex(12),
+            user_id=user_id,
+            message_id=message_id,
+            mime_type=mime_type,
+            width=int(width),
+            height=int(height),
+            data=content,
+            created_at=now_ts(),
+        )
+        self.session.add(row)
+        self.session.flush()
+        return row
+
+    def photos_for_messages(self, message_ids) -> dict:
+        """Each message's photos, oldest first."""
+
+        ids = [value for value in dict.fromkeys(message_ids) if value]
+        grouped: dict = {}
+        for start in range(0, len(ids), IN_CLAUSE_CHUNK):
+            chunk = ids[start : start + IN_CLAUSE_CHUNK]
+            for row in self.session.scalars(
+                select(MessagePhoto)
+                .where(MessagePhoto.message_id.in_(chunk))
+                .order_by(MessagePhoto.created_at, MessagePhoto.id)
+            ):
+                grouped.setdefault(row.message_id, []).append(row)
+        return grouped
+
+    def message_photo(self, user_id: str, photo_id: str):
+        return self.session.scalar(
+            select(MessagePhoto).where(MessagePhoto.id == photo_id, MessagePhoto.user_id == user_id)
+        )
 
     def turn_for_message(self, user_id: str, chat_id: str, message_id: str):
         """The turn a message was said or answered in, if any claims it."""

@@ -258,6 +258,8 @@ export interface Message {
   created_at: number;
   attachments?: ChatAttachment[];
   degraded_reason?: string | null;
+  /** Photos sent with this message; `url` is a local preview until it is stored. */
+  photos?: { id: Id; url: string; width: number; height: number }[];
   isTyping?: boolean;
   retryImagePrompt?: string;
   retryChatId?: Id;
@@ -1090,6 +1092,10 @@ export interface AppState {
   workspaces: Workspace[];
   settings: Settings | null;
   models: string[];
+  /** The models that can be shown a photo (ADR 0046). */
+  visionModels: string[];
+  /** A photo chosen to send with the next message, already shrunk, as a data URL. */
+  draftPhoto: string | null;
   memories: Memory[];
   taskModels: TaskModelProfile[];
   taskModelRuns: TaskModelRun[];

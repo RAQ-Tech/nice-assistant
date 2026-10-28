@@ -127,6 +127,11 @@ message's buttons appear when it is tapped. Replies are rendered from escaped
 text with only a reply's formatting restored, an aside shown as one, and
 pictures loaded only from this server. See ADR 0045.
 
+When the conversation's model can see (the models list names them), a camera
+button beside the message box picks a photo, which is shrunk on a canvas to at
+most 1568 pixels, previewed with a way to remove it, and sent with the message
+as a JPEG data URL. It is shown in the message once sent. See ADR 0046.
+
 Direct-LAN HTTP remains supported for typed desktop chat even though it is not a
 browser secure context. Client-only reconciliation IDs must therefore never
 assume `crypto.randomUUID` exists. Durable IDs, idempotency, authentication, and

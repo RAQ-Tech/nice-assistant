@@ -139,6 +139,12 @@ retains the prior checkpoint, and leaves the reply completed; turns recorded
 before ADR 0043 may still carry `summary_provider_failed`.
 Summary text is never emitted as assistant streaming output.
 
+A photo sent with a message (ADR 0046) reaches the model beside the message's
+text, for the current message and for the most recent earlier photo while it is
+among the last three things said. Each shown photo sets aside 600 tokens of the
+prompt budget, because the provider does not report an image's cost in advance.
+Task Models never see photos.
+
 Deleting an exchange (ADR 0045) drops every summary that reaches it, so the
 summary never goes on remembering what was deleted; the next compaction writes
 one from what is left. Answering the latest exchange again or correcting it

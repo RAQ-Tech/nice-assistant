@@ -2,6 +2,7 @@ import type { ChatController } from './chat';
 import { composerState, heardSoFar } from './composer_state';
 import type { ConversationLoop } from './conversation_loop';
 import { el } from './dom';
+import { photoPicker } from './photo_upload';
 import type { RecordingController } from './recording';
 import { state } from './state';
 import { talkButton } from './talk_button';
@@ -12,6 +13,8 @@ export interface ComposerDeps {
   recording: RecordingController;
   stopSpeaking: () => void;
   render: () => void;
+  /** Whether this conversation's model can be shown a photo (ADR 0046). */
+  canSendPhotos: boolean;
 }
 
 /**
@@ -31,7 +34,7 @@ export function composerView(personaName: string, deps: ComposerDeps): HTMLEleme
     // Typing instead of talking ends a hands-free conversation.
     deps.loop.end();
     if (editing) void deps.chat.again(editing, text);
-    else void deps.chat.send(text);
+    else void deps.chat.send(text, state.draftPhoto);
   };
   const stopEditing = (): void => {
     state.editingMessageId = null;
@@ -46,7 +49,21 @@ export function composerView(personaName: string, deps: ComposerDeps): HTMLEleme
             el('button', { class: 'link-btn', textContent: 'Cancel', onclick: stopEditing }),
           ])
         : null,
-      el('textarea', {
+      state.draftPhoto
+        ? el('div', { class: 'composer-photo', 'data-testid': 'composer-photo' }, [
+            el('img', { src: state.draftPhoto, alt: 'The photo to send' }),
+            el('button', {
+              class: 'icon-btn',
+              textContent: '×',
+              title: 'Remove the photo',
+              'aria-label': 'Remove the photo',
+              onclick: () => { state.draftPhoto = null; deps.render(); },
+            }),
+          ])
+        : null,
+      el('div', { class: 'composer-row' }, [
+        deps.canSendPhotos && !editing ? photoPicker(deps.render) : null,
+        el('textarea', {
         id: 'chatInput',
         rows: 1,
         class: `composer-input ${heard ? 'composer-hearing' : ''}`,
@@ -68,6 +85,7 @@ export function composerView(personaName: string, deps: ComposerDeps): HTMLEleme
           submit((event.currentTarget as HTMLTextAreaElement).value);
         },
       }),
+      ]),
     ]),
     cancellableTurn
       ? el('button', {

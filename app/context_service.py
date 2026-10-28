@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import base64
 from dataclasses import dataclass
 import hashlib
 import json
@@ -53,6 +54,38 @@ class _SummarySnapshot:
     id: str
     through_message_id: str
     content: str
+
+
+# What one photo costs a vision model, as a conservative estimate: Gemma 3
+# spends 256 tokens on an image and LLaVA 576, and nothing reports it before
+# the prompt is sent. Text yields to it.
+IMAGE_PROMPT_TOKENS = 600
+# How far back an earlier photo stays in view: within this many things said,
+# a follow-up about it is answered by somebody who can still see it.
+RECENT_PHOTO_MESSAGES = 3
+
+
+def _show_photos(current_message: dict, current_photos, history: list) -> int:
+    """Put photos in front of the model, and say how many.
+
+    The current message's, always. And the most recent earlier one, while it
+    is among the last few things said: "what breed is it?" is about the
+    photo two messages ago, and a model that can no longer see it would guess.
+    Older photos are not sent again; each one costs the reply time.
+    """
+
+    shown = 0
+    if current_photos:
+        current_message["images"] = [base64.b64encode(data).decode("ascii") for data in current_photos]
+        shown += len(current_photos)
+    said = [index for index, item in enumerate(history) if item["role"] == "user"][-RECENT_PHOTO_MESSAGES:]
+    earlier = next((index for index in reversed(said) if history[index].get("photos")), None)
+    if earlier is not None:
+        item = history[earlier]
+        images = [base64.b64encode(data).decode("ascii") for data in item["photos"]]
+        history[earlier] = {**item, "provider_message": {**item["provider_message"], "images": images}}
+        shown += len(images)
+    return shown
 
 
 def _clip_text(text: str, tokens: int) -> str:
@@ -160,6 +193,12 @@ class ContextService:
 
         protected_sections = _protected_sections(application_instructions, persona_instructions, owner_profile)
         current_message = {"role": "user", "content": current["text"]}
+        # Photos (ADR 0046) cost the model tokens the text estimate cannot see,
+        # so what they cost comes out of what the text may use.
+        image_count = _show_photos(current_message, current.get("photos"), history)
+        image_tokens = image_count * IMAGE_PROMPT_TOKENS
+        full_budget = prompt_budget
+        prompt_budget -= image_tokens
         protected_system = "\n\n".join(protected_sections)
         protected_messages = ([{"role": "system", "content": protected_system}] if protected_system else []) + [
             current_message
@@ -236,8 +275,8 @@ class ContextService:
             messages=messages,
             options=options,
             context_window_tokens=context_window,
-            prompt_budget_tokens=prompt_budget,
-            prompt_tokens_estimated=estimated,
+            prompt_budget_tokens=full_budget,
+            prompt_tokens_estimated=estimated + image_tokens,
             included_message_count=len(selected_history),
             omitted_message_count=omitted_history,
             included_memory_count=len(selected_memories),
@@ -534,7 +573,9 @@ class ContextService:
                         )
                     )
                 ]
-            return {"id": current.id, "text": current.text}, history, earlier_count, memories, summary
+            photos = [row.data for row in uow.repo.photos_for_messages([current.id]).get(current.id, [])]
+            current_view = {"id": current.id, "text": current.text, "photos": photos}
+            return current_view, history, earlier_count, memories, summary
 
     @staticmethod
     def _durable_summary(uow, user_id: str, chat_id: str) -> _SummarySnapshot | None:
@@ -603,7 +644,8 @@ class ContextService:
             if assistant_message:
                 capability_rows = capabilities.get(prior_turn.id, [])
                 ordered_rows.append((assistant_message, self._tool_calls(capability_rows), capability_rows))
-        history = self._history_items(ordered_rows)
+        said = [row.id for row in ordered_rows if not isinstance(row, tuple) and row.role == "user"]
+        history = self._history_items(ordered_rows, uow.repo.photos_for_messages(said))
         if started_at_boundary and not any(item["id"] == summary.through_message_id for item in history):
             # The boundary was not where it was expected. Reading everything is
             # slower and was always correct.
@@ -654,7 +696,7 @@ class ContextService:
             )
         return tool_calls
 
-    def _history_items(self, ordered_rows: list) -> list[dict]:
+    def _history_items(self, ordered_rows: list, photos: dict | None = None) -> list[dict]:
         history = []
         for item in ordered_rows:
             if isinstance(item, tuple):
@@ -672,6 +714,7 @@ class ContextService:
                     "text": row_text,
                     "created_at": row.created_at,
                     "provider_message": provider_message,
+                    "photos": [photo.data for photo in (photos or {}).get(row.id, [])],
                 }
             )
             for capability in capability_rows:

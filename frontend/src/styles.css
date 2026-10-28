@@ -2901,3 +2901,17 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
 @media (hover: none) {
   .msg:not(.selected) .msg-actions { display: none; }
 }
+
+/* A photo sent with a message (ADR 0046): in the bubble, and as it waits to be sent. */
+.msg-photos { display: flex; flex-wrap: wrap; gap: .4rem; margin: .2rem 0 .4rem; }
+.msg-photo { max-width: min(100%, 320px); max-height: 320px; border-radius: .7rem; cursor: zoom-in; object-fit: cover; }
+.composer-row { display: flex; align-items: flex-end; gap: .4rem; min-width: 0; }
+.composer-row .composer-input { flex: 1; min-width: 0; }
+.composer-attach { position: relative; cursor: pointer; align-self: center; }
+.composer-photo-input { position: absolute; width: 1px; height: 1px; opacity: 0; pointer-events: none; }
+.composer-photo { position: relative; align-self: flex-start; }
+.composer-photo img { display: block; max-height: 88px; max-width: 140px; border-radius: .55rem; border: 1px solid var(--border); }
+.composer-photo .icon-btn { position: absolute; top: -.45rem; right: -.45rem; padding: .05rem .4rem; }
+/* With a photo waiting or a message being corrected, the box is taller; the
+   buttons stay beside where the words are typed. */
+.composer:has(.composer-photo, .composer-editing) { align-items: end; }

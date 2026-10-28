@@ -28,6 +28,14 @@ class ProviderRegistry:
         except KeyError as exc:
             raise LookupError(f"media provider not configured: {name}") from exc
 
+    def can_see(self, provider_name: str, model: str) -> bool:
+        """Whether this chat model can be shown a photo, as its provider reports it."""
+
+        provider = self.chat_providers.get(provider_name)
+        describe = getattr(provider, "model_context", None)
+        profile = describe(model) if callable(describe) else None
+        return bool(profile and getattr(profile, "vision", False))
+
     def models(self) -> list[str]:
         result = []
         for provider in self.chat_providers.values():

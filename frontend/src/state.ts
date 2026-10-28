@@ -26,6 +26,8 @@ export function createState(): AppState {
     workspaces: [],
     settings: null,
     models: [],
+    visionModels: [],
+    draftPhoto: null,
     memories: [],
     taskModels: [],
     taskModelRuns: [],

@@ -628,6 +628,12 @@ installed-browser acceptance.
   the transcript, the next prompt and any summary that covered it. Browser tests
   cover the same actions, a restored draft, a resumed stream, formatting, and
   that a picture from another host is never loaded.
+- Photo tests (`tests/test_chat_photos.py`, `frontend/tests/photos.test.ts`,
+  ADR 0046) prove the model receives a sent photo upright, shrunk and without
+  metadata, that a model that cannot see refuses it before anything is kept,
+  that photos are served only to their sender and follow the message through
+  answering again and deletion, and that the camera button appears only where
+  the photo would be seen.
 - Memory tests cover legacy data migration, exact-duplicate supersession, FTS
   population/ranking, active-only scoped retrieval, nonblocking extraction,
   provenance, review transitions, superseding edits, forget/undo, extraction

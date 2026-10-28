@@ -211,6 +211,9 @@ server, proxy, bridge, and second listener have been removed.
 - A failed reply can be tried again, the latest reply answered again, the
   latest message corrected, and any exchange deleted; formatted replies, quiet
   time dividers, and a reply stream that survives a dropped connection
+- Photos the persona can see: with a chat model that can see images (such as
+  Gemma 3), a camera button sends a photo, shrunk and stripped of its location,
+  to the persona over this network only
 - Local transcription against a self-hosted Whisper service, so a spoken turn
   can complete without leaving this network
 - Optional transcription at natural pauses, so the wait after you stop is one
@@ -376,6 +379,7 @@ For iPhone/Android browsers, microphone capture usually requires **HTTPS** (or l
 - `GET /ready`
 - `GET/POST /api/v1/chats`, `GET/PUT/DELETE /api/v1/chats/:id`
 - `POST /api/v1/chats/:id/turns`, `GET /api/v1/turns/:id`
+- `GET /api/v1/photos/:id` (a photo sent with a message, to whoever sent it); `GET /api/v1/models` also lists `vision_models`
 - `POST /api/v1/chats/:id/messages/:message_id/again` (retry, answer again, or correct the latest exchange), `DELETE /api/v1/chats/:id/messages/:message_id` (an exchange)
 - `GET /api/v1/turns/:id/events` (authenticated SSE)
 - `GET/DELETE /api/v1/jobs/:id`

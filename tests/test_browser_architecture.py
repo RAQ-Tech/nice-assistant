@@ -28,6 +28,7 @@ class BrowserArchitectureTests(unittest.TestCase):
             "recording_formats.ts",
             "composer_view.ts",
             "markdown.ts",
+            "photo_upload.ts",
             "home_cards.ts",
             "home_controls.ts",
             "home_view.ts",
@@ -115,6 +116,7 @@ class BrowserArchitectureTests(unittest.TestCase):
         self.assertLess((SOURCE / "recording_formats.ts").read_text(encoding="utf-8").count("\n"), 40)
         self.assertLess((SOURCE / "composer_view.ts").read_text(encoding="utf-8").count("\n"), 140)
         self.assertLess((SOURCE / "markdown.ts").read_text(encoding="utf-8").count("\n"), 140)
+        self.assertLess((SOURCE / "photo_upload.ts").read_text(encoding="utf-8").count("\n"), 100)
         self.assertLess((SOURCE / "identity_workflow_setup_view.ts").read_text(encoding="utf-8").count("\n"), 520)
         self.assertIn("strict", (ROOT / "tsconfig.json").read_text(encoding="utf-8"))
         self.assertIn('src="/app.js"', (ROOT / "web" / "index.html").read_text(encoding="utf-8"))

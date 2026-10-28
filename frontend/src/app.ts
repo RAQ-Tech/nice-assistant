@@ -7,6 +7,7 @@ import { coverImage, ChatRenderer, modelNickname, newestImageSource } from './ch
 import { CapabilityController } from './capabilities';
 import { unlockOnFirstTap } from './audio_context';
 import { composerView, startEditing } from './composer_view';
+import { canSendPhoto } from './photo_upload';
 import { ConversationLoop, connectConversation } from './conversation_loop';
 import { createDialogs } from './dialogs';
 import { captureFocus, captureScroll, captureScrollPositions, el, errorMessage, restoreFocus, restoreScroll, restoreScrollPositions } from './dom';
@@ -106,7 +107,7 @@ async function initialize(): Promise<void> {
 async function authenticated(session: Session, runOnboarding = true): Promise<void> {
   state.session = session;
   const [models, workspaces, personas, chats, wire, memories, taskModels, taskRuns, mediaCatalog, mediaReadiness] = await Promise.all([
-    api.models().catch(() => ({ models: [] })),
+    api.models().catch(() => ({ models: [] as string[], vision_models: [] as string[] })),
     api.workspaces(),
     api.personas(),
     api.chats(),
@@ -118,6 +119,7 @@ async function authenticated(session: Session, runOnboarding = true): Promise<vo
     api.mediaReadiness().catch(() => null),
   ]);
   state.models = models.models;
+  state.visionModels = models.vision_models ?? [];
   state.workspaces = workspaces.items;
   state.personas = personas.items;
   state.chats = chats.items;
@@ -331,7 +333,7 @@ function shell(): HTMLElement {
             el('button', { class: 'icon-btn', textContent: 'Dismiss', onclick: () => { state.uiError = ''; if (state.phase === 'error') machine.recover(); render(); } }),
           ])
         : null,
-      composerView(persona?.name ?? 'your persona', { chat, loop, recording, stopSpeaking: () => playback.stop(false), render }),
+      composerView(persona?.name ?? 'your persona', { chat, loop, recording, stopSpeaking: () => playback.stop(false), render, canSendPhotos: canSendPhoto(model, state.visionModels) }),
     ]),
     el('div', { class: `viz-wrap ${state.showViz ? 'show' : ''}` }, visualizer.node()),
   ]);
