@@ -202,8 +202,12 @@ server, proxy, bridge, and second listener have been removed.
 - Streaming speech that starts on the first piece of audio, with the completed
   recording still stored for replay
 - Interrupting speech stops the provider work rather than only muting the output
-- Optional hands-free listening that decides when a turn ended, with
-  hold-to-talk unchanged and never guessed at
+- Optional hands-free conversation: a tap starts it, the product decides when
+  each turn ended, and the microphone opens again once the persona has
+  answered, until you stop or stop answering. Hold-to-talk is unchanged and
+  never guessed at
+- Spoken replies on a phone: audio is unlocked on the first tap, and an iPhone
+  streams speech rather than waiting for the whole reply
 - Local transcription against a self-hosted Whisper service, so a spoken turn
   can complete without leaving this network
 - Optional transcription at natural pauses, so the wait after you stop is one

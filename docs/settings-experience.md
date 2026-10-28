@@ -168,7 +168,10 @@ Voice:
   listening and transcribing at natural pauses appear once something can
   transcribe; with hands-free on, how long a pause sends is a choice - quick,
   relaxed or patient - because the pause that ends a turn is the pause that
-  cuts a person off; keeping recordings is folded.
+  cuts a person off; keeping recordings is folded. Hands-free is a
+  conversation, not a single turn: the microphone opens again after each
+  reply (ADR 0044). The stored format is MP3 unless chosen otherwise, and its
+  hover names the formats that can start speaking early.
 
 Pictures (the two generation pages moved over on 2026-09-03):
 

@@ -5,7 +5,9 @@ import { avatarSource } from './avatar';
 import { clickDismissesDrawer, ChatDrawer } from './chat_drawer';
 import { coverImage, ChatRenderer, modelNickname, newestImageSource } from './chat_rendering';
 import { CapabilityController } from './capabilities';
-import { composerState } from './composer_state';
+import { unlockOnFirstTap } from './audio_context';
+import { composerState, heardSoFar } from './composer_state';
+import { ConversationLoop, connectConversation } from './conversation_loop';
 import { createDialogs } from './dialogs';
 import { captureFocus, captureScroll, captureScrollPositions, el, errorMessage, restoreFocus, restoreScroll, restoreScrollPositions } from './dom';
 import { imageOverlay, stepChatImage, videoOverlay } from './media_overlays';
@@ -30,6 +32,7 @@ const playback = new PlaybackController(audio, visualizer);
 const media = new MediaController();
 const chat = new ChatController(playback);
 const recording = new RecordingController();
+const loop = new ConversationLoop(recording);
 const dialogs = createDialogs(state, () => render());
 const router = new Router((route) => void handleRoute(route));
 const settingsView = new SettingsView(render, closeSettings, dialogs, state, api, (section, item) => router.settings(section, false, item ?? null));
@@ -64,7 +67,7 @@ chat.configure({
 });
 media.setChangeHandler(render);
 playback.setChangeHandler(render);
-recording.configure(render, (text) => chat.send(text));
+connectConversation(recording, loop, (text) => chat.send(text), render);
 
 window.addEventListener('nice:unauthorized', () => void signedOut('Your session ended. Please sign in again.'));
 window.addEventListener('unhandledrejection', (event) => {
@@ -73,6 +76,7 @@ window.addEventListener('unhandledrejection', (event) => {
 });
 window.addEventListener('error', (event) => reportUnhandled(event.error ?? event.message));
 window.addEventListener('pointerdown', noteActivity, { passive: true });
+unlockOnFirstTap(audio);
 window.addEventListener('keydown', handleKeydown);
 window.visualViewport?.addEventListener('resize', syncViewportHeight);
 window.addEventListener('resize', syncViewportHeight);
@@ -139,6 +143,11 @@ async function authenticated(session: Session, runOnboarding = true): Promise<vo
 }
 
 async function handleRoute(route: RouteState): Promise<void> {
+  // A hands-free conversation belongs to the chat it was started in.
+  if (route.kind !== 'chat' || route.chatId !== state.currentChat?.id) {
+    loop.end();
+    if (state.phase === 'recording') recording.cancel();
+  }
   state.route = route;
   if (!state.session) return;
   await applyCurrentRoute();
@@ -312,11 +321,6 @@ function shell(): HTMLElement {
             el('button', { class: 'icon-btn', textContent: 'Dismiss', onclick: () => { state.uiError = ''; if (state.phase === 'error') machine.recover(); render(); } }),
           ])
         : null,
-      // Silence when idle: a label that always says "Ready" is furniture, and
-      // the one moment it matters is while a recording is actually running.
-      state.phase === 'recording'
-        ? el('div', { class: 'record-indicator', textContent: `● Recording… ${Math.floor((Date.now() - state.recordingStartedAt) / 1000)}s` })
-        : null,
       composer(persona?.name ?? 'your persona'),
     ]),
     el('div', { class: `viz-wrap ${state.showViz ? 'show' : ''}` }, visualizer.node()),
@@ -371,7 +375,7 @@ function chatControls(workspace: string, model: string, memoryMode: string): HTM
       'data-testid': 'toggle-chat-image-blur',
       onclick: () => void toggleChatImageBlur(),
     }),
-    state.currentAudioMessageId ? el('button', { class: 'pill-btn', textContent: 'Stop audio', onclick: () => playback.stop() }) : null,
+    state.currentAudioMessageId ? el('button', { class: 'pill-btn', textContent: 'Stop audio', onclick: () => { loop.end(); playback.stop(); } }) : null,
     el('details', { class: 'chat-control-details' }, [
       el('summary', { textContent: 'Chat details' }),
       el('p', { class: 'meta', textContent: `Workspace: ${workspace}` }),
@@ -414,15 +418,17 @@ async function toggleChatImageBlur(): Promise<void> {
 function composer(personaName: string): HTMLElement {
   const { busy, inputLocked } = composerState(state.phase);
   const cancellableTurn = state.pendingRequest && ['queued', 'thinking'].includes(state.phase);
+  const heard = heardSoFar(state.phase, state.partialTranscript);
   return el('div', { class: 'composer' }, [
     el('textarea', {
       id: 'chatInput',
       rows: 1,
-      class: 'composer-input',
-      value: state.draftMessage,
+      class: `composer-input ${heard ? 'composer-hearing' : ''}`,
+      value: heard ?? state.draftMessage,
+      readOnly: Boolean(heard),
       placeholder: `Message ${personaName}…`,
       title: 'Enter sends. Shift+Enter starts a new line.',
-      disabled: inputLocked,
+      disabled: inputLocked && !heard,
       'data-testid': 'chat-input',
       oninput: (event: Event) => {
         const target = event.currentTarget as HTMLTextAreaElement;
@@ -432,7 +438,7 @@ function composer(personaName: string): HTMLElement {
       onkeydown: (event: KeyboardEvent) => {
         if (event.key === 'Enter' && !event.shiftKey) {
           event.preventDefault();
-          void chat.send((event.currentTarget as HTMLTextAreaElement).value);
+          sendTyped((event.currentTarget as HTMLTextAreaElement).value);
         }
       },
     }),
@@ -441,17 +447,23 @@ function composer(personaName: string): HTMLElement {
           class: 'send-btn',
           textContent: 'Cancel',
           'data-testid': 'chat-cancel',
-          onclick: () => void chat.cancel(),
+          onclick: () => { loop.end(); void chat.cancel(); },
         })
       : el('button', {
           class: 'send-btn',
           textContent: 'Send',
           disabled: busy,
           'data-testid': 'chat-send',
-          onclick: () => void chat.send(state.draftMessage),
+          onclick: () => sendTyped(state.draftMessage),
         }),
-    talkButton(busy, () => playback.stop(false), recording),
+    talkButton(busy, () => playback.stop(false), recording, loop),
   ]);
+}
+
+/** Typing instead of talking ends a hands-free conversation. */
+function sendTyped(text: string): void {
+  loop.end();
+  void chat.send(text);
 }
 
 function newChatModal(): HTMLElement {

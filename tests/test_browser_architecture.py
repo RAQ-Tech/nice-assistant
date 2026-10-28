@@ -11,6 +11,7 @@ class BrowserArchitectureTests(unittest.TestCase):
         expected = {
             "api.ts",
             "app.ts",
+            "audio_context.ts",
             "avatar.ts",
             "catalog_models_view.ts",
             "catalog_setup_view.ts",
@@ -21,6 +22,10 @@ class BrowserArchitectureTests(unittest.TestCase):
             "resource_page_view.ts",
             "chat.ts",
             "chat_drawer.ts",
+            "conversation_loop.ts",
+            "hands_free_listener.ts",
+            "room_levels.ts",
+            "recording_formats.ts",
             "home_cards.ts",
             "home_controls.ts",
             "home_view.ts",
@@ -101,6 +106,11 @@ class BrowserArchitectureTests(unittest.TestCase):
         self.assertLess((SOURCE / "playback.ts").read_text(encoding="utf-8").count("\n"), 300)
         self.assertLess((SOURCE / "reply_speaker.ts").read_text(encoding="utf-8").count("\n"), 160)
         self.assertLess((SOURCE / "sentence_boundaries.ts").read_text(encoding="utf-8").count("\n"), 80)
+        self.assertLess((SOURCE / "conversation_loop.ts").read_text(encoding="utf-8").count("\n"), 150)
+        self.assertLess((SOURCE / "hands_free_listener.ts").read_text(encoding="utf-8").count("\n"), 160)
+        self.assertLess((SOURCE / "audio_context.ts").read_text(encoding="utf-8").count("\n"), 110)
+        self.assertLess((SOURCE / "room_levels.ts").read_text(encoding="utf-8").count("\n"), 60)
+        self.assertLess((SOURCE / "recording_formats.ts").read_text(encoding="utf-8").count("\n"), 40)
         self.assertLess((SOURCE / "identity_workflow_setup_view.ts").read_text(encoding="utf-8").count("\n"), 520)
         self.assertIn("strict", (ROOT / "tsconfig.json").read_text(encoding="utf-8"))
         self.assertIn('src="/app.js"', (ROOT / "web" / "index.html").read_text(encoding="utf-8"))

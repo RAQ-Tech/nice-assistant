@@ -25,6 +25,33 @@ const STREAMABLE_MIME_TYPES: Record<string, string> = {
   aac: 'audio/aac',
 };
 
+interface MediaSourceClass {
+  new (): MediaSource;
+  isTypeSupported?(type: string): boolean;
+}
+
+/**
+ * The Media Source this browser offers.
+ *
+ * An iPhone has no `MediaSource`; since iOS 17.1 Safari has
+ * `ManagedMediaSource`, the same thing with the browser allowed to manage
+ * memory. Without it a phone always waited for the whole reply.
+ */
+function mediaSourceClass(): { create: MediaSourceClass; managed: boolean } | null {
+  const scope = globalThis as { MediaSource?: MediaSourceClass; ManagedMediaSource?: MediaSourceClass };
+  if (scope.MediaSource) return { create: scope.MediaSource, managed: false };
+  if (scope.ManagedMediaSource) return { create: scope.ManagedMediaSource, managed: true };
+  return null;
+}
+
+/**
+ * Whether streamed speech plays through `ManagedMediaSource`, which only
+ * opens for an element that is not offering itself to AirPlay.
+ */
+export function streamsThroughManagedSource(): boolean {
+  return mediaSourceClass()?.managed ?? false;
+}
+
 /**
  * The mime type this format can be streamed as, or null if it cannot be.
  *
@@ -35,8 +62,7 @@ const STREAMABLE_MIME_TYPES: Record<string, string> = {
 export function streamableMimeType(format: string): string | null {
   const mime = STREAMABLE_MIME_TYPES[String(format || '').toLowerCase()];
   if (!mime) return null;
-  const media = (globalThis as { MediaSource?: { isTypeSupported?(type: string): boolean } }).MediaSource;
-  return media?.isTypeSupported?.(mime) ? mime : null;
+  return mediaSourceClass()?.create.isTypeSupported?.(mime) ? mime : null;
 }
 
 export class MediaSourceSink implements AudioStreamSink {
@@ -45,7 +71,9 @@ export class MediaSourceSink implements AudioStreamSink {
   private url = '';
 
   async open(mimeType: string): Promise<string> {
-    const source = new MediaSource();
+    const available = mediaSourceClass();
+    if (!available) throw new Error('This browser cannot play audio while it is still arriving.');
+    const source = new available.create();
     this.source = source;
     this.url = URL.createObjectURL(source);
     await new Promise<void>((resolve) => {

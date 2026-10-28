@@ -654,7 +654,18 @@ input[type='file']::file-selector-button {
 .talk-control { display: flex; flex-direction: column; align-items: stretch; gap: 0.25rem; }
 .talk-destination { font-size: 0.75rem; text-align: center; opacity: 0.75; }
 
-.record-indicator { font-size: .78rem; color: var(--text-dim); }
+/* Listening hands-free: a ring that moves with the voice it hears, so it is
+   plain the microphone is open and hearing. The level is set ten times a
+   second from the microphone, straight onto the button. */
+.talk-btn.listening {
+  box-shadow: 0 0 0 calc(2px + var(--mic-level, 0) * 10px) rgba(117, 255, 201, 0.28);
+  transition: box-shadow 90ms linear;
+}
+/* What has been heard so far, shown where it would have been typed. */
+.composer-input.composer-hearing { color: var(--text-dim); font-style: italic; }
+@media (prefers-reduced-motion: reduce) {
+  .talk-btn.listening { transition: none; }
+}
 
 .chat-controls-menu {
   display: flex;

@@ -1,3 +1,4 @@
+import type { ConversationLoop } from './conversation_loop';
 import { el } from './dom';
 import type { RecordingController } from './recording';
 import { state } from './state';
@@ -6,8 +7,13 @@ import { state } from './state';
  * The microphone button, and where the recording goes.
  *
  * Hands-free turns this into tap-to-start and tap-to-stop, with the product
- * deciding when the turn ended. Held recording is unchanged and stays the
- * dependable one: the release is the decision, and it is never a guess.
+ * deciding when the turn ended, and a reply that ends by listening again (see
+ * `ConversationLoop`). Held recording is unchanged and stays the dependable
+ * one: the release is the decision, and it is never a guess.
+ *
+ * The button is also the one place that says what is happening - listening,
+ * thinking - so nothing else in the conversation has to. While it listens, a
+ * ring around it moves with the voice it hears.
  *
  * If the selected provider is a cloud one, pressing this sends audio off the
  * machine, and that is said here rather than only on a settings page nobody is
@@ -19,14 +25,18 @@ export function talkButton(
   busy: boolean,
   stopSpeaking: () => void,
   recording: RecordingController,
+  loop?: ConversationLoop,
 ): HTMLElement {
   const handsFree = Boolean(state.settings?.stt_hands_free);
-  const seconds = Math.floor((Date.now() - state.recordingStartedAt) / 1000);
-  const label = state.phase === 'recording'
-    ? `${handsFree ? 'Listening' : 'Recording'} ${seconds}s`
+  const listening = state.phase === 'recording';
+  const conversing = Boolean(loop?.running);
+  const label = listening
+    ? handsFree ? 'Listening…' : 'Release to send'
     : state.phase === 'transcribing'
       ? 'Transcribing…'
-      : handsFree ? 'Tap to Talk' : 'Hold to Talk';
+      : conversing && ['queued', 'thinking'].includes(state.phase)
+        ? 'Thinking…'
+        : handsFree ? 'Tap to Talk' : 'Hold to Talk';
   const hold = {
     onpointerdown: () => { stopSpeaking(); void recording.start(); },
     onpointerup: () => void recording.stop(),
@@ -35,17 +45,29 @@ export function talkButton(
   };
   const tap = {
     onclick: () => {
-      if (state.phase === 'recording') { void recording.stop(); return; }
+      if (listening) {
+        if (recording.heardSpeech) {
+          void recording.stop();
+          return;
+        }
+        // Nothing said yet: a second tap means "never mind", and ends the
+        // conversation rather than sending silence to be transcribed.
+        loop?.end();
+        recording.cancel();
+        return;
+      }
       stopSpeaking();
+      loop?.begin();
       void recording.start(true);
     },
   };
   const button = el('button', {
-    class: `talk-btn ${state.phase === 'recording' ? 'active' : ''}`,
+    class: `talk-btn ${listening ? 'active' : ''} ${listening && handsFree ? 'listening' : ''}`,
     textContent: label,
-    disabled: busy && state.phase !== 'recording',
+    disabled: busy && !listening,
+    'aria-live': 'polite',
     'data-testid': 'talk-button',
-    title: transcriptionDestination() ?? 'Speech is transcribed on this machine.',
+    title: listening && handsFree ? 'Tap to send now, or before speaking to stop.' : (transcriptionDestination() ?? ''),
     ...(handsFree ? tap : hold),
   });
   const destination = transcriptionDestination();

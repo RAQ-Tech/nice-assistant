@@ -1,7 +1,9 @@
 import { api, type ApiClient } from './api';
+import { SETTINGS_DEFAULTS } from './settings';
 import { speechText } from './speech_text';
 import { machine, state, type ClientStateMachine } from './state';
-import { MediaSourceSink, streamableMimeType, type AudioStreamSink } from './streaming_audio';
+import { resumeAudio } from './audio_context';
+import { MediaSourceSink, streamableMimeType, streamsThroughManagedSource, type AudioStreamSink } from './streaming_audio';
 import type { AppState } from './types';
 import { Visualizer } from './visualization';
 
@@ -25,6 +27,9 @@ export class PlaybackController {
   ) {
     audio.addEventListener('ended', this.finishActive);
     audio.addEventListener('error', this.failActive);
+    // A managed source only opens for an element that is not also offering
+    // itself to AirPlay. Speech is for the person holding the phone.
+    if (streamsThroughManagedSource()) audio.disableRemotePlayback = true;
   }
 
   setChangeHandler(handler: () => void): void {
@@ -35,7 +40,7 @@ export class PlaybackController {
     const settings = this.appState.settings;
     const cleanedText = speechText(text);
     if (!settings || settings.tts_provider === 'disabled' || !this.appState.voiceResponsesEnabled || !cleanedText) return;
-    const format = settings.tts_format || 'wav';
+    const format = settings.tts_format || SETTINGS_DEFAULTS.tts_format;
     const mimeType = streamableMimeType(format);
     if (mimeType) {
       // Start speaking when the first audio exists rather than when the last
@@ -53,7 +58,7 @@ export class PlaybackController {
         text: cleanedText,
         chat_id: chatId,
         persona_id: personaId,
-        format: settings.tts_format || 'wav',
+        format: settings.tts_format || SETTINGS_DEFAULTS.tts_format,
       }, request.signal);
     } catch (error) {
       // An interruption is the expected way this ends, not a failure worth
@@ -132,7 +137,7 @@ export class PlaybackController {
   beginPieces(messageId: string): boolean {
     const settings = this.appState.settings;
     if (!settings || settings.tts_provider === 'disabled' || !this.appState.voiceResponsesEnabled) return false;
-    const mimeType = streamableMimeType(settings.tts_format || 'wav');
+    const mimeType = streamableMimeType(settings.tts_format || SETTINGS_DEFAULTS.tts_format);
     if (!mimeType) return false;
     const token = this.begin(messageId);
     this.pieces = { token, sink: this.createSink(), started: false, mimeType, messageId };
@@ -217,6 +222,7 @@ export class PlaybackController {
   private async playPrepared(messageId: string, url: string, token: number): Promise<void> {
     if (token !== this.sequence) return;
     this.visualizer.connectAudio();
+    resumeAudio();
     this.audio.src = url;
     this.activePlaybackToken = token;
     this.appState.currentAudioMessageId = messageId;

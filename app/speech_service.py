@@ -17,6 +17,7 @@ from app.repositories import UnitOfWork
 from app.service_errors import NotFoundError, RequestError
 from app.speech_sessions import SpeechSessionRegistry
 from app.speech_clients import (
+    DEFAULT_TTS_FORMAT,
     STREAMABLE_FORMATS,
     SpeechCancelled,
     DEFAULT_STT_MODEL,
@@ -317,7 +318,7 @@ class SpeechService:
                 or preferences.get("tts_speed")
                 or "1"
             )
-            fmt = str(values.get("format") or settings["tts_format"] or "wav").strip().lower()
+            fmt = str(values.get("format") or settings["tts_format"] or DEFAULT_TTS_FORMAT).strip().lower()
             if fmt not in FORMATS:
                 raise RequestError("unsupported TTS format", 400)
             api_key = settings.get("openai_api_key")

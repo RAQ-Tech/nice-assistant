@@ -2,7 +2,7 @@ import { api, type ApiClient } from './api';
 import { clientId } from './client_id';
 import { errorMessage } from './dom';
 import { waitForJob } from './media';
-import { modelSettings } from './settings';
+import { SETTINGS_DEFAULTS, modelSettings } from './settings';
 import { clearIdentitySetupContextForChat, machine, state, type ClientStateMachine } from './state';
 import type { AppState, CapabilityRequest, Chat, Job, Message, TurnEvent } from './types';
 import type { PlaybackController } from './playback';
@@ -141,7 +141,7 @@ export class ChatController {
       // format that cannot start early speaks the completed reply below.
       this.speaker?.stop();
       this.speaker = this.playback.beginPieces(typing.id)
-        ? new ReplySpeaker(this.playback, this.client, chat.id, chat.persona_id, settings.tts_format || 'wav')
+        ? new ReplySpeaker(this.playback, this.client, chat.id, chat.persona_id, settings.tts_format || SETTINGS_DEFAULTS.tts_format)
         : null;
       this.appState.pendingRequest = {
         jobId: accepted.job.id,

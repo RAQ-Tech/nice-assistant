@@ -136,7 +136,21 @@ completed-file path runs exactly as before. Either way the finished recording is
 stored and replay plays that file rather than speaking the words again. A stream
 that fails before any sound falls back to the completed file; one that fails
 partway does not, because playing it would say the beginning twice. See
-ADR 0037.
+ADR 0037. MP3 is the default format, and an iPhone streams through
+`ManagedMediaSource`, the only Media Source it has (ADR 0044).
+
+A phone allows sound only from a tap. The page keeps one Web Audio context,
+created and resumed on taps, which the microphone meter and the visualizer both
+borrow; the first tap anywhere also plays a twentieth of a second of silence
+through the reply's audio element, which is what lets a reply that arrives
+after a network wait speak at all. The visualizer routes the reply's sound
+through Web Audio only while it is switched on, and draws only then.
+
+What is spoken is not always what is shown. A model's `<think>` reasoning and an
+aside acted out between asterisks at the start of a line or sentence are left
+out of speech; emphasis inside a sentence is still said. While a reply is still
+arriving, an aside or reasoning block that has opened holds back everything
+after it until it closes, so no part of either is spoken half-written.
 
 The microphone is hold-to-talk unless hands-free listening is switched on, in
 which case a tap starts it and the product decides when the turn ended. That
@@ -144,14 +158,27 @@ decision works to three conservative rules: silence nobody has spoken into never
 ends a turn, the level counting as speech sits above the level counting as
 silence so a voice near the line cannot make it flap, and a minute is the
 ceiling. Holding the button is unchanged and measures no level at all. See
-ADR 0038.
+ADR 0038. The first 400 ms of each hands-free turn listen to the room, and a
+noisy room raises both levels so its own noise reads as silence; what was said
+in those first moments still counts.
+
+With hands-free listening on, a tap starts a conversation rather than a single
+turn: once the persona has answered and finished speaking, the microphone opens
+again by itself (`ConversationLoop`). It is closed while the persona speaks, so
+it never hears it. The conversation ends on a tap before anything was said, a
+typed message, Cancel or Stop audio, leaving the chat, a failed turn, or half a
+minute with nobody answering - which ends it quietly, with nothing sent and no
+error. The talk button is the one place that says listening, transcribing or
+thinking, with a ring that moves with the voice it hears, and the words heard
+so far appear in the message box as each pause is transcribed. See ADR 0044.
 
 The state machine deliberately exposes `recording`, `transcribing`, and
 `speaking` phases so later realtime voice can extend the contract. During `speaking`, the
 composer remains editable; sending typed text or starting hold-to-talk stops the
 current file playback before beginning the new turn. The product does not listen
 for somebody starting to speak while it is talking; interrupting is something a
-person does, not something it notices. Hands-free listening detects the end of a
+person does, not something it notices - in a hands-free conversation, a tap
+while it speaks stops it and listens. Hands-free listening detects the end of a
 turn once recording has begun, which is a different question.
 
 What the interruption now does is complete. Playback holds the abort controller

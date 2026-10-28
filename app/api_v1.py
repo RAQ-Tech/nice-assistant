@@ -18,7 +18,7 @@ from app.runtime import SESSION_COOKIE
 from app.session_cookie import set_session_cookie
 from app.security import request_client_address
 from app.service_errors import AuthenticationError, NotFoundError, RequestError
-from app.speech_clients import SpeechCancelled
+from app.speech_clients import DEFAULT_TTS_FORMAT, SpeechCancelled
 from app.model_setup import setup_models
 from app.workflow_template import resolve_template
 
@@ -40,7 +40,7 @@ class SettingsUpdate(StrictModel):
     default_memory_mode: str = Field(default="saved", pattern="^(off|saved)$")
     stt_provider: str = Field(default="disabled", pattern="^(disabled|openai|local)$")
     tts_provider: str = Field(default="disabled", pattern="^(disabled|openai|local)$")
-    tts_format: str = Field(default="wav", pattern="^(mp3|opus|aac|flac|wav|pcm)$")
+    tts_format: str = Field(default=DEFAULT_TTS_FORMAT, pattern="^(mp3|opus|aac|flac|wav|pcm)$")
     openai_api_key: str | None = None
     onboarding_done: bool = False
     preferences: dict = Field(default_factory=dict)

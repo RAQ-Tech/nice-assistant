@@ -25,6 +25,11 @@ class SpeechCancelled(Exception):
 # reply cannot start early no matter how it is delivered.
 STREAMABLE_FORMATS = ("mp3", "aac")
 
+# What a reply is spoken in unless somebody chooses otherwise. Streamable, so
+# the first words can be heard before the last are made (ADR 0037); it used
+# to be WAV, which quietly turned that off for anybody who never changed it.
+DEFAULT_TTS_FORMAT = "mp3"
+
 
 def _iter_cancellable(response, cancelled=None):
     """Yield a provider response in pieces, stopping the moment nobody wants it.
