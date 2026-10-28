@@ -1,6 +1,6 @@
 # ADR 0021: Reply critical path and reviewable manual memory
 
-- Status: accepted
+- Status: accepted; follow-up ordering amended by ADR 0043
 - Date: 2026-07-16
 - Owners: Nice Assistant maintainers
 

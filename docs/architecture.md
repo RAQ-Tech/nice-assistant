@@ -181,8 +181,11 @@ and `docs/media-catalog.md`.
 
 Turns within one chat have a durable sequence and a queue ordering key. Prompts
 are built when work starts so a successor sees its completed predecessor while
-later submitted messages remain outside its boundary. Append-only conversation
-summaries compact old transcript prefixes; see `docs/conversation-context.md`.
+later submitted messages remain outside its boundary. Under the key a turn goes
+ahead of queued follow-ups but never ahead of an earlier turn. Append-only
+conversation summaries compact old transcript prefixes after the reply, from a
+follow-up job, and prompt planning reads only from the summary boundary; see
+`docs/conversation-context.md` and ADR 0043.
 
 Eligible completed turns atomically create a durable memory-extraction job. The
 job uses its separately configured task role after turn completion and may

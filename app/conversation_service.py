@@ -103,7 +103,11 @@ class ConversationService:
         memory: MemoryService,
         capabilities,
         task_models,
+        metrics=None,
+        logger=None,
     ):
+        self.metrics = metrics
+        self.logger = logger
         self.session_factory = session_factory
         self.secret_store = secret_store
         self.providers = providers
@@ -282,14 +286,17 @@ class ConversationService:
             "preferences": {},
         }
         preferences = settings.get("preferences") or {}
-        available_models = self.providers.models()
         model = (
             values.get("model")
             or chat.model_override
             or (persona.default_model if persona else None)
             or settings.get("global_default_model")
-            or (available_models[0] if available_models else "llama3")
         )
+        if not model:
+            # Asking Ollama what it has is a network call inside this write,
+            # so it is made only when nothing else has named a model.
+            available_models = self.providers.models()
+            model = available_models[0] if available_models else "llama3"
         memory_mode = self._memory_mode(values.get("memory_mode") or chat.memory_mode or "saved")
 
         stamp = now_ts()

@@ -223,21 +223,32 @@ class ContextServiceTests(unittest.TestCase):
                 for index in range(14):
                     role = "user" if index % 2 == 0 else "assistant"
                     uow.repo.add_message(chat["id"], role, f"old-{index} " + ("context " * 80))
+            settings = {"context_window_tokens": 2048, "num_predict": 256}
             started = running.client.post(
                 f"/api/v1/chats/{chat['id']}/turns",
-                json={
-                    "text": "continue the long conversation",
-                    "model_settings": {"context_window_tokens": 2048, "num_predict": 256},
-                },
+                json={"text": "continue the long conversation", "model_settings": settings},
             ).json()
-            self.assertEqual(running.wait_job(started["job"]["id"])["status"], "completed")
+            completed = running.wait_job(started["job"]["id"])
+            self.assertEqual(completed["status"], "completed")
+            # The reply did not wait for the summary (ADR 0043); a follow-up
+            # wrote it afterwards, and the next reply is the one that uses it.
+            first = running.client.get(f"/api/v1/turns/{started['turn']['id']}").json()
+            self.assertIsNone(first["context"]["summary_id"])
+            self.assertGreater(first["context"]["omitted_message_count"], 0)
+            self.assertEqual(running.wait_job(completed["result"]["summary_job_id"])["status"], "completed")
             context = running.client.get(f"/api/v1/chats/{chat['id']}/context").json()
             self.assertIsNotNone(context["summary"])
             self.assertEqual(context["summary"]["prompt_version"], "conversation-summary-task-v2")
-            turn = running.client.get(f"/api/v1/turns/{started['turn']['id']}").json()
+
+            following = running.client.post(
+                f"/api/v1/chats/{chat['id']}/turns",
+                json={"text": "and after that?", "model_settings": settings},
+            ).json()
+            self.assertEqual(running.wait_job(following["job"]["id"])["status"], "completed")
+            turn = running.client.get(f"/api/v1/turns/{following['turn']['id']}").json()
             self.assertEqual(turn["context"]["summary_id"], context["summary"]["id"])
             self.assertGreater(turn["context"]["omitted_message_count"], 0)
-            self.assertGreaterEqual(len(provider.requests), 1)
+            self.assertGreaterEqual(len(provider.requests), 2)
             self.assertGreaterEqual(len(provider.task_requests), 1)
 
     def test_legacy_protected_prompt_envelope_is_removed_from_summary_response_and_prompt(self):
@@ -326,7 +337,9 @@ class ContextServiceTests(unittest.TestCase):
                     "model_settings": {"context_window_tokens": 2048, "num_predict": 256},
                 },
             ).json()
-            self.assertEqual(running.wait_job(started["job"]["id"])["status"], "completed")
+            completed = running.wait_job(started["job"]["id"])
+            self.assertEqual(completed["status"], "completed")
+            self.assertEqual(running.wait_job(completed["result"]["summary_job_id"])["status"], "completed")
             summary_requests = [
                 request for request in provider.task_requests if provider._task_role(request) == "conversation_summary"
             ]
@@ -404,7 +417,15 @@ class ContextServiceTests(unittest.TestCase):
             job = running.wait_job(started["job"]["id"])
             self.assertEqual(job["status"], "completed")
             turn = running.client.get(f"/api/v1/turns/{started['turn']['id']}").json()
-            self.assertEqual(turn["context"]["degraded_reason"], "summary_provider_failed")
+            # The reply went out with what fit and says the summary is behind.
+            # Bringing it up to date is the follow-up's job, and the follow-up
+            # is what fails - truthfully, and without touching the reply.
+            self.assertEqual(turn["context"]["degraded_reason"], "summary_catchup_limited")
+            summary_job = running.wait_job(job["result"]["summary_job_id"])
+            self.assertEqual(summary_job["status"], "failed")
+            self.assertEqual(summary_job["error"], "The conversation summary could not be updated.")
+            turn = running.client.get(f"/api/v1/turns/{started['turn']['id']}").json()
+            self.assertEqual(turn["status"], "completed")
 
     def test_two_hundred_turn_transcript_stays_inside_budget(self):
         provider = FakeChatProvider(["bounded reply"])

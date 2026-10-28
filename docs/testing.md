@@ -605,6 +605,13 @@ installed-browser acceptance.
 - Context tests cover multi-worker causal ordering, independent chats, explicit
   provider allocation, budget accounting, exact memory deduplication, oversized
   protected content, durable summaries, and degraded summary fallback.
+- Reply-path tests (`tests/test_reply_path.py`, ADR 0043) prove that a
+  transcription in progress does not hold other requests, that a reply completes
+  while the summary model is held shut, that loading from the summary boundary
+  gives the prompt a full read would, that a follow-up on the reply's model keeps
+  its context size, and that each voice-loop stage is timed and logged once.
+  Queue tests prove a turn goes ahead of queued follow-ups for its chat but never
+  ahead of an earlier turn.
 - Memory tests cover legacy data migration, exact-duplicate supersession, FTS
   population/ranking, active-only scoped retrieval, nonblocking extraction,
   provenance, review transitions, superseding edits, forget/undo, extraction

@@ -276,6 +276,8 @@ def build_services(
         memory,
         capabilities,
         task_models,
+        metrics=runtime.metrics,
+        logger=runtime.logger,
     )
     speech = SpeechService(
         runtime.session_factory,

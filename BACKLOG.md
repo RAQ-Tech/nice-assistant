@@ -30,7 +30,7 @@ browser route is not acceptance evidence for those.
 Most items carry their own **Done when** list. Those criteria are in addition to
 the verifier, never instead of it.
 
-Last full verifier run: passed, 2026-09-02.
+Last full verifier run: passed, 2026-10-27.
 
 ## Status vocabulary
 
@@ -447,6 +447,27 @@ video decision (item 0b) left behind.
     exact file and naming the models still without a routing card. See
     `docs/media-catalog.md`.
 
+### 1H. Nothing waits in front of the reply - delivered 2026-10-27
+
+From the 2026-10-27 project review, batch 1 of its task list. Six things stood
+between somebody finishing a sentence and the persona starting to answer, and
+none of them was a feature anybody had chosen to pay for. All six are fixed; see
+[ADR 0043](docs/decisions/0043-nothing-waits-in-front-of-the-reply.md).
+
+- A transcription no longer stops the whole server while it runs.
+- A new turn goes ahead of the last reply's queued title, planning and memory
+  work, instead of waiting for all of it.
+- Summarizing a long chat happens after the reply, not before its first word.
+- Planning a prompt reads from the summary onwards, not the whole transcript.
+- Background work on the reply's model asks for the same context size, so
+  Ollama does not reload the model between them. The account API key is no
+  longer sent to Ollama.
+- The voice loop is timed stage by stage in the admin observability report,
+  `docker logs` shows warnings and errors, and a logged error names its file
+  and line.
+
+What is left is measurement on the deployment, item 17 in section 4.
+
 ## 2. Decided
 
 Answered by the owner on 2026-08-17, with additions from the settings
@@ -645,6 +666,14 @@ than from a checklist, and to exercise preset routing on the way.
     video import card, and ask a chat for a clip. Done when the clip's journal
     shows the template's stages. Source: item 1G-4, `docs/media-catalog.md`.
 
+17. **Reply timing on the real Ollama.** Item 1H removed what could be removed
+    from in front of a reply; whether Ollama was reloading the model between a
+    reply and its background work could only be reasoned about here. Hold a
+    spoken conversation of a dozen exchanges, then read `stages` in the admin
+    observability report. **Done when** `turn.model_load` stays near zero
+    across the conversation, and `turn.first_token` is recorded as the
+    baseline later voice work is measured against. Source: ADR 0043.
+
 ## 5. Temporary by agreement
 
 Deliberately shipped with a planned end, so it is never mistaken for a permanent
@@ -784,7 +813,7 @@ done:
 - Update the product, architecture, security, testing, operations, roadmap, and
   debt documents in the same change as the behavior they describe.
 - Record durable architectural choices as ADRs in `docs/decisions/`. The next
-  free number is 0042.
+  free number is 0044.
 - Run `python scripts/audit_public_repo.py` before every public commit. This
   file must never contain deployment addresses, hostnames, user-specific paths,
   hardware inventories, or account identifiers.

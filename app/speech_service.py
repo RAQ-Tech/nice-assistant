@@ -34,6 +34,10 @@ from app.storage import write_artifact_atomic
 
 FORMATS = {"mp3", "opus", "aac", "flac", "wav", "pcm"}
 
+# Converting a minute of speech takes well under a second. A conversion still
+# running after this long is stuck on a damaged upload, not working on one.
+AUDIO_CONVERSION_TIMEOUT_SECONDS = 30
+
 
 class SpeechService:
     def __init__(self, session_factory, secret_store, config, logger, provider_url_policy=None, metrics=None):
@@ -138,12 +142,20 @@ class SpeechService:
         plan = {**session.plan, "text": text}
         return plan["format"], self._session_piece(session, plan, cancelled)
 
+    def _first_audio(self, started: float) -> None:
+        """How long the first sound of a piece took to exist. See ADR 0043."""
+
+        if self.metrics:
+            self.metrics.stage("speech.first_audio", int((time.monotonic() - started) * 1000))
+
     def _session_piece(self, session, plan: dict, cancelled):
         started = time.monotonic()
         outcome = "failed"
         produced = []
         try:
             for piece in self._provider_stream(plan, cancelled):
+                if not produced:
+                    self._first_audio(started)
                 produced.append(piece)
                 yield piece
             outcome = "completed"
@@ -201,6 +213,8 @@ class SpeechService:
         collected = []
         try:
             for piece in self._provider_stream(plan, cancelled):
+                if not collected:
+                    self._first_audio(started)
                 collected.append(piece)
                 yield piece
             outcome = "completed"
@@ -386,6 +400,7 @@ class SpeechService:
         return {"audio_id": audio_id, "format": plan["format"]}
 
     def transcribe(self, user_id: str, filename: str, content: bytes) -> dict:
+        started = time.monotonic()
         with self._uow() as uow:
             settings = uow.repo.settings(user_id)
         provider = (settings or {}).get("stt_provider")
@@ -406,14 +421,22 @@ class SpeechService:
         wav = self.config.data_dir / f"upload_{secrets.token_hex(6)}.wav"
         try:
             raw.write_bytes(content)
-            completed = subprocess.run(
-                ["ffmpeg", "-y", "-i", str(raw), str(wav)],
-                check=False,
-                capture_output=True,
-            )
+            try:
+                completed = subprocess.run(
+                    ["ffmpeg", "-y", "-i", str(raw), str(wav)],
+                    check=False,
+                    capture_output=True,
+                    timeout=AUDIO_CONVERSION_TIMEOUT_SECONDS,
+                )
+            except subprocess.TimeoutExpired as exc:
+                raise RequestError("Audio conversion failed. Please try again.", 500) from exc
             if completed.returncode != 0 or not wav.exists():
                 raise RequestError("Audio conversion failed. Please try again.", 500)
+            converted = time.monotonic()
             result = self._transcribe_with(provider, settings, str(wav), api_key)
+            if self.metrics:
+                self.metrics.stage("speech.conversion", int((converted - started) * 1000))
+                self.metrics.stage("speech.transcription", int((time.monotonic() - started) * 1000))
             if bool(settings["preferences"].get("stt_store_recordings", False)):
                 stored = self.config.stt_recordings_dir / f"{user_id}_{secrets.token_hex(6)}{extension}"
                 shutil.copy2(raw, stored)

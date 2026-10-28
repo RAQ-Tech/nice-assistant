@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import asyncio
+
 from fastapi import APIRouter, Cookie, Depends, File, Form, Query, Request, Response, UploadFile
 from fastapi.responses import FileResponse
 from typing import Literal
@@ -146,7 +148,10 @@ async def upload_visual_identity_reference(
     context: AuthContext = Depends(current_user),
 ):
     content = await file.read()
-    return services(request).identity.add_reference(
+    # Normalizing a photo is image decoding and a database write; off the
+    # event loop, so a reply streaming meanwhile is not held up by it.
+    return await asyncio.to_thread(
+        services(request).identity.add_reference,
         context.user_id,
         persona_id,
         content=content,

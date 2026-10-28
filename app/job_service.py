@@ -392,7 +392,8 @@ class JobService:
             self._fail(job_id, turn_id, exc.code, exc.message, execution.on_failure)
             return None
         except Exception as exc:  # noqa: BLE001 - normalize worker failures
-            self.logger.error("job execution failed job_id=%s error=%s", job_id, exc.__class__.__name__)
+            # With the exception attached, the log says where it was raised.
+            self.logger.error("job execution failed job_id=%s error=%s", job_id, exc.__class__.__name__, exc_info=exc)
             self._fail(
                 job_id,
                 turn_id,

@@ -62,6 +62,11 @@ from app.persona_voice import dump as dump_voice_preferences
 from app.typed_settings import value_type
 
 
+# Ids per IN clause, comfortably under SQLite's bound-parameter limit however
+# long a conversation grows.
+IN_CLAUSE_CHUNK = 500
+
+
 def now_ts() -> int:
     return int(time.time())
 
@@ -848,12 +853,48 @@ class ApplicationRepository:
     def message(self, message_id: str):
         return self.session.get(Message, message_id)
 
-    def messages_before(self, chat_id: str, created_at: int):
+    def messages_by_id(self, message_ids) -> dict:
+        ids = [value for value in dict.fromkeys(message_ids) if value]
+        found = {}
+        for start in range(0, len(ids), IN_CLAUSE_CHUNK):
+            chunk = ids[start : start + IN_CLAUSE_CHUNK]
+            for row in self.session.scalars(select(Message).where(Message.id.in_(chunk))):
+                found[row.id] = row
+        return found
+
+    @staticmethod
+    def _outside_turns(chat_id: str, before_created_at: int | None) -> list:
+        """Messages no turn claims: older transcripts, and what the platform adds."""
+
+        claimed_user = select(ConversationTurn.user_message_id).where(
+            ConversationTurn.chat_id == chat_id, ConversationTurn.user_message_id.is_not(None)
+        )
+        claimed_assistant = select(ConversationTurn.assistant_message_id).where(
+            ConversationTurn.chat_id == chat_id, ConversationTurn.assistant_message_id.is_not(None)
+        )
+        conditions = [
+            Message.chat_id == chat_id,
+            Message.id.not_in(claimed_user),
+            Message.id.not_in(claimed_assistant),
+        ]
+        if before_created_at is not None:
+            conditions.append(Message.created_at < before_created_at)
+        return conditions
+
+    def messages_outside_turns(self, chat_id: str, before_created_at: int | None = None):
         return self.session.scalars(
             select(Message)
-            .where(Message.chat_id == chat_id, Message.created_at < created_at)
+            .where(*self._outside_turns(chat_id, before_created_at))
             .order_by(Message.created_at, Message.id)
         ).all()
+
+    def count_messages_outside_turns(self, chat_id: str, before_created_at: int | None = None) -> int:
+        return int(
+            self.session.scalar(
+                select(func.count()).select_from(Message).where(*self._outside_turns(chat_id, before_created_at))
+            )
+            or 0
+        )
 
     def add_message(self, chat_id: str, role: str, text: str, created_at: int | None = None) -> Message:
         stamp = int(created_at or now_ts())
@@ -1547,6 +1588,34 @@ class ApplicationRepository:
             .where(CapabilityRequest.turn_id == turn_id)
             .order_by(CapabilityRequest.requested_at, CapabilityRequest.id)
         ).all()
+
+    def capability_requests_for_turns(self, turn_ids) -> dict:
+        """Each turn's requests in the order `capability_requests_for_turn` gives them."""
+
+        grouped = {turn_id: [] for turn_id in dict.fromkeys(turn_ids) if turn_id}
+        ids = list(grouped)
+        for start in range(0, len(ids), IN_CLAUSE_CHUNK):
+            chunk = ids[start : start + IN_CLAUSE_CHUNK]
+            for row in self.session.scalars(
+                select(CapabilityRequest)
+                .where(CapabilityRequest.turn_id.in_(chunk))
+                .order_by(CapabilityRequest.requested_at, CapabilityRequest.id)
+            ):
+                grouped[row.turn_id].append(row)
+        return grouped
+
+    def count_capability_requests_for_turns(self, turn_ids) -> int:
+        ids = [value for value in dict.fromkeys(turn_ids) if value]
+        total = 0
+        for start in range(0, len(ids), IN_CLAUSE_CHUNK):
+            chunk = ids[start : start + IN_CLAUSE_CHUNK]
+            total += int(
+                self.session.scalar(
+                    select(func.count()).select_from(CapabilityRequest).where(CapabilityRequest.turn_id.in_(chunk))
+                )
+                or 0
+            )
+        return total
 
     def job_for_capability(self, request_id: str):
         return self.session.scalar(select(AsyncJob).where(AsyncJob.capability_request_id == request_id))

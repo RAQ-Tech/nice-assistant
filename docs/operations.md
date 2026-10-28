@@ -254,6 +254,20 @@ directories, and `MINIMUM_FREE_STORAGE_BYTES` (128 MiB by default) and returns
 content-free request/provider/job latency and outcomes, queue depth, storage,
 retention, and readiness at `GET /api/v1/admin/observability`.
 
+Its `stages` section times the voice loop, each with a count, average, maximum,
+and median and 95th percentile over the most recent 256: `turn.waiting` (queued
+for a worker), `turn.prompt` (planning the prompt), `turn.first_token` and
+`turn.complete` (both from when the turn was accepted), `turn.model_load` (what
+Ollama reported spending to load the model), `speech.conversion` and
+`speech.transcription`, and `speech.first_audio` (the first sound of each spoken
+piece). Each turn also writes one `turn timing` line to the event log. A
+`turn.model_load` measured in seconds means the model was not already loaded for
+that reply. See ADR 0043.
+
+Warnings and errors are written to the console as well as the event log, so
+`docker logs nice-assistant` shows them. A logged exception names the file and
+line it was raised at, and nothing from its message.
+
 All non-browser API clients must send `X-Nice-Assistant-CSRF: 1` on `POST`,
 `PUT`, `PATCH`, and `DELETE`. For HTTPS reverse proxy deployments set
 `NICE_ASSISTANT_ALLOWED_ORIGINS` to the comma-separated exact browser origins,
@@ -264,13 +278,23 @@ restrict `FORWARDED_ALLOW_IPS` to the proxy address rather than using a broad
 wildcard. Direct LAN HTTP must leave secure cookies off.
 
 Title generation, capability planning, and memory extraction are independent
-durable post-reply jobs. An outage in one must be visible through its authenticated
+durable post-reply jobs, and so is summary compaction when a long chat needs
+it. An outage in one must be visible through its authenticated
 job/task diagnostics but must not change an already completed persona turn. On
 restart, unfinished follow-ups use the same truthful interrupted-job recovery as
 other queued/running work; they are not silently replayed. Follow-ups for one
 chat retain a shared causal ordering key even when multiple interactive workers
-are configured, preventing concurrent SQLite mutation while keeping the persona
-reply off their critical path.
+are configured, preventing concurrent SQLite mutation. Under that key a new turn
+takes the next slot ahead of any follow-up still queued, so somebody answering
+quickly waits for at most the one follow-up already running (ADR 0043).
+
+A background task on the same Ollama model as the reply asks for the reply's
+`num_ctx`, so Ollama keeps the model loaded rather than reloading it at a
+smaller size. How long Ollama keeps an idle model loaded is the Ollama
+service's own `OLLAMA_KEEP_ALIVE` setting (five minutes by default); a longer
+value avoids a cold first reply after a quiet spell, at the cost of holding that
+memory while nothing is said. Managed GPU coordination unloads the model when
+picture work needs the memory, whatever this is set to.
 
 Typed desktop chat also supports direct LAN HTTP: transient browser message IDs
 fall back to `crypto.getRandomValues` because `crypto.randomUUID` is restricted

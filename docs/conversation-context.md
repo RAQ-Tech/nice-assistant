@@ -122,16 +122,27 @@ owner-scoped candidate set before token-budget selection.
 
 ## Long-chat compaction
 
-When projected history exceeds 75 percent of the prompt budget, the oldest
-prefix is folded by the conversation-summary Task Model into an append-only
-durable summary. Each checkpoint records
+When history after the summary exceeds 75 percent of the prompt budget, the
+oldest prefix is folded by the conversation-summary Task Model into an
+append-only durable summary. Each checkpoint records
 its predecessor, source boundary/digest, model, provider, prompt version, and
 token estimate. The newest eight messages are protected when they fit.
 
-At most two compaction calls occur during one turn. Cancellation stops
-compaction. A summary-provider failure retains the prior checkpoint and uses
-deterministic history truncation; the turn is marked degraded rather than failed.
+Compaction never runs in front of a reply (ADR 0043). A turn plans its prompt
+from the summary as it stands and fits history to the budget; when the summary
+is behind, the turn schedules a `summary_followup` job that brings it up to date
+after the reply, and the next turn starts from it. At most two compaction calls
+occur in one follow-up, and cancellation stops them. A turn is marked
+`summary_catchup_limited` only when history the summary does not yet cover was
+left out of its prompt. A summary-provider failure fails the follow-up job,
+retains the prior checkpoint, and leaves the reply completed; turns recorded
+before ADR 0043 may still carry `summary_provider_failed`.
 Summary text is never emitted as assistant streaming output.
+
+Loading starts at the turn the summary ends in. What came before is counted for
+`omitted_message_count` but not read, so planning a prompt costs the same in a
+chat of a thousand turns as in one of fifty. If the boundary is not where it is
+expected, the whole transcript is read.
 
 Turn diagnostics expose token/count accounting and the referenced summary to the
 owner. A turn that ran with reduced context also reports its reason on the

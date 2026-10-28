@@ -1,6 +1,6 @@
 # ADR 0004: Causal bounded context and durable summaries
 
-- Status: accepted
+- Status: accepted; summary timing superseded by ADR 0043
 - Date: 2026-07-13
 - Owners: Nice Assistant maintainers
 

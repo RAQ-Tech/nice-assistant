@@ -206,6 +206,23 @@ class AppRuntime:
         self.logger.propagate = False
         self.metrics = MetricsRegistry()
         self.file_handler: RotatingFileHandler | None = None
+        self.console_handler: logging.Handler | None = None
+
+    def log_to_console(self) -> None:
+        """Send warnings and errors to stderr too, so `docker logs` shows them.
+
+        The event log under the data directory keeps everything, as before.
+        Only the process entry point calls this: tests build a runtime per
+        case and would otherwise print every failure they provoke on purpose.
+        """
+
+        if self.console_handler:
+            return
+        handler = logging.StreamHandler()
+        handler.setLevel(logging.WARNING)
+        handler.setFormatter(RedactedJsonFormatter())
+        self.logger.addHandler(handler)
+        self.console_handler = handler
 
     def start(self) -> None:
         self.config.ensure_directories()
@@ -225,6 +242,9 @@ class AppRuntime:
             self.logger.removeHandler(self.file_handler)
             self.file_handler.close()
             self.file_handler = None
+        if self.console_handler:
+            self.logger.removeHandler(self.console_handler)
+            self.console_handler = None
         self.engine.dispose()
 
 

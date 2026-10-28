@@ -14,13 +14,14 @@ ones that were here before, moved rather than rewritten.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+import time
 
 from app.chat import parse_model_options
 from app.job_service import JobExecution
 from app.media import subject_from_request
 from app.media_scene import EMPTY_SCENE
 from app.persona_output import PERSONA_OUTPUT_REMOVED_FALLBACK, PersonaOutputStreamFilter
-from app.provider_contracts import ChatRequest, ProviderError
+from app.provider_contracts import ChatRequest, LoadedModel, ProviderError, provider_endpoint
 from app.repositories import now_ts
 from app.task_contracts import (
     CAPABILITY_PLANNING,
@@ -78,6 +79,9 @@ class TurnContext:
     preferences: dict = field(default_factory=dict)
     model_settings: dict = field(default_factory=dict)
     lore_entries: list = field(default_factory=list)
+    # When the turn was accepted, so its timings start where the person's
+    # wait did rather than where the worker picked it up.
+    accepted_at: float = field(default_factory=time.monotonic)
 
 
 class TurnPipeline:
@@ -93,6 +97,14 @@ class TurnPipeline:
         self.jobs = service.jobs
         self.broker = service.broker
         self.generation_timeout_seconds = service.generation_timeout_seconds
+        self.metrics = getattr(service, "metrics", None)
+        self.logger = getattr(service, "logger", None)
+        # What the reply ran with, for the follow-ups that come after it.
+        # Unknown until the reply has been planned.
+        self.loaded_model: LoadedModel | None = None
+        self.prompt_budget: int | None = None
+        self.first_token_at: float | None = None
+        self.model_load_ms: int | None = None
 
     # -- generating the reply ---------------------------------------------
 
@@ -113,6 +125,7 @@ class TurnPipeline:
 
     def generate(self, token) -> dict:
         ctx = self.ctx
+        started = time.monotonic()
         provider = self.providers.chat(ctx.provider_name)
         # Edits are included here so the media-claim guard and the planning
         # follow-up are both scheduled when editing is the only capability.
@@ -141,7 +154,11 @@ class TurnPipeline:
             model_settings=parse_model_options(ctx.model_settings),
             cancellation=token,
         )
+        self.loaded_model = LoadedModel(provider_endpoint(provider), ctx.model, plan.context_window_tokens)
+        self.prompt_budget = plan.prompt_budget_tokens
+        planned = time.monotonic()
         raw_reply, actual_prompt_tokens, finish_reason = self._stream(provider, plan, token)
+        self._record_timing(started, planned, time.monotonic())
         reply, media_claim_guarded = guard_premature_media_completion_claim(
             ctx.text,
             raw_reply,
@@ -166,12 +183,42 @@ class TurnPipeline:
             "schedule_capability_planning": bool(
                 not is_explicit_text_only_request(ctx.text) and (planning_definitions or ctx.explicit_image_request)
             ),
+            "schedule_compaction": plan.compaction_due,
         }
+
+    def _record_timing(self, started: float, planned: float, finished: float) -> None:
+        """How long this reply kept somebody waiting, stage by stage.
+
+        Every stage is measured from when the turn was accepted except the
+        prompt, which is its own step. The same numbers go to the metrics and
+        to one log line per turn, so a slow reply can be explained from
+        either. See ADR 0043.
+        """
+
+        accepted = self.ctx.accepted_at
+        timings = {
+            "turn.waiting": started - accepted,
+            "turn.prompt": planned - started,
+            "turn.first_token": self.first_token_at - accepted if self.first_token_at else None,
+            "turn.complete": finished - accepted,
+        }
+        stages = {name: int(seconds * 1000) for name, seconds in timings.items() if seconds is not None}
+        if self.model_load_ms is not None:
+            stages["turn.model_load"] = self.model_load_ms
+        if self.metrics:
+            for name, value in stages.items():
+                self.metrics.stage(name, value)
+        if self.logger:
+            self.logger.info(
+                "turn timing turn_id=%s %s",
+                self.ctx.turn_id,
+                " ".join(f"{name.split('.', 1)[1]}_ms={value}" for name, value in stages.items()),
+            )
 
     def _publish(self, text: str) -> None:
         self.broker.publish(self.ctx.turn_id, "assistant.delta", {"turn_id": self.ctx.turn_id, "text": text})
 
-    def _stream(self, provider, plan, token) -> tuple[str, int | None]:
+    def _stream(self, provider, plan, token) -> tuple[str, int | None, str | None]:
         """Consume the provider stream, filtered, and return what it said."""
 
         ctx = self.ctx
@@ -195,10 +242,16 @@ class TurnPipeline:
                 )
             if delta.metadata.get("prompt_eval_count") is not None:
                 actual_prompt_tokens = delta.metadata.get("prompt_eval_count")
+            if delta.metadata.get("load_duration") is not None:
+                # Nanoseconds Ollama spent loading the model for this reply:
+                # near zero when it was already loaded, seconds when not.
+                self.model_load_ms = int(delta.metadata["load_duration"]) // 1_000_000
             if delta.finish_reason:
                 finish_reason = delta.finish_reason
             if not delta.text:
                 continue
+            if self.first_token_at is None:
+                self.first_token_at = time.monotonic()
             sanitized = output_filter.feed(delta.text)
             if sanitized.text:
                 chunks.append(sanitized.text)
@@ -229,6 +282,7 @@ class TurnPipeline:
         output = dict(result or {})
         output.update({"text": reply, "chatId": ctx.chat_id})
         should_plan = bool(output.pop("schedule_capability_planning", False))
+        should_compact = bool(output.pop("schedule_compaction", False))
         background_job_ids = []
         if ctx.should_generate_title:
             output["title_job_id"] = self._followup_job(repo, "title_followup", "Queued for title follow-up")
@@ -238,6 +292,9 @@ class TurnPipeline:
                 repo, "capability_followup", "Queued for capability planning"
             )
             background_job_ids.append(output["capability_planning_job_id"])
+        if should_compact:
+            output["summary_job_id"] = self._followup_job(repo, "summary_followup", "Queued for summary follow-up")
+            background_job_ids.append(output["summary_job_id"])
         if background_job_ids:
             output["followup_job_ids"] = background_job_ids
             output["followup_job_id"] = output.get("capability_planning_job_id") or output.get("title_job_id")
@@ -277,6 +334,15 @@ class TurnPipeline:
             ),
             "Capability planning could not start.",
         )
+        # After planning, so a picture somebody asked for is not kept waiting
+        # behind it; before memory, so the summary is current by the time the
+        # next turn is likely to arrive.
+        self._submit_followup(
+            values.get("summary_job_id"),
+            "task:conversation_summary",
+            JobExecution(execute=self.run_compaction),
+            "Summary follow-up could not start.",
+        )
         extraction_job_id = values.get("memory_extraction_job_id")
         if extraction_job_id:
             self.memory.submit_extraction(
@@ -288,6 +354,7 @@ class TurnPipeline:
                 user_text=ctx.text,
                 workspace_id=ctx.workspace_id,
                 persona_id=ctx.persona_id,
+                loaded_model=self.loaded_model,
             )
 
     def _submit_followup(self, job_id, model_key: str, execution: JobExecution, failure_message: str) -> None:
@@ -320,6 +387,7 @@ class TurnPipeline:
                 token,
                 chat_id=ctx.chat_id,
                 turn_id=ctx.turn_id,
+                loaded_model=self.loaded_model,
             )
             return {"task_title": outcome.output.title, "task_run_id": outcome.run_id}
         except ProviderError as exc:
@@ -338,6 +406,19 @@ class TurnPipeline:
             durable_chat.title = task_title
             durable_chat.updated_at = now_ts()
         return output
+
+    # -- summary ------------------------------------------------------------
+
+    def run_compaction(self, token) -> dict:
+        ctx = self.ctx
+        return self.context.compact(
+            turn_id=ctx.turn_id,
+            user_id=ctx.user_id,
+            chat_id=ctx.chat_id,
+            prompt_budget=int(self.prompt_budget or 0),
+            cancellation=token,
+            loaded_model=self.loaded_model,
+        )
 
     # -- capability planning ----------------------------------------------
 
@@ -397,6 +478,7 @@ class TurnPipeline:
                 token,
                 chat_id=ctx.chat_id,
                 turn_id=ctx.turn_id,
+                loaded_model=self.loaded_model,
             )
         except ProviderError as exc:
             if exc.code == "cancelled" or token.cancelled:
