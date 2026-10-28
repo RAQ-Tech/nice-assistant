@@ -124,6 +124,25 @@ class Message(Base):
     created_at: Mapped[int] = mapped_column(Integer, nullable=False)
 
 
+class MessagePhoto(Base):
+    """A photo sent with a message, kept as its normalized bytes beside it.
+
+    In the database rather than on disk: it is part of what was said, so it
+    goes when the message goes and is in every backup the message is in.
+    """
+
+    __tablename__ = "message_photos"
+    __table_args__ = (Index("idx_message_photos_message", "message_id", "created_at"),)
+    id: Mapped[str] = mapped_column(Text, primary_key=True)
+    user_id: Mapped[str] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    message_id: Mapped[str] = mapped_column(ForeignKey("messages.id", ondelete="CASCADE"), nullable=False)
+    mime_type: Mapped[str] = mapped_column(Text, nullable=False)
+    width: Mapped[int] = mapped_column(Integer, nullable=False)
+    height: Mapped[int] = mapped_column(Integer, nullable=False)
+    data: Mapped[bytes] = mapped_column(LargeBinary, nullable=False)
+    created_at: Mapped[int] = mapped_column(Integer, nullable=False)
+
+
 class ConversationTurn(Base):
     __tablename__ = "conversation_turns"
     __table_args__ = (

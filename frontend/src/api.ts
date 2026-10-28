@@ -112,6 +112,8 @@ export interface PersonaLoreInput {
 // sending them rather than repeating what the server already knows.
 export interface TurnInput {
   text: string;
+  /** One photo, as a data URL the browser has shrunk. */
+  photo?: string | null;
   model: string | null;
   memory_mode: MemoryMode;
   model_settings: {
@@ -743,7 +745,7 @@ export class ApiClient {
     return this.request(`/task-model-runs?${query.toString()}`);
   }
 
-  models(): Promise<{ models: string[] }> {
+  models(): Promise<{ models: string[]; vision_models?: string[] }> {
     return this.request('/models');
   }
 

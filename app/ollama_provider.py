@@ -80,8 +80,13 @@ class OllamaChatProvider:
                         lengths.append(int(value))
                     except (TypeError, ValueError):
                         continue
-            if lengths:
-                profile = ModelContextProfile(self.name, model, max(lengths), "ollama_api_show")
+            profile = ModelContextProfile(
+                self.name,
+                model,
+                max(lengths) if lengths else None,
+                "ollama_api_show" if lengths else "unavailable",
+                vision=_can_see(payload),
+            )
         except Exception:
             pass
         self._context_cache[model] = (time.monotonic(), profile)
@@ -232,3 +237,17 @@ class OllamaChatProvider:
     def _record(self, operation: str, status: str, latency_ms: int) -> None:
         if self.metrics:
             self.metrics.provider(self.name, operation, status, latency_ms)
+
+
+def _can_see(payload: dict) -> bool:
+    """Whether Ollama says this model takes images.
+
+    Recent Ollama lists it under `capabilities`. Before that, a model that can
+    see shows its vision tower in `model_info`; that is the same fact, read
+    from where it used to be.
+    """
+
+    capabilities = payload.get("capabilities")
+    if isinstance(capabilities, list):
+        return "vision" in capabilities
+    return any(".vision." in str(key) or str(key).startswith("clip.") for key in (payload.get("model_info") or {}))

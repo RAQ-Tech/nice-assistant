@@ -124,6 +124,8 @@ class ModelContextProfile:
     model: str
     max_context_tokens: int | None
     source: str
+    # Whether the model can be shown a photo. False when it cannot be told.
+    vision: bool = False
 
 
 @dataclass(frozen=True)

@@ -98,11 +98,12 @@ export class ChatController {
     return chat;
   }
 
-  async send(rawText: string): Promise<void> {
+  /** Send a message, with a photo when one was chosen (ADR 0046). */
+  async send(rawText: string, photo: string | null = null): Promise<void> {
     const text = rawText.trim();
-    if (!text || !this.readyForTurn()) return;
+    if ((!text && !photo) || !this.readyForTurn()) return;
     const chat = this.appState.currentChat ?? (await this.create(this.appState.selectedPersonaId));
-    await this.runTurn(chat, text, (input) => this.client.createTurn(chat.id, input));
+    await this.runTurn(chat, text, (input) => this.client.createTurn(chat.id, { ...input, photo }), photo);
   }
 
   /**
@@ -157,7 +158,12 @@ export class ChatController {
     return ['idle', 'transcribing'].includes(this.appState.phase);
   }
 
-  private async runTurn(chat: Chat, text: string, accept: (input: TurnInput) => Promise<TurnAccepted>): Promise<void> {
+  private async runTurn(
+    chat: Chat,
+    text: string,
+    accept: (input: TurnInput) => Promise<TurnAccepted>,
+    photo: string | null = null,
+  ): Promise<void> {
     const settings = this.requiredSettings();
     const persona = this.appState.personas.find((item) => item.id === chat.persona_id);
     const model = this.appState.selectedModel ?? chat.model_override ?? persona?.default_model ?? settings.global_default_model;
@@ -167,6 +173,7 @@ export class ChatController {
       role: 'user',
       text,
       created_at: Math.floor(Date.now() / 1000),
+      ...(photo ? { photos: [{ id: 'local-photo', url: photo, width: 0, height: 0 }] } : {}),
     };
     const typing: Message = {
       id: clientId('typing'),
@@ -177,6 +184,7 @@ export class ChatController {
     };
     this.appState.messages.push(optimisticUser, typing);
     this.appState.draftMessage = '';
+    this.appState.draftPhoto = null;
     this.appState.uiError = '';
     this.stateMachine.transition('queued');
     this.onChange();
@@ -254,6 +262,7 @@ export class ChatController {
       // Never accepted, so nothing was kept: put the words back where they
       // were typed rather than lose them with the failure.
       if (!reachedServer && !this.appState.draftMessage) this.appState.draftMessage = text;
+      if (!reachedServer && photo && !this.appState.draftPhoto) this.appState.draftPhoto = photo;
       try {
         await this.reconcileChat(chat.id);
       } catch {

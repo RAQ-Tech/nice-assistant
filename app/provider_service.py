@@ -469,6 +469,9 @@ class ProviderService:
     def models(self) -> list[str]:
         return self.registry.models()
 
+    def vision_models(self, names: list[str]) -> list[str]:
+        return [name for name in names if self.registry.can_see("ollama", name)]
+
     def inspect_comfyui_workflow(
         self,
         user_id: str,

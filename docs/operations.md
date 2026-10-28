@@ -296,6 +296,12 @@ value avoids a cold first reply after a quiet spell, at the cost of holding that
 memory while nothing is said. Managed GPU coordination unloads the model when
 picture work needs the memory, whatever this is set to.
 
+A persona can be shown photos (ADR 0046) only when its chat model can see.
+Pull one into Ollama - `ollama pull gemma3:12b` fits a 12 GB card quantised -
+and choose it for the persona; the camera button appears for conversations on
+that model and nowhere else. Photos are stored in the database with their
+messages, a few hundred kilobytes each, and are in every backup.
+
 Typed desktop chat also supports direct LAN HTTP: transient browser message IDs
 fall back to `crypto.getRandomValues` because `crypto.randomUUID` is restricted
 to secure contexts. This does not make microphone capture available; mobile and

@@ -507,8 +507,25 @@ Batch 3 of the same review: the messaging basics. See
 - On a phone, a message's buttons wait until it is tapped; streamed words are
   drawn once per frame.
 
-Sending a photo into the conversation was part of the batch and is not built:
-it waits on a decision, item 10 in section 3.
+Sending a photo into the conversation was part of the batch; it waited on a
+decision and is item 1K.
+
+### 1K. A photo the persona can see - delivered 2026-10-28
+
+Decided by the owner on 2026-10-28: a photo sent into a conversation is seen by
+the persona, using a chat model that can see. See
+[ADR 0046](docs/decisions/0046-a-photo-the-persona-can-see.md).
+
+- A camera button beside the message box, shown only when the conversation's
+  model can see; a photo can go with words or alone, and can be taken back
+  before sending.
+- The photo is shrunk, turned upright and stripped of where and when it was
+  taken, kept with its message, and served only to whoever sent it.
+- The persona sees the current photo, and the last one while it is still being
+  talked about.
+
+What is left is choosing a vision model on the deployment and trying it, item
+19 in section 4.
 
 ## 2. Decided
 
@@ -652,13 +669,6 @@ The three delivered items were accepted on the installed deployment on
     one: Kokoro. Comparing the voices the Kokoro service offers is something
     anybody can do by ear from the speech settings; it gates nothing.
 
-10. **Sending a photo into the conversation.** Waiting on a product choice:
-    what the persona does with a photo. Describing or reacting to it needs a
-    chat model that can see (Ollama serves several, such as Gemma 3 and
-    LLaVA-family models) on the 12 GB card beside everything else; using it only
-    as a reference for picture editing (ADR 0029) needs no new model but is a
-    narrower feature. Nothing is offered until one is chosen.
-
 Also blocked here: **final task-model selection**, which needs live latency and
 quality evaluation on the deployment GPU rather than the developer screening
 checks that exist today. Source: `docs/debt-register.md`.
@@ -731,6 +741,13 @@ than from a checklist, and to exercise preset routing on the way.
     speaker (not the earpiece), speech starts before the reply is finished, the
     microphone reopens after each reply and never hears the persona, and a quiet
     half-minute ends it. Source: ADR 0044.
+
+19. **A photo the persona sees, on the deployment.** `ollama pull gemma3:12b`
+    (or another model Ollama lists as able to see), choose it for a persona, and
+    send a photo from a phone. **Done when** the camera button appears for that
+    persona and not for one on a text-only model, and the reply is about what is
+    actually in the photo. Worth noting the reply time against a text-only turn
+    in `turn.first_token`. Source: ADR 0046.
 
 ## 5. Temporary by agreement
 
@@ -871,7 +888,7 @@ done:
 - Update the product, architecture, security, testing, operations, roadmap, and
   debt documents in the same change as the behavior they describe.
 - Record durable architectural choices as ADRs in `docs/decisions/`. The next
-  free number is 0046.
+  free number is 0047.
 - Run `python scripts/audit_public_repo.py` before every public commit. This
   file must never contain deployment addresses, hostnames, user-specific paths,
   hardware inventories, or account identifiers.

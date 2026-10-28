@@ -192,7 +192,10 @@ class ModelGenerationSettings(StrictModel):
 
 
 class TurnCreate(StrictModel):
-    text: str = Field(min_length=1, max_length=100_000)
+    # May be empty when a photo says it all.
+    text: str = Field(default="", max_length=100_000)
+    # One photo, as a data URL the browser has already shrunk; see app/chat_photos.py.
+    photo: str | None = Field(default=None, max_length=1_200_000)
     workspace_id: str | None = None
     persona_id: str | None = None
     model: str | None = None
@@ -435,6 +438,13 @@ class ChatAttachmentRepresentation(BaseModel):
     completed_at: int | None = None
 
 
+class MessagePhotoRepresentation(BaseModel):
+    id: str
+    url: str
+    width: int
+    height: int
+
+
 class MessageRepresentation(BaseModel):
     id: str
     role: str
@@ -442,6 +452,7 @@ class MessageRepresentation(BaseModel):
     created_at: int
     attachments: list[ChatAttachmentRepresentation] = Field(default_factory=list)
     degraded_reason: str | None = None
+    photos: list[MessagePhotoRepresentation] = Field(default_factory=list)
 
 
 class ChatListResponse(BaseModel):
@@ -1228,6 +1239,7 @@ class TaskModelRunListResponse(BaseModel):
 
 class ModelListResponse(BaseModel):
     models: list[str]
+    vision_models: list[str] = Field(default_factory=list)
 
 
 def services(request: Request) -> ApplicationServices:
@@ -1625,6 +1637,15 @@ def answer_again(
 
     turn, job = services(request).conversations.again(context.user_id, chat_id, message_id, body.model_dump())
     return {"turn": turn, "job": job}
+
+
+@router.get("/photos/{photo_id}", tags=["chats"], include_in_schema=False)
+def message_photo(photo_id: str, request: Request, context: AuthContext = Depends(current_user)):
+    row = services(request).conversations.photo(context.user_id, photo_id)
+    if not row:
+        raise NotFoundError("photo not found")
+    # A photo never changes once sent, so a browser may keep it.
+    return Response(content=row.data, media_type=row.mime_type, headers={"Cache-Control": "private, max-age=31536000"})
 
 
 @router.delete("/chats/{chat_id}/messages/{message_id}", tags=["chats"])
@@ -2137,7 +2158,11 @@ def task_model_runs(
 
 @router.get("/models", response_model=ModelListResponse, tags=["providers"])
 def models(request: Request, _context: AuthContext = Depends(current_user)):
-    return {"models": services(request).provider_service.models()}
+    provider_service = services(request).provider_service
+    names = provider_service.models()
+    # Which of them can be shown a photo, so the browser offers to send one
+    # only where it would be seen.
+    return {"models": names, "vision_models": provider_service.vision_models(names)}
 
 
 @router.post("/provider-checks", tags=["providers"])

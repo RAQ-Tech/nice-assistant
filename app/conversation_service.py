@@ -12,6 +12,7 @@ from app.chat import (
     persona_instruction_block,
 )
 from app.capability_service import attachment_response
+from app.chat_photos import PHOTO_MIME_TYPE, NormalizedPhoto, normalize_chat_photo, photo_from_data_url
 from app.job_service import TERMINAL_STATES, JobExecution, JobService, turn_response
 from app.context_service import ContextService
 from app.memory_service import MemoryService
@@ -155,6 +156,8 @@ class ConversationService:
                 for turn in uow.repo.turns_for_chat(user_id, chat_id)
                 if turn.assistant_message_id and turn.context_degraded_reason
             }
+            rows = uow.repo.messages(chat_id)
+            photos = uow.repo.photos_for_messages(row.id for row in rows)
             messages = [
                 {
                     "id": row.id,
@@ -163,8 +166,17 @@ class ConversationService:
                     "created_at": row.created_at,
                     "attachments": attachments.get(row.id, []),
                     "degraded_reason": degraded.get(row.id),
+                    "photos": [
+                        {
+                            "id": photo.id,
+                            "url": f"/api/v1/photos/{photo.id}",
+                            "width": photo.width,
+                            "height": photo.height,
+                        }
+                        for photo in photos.get(row.id, [])
+                    ],
                 }
-                for row in uow.repo.messages(chat_id)
+                for row in rows
             ]
             return {"chat": _chat_response(chat), "messages": messages}
 
@@ -249,12 +261,18 @@ class ConversationService:
         """
 
         text = str(values.get("text") or "").strip()
-        if not text:
+        # Decoded and re-encoded before the transaction, not inside it.
+        photos = [normalize_chat_photo(photo_from_data_url(values["photo"]))] if values.get("photo") else []
+        if not text and not photos:
             raise RequestError("text required", 400)
         with self._uow() as uow:
-            ctx, turn_payload, job_payload = self._open_turn(uow.repo, user_id, chat_id, text, values)
+            ctx, turn_payload, job_payload = self._open_turn(uow.repo, user_id, chat_id, text, values, photos)
         self._start(ctx, user_id, chat_id)
         return turn_payload, job_payload
+
+    def photo(self, user_id: str, photo_id: str):
+        with self._uow() as uow:
+            return uow.repo.message_photo(user_id, photo_id)
 
     def again(self, user_id: str, chat_id: str, message_id: str, values: dict) -> tuple[dict, dict]:
         """Answer the latest message again: a retry, a new reply, or an edit.
@@ -273,10 +291,15 @@ class ConversationService:
                 raise ConflictError("Only the latest message can be answered again.")
             said = uow.repo.message(turn.user_message_id)
             text = str(values.get("text") or "").strip() or (said.text if said else "")
-            if not text:
+            # A photo sent with the message goes with it into the new turn.
+            photos = [
+                NormalizedPhoto(row.data, row.width, row.height)
+                for row in uow.repo.photos_for_messages([turn.user_message_id]).get(turn.user_message_id, [])
+            ]
+            if not text and not photos:
                 raise RequestError("text required", 400)
             unfinished = self._forget_exchange(uow, chat_id, turn)
-            ctx, turn_payload, job_payload = self._open_turn(uow.repo, user_id, chat_id, text, values)
+            ctx, turn_payload, job_payload = self._open_turn(uow.repo, user_id, chat_id, text, values, photos)
         self._cancel_followups(user_id, unfinished)
         self._start(ctx, user_id, chat_id)
         return turn_payload, job_payload
@@ -364,7 +387,7 @@ class ConversationService:
             execution=TurnPipeline(self, ctx).execution(),
         )
 
-    def _open_turn(self, repo, user_id: str, chat_id: str, text: str, values: dict):
+    def _open_turn(self, repo, user_id: str, chat_id: str, text: str, values: dict, photos=()):
         """Resolve the turn against its chat and write it, in one transaction."""
 
         chat = repo.chat(user_id, chat_id)
@@ -395,9 +418,24 @@ class ConversationService:
             available_models = self.providers.models()
             model = available_models[0] if available_models else "llama3"
         memory_mode = self._memory_mode(values.get("memory_mode") or chat.memory_mode or "saved")
+        if photos and not self.providers.can_see(PERSONA_PROVIDER, model):
+            # Refused before anything is written: sending a photo to a model
+            # that cannot see it would get a reply about a photo it never saw.
+            raise ConflictError(
+                f"{model} can't see photos. Choose a model that can, such as Gemma 3, for this persona."
+            )
 
         stamp = now_ts()
         user_message = repo.add_message(chat_id, "user", text, created_at=stamp)
+        for photo in photos:
+            repo.add_message_photo(
+                user_id=user_id,
+                message_id=user_message.id,
+                content=photo.content,
+                width=photo.width,
+                height=photo.height,
+                mime_type=PHOTO_MIME_TYPE,
+            )
         should_generate_title = chat_title_needs_autogeneration(chat.title)
         deterministic_title = None
         if should_generate_title:

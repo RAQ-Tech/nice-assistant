@@ -68,8 +68,14 @@ export class ChatRenderer {
     const degradation = message.role === 'assistant'
       ? describeContextDegradation(message.degraded_reason)
       : null;
+    // A photo sent with the message, shown with it and opening in the viewer.
+    const photoRoot = message.photos?.length
+      ? el('div', { class: 'msg-photos' }, message.photos.map((photo) =>
+          el('img', { class: 'msg-photo', src: photo.url, alt: isUser ? 'Your photo' : 'Photo', loading: 'lazy' })))
+      : null;
     this.bindImagePreviews(body);
     this.bindImagePreviews(mediaRoot);
+    if (photoRoot) this.bindImagePreviews(photoRoot);
     const audioUrl = this.appState.messageAudioById[message.id];
     const audioError = this.appState.messageAudioErrors[message.id];
     return el('div', { class: `msg-wrap ${isUser ? 'user' : ''}`, 'data-testid': `message-${message.role}` }, [
@@ -116,7 +122,8 @@ export class ChatRenderer {
               el('div', { class: 'think-content', html: markdown(thinking) }),
             ])
           : null,
-        message.isTyping && !message.text ? null : body,
+        photoRoot,
+        !message.text ? null : body,
         attachmentNodes.length ? mediaRoot : null,
         degradation ? this.quietNote(message, degradation) : null,
         audioError ? el('p', { class: 'message-audio-error', textContent: audioError }) : null,
@@ -245,7 +252,7 @@ export class ChatRenderer {
   }
 
   private bindImagePreviews(root: HTMLElement): void {
-    const rendered = [...root.querySelectorAll<HTMLImageElement>('.msg-inline-image')];
+    const rendered = [...root.querySelectorAll<HTMLImageElement>('.msg-inline-image, .msg-photo')];
     // Built from what is on screen rather than from the messages, so the order
     // and the URLs are exactly the ones a person is looking at and clicking.
     const gallery = rendered.map((image) => image.src);
