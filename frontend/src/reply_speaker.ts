@@ -1,7 +1,7 @@
 import type { ApiClient } from './api';
 import type { PlaybackController } from './playback';
 import { nextPieceEnd } from './sentence_boundaries';
-import { speechText } from './speech_text';
+import { speakableText, speechText } from './speech_text';
 
 /**
  * Speaking a reply while it is still being written.
@@ -42,20 +42,18 @@ export class ReplySpeaker {
   /** The visible text grew. Queue every finished sentence that is not yet queued. */
   observe(text: string): void {
     if (this.stopped) return;
-    for (;;) {
-      const end = nextPieceEnd(text, this.queuedUntil);
-      if (end === -1) break;
-      this.enqueue(text.slice(this.queuedUntil, end));
-      this.queuedUntil = end;
-    }
+    // Only what can be said: an aside or reasoning that is still being
+    // written holds back what follows it until it closes.
+    this.queueSentences(speakableText(text));
   }
 
   /** The reply is complete: the rest is the last piece, and the whole reply is stored. */
   async finish(text: string, messageId: string): Promise<void> {
     if (this.stopped) return;
-    this.observe(text);
-    this.enqueue(text.slice(this.queuedUntil));
-    this.queuedUntil = text.length;
+    const spoken = speakableText(text, true);
+    this.queueSentences(spoken);
+    this.enqueue(spoken.slice(this.queuedUntil));
+    this.queuedUntil = spoken.length;
     await this.pumping;
     if (this.stopped) return;
     const session = this.session;
@@ -81,6 +79,15 @@ export class ReplySpeaker {
     this.queue.length = 0;
     const session = this.session;
     if (session) void this.client.abandonSpeechSession(session.id).catch(() => undefined);
+  }
+
+  private queueSentences(spoken: string): void {
+    for (;;) {
+      const end = nextPieceEnd(spoken, this.queuedUntil);
+      if (end === -1) break;
+      this.enqueue(spoken.slice(this.queuedUntil, end));
+      this.queuedUntil = end;
+    }
   }
 
   private enqueue(piece: string): void {

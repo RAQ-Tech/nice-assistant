@@ -1,28 +1,26 @@
 import { api, type ApiClient } from './api';
 import { errorMessage } from './dom';
+import { HandsFreeListener, type ListenOptions } from './hands_free_listener';
+import { preferredMimeType, recordingFilename } from './recording_formats';
 import { machine, state, type ClientStateMachine } from './state';
-import {
-  EndOfTurnDetector,
-  TURN_DETECTION_DEFAULTS,
-  PauseDetector,
-  createLevelMeter,
-  type LevelMeter,
-  type TurnDetectorOptions,
-} from './turn_detection';
+import { TURN_DETECTION_DEFAULTS, createLevelMeter, type LevelMeter, type TurnDetectorOptions } from './turn_detection';
 import { TranscriptSegments } from './transcript_segments';
 import type { AppState } from './types';
 
-// How often the microphone level is sampled while listening hands-free. Fine
-// enough to notice the end of a sentence, coarse enough not to be a busy loop.
-export const LEVEL_SAMPLE_MS = 100;
+export { LEVEL_SAMPLE_MS, type ListenOptions } from './hands_free_listener';
 
-const MIME_TYPES = [
-  'audio/webm;codecs=opus',
-  'audio/webm',
-  'audio/mp4',
-  'audio/ogg;codecs=opus',
-  'audio/ogg',
-];
+// Asked for by name: a phone's defaults are not a laptop's, and a speaker can
+// still ring for a moment after the persona stops.
+const MICROPHONE: MediaTrackConstraints = { echoCancellation: true, noiseSuppression: true, autoGainControl: true };
+
+/** Why a recording produced nothing to send: nobody spoke, or what was heard had no words in it. */
+export type NothingSaid = 'silence' | 'empty';
+
+export interface RecordingEvents {
+  onNothing?: (reason: NothingSaid) => void;
+  /** How loud the microphone is right now, from 0 to 1, while listening hands-free. */
+  onLevel?: (level: number) => void;
+}
 
 export class RecordingController {
   private recorder: MediaRecorder | null = null;
@@ -31,11 +29,11 @@ export class RecordingController {
   private mimeType = '';
   private onChange: () => void = () => undefined;
   private onTranscript: (text: string) => Promise<void> = async () => undefined;
-  private meter: LevelMeter | null = null;
-  private listener: ReturnType<typeof setInterval> | null = null;
-  private detector: EndOfTurnDetector;
-  private readonly pauses: PauseDetector;
+  private events: RecordingEvents = {};
+  private listener: HandsFreeListener | null = null;
   private readonly segments = new TranscriptSegments();
+  private starting = false;
+  private stopWhenStarted = false;
 
   constructor(
     private readonly appState: AppState = state,
@@ -44,10 +42,7 @@ export class RecordingController {
     private readonly openMeter: (stream: MediaStream) => LevelMeter = createLevelMeter,
     private readonly now: () => number = () => Date.now(),
     private readonly detection: TurnDetectorOptions = {},
-  ) {
-    this.detector = new EndOfTurnDetector(detection);
-    this.pauses = new PauseDetector(detection);
-  }
+  ) {}
 
   /**
    * How long silence must last before a hands-free turn is sent.
@@ -68,13 +63,19 @@ export class RecordingController {
     return Boolean(this.appState.settings?.stt_streaming);
   }
 
-  configure(onChange: () => void, onTranscript: (text: string) => Promise<void>): void {
+  configure(onChange: () => void, onTranscript: (text: string) => Promise<void>, events: RecordingEvents = {}): void {
     this.onChange = onChange;
     this.onTranscript = onTranscript;
+    this.events = events;
   }
 
   get recording(): boolean {
     return this.recorder?.state === 'recording';
+  }
+
+  /** Whether anybody has spoken since hands-free listening began. */
+  get heardSpeech(): boolean {
+    return this.listener?.heardSpeech ?? false;
   }
 
   /**
@@ -84,40 +85,46 @@ export class RecordingController {
    * recording never uses it: the release is the decision, and it is always
    * right. See ADR 0038.
    */
-  async start(handsFree = false): Promise<void> {
-    if (this.recording) return;
+  async start(handsFree = false, options: ListenOptions = {}): Promise<void> {
+    // Asking for the microphone takes a moment. A second start in that moment
+    // - a double tap, or a conversation reopening it as somebody taps - would
+    // open it twice and leave one copy running.
+    if (this.recording || this.starting) return;
     if (!this.appState.settings || this.appState.settings.stt_provider === 'disabled') {
       this.appState.uiError = 'Speech-to-text is disabled. Enable OpenAI STT in Settings.';
       this.onChange();
       return;
     }
     if (!navigator.mediaDevices?.getUserMedia || !window.MediaRecorder) {
-      this.appState.uiError = 'This browser cannot record microphone audio.';
+      this.appState.uiError = window.isSecureContext === false
+        ? 'The microphone needs a secure (https) address. See the mobile microphone note in the README.'
+        : 'This browser cannot record microphone audio.';
       this.onChange();
       return;
     }
+    this.starting = true;
     try {
-      this.stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      this.stream = await navigator.mediaDevices.getUserMedia({ audio: MICROPHONE });
       this.mimeType = preferredMimeType();
-      this.chunks = [];
-      this.recorder = this.mimeType
-        ? new MediaRecorder(this.stream, { mimeType: this.mimeType })
-        : new MediaRecorder(this.stream);
-      this.recorder.addEventListener('dataavailable', (event: BlobEvent) => {
-        if (event.data.size) this.chunks.push(event.data);
-      });
-      this.recorder.start(250);
+      this.openRecorder();
       this.segments.begin();
       this.appState.partialTranscript = '';
       this.appState.recordingStartedAt = this.now();
       this.stateMachine.transition('recording');
-      if (handsFree) this.listenForTheEnd();
+      if (handsFree) this.listenForTheEnd(options.idleMs);
     } catch (error) {
       this.cleanup();
       this.appState.uiError = errorMessage(error, 'Microphone access was denied or unavailable.');
       this.stateMachine.transition('error');
+    } finally {
+      this.starting = false;
     }
     this.onChange();
+    // A held button let go while the microphone was still being opened.
+    if (this.stopWhenStarted) {
+      this.stopWhenStarted = false;
+      await this.stop();
+    }
   }
 
   /**
@@ -127,31 +134,33 @@ export class RecordingController {
    * left open because nothing ever sounded like silence is worse than a stop
    * nobody asked for.
    */
-  private listenForTheEnd(): void {
-    const stream = this.stream;
-    if (!stream) return;
-    this.meter = this.openMeter(stream);
-    this.detector = new EndOfTurnDetector({ ...this.detection, silenceMs: this.sendPauseMs });
-    this.detector.begin(this.now());
-    this.pauses.begin();
-    this.listener = setInterval(() => {
-      const meter = this.meter;
-      if (!meter || !this.recording) return;
-      const verdict = this.detector.observe(meter.level(), this.now());
-      if (verdict === 'too_long') {
-        this.appState.uiError = 'Listening stopped after a minute. Hold the microphone button to record instead.';
-        void this.stop();
-        return;
-      }
-      if (verdict === 'ended') {
-        void this.stop();
-        return;
-      }
-      // A pause is where the earlier part of a long answer can start being
-      // transcribed while the rest is still being said. It never ends a turn;
-      // that decision stays with the detector above, unchanged.
-      if (this.streaming && this.pauses.observe(meter.level(), this.now())) void this.cutSegment();
-    }, LEVEL_SAMPLE_MS);
+  private listenForTheEnd(idleMs?: number): void {
+    if (!this.stream) return;
+    const base = { ...TURN_DETECTION_DEFAULTS, ...this.detection };
+    this.listener = new HandsFreeListener(
+      this.openMeter(this.stream),
+      this.now,
+      {
+        detection: this.detection,
+        levels: { speechLevel: base.speechLevel, silenceLevel: base.silenceLevel },
+        sendPauseMs: this.sendPauseMs,
+        cutAtPauses: this.streaming,
+        idleMs,
+      },
+      {
+        ended: () => void this.stop(),
+        tooLong: () => {
+          this.appState.uiError = 'Listening stopped after a minute. Hold the microphone button to record instead.';
+          void this.stop();
+        },
+        nobodySpoke: () => {
+          this.cancel();
+          this.events.onNothing?.('silence');
+        },
+        pause: () => void this.cutSegment(),
+        level: (value) => this.events.onLevel?.(value),
+      },
+    );
   }
 
   /**
@@ -199,26 +208,24 @@ export class RecordingController {
   }
 
   async stop(): Promise<void> {
+    if (this.starting) {
+      this.stopWhenStarted = true;
+      return;
+    }
     const recorder = this.recorder;
     if (!recorder || recorder.state !== 'recording') return;
     // A cut at the last pause already sent everything said; what the
     // recorder holds since then is the silence that ended the turn, and
     // transcribing silence would make the wait grow by the whole pause.
-    const silentTail = this.streaming && this.listener !== null && this.pauses.cutPending;
+    const silentTail = this.streaming && Boolean(this.listener?.cutPending);
     this.stopListening();
-    const blob = await new Promise<Blob>((resolve) => {
-      recorder.addEventListener(
-        'stop',
-        () => resolve(new Blob(this.chunks, { type: recorder.mimeType || this.mimeType || 'audio/webm' })),
-        { once: true },
-      );
-      recorder.stop();
-    });
+    const blob = await this.closeRecorder(recorder);
     this.cleanup();
     if (!blob.size && this.segments.empty) {
       this.appState.partialTranscript = '';
       this.stateMachine.transition('idle');
       this.onChange();
+      this.events.onNothing?.('silence');
       return;
     }
     this.stateMachine.transition('transcribing');
@@ -230,7 +237,10 @@ export class RecordingController {
       const transcript = await this.segments.finish(tail);
       this.appState.partialTranscript = '';
       if (transcript) await this.onTranscript(transcript);
-      else if (this.appState.phase === 'transcribing') this.stateMachine.transition('idle');
+      else {
+        if (this.appState.phase === 'transcribing') this.stateMachine.transition('idle');
+        this.events.onNothing?.('empty');
+      }
     } catch (error) {
       this.appState.uiError = errorMessage(error, 'Unable to transcribe this recording.');
       this.stateMachine.transition('error');
@@ -240,6 +250,7 @@ export class RecordingController {
   }
 
   cancel(): void {
+    this.stopWhenStarted = false;
     if (this.recorder?.state === 'recording') this.recorder.stop();
     this.appState.partialTranscript = '';
     this.stopListening();
@@ -249,10 +260,8 @@ export class RecordingController {
   }
 
   private stopListening(): void {
-    if (this.listener !== null) clearInterval(this.listener);
+    this.listener?.stop();
     this.listener = null;
-    this.meter?.close();
-    this.meter = null;
   }
 
   private cleanup(): void {
@@ -263,15 +272,4 @@ export class RecordingController {
     this.chunks = [];
     this.appState.recordingStartedAt = 0;
   }
-}
-
-export function preferredMimeType(): string {
-  if (typeof MediaRecorder === 'undefined' || typeof MediaRecorder.isTypeSupported !== 'function') return '';
-  return MIME_TYPES.find((value) => MediaRecorder.isTypeSupported(value)) ?? '';
-}
-
-export function recordingFilename(mimeType: string): string {
-  if (mimeType.includes('mp4')) return 'audio.mp4';
-  if (mimeType.includes('ogg')) return 'audio.ogg';
-  return 'audio.webm';
 }

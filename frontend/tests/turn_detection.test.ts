@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from 'vitest';
 import type { ApiClient } from '../src/api';
 import { LEVEL_SAMPLE_MS, RecordingController } from '../src/recording';
 import { ClientStateMachine, createState } from '../src/state';
+import { levelsForRoom } from '../src/room_levels';
 import { EndOfTurnDetector, TURN_DETECTION_DEFAULTS } from '../src/turn_detection';
 import type { LevelMeter } from '../src/turn_detection';
 import type { Settings } from '../src/types';
@@ -74,6 +75,27 @@ describe('EndOfTurnDetector', () => {
     expect(detector.observe(LOUD, 900)).toBe('speaking');
     // A stop nobody asked for beats a microphone that never closes.
     expect(detector.observe(LOUD, 1000)).toBe('too_long');
+  });
+});
+
+describe('levels for the room', () => {
+  it('leaves a quiet room judged exactly as before', () => {
+    expect(levelsForRoom([0.002, 0.004, 0.003])).toEqual({
+      speechLevel: TURN_DETECTION_DEFAULTS.speechLevel,
+      silenceLevel: TURN_DETECTION_DEFAULTS.silenceLevel,
+    });
+  });
+
+  it('lifts both levels above a noisy room, keeping speech above silence', () => {
+    const levels = levelsForRoom([0.03, 0.031, 0.03]);
+    expect(levels.silenceLevel).toBeGreaterThan(0.03);
+    expect(levels.speechLevel).toBeGreaterThan(levels.silenceLevel);
+  });
+
+  it('never sets the bar above ordinary speech, even measured mid-sentence', () => {
+    const levels = levelsForRoom([0.3, 0.25, 0.28]);
+    expect(levels.speechLevel).toBeLessThan(0.15);
+    expect(levels.silenceLevel).toBeLessThan(levels.speechLevel);
   });
 });
 
@@ -215,6 +237,103 @@ describe('Hands-free recording', () => {
       controller.cancel();
     } finally {
       vi.useRealTimers();
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it('ends a turn in a noisy room instead of running to the ceiling', async () => {
+    vi.useFakeTimers();
+    try {
+      // A fan sits above the default silence level, so with fixed levels the
+      // room itself never sounded like silence and the turn never ended.
+      const ROOM = 0.03;
+      const VOICE = 0.18;
+      const { controller, tick } = recordingSetup([ROOM, ROOM, ROOM, ROOM, ROOM, VOICE, VOICE, VOICE, ROOM]);
+      await controller.start(true);
+      for (let step = 0; step < 25; step += 1) {
+        tick(LEVEL_SAMPLE_MS);
+        await vi.advanceTimersByTimeAsync(LEVEL_SAMPLE_MS);
+      }
+      expect(controller.recording).toBe(false);
+    } finally {
+      vi.useRealTimers();
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it('counts what was said while the room was being measured', async () => {
+    vi.useFakeTimers();
+    try {
+      // A quick "yes" straight after the tap, then quiet.
+      const { controller, tick } = recordingSetup([QUIET, LOUD, LOUD, QUIET]);
+      await controller.start(true);
+      for (let step = 0; step < 20; step += 1) {
+        tick(LEVEL_SAMPLE_MS);
+        await vi.advanceTimersByTimeAsync(LEVEL_SAMPLE_MS);
+      }
+      expect(controller.recording).toBe(false);
+    } finally {
+      vi.useRealTimers();
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it('stops quietly when a reopened microphone hears nobody', async () => {
+    vi.useFakeTimers();
+    try {
+      const { appState, client, controller, tick } = recordingSetup([QUIET]);
+      const nothing = vi.fn();
+      controller.configure(() => undefined, async () => undefined, { onNothing: nothing });
+      await controller.start(true, { idleMs: 2000 });
+      for (let step = 0; step < 25; step += 1) {
+        tick(LEVEL_SAMPLE_MS);
+        await vi.advanceTimersByTimeAsync(LEVEL_SAMPLE_MS);
+      }
+      expect(controller.recording).toBe(false);
+      expect(nothing).toHaveBeenCalledWith('silence');
+      // Nobody answering is not an error, and there is nothing to transcribe.
+      expect(appState.uiError).toBe('');
+      expect(appState.phase).toBe('idle');
+      expect(client.transcribe).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it('opens the microphone once however quickly it is asked twice', async () => {
+    try {
+      const { controller } = recordingSetup([QUIET]);
+      await Promise.all([controller.start(true), controller.start(true)]);
+      expect(navigator.mediaDevices.getUserMedia).toHaveBeenCalledTimes(1);
+      controller.cancel();
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it('asks for an echo-cancelled microphone', async () => {
+    try {
+      const { controller } = recordingSetup([QUIET]);
+      await controller.start();
+      expect(navigator.mediaDevices.getUserMedia).toHaveBeenCalledWith({
+        audio: expect.objectContaining({ echoCancellation: true, noiseSuppression: true }),
+      });
+      controller.cancel();
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it('honours a held button let go before the microphone opened', async () => {
+    try {
+      const { controller } = recordingSetup([QUIET]);
+      const starting = controller.start();
+      await controller.stop();
+      await starting;
+      // Otherwise a quick tap left the microphone recording with nothing to stop it.
+      expect(controller.recording).toBe(false);
+    } finally {
       vi.unstubAllGlobals();
     }
   });

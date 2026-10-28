@@ -1,3 +1,6 @@
+import { resumeAudio, sharedAudioContext } from './audio_context';
+import type { SpeechLevels } from './room_levels';
+
 /**
  * Deciding that somebody has stopped talking.
  *
@@ -104,8 +107,8 @@ export class EndOfTurnDetector {
  */
 export class PauseDetector {
   private readonly pauseMs: number;
-  private readonly silenceLevel: number;
-  private readonly speechLevel: number;
+  private silenceLevel: number;
+  private speechLevel: number;
   private heardSpeech = false;
   private quietSince = 0;
   private cutAlready = false;
@@ -122,6 +125,12 @@ export class PauseDetector {
     this.heardSpeech = false;
     this.quietSince = 0;
     this.cutAlready = false;
+  }
+
+  /** Judge by this room's levels from now on, the same ones the end of the turn is judged by. */
+  setLevels(levels: SpeechLevels): void {
+    this.speechLevel = levels.speechLevel;
+    this.silenceLevel = levels.silenceLevel;
   }
 
   /** A cut happened and nobody has spoken since: whatever follows is silence. */
@@ -159,12 +168,12 @@ export interface LevelMeter {
  * does not read as silence.
  */
 export function createLevelMeter(stream: MediaStream): LevelMeter {
-  const AudioContextClass = (globalThis as {
-    AudioContext?: typeof AudioContext;
-    webkitAudioContext?: typeof AudioContext;
-  }).AudioContext ?? (globalThis as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
-  if (!AudioContextClass) return { level: () => 0, close: () => undefined };
-  const context = new AudioContextClass();
+  // The page's one context rather than a new one per turn: a context created
+  // here, after the wait for the microphone, would start suspended on a phone
+  // and report silence forever. See `audio_context.ts`.
+  const context = sharedAudioContext();
+  if (!context) return { level: () => 0, close: () => undefined };
+  resumeAudio();
   const analyser = context.createAnalyser();
   analyser.fftSize = 1024;
   const source = context.createMediaStreamSource(stream);
@@ -179,8 +188,8 @@ export function createLevelMeter(stream: MediaStream): LevelMeter {
     },
     close(): void {
       try {
+        // The context is shared and stays; only this turn's microphone leaves it.
         source.disconnect();
-        void context.close();
       } catch {
         // A context the browser already tore down is not a problem worth
         // reporting to somebody who just finished talking.

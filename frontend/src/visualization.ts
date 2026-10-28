@@ -1,6 +1,4 @@
-interface AudioWindow extends Window {
-  webkitAudioContext?: typeof AudioContext;
-}
+import { sharedAudioContext } from './audio_context';
 
 interface Star {
   x: number;
@@ -10,7 +8,6 @@ interface Star {
 }
 
 export class Visualizer {
-  private context: AudioContext | null = null;
   private analyser: AnalyserNode | null = null;
   private frequencies = new Uint8Array(0);
   private canvas: HTMLCanvasElement | null = null;
@@ -28,19 +25,28 @@ export class Visualizer {
   setEnabled(enabled: boolean): void {
     this.enabled = enabled;
     if (enabled) this.start();
+    else this.halt();
   }
 
+  /**
+   * Route the reply's sound through an analyser, so the rings move with it.
+   *
+   * Only while the visualizer is on. Once an element is routed through Web
+   * Audio it cannot be unrouted, and from then on it is silent whenever that
+   * context is - which on a phone is whenever the system has paused audio.
+   * With the visualizer off, nothing here touches the element and it plays on
+   * its own. It uses the page's one context, kept running by taps.
+   */
   connectAudio(): void {
-    if (this.context) return;
-    const AudioContextConstructor = window.AudioContext ?? (window as AudioWindow).webkitAudioContext;
-    if (!AudioContextConstructor) return;
-    this.context = new AudioContextConstructor();
-    const source = this.context.createMediaElementSource(this.audio);
-    this.analyser = this.context.createAnalyser();
+    if (this.analyser || !this.enabled) return;
+    const context = sharedAudioContext();
+    if (!context) return;
+    const source = context.createMediaElementSource(this.audio);
+    this.analyser = context.createAnalyser();
     this.analyser.fftSize = 512;
     this.frequencies = new Uint8Array(this.analyser.frequencyBinCount);
     source.connect(this.analyser);
-    this.analyser.connect(this.context.destination);
+    this.analyser.connect(context.destination);
   }
 
   node(): HTMLCanvasElement {
@@ -48,23 +54,33 @@ export class Visualizer {
     canvas.id = 'vizCanvas';
     this.canvas = canvas;
     this.resize();
-    this.start();
+    if (this.enabled) this.start();
     return canvas;
   }
 
   dispose(): void {
-    cancelAnimationFrame(this.frame);
-    this.frame = 0;
+    this.halt();
     this.canvas = null;
   }
 
+  // Drawing runs only while the visualizer is on. It used to run sixty times a
+  // second for the life of the page, drawing nothing, on a phone's battery.
   private start(): void {
     if (this.frame) return;
     const loop = (time: number): void => {
+      if (!this.enabled) {
+        this.frame = 0;
+        return;
+      }
       this.frame = requestAnimationFrame(loop);
-      if (this.enabled) this.draw(time);
+      this.draw(time);
     };
     this.frame = requestAnimationFrame(loop);
+  }
+
+  private halt(): void {
+    if (this.frame) cancelAnimationFrame(this.frame);
+    this.frame = 0;
   }
 
   private resize(): void {

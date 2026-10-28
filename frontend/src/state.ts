@@ -121,8 +121,18 @@ export function clearIdentitySetupContextForChat(appState: AppState, chatId: str
   if (intent && intent.chat_id !== chatId) clearIdentitySetupContext(appState);
 }
 
+export type TransitionListener = (from: ClientPhase, to: ClientPhase) => void;
+
 export class ClientStateMachine {
+  private readonly listeners = new Set<TransitionListener>();
+
   constructor(private readonly state: AppState) {}
+
+  /** Be told of every change of phase, after it has happened. Returns the way to stop. */
+  onTransition(listener: TransitionListener): () => void {
+    this.listeners.add(listener);
+    return () => this.listeners.delete(listener);
+  }
 
   transition(next: ClientPhase, statusText?: string): void {
     if (next === this.state.phase) {
@@ -132,9 +142,11 @@ export class ClientStateMachine {
     if (!LEGAL_PHASES[this.state.phase].has(next)) {
       throw new Error(`Illegal client transition: ${this.state.phase} -> ${next}`);
     }
+    const from = this.state.phase;
     if (next === 'error') this.state.phaseBeforeError = this.state.phase;
     this.state.phase = next;
     this.state.statusText = statusText ?? phaseLabel(next);
+    for (const listener of this.listeners) listener(from, next);
   }
 
   recover(): void {

@@ -82,9 +82,9 @@ export class EverydaySettingsView {
       }),
     ];
     const more: HTMLElement[] = [
-      choiceField('Stored audio format', settings.tts_format, ['wav', 'mp3', 'opus', 'aac', 'flac'], (value) => this.change('tts_format', value), {
+      choiceField('Stored audio format', settings.tts_format, ['mp3', 'aac', 'opus', 'flac', 'wav'], (value) => this.change('tts_format', value), {
         display: titleCase,
-        hover: 'What a finished reply is kept as for replay. Speech itself starts before the file is finished, except for WAV, which cannot.',
+        hover: 'What a reply is spoken and kept in. MP3 and AAC start speaking before the reply is finished; the others wait for all of it.',
       }),
     ];
     if (provider === 'openai') {

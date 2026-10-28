@@ -1,6 +1,6 @@
 # ADR 0037: Speech starts when the first audio exists, not when the last one does
 
-- Status: accepted
+- Status: accepted; default format and iPhone streaming in ADR 0044
 - Date: 2026-08-17
 - Owners: Nice Assistant maintainers
 

@@ -1,6 +1,6 @@
 # ADR 0038: Deciding when somebody has finished talking
 
-- Status: accepted
+- Status: accepted; per-turn room levels and the continuing conversation in ADR 0044
 - Date: 2026-08-17
 - Owners: Nice Assistant maintainers
 

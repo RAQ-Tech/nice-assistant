@@ -11,6 +11,8 @@ from sqlalchemy import (
 )
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
+from app.speech_clients import DEFAULT_TTS_FORMAT
+
 
 class Base(DeclarativeBase):
     pass
@@ -265,7 +267,7 @@ class AppSetting(Base):
     default_memory_mode: Mapped[str] = mapped_column(Text, default="saved")
     stt_provider: Mapped[str] = mapped_column(Text, default="disabled")
     tts_provider: Mapped[str] = mapped_column(Text, default="disabled")
-    tts_format: Mapped[str] = mapped_column(Text, default="wav")
+    tts_format: Mapped[str] = mapped_column(Text, default=DEFAULT_TTS_FORMAT)
     openai_api_key: Mapped[str | None] = mapped_column(Text)
     openai_api_key_encrypted: Mapped[str | None] = mapped_column(Text)
     onboarding_done: Mapped[int] = mapped_column(Integer, default=0)

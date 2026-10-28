@@ -57,6 +57,7 @@ from app.models import (
 from app.persona_card import CARD_STORED_FIELDS
 from app.service_errors import ConflictError
 from app.secret_store import SecretStore
+from app.speech_clients import DEFAULT_TTS_FORMAT
 from app.task_contracts import TASK_DEFINITIONS, TASK_ROLES
 from app.persona_voice import dump as dump_voice_preferences
 from app.typed_settings import value_type
@@ -176,7 +177,7 @@ class ApplicationRepository:
             "default_memory_mode": "off" if row.default_memory_mode == "off" else "saved",
             "stt_provider": row.stt_provider or "disabled",
             "tts_provider": row.tts_provider or "disabled",
-            "tts_format": row.tts_format or "wav",
+            "tts_format": row.tts_format or DEFAULT_TTS_FORMAT,
             "openai_api_key": api_key,
             "openai_api_key_encrypted": row.openai_api_key_encrypted,
             "onboarding_done": bool(row.onboarding_done),
@@ -192,7 +193,7 @@ class ApplicationRepository:
         row.default_memory_mode = "off" if values.get("default_memory_mode") == "off" else "saved"
         row.stt_provider = values.get("stt_provider") or "disabled"
         row.tts_provider = values.get("tts_provider") or "disabled"
-        row.tts_format = values.get("tts_format") or "wav"
+        row.tts_format = values.get("tts_format") or DEFAULT_TTS_FORMAT
         row.onboarding_done = int(bool(values.get("onboarding_done")))
         submitted_key = values.get("openai_api_key")
         if not preserve_secret and submitted_key:

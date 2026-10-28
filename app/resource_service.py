@@ -29,6 +29,7 @@ from sqlalchemy import select
 from app.avatar_store import AvatarUnavailable, avatar_file, is_served, refresh_from_file, snapshot
 from app.models import Persona
 from app.repositories import UnitOfWork, now_ts
+from app.speech_clients import DEFAULT_TTS_FORMAT
 from app.wyoming_client import WyomingUnavailable, parse_address as parse_wyoming_address
 from app.settings import (
     normalize_media_preferences,
@@ -126,7 +127,7 @@ def settings_response(row: dict | None) -> dict:
         "default_memory_mode": "off" if row.get("default_memory_mode") == "off" else "saved",
         "stt_provider": row.get("stt_provider") or "disabled",
         "tts_provider": row.get("tts_provider") or "disabled",
-        "tts_format": row.get("tts_format") or "wav",
+        "tts_format": row.get("tts_format") or DEFAULT_TTS_FORMAT,
         "openai_api_key": mask_secret(row.get("openai_api_key")),
         "onboarding_done": bool(row.get("onboarding_done")),
         "preferences": normalize_media_preferences(row.get("preferences") or {}),

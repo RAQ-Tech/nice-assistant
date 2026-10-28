@@ -612,6 +612,15 @@ installed-browser acceptance.
   its context size, and that each voice-loop stage is timed and logged once.
   Queue tests prove a turn goes ahead of queued follow-ups for its chat but never
   ahead of an earlier turn.
+- Hands-free conversation tests (ADR 0044) prove the microphone reopens after a
+  spoken or unspoken reply and never while the persona speaks, that the
+  conversation ends on silence, a failed turn, or a tap before speaking, that a
+  noisy room still ends a turn, and that a reopened microphone nobody answers
+  stops without an error. Phone playback tests cover the first-tap unlock, the
+  visualizer leaving the reply alone when off, and `ManagedMediaSource`; speech
+  text tests cover what is not spoken and that speakable text never shrinks as a
+  reply arrives. `tests/test_speech_format_default.py` pins the streamable
+  default on both sides and the WAV migration.
 - Memory tests cover legacy data migration, exact-duplicate supersession, FTS
   population/ranking, active-only scoped retrieval, nonblocking extraction,
   provenance, review transitions, superseding edits, forget/undo, extraction

@@ -5,7 +5,7 @@ export const SETTINGS_DEFAULTS: Settings = {
   default_memory_mode: 'saved',
   stt_provider: 'disabled',
   tts_provider: 'disabled',
-  tts_format: 'wav',
+  tts_format: 'mp3',
   openai_api_key: '',
   onboarding_done: false,
   general_theme: 'dark',
@@ -241,7 +241,7 @@ export function normalizeSettings(wire: SettingsWire): Settings {
     default_memory_mode: wire.default_memory_mode === 'off' ? 'off' : 'saved',
     stt_provider: wire.stt_provider || 'disabled',
     tts_provider: wire.tts_provider || 'disabled',
-    tts_format: wire.tts_format || 'wav',
+    tts_format: wire.tts_format || SETTINGS_DEFAULTS.tts_format,
     openai_api_key: wire.openai_api_key ?? '',
     onboarding_done: Boolean(wire.onboarding_done),
   } as Settings;

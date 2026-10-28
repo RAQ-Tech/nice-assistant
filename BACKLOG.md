@@ -468,6 +468,30 @@ none of them was a feature anybody had chosen to pay for. All six are fixed; see
 
 What is left is measurement on the deployment, item 17 in section 4.
 
+### 1I. A conversation that keeps listening - delivered 2026-10-27
+
+Batch 2 of the same review. Hands-free listening ended one turn and stopped;
+on a phone, speech was often silent or waited for the whole reply. See
+[ADR 0044](docs/decisions/0044-a-conversation-that-keeps-listening.md).
+
+- With hands-free on, a tap starts a conversation: after each reply the
+  microphone opens again by itself, until you tap before speaking, type, cancel,
+  leave the chat, or nobody answers for thirty seconds. It is closed while the
+  persona speaks, so it never hears it.
+- The talk button is the one place that says listening, transcribing or
+  thinking, with a ring that moves with your voice; the words heard so far
+  appear in the message box.
+- Each turn listens to the room for its first moment, so a fan or a television
+  no longer keeps a turn open until the one-minute ceiling.
+- On a phone, the first tap unlocks audio, and an iPhone streams speech instead
+  of waiting for the whole reply. MP3 is the default format; accounts on WAV,
+  which cannot start early, were moved to it.
+- A model's reasoning and an acted-out *smiles* are no longer read aloud,
+  including half-written reasoning, which used to be.
+
+What is left is trying it on a real phone and the deployment, item 18 in
+section 4.
+
 ## 2. Decided
 
 Answered by the owner on 2026-08-17, with additions from the settings
@@ -674,6 +698,15 @@ than from a checklist, and to exercise preset routing on the way.
     across the conversation, and `turn.first_token` is recorded as the
     baseline later voice work is measured against. Source: ADR 0043.
 
+18. **A hands-free conversation, on a phone.** Item 1I was checked in a
+    desktop browser with a scripted microphone, which cannot answer what a phone
+    does. Over HTTPS on an iPhone and an Android phone: turn on hands-free
+    listening, tap once, and hold a conversation of several exchanges without
+    touching the screen again. **Done when** every reply is heard through the
+    speaker (not the earpiece), speech starts before the reply is finished, the
+    microphone reopens after each reply and never hears the persona, and a quiet
+    half-minute ends it. Source: ADR 0044.
+
 ## 5. Temporary by agreement
 
 Deliberately shipped with a planned end, so it is never mistaken for a permanent
@@ -813,7 +846,7 @@ done:
 - Update the product, architecture, security, testing, operations, roadmap, and
   debt documents in the same change as the behavior they describe.
 - Record durable architectural choices as ADRs in `docs/decisions/`. The next
-  free number is 0044.
+  free number is 0045.
 - Run `python scripts/audit_public_repo.py` before every public commit. This
   file must never contain deployment addresses, hostnames, user-specific paths,
   hardware inventories, or account identifiers.
