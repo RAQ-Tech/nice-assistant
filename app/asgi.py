@@ -228,7 +228,9 @@ app = create_app()
 
 
 def main():
-    config = app.state.services.runtime.config
+    runtime = app.state.services.runtime
+    config = runtime.config
+    runtime.log_to_console()
     uvicorn.run(
         app,
         host="0.0.0.0",

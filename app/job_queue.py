@@ -276,7 +276,12 @@ class JobQueue:
             if interactive_waiting:
                 return []
         eligible = []
-        seen_ordering_keys = set()
+        # One job per ordering key may start: the earliest of the most urgent
+        # class waiting under it. A turn therefore goes ahead of the previous
+        # turn's queued follow-ups, but never ahead of an earlier turn, and
+        # nothing under the key starts while another job under it is running.
+        # See ADR 0043.
+        heads: Dict[str, Job] = {}
         for job in sorted(self._pending_for_lane_locked(lane), key=lambda item: item.arrival_time):
             if not self.admission_check(job):
                 continue
@@ -284,11 +289,12 @@ class JobQueue:
             if not ordering_key:
                 eligible.append(job)
                 continue
-            if ordering_key in seen_ordering_keys:
+            if ordering_key in self._active_ordering_keys:
                 continue
-            seen_ordering_keys.add(ordering_key)
-            if ordering_key not in self._active_ordering_keys:
-                eligible.append(job)
+            head = heads.get(ordering_key)
+            if head is None or _urgency(job) < _urgency(head):
+                heads[ordering_key] = job
+        eligible.extend(heads.values())
         return eligible
 
     def _pick_next_job_locked(self, lane: str) -> Job:
@@ -316,10 +322,14 @@ class JobQueue:
                 self._current_model_key_by_lane[lane] = image_job.model_key
                 return image_job
 
+        # Staying on the loaded model saves a swap, but only between jobs that
+        # are equally urgent: background work never goes ahead of a turn
+        # because it happens to use the model that ran last.
         current_model_key = self._current_model_key_by_lane.get(lane)
         if queue_depth > 1 and current_model_key:
+            most_urgent = min(_urgency(job) for job in lane_pending)
             for job in lane_pending:
-                if job.model_key and job.model_key == current_model_key:
+                if _urgency(job) == most_urgent and job.model_key and job.model_key == current_model_key:
                     self._pending.remove(job)
                     return job
 
@@ -344,6 +354,10 @@ class JobQueue:
             if "text" in types and "image" in types:
                 return sorted(jobs, key=lambda j: j.arrival_time)
         return None
+
+
+def _urgency(job: Job) -> int:
+    return LATENCY_PRIORITY.get(job.latency_class, LATENCY_PRIORITY["standard"])
 
 
 def new_job(

@@ -11,7 +11,7 @@ from app.memory_service import memory_search_query, normalize_memory_content
 from app.persona_card import EXAMPLE_DIALOGUE_LABEL, select_example_dialogue
 from app.persona_lore import lore_section, select_lore
 from app.persona_output import safe_persona_output_text, sanitize_persona_output
-from app.provider_contracts import CancellationToken, ProviderError
+from app.provider_contracts import CancellationToken, LoadedModel, ProviderError
 from app.repositories import UnitOfWork
 from app.task_contracts import CONVERSATION_SUMMARY, SummaryTaskInput
 
@@ -43,6 +43,9 @@ class PromptPlan:
     omitted_memory_count: int
     summary_id: str | None
     degraded_reason: str | None
+    # The summary is far enough behind that a follow-up should bring it up to
+    # date once this reply is out. It never runs in front of the reply.
+    compaction_due: bool = False
 
 
 @dataclass(frozen=True)
@@ -132,7 +135,7 @@ class ContextService:
         cancellation.raise_if_cancelled()
         context_window, output_tokens, prompt_budget = self._token_budget(provider, model, preferences, model_settings)
 
-        current, history, memories, summary = self._load_context(
+        current, history, earlier_count, memories, summary = self._load_context(
             turn_id=turn_id,
             user_id=user_id,
             chat_id=chat_id,
@@ -147,17 +150,13 @@ class ContextService:
                 code="context_missing",
                 user_message="The conversation context could not be prepared.",
             )
-        source_history_count = len(history)
+        source_history_count = earlier_count + len(history)
 
-        summary, history, degraded = self._compact_if_needed(
-            turn_id=turn_id,
-            user_id=user_id,
-            chat_id=chat_id,
-            history=history,
-            summary=summary,
-            prompt_budget=prompt_budget,
-            cancellation=cancellation,
-        )
+        # The reply uses the summary as it stands. Bringing it up to date is a
+        # model call, so it happens after the reply, never in front of it.
+        # See ADR 0043.
+        history = self._history_after_summary(history, summary)
+        compaction_due = self._compaction_due(history, prompt_budget)
 
         protected_sections = _protected_sections(application_instructions, persona_instructions, owner_profile)
         current_message = {"role": "user", "content": current["text"]}
@@ -203,8 +202,6 @@ class ContextService:
             selected_memories = []
         if "summary" in dropped_sections:
             summary = None
-        if dropped_sections:
-            degraded = "; ".join(filter(None, [degraded, "history_floor_dropped:" + ",".join(dropped_sections)]))
         system_text = "\n\n".join([*protected_sections, *[text for _name, text in data_sections]])
         base = [{"role": "system", "content": system_text}] if system_text else []
         selected_history, _omitted_history = self._select_history(history, remaining)
@@ -215,6 +212,21 @@ class ContextService:
             prompt_budget,
         )
         omitted_history = max(0, source_history_count - len(selected_history))
+        # Only worth saying when something the summary does not yet cover was
+        # left out: that is the one case the reply really had less to go on.
+        catching_up = compaction_due and len(selected_history) < len(history)
+        degraded = (
+            "; ".join(
+                filter(
+                    None,
+                    [
+                        "summary_catchup_limited" if catching_up else None,
+                        "history_floor_dropped:" + ",".join(dropped_sections) if dropped_sections else None,
+                    ],
+                )
+            )
+            or None
+        )
 
         options = dict(model_settings)
         options.pop("context_window_tokens", None)
@@ -232,9 +244,57 @@ class ContextService:
             omitted_memory_count=omitted_memories,
             summary_id=summary.id if summary else None,
             degraded_reason=degraded,
+            compaction_due=compaction_due,
         )
         self.record_plan(turn_id, plan)
         return plan
+
+    def compact(
+        self,
+        *,
+        turn_id: str,
+        user_id: str,
+        chat_id: str,
+        prompt_budget: int,
+        cancellation: CancellationToken,
+        loaded_model: LoadedModel | None = None,
+    ) -> dict:
+        """Bring the summary up to date after a reply, so the next prompt fits.
+
+        This used to run before the first word of a reply, for as many as two
+        model calls. It runs from a follow-up job now, and the next turn starts
+        from whatever summary it leaves. See ADR 0043.
+        """
+
+        cancellation.raise_if_cancelled()
+        with self._uow() as uow:
+            summary = self._durable_summary(uow, user_id, chat_id)
+            history, _earlier = self._load_history(
+                uow,
+                user_id=user_id,
+                chat_id=chat_id,
+                before_sequence=None,
+                before_created_at=None,
+                summary=summary,
+            )
+        summary, _remaining, degraded = self._compact_if_needed(
+            turn_id=turn_id,
+            user_id=user_id,
+            chat_id=chat_id,
+            history=history,
+            summary=summary,
+            prompt_budget=prompt_budget,
+            cancellation=cancellation,
+            loaded_model=loaded_model,
+        )
+        if degraded == "summary_provider_failed":
+            raise ProviderError(
+                provider="task-model",
+                code="summary_failed",
+                user_message="The conversation summary could not be updated.",
+                retryable=True,
+            )
+        return {"summary_id": summary.id if summary else None, "summary_behind": degraded is not None}
 
     def _token_budget(self, provider, model: str, preferences: dict, model_settings: dict) -> tuple[int, int, int]:
         """How many tokens the prompt may use, after output and safety are reserved."""
@@ -440,93 +500,17 @@ class ContextService:
         with self._uow() as uow:
             current = uow.repo.message(current_message_id)
             if not current or current.chat_id != chat_id:
-                return None, [], [], None
+                return None, [], 0, [], None
             current_turn = uow.repo.turn(user_id, turn_id)
-            all_prior_turns = [
-                row
-                for row in uow.repo.turns_for_chat(user_id, chat_id)
-                if current_turn and row.sequence_number < current_turn.sequence_number
-            ]
-            prior_turns = [row for row in all_prior_turns if row.status == "completed"]
-            base_rows = uow.repo.messages_before(chat_id, current.created_at)
-            referenced_ids = {
-                message_id
-                for turn in all_prior_turns
-                for message_id in (turn.user_message_id, turn.assistant_message_id)
-                if message_id
-            }
-            ordered_rows = [row for row in base_rows if row.id not in referenced_ids]
-            for prior_turn in prior_turns:
-                user_message = uow.repo.message(prior_turn.user_message_id)
-                assistant_message = (
-                    uow.repo.message(prior_turn.assistant_message_id) if prior_turn.assistant_message_id else None
-                )
-                if user_message:
-                    ordered_rows.append(user_message)
-                if assistant_message:
-                    capability_rows = uow.repo.capability_requests_for_turn(prior_turn.id)
-                    tool_calls = []
-                    for capability in capability_rows:
-                        definition = self.capability_registry.by_key(capability.capability_key)
-                        stored_arguments = json.loads(capability.arguments_json)
-                        tool_calls.append(
-                            {
-                                "type": "function",
-                                "function": {
-                                    "name": definition.tool_name,
-                                    "arguments": {"prompt": str(stored_arguments.get("prompt") or "")},
-                                },
-                            }
-                        )
-                    ordered_rows.append((assistant_message, tool_calls, capability_rows))
-            history = []
-            for item in ordered_rows:
-                if isinstance(item, tuple):
-                    row, tool_calls, capability_rows = item
-                else:
-                    row, tool_calls, capability_rows = item, [], []
-                row_text = safe_persona_output_text(row.text) if row.role == "assistant" else row.text
-                provider_message = {"role": row.role, "content": row_text}
-                if tool_calls:
-                    provider_message["tool_calls"] = tool_calls
-                history.append(
-                    {
-                        "id": row.id,
-                        "role": row.role,
-                        "text": row_text,
-                        "created_at": row.created_at,
-                        "provider_message": provider_message,
-                    }
-                )
-                for capability in capability_rows:
-                    definition = self.capability_registry.by_key(capability.capability_key)
-                    capability_payload = {
-                        "capability_key": capability.capability_key,
-                        "status": capability.status,
-                        "result": json.loads(capability.result_json) if capability.result_json else None,
-                        "error": (
-                            {
-                                "code": capability.error_code or "failed",
-                                "message": capability.error_message or "Capability failed.",
-                            }
-                            if capability.error_code or capability.error_message
-                            else None
-                        ),
-                    }
-                    tool_text = capability_tool_result(capability_payload)
-                    history.append(
-                        {
-                            "id": f"capability:{capability.id}",
-                            "role": "tool",
-                            "text": tool_text,
-                            "created_at": capability.requested_at,
-                            "provider_message": {
-                                "role": "tool",
-                                "tool_name": definition.tool_name,
-                                "content": tool_text,
-                            },
-                        }
-                    )
+            summary = self._durable_summary(uow, user_id, chat_id)
+            history, earlier_count = self._load_history(
+                uow,
+                user_id=user_id,
+                chat_id=chat_id,
+                before_sequence=current_turn.sequence_number if current_turn else 0,
+                before_created_at=current.created_at,
+                summary=summary,
+            )
             memories = []
             if memory_mode != "off":
                 memories = [
@@ -550,14 +534,183 @@ class ContextService:
                         )
                     )
                 ]
-            durable = uow.repo.latest_summary(user_id, chat_id)
-            safe_summary = _safe_summary_content(durable.content).strip() if durable else ""
-            summary = (
-                _SummarySnapshot(durable.id, durable.through_message_id, safe_summary)
-                if durable and safe_summary
-                else None
+            return {"id": current.id, "text": current.text}, history, earlier_count, memories, summary
+
+    @staticmethod
+    def _durable_summary(uow, user_id: str, chat_id: str) -> _SummarySnapshot | None:
+        durable = uow.repo.latest_summary(user_id, chat_id)
+        safe_summary = _safe_summary_content(durable.content).strip() if durable else ""
+        if not durable or not safe_summary:
+            return None
+        return _SummarySnapshot(durable.id, durable.through_message_id, safe_summary)
+
+    def _load_history(
+        self,
+        uow,
+        *,
+        user_id: str,
+        chat_id: str,
+        before_sequence: int | None,
+        before_created_at: int | None,
+        summary: _SummarySnapshot | None,
+        bounded: bool = True,
+    ) -> tuple[list[dict], int]:
+        """The transcript a prompt may still use, and how many messages came before it.
+
+        What the summary already covers is never read again except to be
+        counted. So when its boundary falls inside a turn, loading starts at
+        that turn, and a reply in a chat of a thousand turns reads about what
+        one in a chat of fifty does. Every lookup is one query however many
+        turns it covers. See ADR 0043.
+        """
+
+        prior = [
+            row
+            for row in uow.repo.turns_for_chat(user_id, chat_id)
+            if before_sequence is None or row.sequence_number < before_sequence
+        ]
+        completed = [row for row in prior if row.status == "completed"]
+        start = self._boundary_turn(uow, completed, summary) if bounded else None
+        started_at_boundary = start is not None
+        earlier_count = 0
+        if start is None:
+            start = 0
+            ordered_rows: list = list(uow.repo.messages_outside_turns(chat_id, before_created_at))
+        else:
+            # Messages outside turns always come first, so a boundary inside a
+            # turn has already passed every one of them.
+            ordered_rows = []
+            summarized = completed[:start]
+            answered = [row.id for row in summarized if row.assistant_message_id]
+            earlier_count = (
+                uow.repo.count_messages_outside_turns(chat_id, before_created_at)
+                + len(summarized)
+                + len(answered)
+                + uow.repo.count_capability_requests_for_turns(answered)
             )
-            return {"id": current.id, "text": current.text}, history, memories, summary
+        loaded = completed[start:]
+        messages = uow.repo.messages_by_id(
+            message_id for row in loaded for message_id in (row.user_message_id, row.assistant_message_id)
+        )
+        capabilities = uow.repo.capability_requests_for_turns(row.id for row in loaded if row.assistant_message_id)
+        for prior_turn in loaded:
+            user_message = messages.get(prior_turn.user_message_id)
+            assistant_message = (
+                messages.get(prior_turn.assistant_message_id) if prior_turn.assistant_message_id else None
+            )
+            if user_message:
+                ordered_rows.append(user_message)
+            if assistant_message:
+                capability_rows = capabilities.get(prior_turn.id, [])
+                ordered_rows.append((assistant_message, self._tool_calls(capability_rows), capability_rows))
+        history = self._history_items(ordered_rows)
+        if started_at_boundary and not any(item["id"] == summary.through_message_id for item in history):
+            # The boundary was not where it was expected. Reading everything is
+            # slower and was always correct.
+            return self._load_history(
+                uow,
+                user_id=user_id,
+                chat_id=chat_id,
+                before_sequence=before_sequence,
+                before_created_at=before_created_at,
+                summary=summary,
+                bounded=False,
+            )
+        return history, earlier_count
+
+    @staticmethod
+    def _boundary_turn(uow, completed: list, summary: _SummarySnapshot | None) -> int | None:
+        """Which turn the summary ends in, or None to read the whole transcript."""
+
+        if not summary:
+            return None
+        boundary = summary.through_message_id
+        if boundary.startswith("capability:"):
+            capability = uow.repo.capability_request_by_id(boundary.split(":", 1)[1])
+            owner = capability.turn_id if capability else None
+            return next((index for index, row in enumerate(completed) if row.id == owner), None)
+        return next(
+            (
+                index
+                for index, row in enumerate(completed)
+                if boundary in (row.user_message_id, row.assistant_message_id)
+            ),
+            None,
+        )
+
+    def _tool_calls(self, capability_rows) -> list[dict]:
+        tool_calls = []
+        for capability in capability_rows:
+            definition = self.capability_registry.by_key(capability.capability_key)
+            stored_arguments = json.loads(capability.arguments_json)
+            tool_calls.append(
+                {
+                    "type": "function",
+                    "function": {
+                        "name": definition.tool_name,
+                        "arguments": {"prompt": str(stored_arguments.get("prompt") or "")},
+                    },
+                }
+            )
+        return tool_calls
+
+    def _history_items(self, ordered_rows: list) -> list[dict]:
+        history = []
+        for item in ordered_rows:
+            if isinstance(item, tuple):
+                row, tool_calls, capability_rows = item
+            else:
+                row, tool_calls, capability_rows = item, [], []
+            row_text = safe_persona_output_text(row.text) if row.role == "assistant" else row.text
+            provider_message = {"role": row.role, "content": row_text}
+            if tool_calls:
+                provider_message["tool_calls"] = tool_calls
+            history.append(
+                {
+                    "id": row.id,
+                    "role": row.role,
+                    "text": row_text,
+                    "created_at": row.created_at,
+                    "provider_message": provider_message,
+                }
+            )
+            for capability in capability_rows:
+                definition = self.capability_registry.by_key(capability.capability_key)
+                capability_payload = {
+                    "capability_key": capability.capability_key,
+                    "status": capability.status,
+                    "result": json.loads(capability.result_json) if capability.result_json else None,
+                    "error": (
+                        {
+                            "code": capability.error_code or "failed",
+                            "message": capability.error_message or "Capability failed.",
+                        }
+                        if capability.error_code or capability.error_message
+                        else None
+                    ),
+                }
+                tool_text = capability_tool_result(capability_payload)
+                history.append(
+                    {
+                        "id": f"capability:{capability.id}",
+                        "role": "tool",
+                        "text": tool_text,
+                        "created_at": capability.requested_at,
+                        "provider_message": {
+                            "role": "tool",
+                            "tool_name": definition.tool_name,
+                            "content": tool_text,
+                        },
+                    }
+                )
+        return history
+
+    def _compaction_due(self, remaining: list, prompt_budget: int) -> bool:
+        projected = self.estimator.messages([self._provider_message(item) for item in remaining])
+        return (
+            projected > int(prompt_budget * self.policy.summary_trigger_ratio)
+            and len(remaining) > self.policy.recent_messages_to_preserve
+        )
 
     def _compact_if_needed(
         self,
@@ -569,17 +722,12 @@ class ContextService:
         summary,
         prompt_budget,
         cancellation,
+        loaded_model=None,
     ):
         remaining = self._history_after_summary(history, summary)
-        projected = self.estimator.messages([self._provider_message(item) for item in remaining])
-        threshold = int(prompt_budget * self.policy.summary_trigger_ratio)
         passes = 0
         degraded = None
-        while (
-            projected > threshold
-            and len(remaining) > self.policy.recent_messages_to_preserve
-            and passes < self.policy.max_compaction_passes
-        ):
+        while self._compaction_due(remaining, prompt_budget) and passes < self.policy.max_compaction_passes:
             cancellation.raise_if_cancelled()
             eligible = remaining[: -self.policy.recent_messages_to_preserve]
             chunk = []
@@ -601,6 +749,7 @@ class ContextService:
                     previous=summary,
                     chunk=chunk,
                     cancellation=cancellation,
+                    loaded_model=loaded_model,
                 )
             except ProviderError as exc:
                 if exc.code == "cancelled" or cancellation.cancelled:
@@ -609,8 +758,7 @@ class ContextService:
                 break
             passes += 1
             remaining = self._history_after_summary(history, summary)
-            projected = self.estimator.messages([self._provider_message(item) for item in remaining])
-        if projected > threshold and len(remaining) > self.policy.recent_messages_to_preserve:
+        if self._compaction_due(remaining, prompt_budget):
             degraded = degraded or "summary_catchup_limited"
         return summary, remaining, degraded
 
@@ -623,6 +771,7 @@ class ContextService:
         previous,
         chunk,
         cancellation,
+        loaded_model=None,
     ):
         transcript = "\n".join(f"{item['role']}: {item['text']}" for item in chunk)
         prior = _safe_summary_content(previous.content) if previous else "(none)"
@@ -633,6 +782,7 @@ class ContextService:
             cancellation,
             chat_id=chat_id,
             turn_id=turn_id,
+            loaded_model=loaded_model,
         )
         content = _safe_summary_content(outcome.output.summary).strip()
         if not content:

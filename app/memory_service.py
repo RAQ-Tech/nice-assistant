@@ -569,6 +569,7 @@ class MemoryService:
         user_text: str,
         workspace_id: str | None,
         persona_id: str | None,
+        loaded_model=None,
     ) -> None:
         def execute(token):
             try:
@@ -579,6 +580,7 @@ class MemoryService:
                     token,
                     chat_id=chat_id,
                     turn_id=turn_id,
+                    loaded_model=loaded_model,
                 )
             except ProviderError as exc:
                 if exc.code == "invalid_task_output":

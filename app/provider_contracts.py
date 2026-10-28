@@ -127,6 +127,43 @@ class ModelContextProfile:
 
 
 @dataclass(frozen=True)
+class LoadedModel:
+    """A model a provider has just run, and the context it was loaded with.
+
+    Ollama keeps one copy of a model per context size: asking for the same
+    model at a different `num_ctx` unloads it and loads it again.
+    """
+
+    endpoint: str
+    model: str
+    context_window: int
+
+
+def provider_endpoint(provider) -> str:
+    """What identifies the server a provider talks to, for `LoadedModel`."""
+
+    return str(getattr(provider, "base_url", None) or getattr(provider, "name", "") or "")
+
+
+def shared_context_window(needed: int, provider, model: str, loaded: LoadedModel | None) -> int:
+    """The context to ask for so a background task reuses a loaded model.
+
+    A task on the model the reply just ran asks for the reply's context, as
+    long as that is enough for the task, instead of a smaller one that would
+    reload the model. Anything else asks for what it needs. See ADR 0043.
+    """
+
+    if (
+        loaded
+        and loaded.model == model
+        and loaded.endpoint == provider_endpoint(provider)
+        and loaded.context_window >= needed
+    ):
+        return loaded.context_window
+    return needed
+
+
+@dataclass(frozen=True)
 class MediaRequest:
     kind: str
     prompt: str

@@ -7,7 +7,13 @@ import time
 from typing import Any
 
 from app.auth import redact_sensitive_text
-from app.provider_contracts import CancellationToken, ChatRequest, ProviderError
+from app.provider_contracts import (
+    CancellationToken,
+    ChatRequest,
+    LoadedModel,
+    ProviderError,
+    shared_context_window,
+)
 from app.repositories import UnitOfWork, now_ts
 from app.service_errors import NotFoundError, RequestError
 from app.task_contracts import TASK_DEFINITIONS, TaskContractError, task_definition
@@ -121,7 +127,16 @@ class TaskModelService:
         *,
         chat_id: str | None = None,
         turn_id: str | None = None,
+        loaded_model: LoadedModel | None = None,
     ) -> TaskExecutionResult:
+        """Run one background task.
+
+        `loaded_model` is the model a reply just used and the context Ollama
+        loaded it with. A task on that same model asks for the same context,
+        because a different one makes Ollama reload the model - and the next
+        reply then waits for it to load again. See ADR 0043.
+        """
+
         definition = self._definition(role)
         messages = definition.messages(task_input)
         input_tokens = self._estimate_tokens(json.dumps(messages, ensure_ascii=False, separators=(",", ":")))
@@ -199,20 +214,24 @@ class TaskModelService:
             try:
                 cancellation.raise_if_cancelled()
                 provider = self.providers.task(provider_name)
+                options = {
+                    "num_ctx": shared_context_window(
+                        max(2048, profile_data["max_input_tokens"] + profile_data["max_output_tokens"] + 256),
+                        provider,
+                        model,
+                        loaded_model,
+                    ),
+                    "num_predict": profile_data["max_output_tokens"],
+                    "temperature": profile_data["temperature"],
+                }
+                if getattr(provider, "requires_account_api_key", False):
+                    # A hosted adapter needs the account key, which is per-user
+                    # rather than per-deployment. Nothing else is sent it.
+                    options["api_key"] = self._account_api_key(user_id)
                 request = ChatRequest(
                     model=model,
                     messages=messages,
-                    options={
-                        "num_ctx": max(
-                            2048,
-                            profile_data["max_input_tokens"] + profile_data["max_output_tokens"] + 256,
-                        ),
-                        "num_predict": profile_data["max_output_tokens"],
-                        "temperature": profile_data["temperature"],
-                        # Ollama ignores this; a hosted adapter needs the account key,
-                        # which is per-user rather than per-deployment.
-                        "api_key": self._account_api_key(user_id),
-                    },
+                    options=options,
                     response_format=definition.response_schema(task_input),
                     timeout_seconds=profile_data["timeout_seconds"],
                 )

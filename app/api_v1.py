@@ -2442,7 +2442,12 @@ async def transcribe(
     context: AuthContext = Depends(current_user),
 ):
     content = await file.read()
-    return services(request).speech.transcribe(context.user_id, file.filename or "audio.webm", content)
+    # Conversion and the Whisper call take seconds. On the event loop they
+    # would stall every other request for as long - including the reply
+    # stream and the speech it is playing. See ADR 0043.
+    return await asyncio.to_thread(
+        services(request).speech.transcribe, context.user_id, file.filename or "audio.webm", content
+    )
 
 
 @router.get("/media", response_model=MediaLibraryListResponse, tags=["media"])
@@ -2776,13 +2781,20 @@ async def client_event(request: Request):
     except Exception:
         payload = {}
     token = request.cookies.get(SESSION_COOKIE)
-    user_id = None
-    if token:
-        try:
-            user_id = services(request).resources.authenticate(token).user_id
-        except Exception:
-            user_id = None
-    services(request).operations.client_event(user_id, payload if isinstance(payload, dict) else {})
+    app_services = services(request)
+
+    def record() -> None:
+        # A database read and a log write: worker-thread work, like every
+        # other synchronous handler gets automatically.
+        user_id = None
+        if token:
+            try:
+                user_id = app_services.resources.authenticate(token).user_id
+            except Exception:
+                user_id = None
+        app_services.operations.client_event(user_id, payload if isinstance(payload, dict) else {})
+
+    await asyncio.to_thread(record)
     return {"ok": True}
 
 

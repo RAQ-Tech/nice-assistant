@@ -64,6 +64,93 @@ class JobQueueIsolationTests(unittest.TestCase):
             release.set()
             queue.stop()
 
+    def _chat_job(self, ran: list, name: str, latency_class: str, *, chat="a", model_key=None, execute=None):
+        return new_job(
+            job_type="chat" if latency_class == "interactive" else "task_model",
+            user_id="u",
+            chat_id=chat,
+            estimated_vram_mb=0,
+            latency_class=latency_class,
+            model_key=model_key,
+            metadata={"ordering_key": f"chat:{chat}"},
+            execute=execute or (lambda: ran.append(name)),
+        )
+
+    def test_a_turn_goes_ahead_of_the_previous_turns_queued_followups(self):
+        # The case ADR 0043 exists for: somebody answers while the title,
+        # planning and memory work from the last reply are still queued.
+        queue = JobQueue(worker_counts={"interactive": 1, "media": 0})
+        ran: list[str] = []
+        running = threading.Event()
+        release = threading.Event()
+
+        def blocking():
+            running.set()
+            release.wait(2)
+            ran.append("follow-up running")
+
+        try:
+            queue.submit(self._chat_job(ran, "", "standard", execute=blocking))
+            self.assertTrue(running.wait(1))
+            queue.submit(self._chat_job(ran, "title", "standard"))
+            queue.submit(self._chat_job(ran, "memory", "standard"))
+            next_turn = queue.submit(self._chat_job(ran, "next turn", "interactive"))
+            release.set()
+            next_turn.wait(1)
+            self.assertTrue(queue.wait_until_idle(timeout=1))
+            # A running job is never interrupted; the turn takes the next slot.
+            self.assertEqual(ran, ["follow-up running", "next turn", "title", "memory"])
+        finally:
+            release.set()
+            queue.stop()
+
+    def test_a_turn_never_goes_ahead_of_an_earlier_turn(self):
+        queue = JobQueue(worker_counts={"interactive": 1, "media": 0})
+        ran: list[str] = []
+        running = threading.Event()
+        release = threading.Event()
+
+        def blocking():
+            running.set()
+            release.wait(2)
+
+        try:
+            queue.submit(self._chat_job(ran, "", "standard", execute=blocking))
+            self.assertTrue(running.wait(1))
+            queue.submit(self._chat_job(ran, "follow-up", "standard"))
+            queue.submit(self._chat_job(ran, "first turn", "interactive"))
+            queue.submit(self._chat_job(ran, "second turn", "interactive"))
+            release.set()
+            self.assertTrue(queue.wait_until_idle(timeout=1))
+            self.assertEqual(ran, ["first turn", "second turn", "follow-up"])
+        finally:
+            release.set()
+            queue.stop()
+
+    def test_background_work_on_the_loaded_model_does_not_go_ahead_of_a_turn(self):
+        # Model affinity saves a swap between equals. It is not a reason for
+        # another chat's follow-up to make a live turn wait.
+        queue = JobQueue(worker_counts={"interactive": 1, "media": 0})
+        ran: list[str] = []
+        running = threading.Event()
+        release = threading.Event()
+
+        def blocking():
+            running.set()
+            release.wait(2)
+
+        try:
+            queue.submit(self._chat_job(ran, "", "standard", chat="b", model_key="task:title", execute=blocking))
+            self.assertTrue(running.wait(1))
+            queue.submit(self._chat_job(ran, "other chat title", "standard", chat="c", model_key="task:title"))
+            queue.submit(self._chat_job(ran, "turn", "interactive", chat="a", model_key="chat:model"))
+            release.set()
+            self.assertTrue(queue.wait_until_idle(timeout=1))
+            self.assertEqual(ran, ["turn", "other chat title"])
+        finally:
+            release.set()
+            queue.stop()
+
     def test_wait_until_idle_covers_executing_work(self):
         queue = JobQueue(worker_counts={"interactive": 1, "media": 0})
         started = threading.Event()
