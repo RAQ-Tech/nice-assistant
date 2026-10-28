@@ -492,6 +492,24 @@ on a phone, speech was often silent or waited for the whole reply. See
 What is left is trying it on a real phone and the deployment, item 18 in
 section 4.
 
+### 1J. Taking back what was said - delivered 2026-10-28
+
+Batch 3 of the same review: the messaging basics. See
+[ADR 0045](docs/decisions/0045-taking-back-what-was-said.md).
+
+- A failed reply can be tried again where it failed, the latest reply answered
+  again, the latest message corrected, and any exchange deleted - and a deleted
+  exchange is forgotten by the summary too.
+- A message that never reached the server goes back into the box.
+- A reply stream that drops picks up where it stopped instead of failing.
+- Replies are formatted, *smiles* shows as an aside, and pictures load only from
+  this server. Quiet time dividers say when a conversation picked up.
+- On a phone, a message's buttons wait until it is tapped; streamed words are
+  drawn once per frame.
+
+Sending a photo into the conversation was part of the batch and is not built:
+it waits on a decision, item 10 in section 3.
+
 ## 2. Decided
 
 Answered by the owner on 2026-08-17, with additions from the settings
@@ -633,6 +651,13 @@ The three delivered items were accepted on the installed deployment on
     session it waited on was the choice itself, and the owner made it without
     one: Kokoro. Comparing the voices the Kokoro service offers is something
     anybody can do by ear from the speech settings; it gates nothing.
+
+10. **Sending a photo into the conversation.** Waiting on a product choice:
+    what the persona does with a photo. Describing or reacting to it needs a
+    chat model that can see (Ollama serves several, such as Gemma 3 and
+    LLaVA-family models) on the 12 GB card beside everything else; using it only
+    as a reference for picture editing (ADR 0029) needs no new model but is a
+    narrower feature. Nothing is offered until one is chosen.
 
 Also blocked here: **final task-model selection**, which needs live latency and
 quality evaluation on the deployment GPU rather than the developer screening
@@ -846,7 +871,7 @@ done:
 - Update the product, architecture, security, testing, operations, roadmap, and
   debt documents in the same change as the behavior they describe.
 - Record durable architectural choices as ADRs in `docs/decisions/`. The next
-  free number is 0045.
+  free number is 0046.
 - Run `python scripts/audit_public_repo.py` before every public commit. This
   file must never contain deployment addresses, hostnames, user-specific paths,
   hardware inventories, or account identifiers.

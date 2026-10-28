@@ -4,12 +4,18 @@ import { errorMessage } from './dom';
 import { waitForJob } from './media';
 import { SETTINGS_DEFAULTS, modelSettings } from './settings';
 import { clearIdentitySetupContextForChat, machine, state, type ClientStateMachine } from './state';
-import type { AppState, CapabilityRequest, Chat, Job, Message, TurnEvent } from './types';
+import type { TurnInput } from './api';
+import type { AppState, CapabilityRequest, Chat, Job, Message, TurnAccepted, TurnEvent } from './types';
 import type { PlaybackController } from './playback';
 import { ReplySpeaker } from './reply_speaker';
 
+// Tries at picking a dropped reply stream back up before waiting for the result instead.
+const STREAM_RESUME_ATTEMPTS = 3;
+const TERMINAL_TURN_EVENTS = new Set(['turn.completed', 'turn.failed', 'turn.cancelled']);
+
 export class ChatController {
   private onChange: () => void = () => undefined;
+  private onStreamChange: () => void = () => undefined;
   private onNavigate: (chatId: string) => void = () => undefined;
   private streamAbort: AbortController | null = null;
   private speaker: ReplySpeaker | null = null;
@@ -25,9 +31,12 @@ export class ChatController {
   configure(options: {
     onChange: () => void;
     onNavigate: (chatId: string) => void;
+    /** For each streamed word: may wait for the next frame rather than redraw for every one. */
+    onStreamChange?: () => void;
   }): void {
     this.onChange = options.onChange;
     this.onNavigate = options.onNavigate;
+    this.onStreamChange = options.onStreamChange ?? options.onChange;
   }
 
   async open(chatId: string): Promise<void> {
@@ -91,15 +100,64 @@ export class ChatController {
 
   async send(rawText: string): Promise<void> {
     const text = rawText.trim();
-    if (!text) return;
+    if (!text || !this.readyForTurn()) return;
+    const chat = this.appState.currentChat ?? (await this.create(this.appState.selectedPersonaId));
+    await this.runTurn(chat, text, (input) => this.client.createTurn(chat.id, input));
+  }
+
+  /**
+   * Answer the latest exchange again: try a failed reply again, ask for a
+   * different reply, or - with `rawText` - send what the message is corrected
+   * to. The server refuses anything but the latest exchange.
+   */
+  async again(messageId: string, rawText?: string): Promise<void> {
+    const chat = this.appState.currentChat;
+    const start = this.appState.messages.findLastIndex((message) => message.role === 'user');
+    const said = this.appState.messages[start];
+    const corrected = rawText?.trim() || null;
+    const text = corrected ?? said?.text ?? '';
+    if (!chat || !said || !text || !this.readyForTurn()) return;
+    this.appState.editingMessageId = null;
+    this.appState.messages = this.appState.messages.slice(0, start);
+    await this.runTurn(chat, text, (input) => this.client.answerAgain(chat.id, messageId, { ...input, text: corrected }));
+  }
+
+  /** Delete a message and the reply it belongs with. */
+  async deleteExchange(messageId: string): Promise<void> {
+    const chat = this.appState.currentChat;
+    if (!chat) return;
+    try {
+      await this.client.deleteMessage(chat.id, messageId);
+      await this.reconcileChat(chat.id);
+    } catch (error) {
+      this.appState.uiError = errorMessage(error, 'That message could not be deleted.');
+    }
+    this.onChange();
+  }
+
+  /** Catch up with anything that happened while the page was not being looked at. */
+  async refresh(): Promise<void> {
+    const chat = this.appState.currentChat;
+    if (!chat || this.appState.pendingRequest || this.appState.phase !== 'idle') return;
+    try {
+      await this.reconcileChat(chat.id);
+      this.onChange();
+    } catch {
+      // Still the last known conversation; the next action reconciles it.
+    }
+  }
+
+  private readyForTurn(): boolean {
     // Speech while the reply is still being written is not barge-in: the
     // stop control ends the turn and its speech together. Once the reply is
     // complete, typing over the voice stops it, as before.
     if (this.appState.phase === 'speaking' && !this.appState.pendingRequest) this.playback.stop(false);
-    if (this.appState.pendingRequest) return;
+    if (this.appState.pendingRequest) return false;
     if (this.appState.phase === 'error') this.stateMachine.recover();
-    if (!['idle', 'transcribing'].includes(this.appState.phase)) return;
-    const chat = this.appState.currentChat ?? (await this.create(this.appState.selectedPersonaId));
+    return ['idle', 'transcribing'].includes(this.appState.phase);
+  }
+
+  private async runTurn(chat: Chat, text: string, accept: (input: TurnInput) => Promise<TurnAccepted>): Promise<void> {
     const settings = this.requiredSettings();
     const persona = this.appState.personas.find((item) => item.id === chat.persona_id);
     const model = this.appState.selectedModel ?? chat.model_override ?? persona?.default_model ?? settings.global_default_model;
@@ -124,13 +182,15 @@ export class ChatController {
     this.onChange();
     let ownedJobId: string | null = null;
     let ownedAbort: AbortController | null = null;
+    let reachedServer = false;
     try {
-      const accepted = await this.client.createTurn(chat.id, {
+      const accepted = await accept({
         text,
         model: model || null,
         memory_mode: memoryMode,
         model_settings: modelSettings(settings, model || ''),
       });
+      reachedServer = true;
       optimisticUser.id = accepted.turn.user_message_id;
       typing.id = `typing-${accepted.turn.id}`;
       const abort = new AbortController();
@@ -191,6 +251,9 @@ export class ChatController {
       this.speaker = null;
       const aborted = ownedAbort?.signal.aborted || (error instanceof DOMException && error.name === 'AbortError');
       this.appState.messages = this.appState.messages.filter((message) => message !== typing);
+      // Never accepted, so nothing was kept: put the words back where they
+      // were typed rather than lose them with the failure.
+      if (!reachedServer && !this.appState.draftMessage) this.appState.draftMessage = text;
       try {
         await this.reconcileChat(chat.id);
       } catch {
@@ -240,24 +303,48 @@ export class ChatController {
     this.onChange();
   }
 
+  /**
+   * Follow the reply as it is written, through a dropped connection.
+   *
+   * A phone that locks or a Wi-Fi blip used to end the live text and the
+   * sentence-by-sentence speech, and a connection that closed cleanly midway
+   * was taken for a finished turn and reported as failed. The stream is
+   * resumed from the last event it delivered instead - the server keeps a
+   * short replay for exactly this - and only after a few failed attempts does
+   * this fall back to waiting for the finished result.
+   */
   private async consumeTurn(turnId: string, jobId: string, typing: Message, signal: AbortSignal): Promise<void> {
-    try {
-      await this.client.streamTurn(
-        turnId,
-        (event) => {
-          this.applyTurnEvent(event, typing);
-          this.onChange();
-        },
-        signal,
-      );
-    } catch (error) {
-      if (signal.aborted) throw error;
-      const job = await waitForJob(this.client, jobId, (current) => {
-        if (this.appState.pendingRequest) this.appState.pendingRequest.progress = current.progress;
-        this.onChange();
-      });
-      if (job.status !== 'completed') throw new Error(job.error || `Turn ${job.status}`);
+    let lastEventId: number | undefined;
+    let finished = false;
+    for (let attempt = 0; attempt <= STREAM_RESUME_ATTEMPTS && !finished; attempt += 1) {
+      if (attempt) await new Promise((resolve) => window.setTimeout(resolve, 400 * attempt));
+      try {
+        await this.client.streamTurn(
+          turnId,
+          (event) => {
+            if (event.id !== null) lastEventId = event.id;
+            if (TERMINAL_TURN_EVENTS.has(event.event)) finished = true;
+            this.applyTurnEvent(event, typing);
+            this.onStreamChange();
+          },
+          signal,
+          lastEventId,
+        );
+      } catch (error) {
+        if (signal.aborted || finished) throw error;
+      }
+      if (finished || signal.aborted) break;
+      // The stream ended without saying how the turn did. If the turn is over
+      // anyway, there is nothing to resume.
+      const current = await this.client.job(jobId).catch(() => null);
+      if (current && ['completed', 'failed', 'cancelled'].includes(current.status)) return;
     }
+    if (finished || signal.aborted) return;
+    const job = await waitForJob(this.client, jobId, (current) => {
+      if (this.appState.pendingRequest) this.appState.pendingRequest.progress = current.progress;
+      this.onChange();
+    });
+    if (job.status !== 'completed') throw new Error(job.error || `Turn ${job.status}`);
   }
 
   private applyTurnEvent(event: TurnEvent, typing: Message): void {
@@ -345,17 +432,25 @@ export class ChatController {
 
   private async pollCapability(chatId: string, requestId: string): Promise<void> {
     try {
+      let seen = '';
       while (this.appState.currentChat?.id === chatId) {
         const current = await this.client.capabilityRequest(requestId);
         this.appState.capabilityRequests = [
           ...this.appState.capabilityRequests.filter((item) => item.id !== current.id),
           current,
         ].sort((left, right) => left.requested_at - right.requested_at);
-        const detail = await this.client.chat(chatId);
-        if (this.appState.currentChat?.id !== chatId) break;
-        this.appState.currentChat = detail.chat;
-        this.appState.messages = detail.messages;
-        this.onChange();
+        // The whole conversation used to be fetched and redrawn twice a second
+        // while a picture rendered. Only a change in the picture's state can
+        // change what the conversation shows.
+        const state = JSON.stringify([current.status, current.started_at, current.completed_at, current.attachment]);
+        if (state !== seen) {
+          seen = state;
+          const detail = await this.client.chat(chatId);
+          if (this.appState.currentChat?.id !== chatId) break;
+          this.appState.currentChat = detail.chat;
+          this.appState.messages = detail.messages;
+          this.onChange();
+        }
         if (!['queued', 'running'].includes(current.status)) break;
         await new Promise((resolve) => window.setTimeout(resolve, 500));
       }

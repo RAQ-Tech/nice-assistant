@@ -621,6 +621,13 @@ installed-browser acceptance.
   text tests cover what is not spoken and that speakable text never shrinks as a
   reply arrives. `tests/test_speech_format_default.py` pins the streamable
   default on both sides and the WAV migration.
+- Message action tests (`tests/test_message_actions.py`, ADR 0045) prove retry,
+  answer again and correction replace the latest exchange and answer only the
+  latest words, that earlier exchanges and unfinished replies are refused, that
+  owed follow-ups are cancelled, and that deleting an exchange removes it from
+  the transcript, the next prompt and any summary that covered it. Browser tests
+  cover the same actions, a restored draft, a resumed stream, formatting, and
+  that a picture from another host is never loaded.
 - Memory tests cover legacy data migration, exact-duplicate supersession, FTS
   population/ranking, active-only scoped retrieval, nonblocking extraction,
   provenance, review transitions, superseding edits, forget/undo, extraction

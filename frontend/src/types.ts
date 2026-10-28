@@ -1126,6 +1126,10 @@ export interface AppState {
   selectedModel: string | null;
   selectedMemoryMode: MemoryMode | null;
   draftMessage: string;
+  /** The latest message of yours being corrected in the composer, if any. */
+  editingMessageId: string | null;
+  /** The message whose actions are showing, on a screen with no hover. */
+  selectedMessageId: string | null;
   showChatControlsMenu: boolean;
   showSystemMessages: boolean;
   showThinkingByDefault: boolean;

@@ -139,6 +139,11 @@ retains the prior checkpoint, and leaves the reply completed; turns recorded
 before ADR 0043 may still carry `summary_provider_failed`.
 Summary text is never emitted as assistant streaming output.
 
+Deleting an exchange (ADR 0045) drops every summary that reaches it, so the
+summary never goes on remembering what was deleted; the next compaction writes
+one from what is left. Answering the latest exchange again or correcting it
+replaces that exchange rather than adding to it.
+
 Loading starts at the turn the summary ends in. What came before is counted for
 `omitted_message_count` but not read, so planning a prompt costs the same in a
 chat of a thousand turns as in one of fifty. If the boundary is not where it is

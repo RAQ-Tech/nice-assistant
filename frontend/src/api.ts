@@ -467,6 +467,20 @@ export class ApiClient {
     });
   }
 
+  /** Answer the latest message again; `text` set means what it was corrected to. */
+  answerAgain(chatId: string, messageId: string, input: Omit<TurnInput, 'text'> & { text: string | null }): Promise<TurnAccepted> {
+    return this.request(`/chats/${encodeURIComponent(chatId)}/messages/${encodeURIComponent(messageId)}/again`, {
+      method: 'POST',
+      body: JSON.stringify(input),
+    });
+  }
+
+  deleteMessage(chatId: string, messageId: string): Promise<{ ok: boolean }> {
+    return this.request(`/chats/${encodeURIComponent(chatId)}/messages/${encodeURIComponent(messageId)}`, {
+      method: 'DELETE',
+    });
+  }
+
   job(id: string): Promise<Job> {
     return this.request(`/jobs/${encodeURIComponent(id)}`);
   }

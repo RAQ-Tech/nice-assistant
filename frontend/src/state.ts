@@ -61,6 +61,8 @@ export function createState(): AppState {
     selectedModel: null,
     selectedMemoryMode: null,
     draftMessage: '',
+    editingMessageId: null,
+    selectedMessageId: null,
     showChatControlsMenu: false,
     showSystemMessages: false,
     showThinkingByDefault: false,

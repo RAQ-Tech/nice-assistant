@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
-import { captureScroll, captureScrollPositions, markdown, restoreScroll, restoreScrollPositions } from '../src/dom';
+import { captureScroll, captureScrollPositions, restoreScroll, restoreScrollPositions } from '../src/dom';
+import { markdown } from '../src/markdown';
 import { parseRoute } from '../src/routing';
 
 describe('routing and safe rendering', () => {

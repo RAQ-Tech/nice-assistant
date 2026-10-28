@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import json
+
 from sqlalchemy import select
 
 from app.chat import (
@@ -10,7 +12,7 @@ from app.chat import (
     persona_instruction_block,
 )
 from app.capability_service import attachment_response
-from app.job_service import JobExecution, JobService, turn_response
+from app.job_service import TERMINAL_STATES, JobExecution, JobService, turn_response
 from app.context_service import ContextService
 from app.memory_service import MemoryService
 from app.persona_card import CARD_FIELDS
@@ -44,6 +46,8 @@ from app.turn_pipeline import TurnContext, TurnPipeline
 
 # One provider serves persona conversation. Named rather than repeated.
 PERSONA_PROVIDER = "ollama"
+# A picture for a reply still on its way; the exchange cannot be forgotten under it.
+UNFINISHED_PICTURE_STATES = {"pending_confirmation", "queued", "running"}
 
 
 def _persona_mapping(persona):
@@ -249,7 +253,101 @@ class ConversationService:
             raise RequestError("text required", 400)
         with self._uow() as uow:
             ctx, turn_payload, job_payload = self._open_turn(uow.repo, user_id, chat_id, text, values)
+        self._start(ctx, user_id, chat_id)
+        return turn_payload, job_payload
 
+    def again(self, user_id: str, chat_id: str, message_id: str, values: dict) -> tuple[dict, dict]:
+        """Answer the latest message again: a retry, a new reply, or an edit.
+
+        The latest exchange is forgotten and its words sent again as a new turn -
+        the same words, or the new ones somebody corrected them to - in one
+        transaction, so a refused request leaves the conversation as it was.
+        Only the latest: answering an earlier message again would leave every
+        reply after it answering something that was no longer said.
+        """
+
+        with self._uow() as uow:
+            turn = self._settled_exchange(uow.repo, user_id, chat_id, message_id)
+            turns = uow.repo.turns_for_chat(user_id, chat_id)
+            if turns and turns[-1].id != turn.id:
+                raise ConflictError("Only the latest message can be answered again.")
+            said = uow.repo.message(turn.user_message_id)
+            text = str(values.get("text") or "").strip() or (said.text if said else "")
+            if not text:
+                raise RequestError("text required", 400)
+            unfinished = self._forget_exchange(uow, chat_id, turn)
+            ctx, turn_payload, job_payload = self._open_turn(uow.repo, user_id, chat_id, text, values)
+        self._cancel_followups(user_id, unfinished)
+        self._start(ctx, user_id, chat_id)
+        return turn_payload, job_payload
+
+    def delete_exchange(self, user_id: str, chat_id: str, message_id: str) -> None:
+        """Delete a message and the reply it belongs with, for good.
+
+        A message and its reply are one exchange: deleting only one would leave
+        a reply to nothing, or a question the next prompt answers twice. A
+        message no turn claims - an older transcript - goes on its own.
+        """
+
+        with self._uow() as uow:
+            if not uow.repo.chat(user_id, chat_id):
+                raise NotFoundError("chat not found")
+            turn = uow.repo.turn_for_message(user_id, chat_id, message_id)
+            if turn:
+                self._require_settled(uow.repo, turn)
+                unfinished = self._forget_exchange(uow, chat_id, turn)
+            else:
+                message = uow.repo.message(message_id)
+                if not message or message.chat_id != chat_id:
+                    raise NotFoundError("message not found")
+                uow.repo.drop_summaries_from(chat_id, message.created_at)
+                uow.repo.delete_messages([message.id])
+                unfinished = []
+        self._cancel_followups(user_id, unfinished)
+
+    def _settled_exchange(self, repo, user_id: str, chat_id: str, message_id: str):
+        if not repo.chat(user_id, chat_id):
+            raise NotFoundError("chat not found")
+        turn = repo.turn_for_message(user_id, chat_id, message_id)
+        if not turn:
+            raise NotFoundError("message not found")
+        self._require_settled(repo, turn)
+        return turn
+
+    @staticmethod
+    def _require_settled(repo, turn) -> None:
+        if turn.status not in TERMINAL_STATES:
+            raise ConflictError("This reply is still being written. Stop it first, or wait for it.")
+        if any(row.status in UNFINISHED_PICTURE_STATES for row in repo.capability_requests_for_turn(turn.id)):
+            raise ConflictError("A picture for this reply is still being made. Cancel it first, or wait for it.")
+
+    @staticmethod
+    def _forget_exchange(uow, chat_id: str, turn) -> list[str]:
+        """Delete an exchange, and return the follow-ups still to run because of it.
+
+        Summaries that reach it are dropped too, so nothing goes on remembering
+        it; the turn's audit records keep their rows with the turn unset.
+        """
+
+        job = uow.session.scalar(select(AsyncJob).where(AsyncJob.turn_id == turn.id))
+        try:
+            result = json.loads(job.result_json or "{}") if job else {}
+        except ValueError:
+            result = {}
+        followups = [*(result.get("followup_job_ids") or []), result.get("memory_extraction_job_id")]
+        said = uow.repo.message(turn.user_message_id)
+        if said:
+            uow.repo.drop_summaries_from(chat_id, said.created_at)
+        uow.repo.delete_messages([turn.assistant_message_id, turn.user_message_id])
+        return [value for value in followups if isinstance(value, str) and value]
+
+    def _cancel_followups(self, user_id: str, job_ids: list[str]) -> None:
+        # A title, a picture plan or memories for an exchange that is gone
+        # would only fail later, or attach themselves to nothing.
+        for job_id in job_ids:
+            self.jobs.cancel(user_id, job_id)
+
+    def _start(self, ctx, user_id: str, chat_id: str) -> None:
         self.broker.publish(
             ctx.turn_id,
             "turn.queued",
@@ -265,7 +363,6 @@ class ConversationService:
             model_key=f"chat:{ctx.model}",
             execution=TurnPipeline(self, ctx).execution(),
         )
-        return turn_payload, job_payload
 
     def _open_turn(self, repo, user_id: str, chat_id: str, text: str, values: dict):
         """Resolve the turn against its chat and write it, in one transaction."""

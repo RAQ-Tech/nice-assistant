@@ -52,28 +52,6 @@ export function escapeHtml(value: string): string {
   });
 }
 
-export function markdown(text = ''): string {
-  const blocks: string[] = [];
-  let value = text.replace(/```([\s\S]*?)```/g, (_match, code: string) => {
-    blocks.push(`<pre><code>${escapeHtml(code.trim())}</code></pre>`);
-    return `__CODE_${blocks.length - 1}__`;
-  });
-  value = escapeHtml(value)
-    .replace(/!\[(.*?)\]\(([^\s)]+)\)/g, '<img src="$2" alt="$1" class="msg-inline-image" loading="lazy" />')
-    .replace(/\[(.*?)\]\((https?:\/\/[^\s)]+)\)/g, '<a href="$2" target="_blank" rel="noreferrer">$1</a>')
-    .replace(/`([^`]+)`/g, '<code>$1</code>')
-    .replace(/^\s*[-*]\s+(.+)$/gm, '<li>$1</li>');
-  value = value.replace(/(<li>.*<\/li>)/gs, '<ul>$1</ul>');
-  value = value
-    .split(/\n{2,}/)
-    .map((paragraph) => (paragraph.startsWith('<') ? paragraph : `<p>${paragraph.replace(/\n/g, '<br/>')}</p>`))
-    .join('');
-  blocks.forEach((block, index) => {
-    value = value.replace(`__CODE_${index}__`, block);
-  });
-  return value;
-}
-
 interface FocusSnapshot {
   selector: string;
   index: number;
