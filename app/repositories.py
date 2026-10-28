@@ -1471,6 +1471,40 @@ class ApplicationRepository:
         self.session.flush()
         return row
 
+    def turn_for_message(self, user_id: str, chat_id: str, message_id: str):
+        """The turn a message was said or answered in, if any claims it."""
+
+        return self.session.scalar(
+            select(ConversationTurn).where(
+                ConversationTurn.user_id == user_id,
+                ConversationTurn.chat_id == chat_id,
+                or_(
+                    ConversationTurn.user_message_id == message_id, ConversationTurn.assistant_message_id == message_id
+                ),
+            )
+        )
+
+    def drop_summaries_from(self, chat_id: str, created_at: int) -> None:
+        """Forget every summary that reaches a message written at or after this moment.
+
+        A summary that covered a message somebody deleted would go on
+        remembering it. Compaction writes the summary again from what is left.
+        """
+
+        reaching = select(Message.id).where(Message.chat_id == chat_id, Message.created_at >= created_at)
+        self.session.execute(
+            delete(ConversationSummary).where(
+                ConversationSummary.chat_id == chat_id, ConversationSummary.through_message_id.in_(reaching)
+            )
+        )
+
+    def delete_messages(self, message_ids) -> None:
+        for message_id in message_ids:
+            row = self.session.get(Message, message_id) if message_id else None
+            if row:
+                self.session.delete(row)
+        self.session.flush()
+
     def latest_summary(self, user_id: str, chat_id: str):
         return self.session.scalar(
             select(ConversationSummary)

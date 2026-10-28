@@ -6,7 +6,7 @@ import { clickDismissesDrawer, ChatDrawer } from './chat_drawer';
 import { coverImage, ChatRenderer, modelNickname, newestImageSource } from './chat_rendering';
 import { CapabilityController } from './capabilities';
 import { unlockOnFirstTap } from './audio_context';
-import { composerState, heardSoFar } from './composer_state';
+import { composerView, startEditing } from './composer_view';
 import { ConversationLoop, connectConversation } from './conversation_loop';
 import { createDialogs } from './dialogs';
 import { captureFocus, captureScroll, captureScrollPositions, el, errorMessage, restoreFocus, restoreScroll, restoreScrollPositions } from './dom';
@@ -17,7 +17,6 @@ import { runFirstRunSetup } from './onboarding';
 import { MediaController } from './media';
 import { PlaybackController } from './playback';
 import { RecordingController } from './recording';
-import { talkButton } from './talk_button';
 import { Router } from './routing';
 import { normalizeSettings, settingsWire } from './settings';
 import { SettingsView, type Dialogs } from './settings_view';
@@ -64,7 +63,16 @@ const chatDrawer = new ChatDrawer(state, api, chat, dialogs, {
 chat.configure({
   onChange: render,
   onNavigate: (chatId) => router.chat(chatId),
+  onStreamChange: renderSoon,
 });
+chatRenderer.setActions({
+  again: (messageId) => { loop.end(); void chat.again(messageId); },
+  edit: (message) => startEditing(message.id, message.text, render),
+  remove: (message) => void dialogs.confirm('Delete this message?', 'It goes together with its reply, for good.', 'Delete')
+    .then((sure) => { if (sure) void chat.deleteExchange(message.id); }),
+});
+// Back to a page that was hidden: whatever happened meanwhile is shown.
+document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') void chat.refresh(); });
 media.setChangeHandler(render);
 playback.setChangeHandler(render);
 connectConversation(recording, loop, (text) => chat.send(text), render);
@@ -203,6 +211,13 @@ const homeView = new HomeView(state, api, {
   },
 }, render);
 
+let frame = 0;
+
+/** Redraw on the next frame, however many times this is asked for before then. */
+function renderSoon(): void {
+  frame ||= requestAnimationFrame(() => { frame = 0; render(); });
+}
+
 function render(): void {
   const focus = captureFocus(root);
   // Every scrolled region, not just the messages pane; see dom.ts.
@@ -257,20 +272,15 @@ function shell(): HTMLElement {
     ...(state.showSystemMessages ? chatRenderer.syntheticSystemMessage(personaId) : []),
     ...state.messages,
   ];
-  const messageNodes = messages.flatMap((message) => {
-    const node = chatRenderer.message(message, personaId);
-    if (!node) return [];
-    const requests = state.capabilityRequests
-      .filter(
-        (request) =>
-          request.permission_mode === 'confirm'
-          && request.status === 'pending_confirmation'
-          && request.capability_key !== 'media.generate_image'
-          && request.assistant_message_id === message.id,
-      )
-      .map((request) => capabilities.node(request));
-    return [node, ...requests];
-  });
+  const messageNodes = chatRenderer.messageList(messages, personaId, (message) => state.capabilityRequests
+    .filter(
+      (request) =>
+        request.permission_mode === 'confirm'
+        && request.status === 'pending_confirmation'
+        && request.capability_key !== 'media.generate_image'
+        && request.assistant_message_id === message.id,
+    )
+    .map((request) => capabilities.node(request)));
   const unanchoredRequests = state.capabilityRequests
     .filter(
       (request) =>
@@ -321,7 +331,7 @@ function shell(): HTMLElement {
             el('button', { class: 'icon-btn', textContent: 'Dismiss', onclick: () => { state.uiError = ''; if (state.phase === 'error') machine.recover(); render(); } }),
           ])
         : null,
-      composer(persona?.name ?? 'your persona'),
+      composerView(persona?.name ?? 'your persona', { chat, loop, recording, stopSpeaking: () => playback.stop(false), render }),
     ]),
     el('div', { class: `viz-wrap ${state.showViz ? 'show' : ''}` }, visualizer.node()),
   ]);
@@ -413,57 +423,6 @@ async function toggleChatImageBlur(): Promise<void> {
     state.settingsSaving = false;
     render();
   }
-}
-
-function composer(personaName: string): HTMLElement {
-  const { busy, inputLocked } = composerState(state.phase);
-  const cancellableTurn = state.pendingRequest && ['queued', 'thinking'].includes(state.phase);
-  const heard = heardSoFar(state.phase, state.partialTranscript);
-  return el('div', { class: 'composer' }, [
-    el('textarea', {
-      id: 'chatInput',
-      rows: 1,
-      class: `composer-input ${heard ? 'composer-hearing' : ''}`,
-      value: heard ?? state.draftMessage,
-      readOnly: Boolean(heard),
-      placeholder: `Message ${personaName}…`,
-      title: 'Enter sends. Shift+Enter starts a new line.',
-      disabled: inputLocked && !heard,
-      'data-testid': 'chat-input',
-      oninput: (event: Event) => {
-        const target = event.currentTarget as HTMLTextAreaElement;
-        state.draftMessage = target.value;
-        autoResize(target);
-      },
-      onkeydown: (event: KeyboardEvent) => {
-        if (event.key === 'Enter' && !event.shiftKey) {
-          event.preventDefault();
-          sendTyped((event.currentTarget as HTMLTextAreaElement).value);
-        }
-      },
-    }),
-    cancellableTurn
-      ? el('button', {
-          class: 'send-btn',
-          textContent: 'Cancel',
-          'data-testid': 'chat-cancel',
-          onclick: () => { loop.end(); void chat.cancel(); },
-        })
-      : el('button', {
-          class: 'send-btn',
-          textContent: 'Send',
-          disabled: busy,
-          'data-testid': 'chat-send',
-          onclick: () => sendTyped(state.draftMessage),
-        }),
-    talkButton(busy, () => playback.stop(false), recording, loop),
-  ]);
-}
-
-/** Typing instead of talking ends a hands-free conversation. */
-function sendTyped(text: string): void {
-  loop.end();
-  void chat.send(text);
 }
 
 function newChatModal(): HTMLElement {
@@ -585,11 +544,6 @@ function scrollBottom(smooth: boolean): void {
   pane?.scrollTo({ top: pane.scrollHeight, behavior: smooth ? 'smooth' : 'auto' });
   state.stickMessagesToBottom = true;
   state.showJumpBottom = false;
-}
-
-function autoResize(target: HTMLTextAreaElement): void {
-  target.style.height = 'auto';
-  target.style.height = `${Math.min(180, target.scrollHeight)}px`;
 }
 
 function handleKeydown(event: KeyboardEvent): void {

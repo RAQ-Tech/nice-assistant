@@ -1,14 +1,37 @@
 import { api, type ApiClient } from './api';
 import { avatarErrorFallback, avatarSource } from './avatar';
 import { degradationSuggestsMoreContext, describeContextDegradation, replyWasTruncated } from './context_notice';
-import { copyText, downloadUrl, el, errorMessage, markdown } from './dom';
+import { copyText, downloadUrl, el, errorMessage } from './dom';
+import { markdown } from './markdown';
 import { extractImageUrl, extractVideoUrl, illustratedPassage, speechText, stripVideoLinks } from './media';
 import { state } from './state';
 import type { AppState, ChatAttachment, CapabilityRequest, Message } from './types';
 import type { MediaController } from './media';
 import type { PlaybackController } from './playback';
 
+/** What can be done with a message beyond reading it. */
+export interface MessageActions {
+  /** Try a failed reply again, or answer the latest message again. */
+  again(messageId: string): void;
+  /** Start correcting the latest message in the composer. */
+  edit(message: Message): void;
+  /** Ask, then delete the message together with the reply it belongs with. */
+  remove(message: Message): void;
+}
+
+/** Where a message sits in the conversation, which decides what can be done to it. */
+export interface MessagePlace {
+  /** The latest reply: it can be answered again. */
+  latestReply?: boolean;
+  /** The latest thing said: it can be corrected. */
+  latestSaid?: boolean;
+  /** The latest thing said, still without a reply: it can be tried again. */
+  unanswered?: boolean;
+}
+
 export class ChatRenderer {
+  private actions: MessageActions | null = null;
+
   constructor(
     private readonly media: MediaController,
     private readonly playback: PlaybackController,
@@ -18,7 +41,11 @@ export class ChatRenderer {
     private readonly editMemoryProposal: (content: string) => Promise<string | null> = async (content) => content,
   ) {}
 
-  message(message: Message, personaId: string | null): HTMLElement | null {
+  setActions(actions: MessageActions): void {
+    this.actions = actions;
+  }
+
+  message(message: Message, personaId: string | null, place: MessagePlace = {}): HTMLElement | null {
     const isUser = message.role === 'user';
     if (!this.appState.showSystemMessages && ['system', 'tool'].includes(message.role)) return null;
     const { thinking, visibleText } = splitThinking(message.text);
@@ -65,7 +92,15 @@ export class ChatRenderer {
             }),
           ])
         : null,
-      el('article', { class: `msg ${isUser ? 'user' : 'assistant'}` }, [
+      el('article', {
+        class: `msg ${isUser ? 'user' : 'assistant'} ${this.appState.selectedMessageId === message.id ? 'selected' : ''}`,
+        title: messageTime(message.created_at),
+        onclick: (event: Event) => {
+          if ((event.target as HTMLElement).closest('a, button, img, video, details, summary')) return;
+          this.appState.selectedMessageId = this.appState.selectedMessageId === message.id ? null : message.id;
+          this.renderApp();
+        },
+      }, [
         el('small', { textContent: roleLabel }),
         message.isTyping
           ? el('button', {
@@ -92,9 +127,18 @@ export class ChatRenderer {
               el('span', { class: 'msg-video-label', textContent: 'Play video' }),
             ])
           : null,
+        place.unanswered && this.actions && !this.appState.pendingRequest && ['idle', 'error'].includes(this.appState.phase)
+          ? el('button', { class: 'pill-btn try-again', textContent: 'Try again', 'data-testid': 'message-try-again', onclick: () => this.actions?.again(message.id) })
+          : null,
         message.isTyping
           ? null
           : el('div', { class: 'msg-actions' }, [
+              place.latestReply && this.actions && !this.appState.pendingRequest && ['idle', 'error'].includes(this.appState.phase)
+                ? el('button', { class: 'icon-btn', textContent: '↻', title: 'Answer again', 'aria-label': 'Answer again', 'data-testid': 'message-again', onclick: () => this.actions?.again(message.id) })
+                : null,
+              place.latestSaid && this.actions && !this.appState.pendingRequest && ['idle', 'error'].includes(this.appState.phase)
+                ? el('button', { class: 'icon-btn', textContent: '✎', title: 'Edit', 'aria-label': 'Edit this message', 'data-testid': 'message-edit', onclick: () => this.actions?.edit(message) })
+                : null,
               message.role === 'assistant' && message.text.trim()
                 ? el('button', { class: 'icon-btn', textContent: '🖼', title: 'Generate an image from this reply', onclick: () => void this.generateImage(message) })
                 : null,
@@ -119,9 +163,35 @@ export class ChatRenderer {
                 ? el('button', { class: 'icon-btn', textContent: '■', title: 'Stop audio', onclick: () => this.playback.stop() })
                 : null,
               el('button', { class: 'icon-btn', textContent: '🧠', title: 'Propose a memory fact', onclick: () => void this.saveMemory(message) }),
+              this.actions && isStored(message) && !this.appState.pendingRequest && ['idle', 'error'].includes(this.appState.phase)
+                ? el('button', { class: 'icon-btn', textContent: '🗑', title: 'Delete', 'aria-label': 'Delete this message and its reply', 'data-testid': 'message-delete', onclick: () => this.actions?.remove(message) })
+                : null,
             ]),
       ]),
     ]);
+  }
+
+  /**
+   * The conversation as a list: each message knowing where it sits, and a
+   * quiet time between two that are far apart, the way a messaging app does.
+   * `after` adds what belongs beneath a message, such as a confirmation card.
+   */
+  messageList(messages: Message[], personaId: string | null, after: (message: Message) => HTMLElement[]): HTMLElement[] {
+    const lastSaid = messages.findLastIndex((message) => message.role === 'user');
+    const lastReply = messages.findLastIndex((message) => message.role === 'assistant' && !message.isTyping);
+    const unanswered = lastSaid !== -1 && !messages.slice(lastSaid + 1).some((message) => message.role === 'assistant');
+    let previous: number | null = null;
+    return messages.flatMap((message, index) => {
+      const node = this.message(message, personaId, {
+        latestReply: index === lastReply && lastReply > lastSaid,
+        latestSaid: index === lastSaid && isStored(message),
+        unanswered: index === lastSaid && unanswered && isStored(message),
+      });
+      if (!node) return [];
+      const divider = timeDivider(previous, message.created_at);
+      previous = message.created_at;
+      return [...(divider ? [divider] : []), node, ...after(message)];
+    });
   }
 
   syntheticSystemMessage(personaId: string | null): Message[] {
@@ -426,6 +496,36 @@ export class ChatRenderer {
     }
     this.renderApp();
   }
+}
+
+/** A message the server has, as opposed to one still being sent or written. */
+function isStored(message: Message): boolean {
+  return ['user', 'assistant'].includes(message.role) && !message.isTyping && !/^(local-|typing|system-)/.test(message.id);
+}
+
+// A gap long enough that the conversation picked up again, rather than paused.
+const RESUMED_AFTER_SECONDS = 30 * 60;
+
+export function messageTime(seconds: number): string {
+  return new Date(seconds * 1000).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' });
+}
+
+/** When the conversation picked up, said quietly between the messages - or null. */
+export function timeDivider(previous: number | null, current: number, now = Date.now()): HTMLElement | null {
+  if (!current) return null;
+  const then = new Date(current * 1000);
+  const sameDay = previous !== null && new Date(previous * 1000).toDateString() === then.toDateString();
+  if (previous !== null && sameDay && current - previous < RESUMED_AFTER_SECONDS) return null;
+  const time = then.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' });
+  const days = Math.round((new Date(now).setHours(0, 0, 0, 0) - new Date(then).setHours(0, 0, 0, 0)) / 86_400_000);
+  const day = days === 0
+    ? 'Today'
+    : days === 1
+      ? 'Yesterday'
+      : days < 7
+        ? then.toLocaleDateString(undefined, { weekday: 'long' })
+        : then.toLocaleDateString(undefined, { weekday: 'short', day: 'numeric', month: 'short' });
+  return el('div', { class: 'msg-time-divider', role: 'separator', textContent: `${day} ${time}` });
 }
 
 function capitalize(value: string): string {

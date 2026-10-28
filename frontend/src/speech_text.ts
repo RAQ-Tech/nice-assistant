@@ -17,6 +17,11 @@ const ASTERISK_SPAN = /\*(?![\s*])([^*\n]*?[^\s*])\*(?!\*)/g;
 // and dropping it would change what was said.
 const ASIDE_POSITION = /(?:^|\n)[ \t]*$|[.!?…]["'”’)]*[ \t]+$/;
 
+/** Whether an asterisk span after this text is an aside rather than emphasis. Shared with how replies are shown. */
+export function asideFollows(before: string): boolean {
+  return ASIDE_POSITION.test(before);
+}
+
 /**
  * The part of `text` that can be spoken.
  *

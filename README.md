@@ -208,6 +208,9 @@ server, proxy, bridge, and second listener have been removed.
   never guessed at
 - Spoken replies on a phone: audio is unlocked on the first tap, and an iPhone
   streams speech rather than waiting for the whole reply
+- A failed reply can be tried again, the latest reply answered again, the
+  latest message corrected, and any exchange deleted; formatted replies, quiet
+  time dividers, and a reply stream that survives a dropped connection
 - Local transcription against a self-hosted Whisper service, so a spoken turn
   can complete without leaving this network
 - Optional transcription at natural pauses, so the wait after you stop is one
@@ -373,6 +376,7 @@ For iPhone/Android browsers, microphone capture usually requires **HTTPS** (or l
 - `GET /ready`
 - `GET/POST /api/v1/chats`, `GET/PUT/DELETE /api/v1/chats/:id`
 - `POST /api/v1/chats/:id/turns`, `GET /api/v1/turns/:id`
+- `POST /api/v1/chats/:id/messages/:message_id/again` (retry, answer again, or correct the latest exchange), `DELETE /api/v1/chats/:id/messages/:message_id` (an exchange)
 - `GET /api/v1/turns/:id/events` (authenticated SSE)
 - `GET/DELETE /api/v1/jobs/:id`
 - `GET /api/v1/capabilities`, `GET /api/v1/capability-requests`

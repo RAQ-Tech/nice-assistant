@@ -396,7 +396,7 @@ test('avatar and chat pictures use the shared layered viewer with every close pa
   await expect(avatarDialog).toBeVisible();
   await page.keyboard.press('Escape');
 
-  await page.getByTitle('Generate an image from this reply').first().click();
+  await (await messageAction(page, 'Generate an image from this reply')).click();
   const chatImage = page.locator('img.msg-inline-image');
   await expect(chatImage).toHaveAttribute('src', '/api/v1/media/media-1');
   // A picture that arrives while the person is watching is not covered: they
@@ -418,7 +418,7 @@ test('avatar and chat pictures use the shared layered viewer with every close pa
 test('active direct media work exposes cancellation and returns cleanly to idle', async ({ page }) => {
   const fixture = await installAuthenticatedFixture(page, { holdMedia: true });
   await page.goto('/#/chats/chat-1');
-  await page.getByTitle('Generate an image from this reply').click();
+  await (await messageAction(page, 'Generate an image from this reply')).click();
   const cancel = page.getByTestId('cancel-chat-attachment');
   await expect(cancel).toBeVisible();
   await expect(cancel).toBeEnabled();
@@ -471,7 +471,7 @@ test('settings review memory and media use only canonical APIs', async ({ page }
   await page.getByTestId('media-plan-preview').click();
   await expect(page.locator('.media-plan-preview')).toContainText('Ready');
   await page.getByRole('button', { name: '✕ Close' }).click();
-  await page.getByTitle('Generate an image from this reply').first().click();
+  await (await messageAction(page, 'Generate an image from this reply')).click();
   await expect(page.locator('img.msg-inline-image')).toHaveAttribute('src', '/api/v1/media/media-1');
   expect(fixture.memoryApproved).toBe(true);
   expect(fixture.settingsUpdated).toBe(true);
@@ -1074,6 +1074,18 @@ function directCapability(
     attachment,
     media_plan: null,
   };
+}
+
+/**
+ * A reply's button. On a phone a message's buttons stay hidden until the
+ * message is tapped (ADR 0045), so it is tapped first - where its name is,
+ * not on anything inside it that does something else.
+ */
+async function messageAction(page: Page, title: string) {
+  const button = page.getByTitle(title).first();
+  await button.waitFor({ state: 'attached' });
+  if (!(await button.isVisible())) await page.locator('article.msg.assistant small').first().click();
+  return button;
 }
 
 async function json(route: Parameters<Parameters<Page['route']>[1]>[0], body: unknown, status = 200): Promise<void> {

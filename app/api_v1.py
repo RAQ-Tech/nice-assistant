@@ -200,6 +200,14 @@ class TurnCreate(StrictModel):
     model_settings: ModelGenerationSettings = Field(default_factory=ModelGenerationSettings)
 
 
+class TurnAgain(StrictModel):
+    # Absent means the same words again; present means what they were corrected to.
+    text: str | None = Field(default=None, max_length=100_000)
+    model: str | None = None
+    memory_mode: str | None = Field(default=None, pattern="^(off|saved)$")
+    model_settings: ModelGenerationSettings = Field(default_factory=ModelGenerationSettings)
+
+
 class ProviderCheck(StrictModel):
     provider: str
     settings: dict = Field(default_factory=dict)
@@ -1598,6 +1606,33 @@ def create_turn(
         body.model_dump(),
     )
     return {"turn": turn, "job": job}
+
+
+@router.post(
+    "/chats/{chat_id}/messages/{message_id}/again",
+    response_model=TurnAcceptedResponse,
+    status_code=202,
+    tags=["turns"],
+)
+def answer_again(
+    chat_id: str,
+    message_id: str,
+    body: TurnAgain,
+    request: Request,
+    context: AuthContext = Depends(current_user),
+):
+    """Answer the latest message again - as it was, or as it has been corrected to."""
+
+    turn, job = services(request).conversations.again(context.user_id, chat_id, message_id, body.model_dump())
+    return {"turn": turn, "job": job}
+
+
+@router.delete("/chats/{chat_id}/messages/{message_id}", tags=["chats"])
+def delete_message(chat_id: str, message_id: str, request: Request, context: AuthContext = Depends(current_user)):
+    """Delete a message together with the reply it belongs with."""
+
+    services(request).conversations.delete_exchange(context.user_id, chat_id, message_id)
+    return {"ok": True}
 
 
 @router.get("/chats/{chat_id}/context", tags=["chats"], response_model=ChatContextResponse)

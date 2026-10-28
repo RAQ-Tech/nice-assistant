@@ -112,8 +112,20 @@ npm run frontend:e2e
 Submitting a message creates a durable turn/job and enters `queued`, then
 `thinking` when the stream starts. `assistant.delta` events update a temporary
 message. A terminal event is reconciled with durable chat/job state before the
-client returns to `idle`. SSE loss does not imply cancellation; the client may
-poll final state. Only `DELETE /api/v1/jobs/{id}` cancels work.
+client returns to `idle`. SSE loss does not imply cancellation: the client
+resumes the stream from the last event it received, up to three times, asks
+whether a stream that ended early belonged to a finished turn, and only then
+polls final state. Only `DELETE /api/v1/jobs/{id}` cancels work. Streamed words
+are drawn at most once per frame, and a finished message's formatting is
+rendered once and reused. A request that never reached the server puts its text
+back in the composer.
+
+The latest exchange can be answered again, as it was or corrected in the
+composer, and any exchange can be deleted together with its reply; a failed
+latest message offers "Try again" where it failed. On a screen without hover a
+message's buttons appear when it is tapped. Replies are rendered from escaped
+text with only a reply's formatting restored, an aside shown as one, and
+pictures loaded only from this server. See ADR 0045.
 
 Direct-LAN HTTP remains supported for typed desktop chat even though it is not a
 browser secure context. Client-only reconciliation IDs must therefore never

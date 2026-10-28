@@ -1,5 +1,6 @@
 import { api, type ApiClient } from './api';
-import { el, errorMessage, markdown } from './dom';
+import { el, errorMessage } from './dom';
+import { markdown } from './markdown';
 import { extractImageUrl, extractVideoUrl } from './media';
 import { machine, state, type ClientStateMachine } from './state';
 import type { AppState, CapabilityRequest, IdentitySetupIntent } from './types';
