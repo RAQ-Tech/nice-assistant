@@ -110,7 +110,6 @@ export function createState(): AppState {
     coveredImageSrc: null,
     showNewChatPersonaModal: false,
     newChatPersonaId: null,
-    onboardingRunning: false,
     sessionTimer: null,
     lastActivityAt: Date.now(),
   };

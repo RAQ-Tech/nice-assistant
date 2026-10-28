@@ -30,6 +30,8 @@ export interface Session {
   expires_at: number | null;
   ttl_seconds: number;
   is_admin: boolean;
+  /** Kept signed in on this device: never signed out for being idle (ADR 0047). */
+  persistent?: boolean;
 }
 
 export interface Workspace {
@@ -1173,7 +1175,6 @@ export interface AppState {
   coveredImageSrc: string | null;
   showNewChatPersonaModal: boolean;
   newChatPersonaId: Id | null;
-  onboardingRunning: boolean;
   sessionTimer: number | null;
   lastActivityAt: number;
 }

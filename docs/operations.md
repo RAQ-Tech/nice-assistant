@@ -296,6 +296,11 @@ value avoids a cold first reply after a quiet spell, at the cost of holding that
 memory while nothing is said. Managed GPU coordination unloads the model when
 picture work needs the memory, whatever this is set to.
 
+Signing in with "Keep me signed in on this device" (ADR 0047) keeps that
+device signed in for sixty days from its last use. To sign a lost device out
+before then, delete that user's rows from the database's `sessions` table; the
+account and its data are untouched.
+
 A persona can be shown photos (ADR 0046) only when its chat model can see.
 Pull one into Ollama - `ollama pull gemma3:12b` fits a 12 GB card quantised -
 and choose it for the persona; the camera button appears for conversations on

@@ -17,7 +17,7 @@ function persona(id: string, name: string): Persona {
 }
 
 function chat(): Chat {
-  return { id: 'chat-1', title: 'The lighthouse', persona_id: 'p1', updated_at: 1_700_000_000 } as unknown as Chat;
+  return { id: 'chat-1', title: 'The lighthouse', persona_id: 'p1', created_at: 1_600_000_000, updated_at: 1_700_000_000 } as unknown as Chat;
 }
 
 function picture(id: string): LibraryEntry {
@@ -35,6 +35,14 @@ describe('the front page continues rather than starting over', () => {
     // Opening the app almost always means continuing.
     expect(acts.openChat).toHaveBeenCalledWith('chat-1');
     expect(acts.startChatWith).not.toHaveBeenCalled();
+  });
+
+  it('does not claim a conversation nobody has spoken in was last spoken in', () => {
+    const fresh = { ...chat(), updated_at: 1_600_000_000 };
+    expect(continueCard(chat(), persona('p1', 'Nova'), actions()).textContent).toContain('Last spoken');
+    const node = continueCard(fresh, persona('p1', 'Nova'), actions());
+    expect(node.textContent).toContain('Nothing said yet');
+    expect(node.textContent).not.toContain('Last spoken');
   });
 
   it('offers to start one only when there is nothing to continue', () => {

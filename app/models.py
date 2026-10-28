@@ -33,6 +33,8 @@ class Session(Base):
     user_id: Mapped[str] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
     created_at: Mapped[int] = mapped_column(Integer, nullable=False)
     expires_at: Mapped[int] = mapped_column(Integer, nullable=False)
+    # Kept signed in on this device (ADR 0047): renewed by use, never ended by inactivity.
+    persistent: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
 
 
 class Workspace(Base):

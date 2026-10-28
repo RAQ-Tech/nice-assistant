@@ -46,6 +46,11 @@ from app.service_errors import (
 )
 
 
+# How long a device somebody chose to stay signed in on stays signed in without
+# being used. Every use renews it, so a phone used weekly never asks again.
+REMEMBERED_SESSION_SECONDS = 60 * 24 * 60 * 60
+
+
 class AuthContext:
     def __init__(
         self,
@@ -54,12 +59,15 @@ class AuthContext:
         expires_at: int | None,
         is_admin: bool,
         auto_logout: bool,
+        persistent: bool = False,
     ):
         self.user_id = user_id
         self.token = token
         self.expires_at = expires_at
         self.is_admin = is_admin
-        self.auto_logout = auto_logout
+        # A device kept signed in is never signed out for being idle.
+        self.auto_logout = auto_logout and not persistent
+        self.persistent = persistent
 
 
 def workspace_response(row) -> dict:
@@ -180,12 +188,20 @@ class ResourceService:
                 raise ConflictError(str(exc)) from exc
             return {"id": user.id}
 
-    def login(self, username: str, password: str) -> tuple[AuthContext, dict]:
+    def signup_status(self) -> dict:
+        """Whether an account can be made here, and whether it would be the first."""
+
+        with self._uow() as uow:
+            first = not uow.repo.user_count()
+        return {"open": first or self.allow_public_signup, "first_account": first}
+
+    def login(self, username: str, password: str, remember: bool = False) -> tuple[AuthContext, dict]:
         with self._uow() as uow:
             user = uow.repo.user_by_username(username.strip())
             if not user or not self.password_verifier(password, user.password_hash):
                 raise AuthenticationError("invalid credentials")
-            session = uow.repo.create_session(user.id, self.session_ttl_seconds)
+            ttl = REMEMBERED_SESSION_SECONDS if remember else self.session_ttl_seconds
+            session = uow.repo.create_session(user.id, ttl, persistent=remember)
             settings = uow.repo.settings(user.id) or {}
             auto_logout = bool((settings.get("preferences") or {}).get("general_auto_logout", True))
             context = AuthContext(
@@ -194,12 +210,14 @@ class ResourceService:
                 session.expires_at,
                 bool(user.is_admin),
                 auto_logout,
+                persistent=remember,
             )
             return context, {
                 "user_id": user.id,
                 "expires_at": session.expires_at,
                 "ttl_seconds": self.session_ttl_seconds,
                 "is_admin": bool(user.is_admin),
+                "persistent": remember,
             }
 
     def authenticate(self, token: str | None) -> AuthContext:
@@ -211,14 +229,17 @@ class ResourceService:
                 raise AuthenticationError()
             session, user = pair
             settings = uow.repo.settings(user.id) or {}
-            auto_logout = bool((settings.get("preferences") or {}).get("general_auto_logout", True))
+            persistent = bool(session.persistent)
+            auto_logout = bool((settings.get("preferences") or {}).get("general_auto_logout", True)) and not persistent
             stamp = now_ts()
-            if auto_logout and session.expires_at and session.expires_at <= stamp:
+            if (auto_logout or persistent) and session.expires_at and session.expires_at <= stamp:
                 uow.repo.delete_session(token)
                 raise AuthenticationError("session expired")
-            if auto_logout:
+            if persistent:
+                session.expires_at = stamp + REMEMBERED_SESSION_SECONDS
+            elif auto_logout:
                 session.expires_at = stamp + self.session_ttl_seconds
-            return AuthContext(user.id, token, session.expires_at, bool(user.is_admin), auto_logout)
+            return AuthContext(user.id, token, session.expires_at, bool(user.is_admin), auto_logout, persistent)
 
     def logout(self, token: str) -> None:
         with self._uow() as uow:

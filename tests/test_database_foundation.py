@@ -42,7 +42,7 @@ class DatabaseFoundationTests(unittest.TestCase):
             journal_mode = conn.execute("PRAGMA journal_mode").fetchone()[0]
             conn.close()
 
-            self.assertEqual(version, "0043_message_photos")
+            self.assertEqual(version, "0044_persistent_sessions")
             self.assertIn("setting_values", tables)
             self.assertIn("conversation_turns", tables)
             self.assertIn("conversation_summaries", tables)

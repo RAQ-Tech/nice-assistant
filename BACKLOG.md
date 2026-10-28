@@ -30,7 +30,7 @@ browser route is not acceptance evidence for those.
 Most items carry their own **Done when** list. Those criteria are in addition to
 the verifier, never instead of it.
 
-Last full verifier run: passed, 2026-10-27.
+Last full verifier run: passed, 2026-10-28.
 
 ## Status vocabulary
 
@@ -527,6 +527,26 @@ the persona, using a chat model that can see. See
 What is left is choosing a vision model on the deployment and trying it, item
 19 in section 4.
 
+### 1L. Signing in and the first run - delivered 2026-10-28
+
+Batch 4 of the same review: the first five minutes. See
+[ADR 0047](docs/decisions/0047-signing-in-and-the-first-run.md).
+
+- A first visit no longer says the session ended.
+- Signing in is a real form: Enter submits, a password manager can save and
+  fill it, and a wrong password keeps what was typed. A new account signs
+  straight in, and is offered only where the server would make one.
+- "Keep me signed in on this device", on by default, keeps a phone signed in
+  for sixty days from its last use instead of thirty idle minutes.
+- Setup is one page - name, what they are like, the model they think with -
+  that checks Ollama, cannot be skipped into a chat with nobody in it, and ends
+  in a conversation that invites the first word.
+- The home page no longer says "Last spoken" for a conversation nobody has
+  spoken in.
+
+What is left is the password manager in a real browser profile, item 20 in
+section 4.
+
 ## 2. Decided
 
 Answered by the owner on 2026-08-17, with additions from the settings
@@ -749,6 +769,13 @@ than from a checklist, and to exercise preset routing on the way.
     actually in the photo. Worth noting the reply time against a text-only turn
     in `turn.first_token`. Source: ADR 0046.
 
+20. **Sign-in with a real password manager.** Playwright proves the form's
+    names, labels and autocomplete values, not what Chrome does with them. In
+    Chrome on the owner's profile, and on a phone: create or sign in, accept the
+    offer to save, sign out, and sign in again. **Done when** the browser offers
+    to save the password once, fills it on the next visit, and a phone signed in
+    with "Keep me signed in" is still signed in a day later. Source: ADR 0047.
+
 ## 5. Temporary by agreement
 
 Deliberately shipped with a planned end, so it is never mistaken for a permanent
@@ -888,7 +915,7 @@ done:
 - Update the product, architecture, security, testing, operations, roadmap, and
   debt documents in the same change as the behavior they describe.
 - Record durable architectural choices as ADRs in `docs/decisions/`. The next
-  free number is 0047.
+  free number is 0048.
 - Run `python scripts/audit_public_repo.py` before every public commit. This
   file must never contain deployment addresses, hostnames, user-specific paths,
   hardware inventories, or account identifiers.

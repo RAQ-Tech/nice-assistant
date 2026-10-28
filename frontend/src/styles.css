@@ -2915,3 +2915,22 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
 /* With a photo waiting or a message being corrected, the box is taller; the
    buttons stay beside where the words are typed. */
 .composer:has(.composer-photo, .composer-editing) { align-items: end; }
+
+/* Signing in and first-run setup: one centred column, nothing else on screen. */
+#app:has(> .auth-pane, > .setup-pane) { display: flex; height: var(--app-viewport-height); }
+.auth-pane, .setup-pane { align-items: center; overflow-y: auto; }
+/* Auto margins centre the form and, unlike centring the column, never clip it
+   when the keyboard leaves less room than it needs. */
+.auth-form, .setup-form { width: min(100%, 26rem); margin-block: auto; display: flex; flex-direction: column; gap: .55rem; }
+.auth-form p, .setup-form p { margin: 0; }
+.auth-form .meta, .setup-form .meta { color: var(--text-dim); font-size: .9rem; }
+.auth-form label:not(.checkbox-row), .setup-form label { font-size: .85rem; color: var(--text-dim); margin-top: .35rem; }
+.auth-form .checkbox-row { margin-top: .35rem; font-size: .9rem; }
+.auth-title { margin: 0 0 .25rem; font-size: 1.5rem; }
+.auth-hint { margin: -.2rem 0 0; font-size: .8rem; }
+.auth-submit, .setup-submit { margin-top: .6rem; align-self: stretch; }
+.auth-form .link-btn { align-self: center; margin-top: .25rem; }
+.setup-description { resize: vertical; min-height: 4.5rem; font: inherit; }
+.setup-ollama p { margin: 0 0 .4rem; }
+/* An empty conversation invites the first word rather than showing a blank box. */
+.chat-empty { margin: auto; color: var(--text-dim); text-align: center; }

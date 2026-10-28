@@ -634,6 +634,13 @@ installed-browser acceptance.
   that photos are served only to their sender and follow the message through
   answering again and deletion, and that the camera button appears only where
   the photo would be seen.
+- Sign-in and first-run tests (`tests/test_sessions.py`,
+  `frontend/tests/first_run.test.ts`, ADR 0047) prove a kept session outlives the
+  idle limit and an unkept one does not, that sign-up is offered only where it
+  would work, that the sign-in form carries the names and autocomplete values a
+  password manager needs and keeps what was typed on failure, and that setup
+  ends in a conversation without making a second persona on retry. The browser
+  journey covers a first visit end to end, with no false "session ended".
 - Memory tests cover legacy data migration, exact-duplicate supersession, FTS
   population/ranking, active-only scoped retrieval, nonblocking extraction,
   provenance, review transitions, superseding edits, forget/undo, extraction

@@ -94,7 +94,7 @@ npm run frontend:e2e
   Acknowledged media cancellation is not presented as generation failure.
   Browser autoplay rejection keeps the completed audio available behind Replay
   and renders a compact human hint rather than the browser's technical error.
-- `app.ts`: composition root, shell/onboarding/auth views, routing coordination,
+- `app.ts`: composition root, shell/setup/auth gating, routing coordination,
   session expiry, and visible reporting of unexpected browser errors. Rendering
   rebuilds the whole tree from state, so everything the browser was holding on
   the reader's behalf is captured before the rebuild and put back after it:
@@ -252,9 +252,12 @@ Entering the home route releases the current chat, its messages, and its
 capability requests, so the homepage is never drawn over live conversation
 state.
 
-First-run setup moved to `onboarding.ts` in the same change. It is a flow that
-happens once, in its own dialogs, and it had been sitting in `app.ts` beside the
-routing and the chat shell because nobody had decided otherwise.
+First-run setup is `setup_view.ts` (ADR 0047): one page, shown whenever the
+signed-in account has no persona, in place of everything else, so there is no
+chat without somebody to talk to. It replaced three dialogs in `onboarding.ts`
+that could be cancelled into a dead composer. Signing in is `auth_view.ts`, a
+real form that password managers recognise; it asks `GET /api/v1/signup`
+whether an account can be created before offering to.
 
 The chat header carries the mark from `web/favicon.svg` as a link to `#/`. An
 anchor rather than a button, so keyboard reach, middle-click, and history come

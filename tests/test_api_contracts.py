@@ -47,7 +47,7 @@ class BrowserApiContractTests(unittest.TestCase):
         self.running.create_and_login()
         session = self.client.get("/api/v1/session")
         self.assertEqual(session.status_code, 200, session.text)
-        self.assertEqual(set(session.json()), {"user_id", "expires_at", "ttl_seconds", "is_admin"})
+        self.assertEqual(set(session.json()), {"user_id", "expires_at", "ttl_seconds", "is_admin", "persistent"})
         self.assertTrue(session.json()["is_admin"])
 
         settings_payload = {
