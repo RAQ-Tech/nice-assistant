@@ -29,7 +29,7 @@ from app.resource_service import ResourceService
 from app.resource_coordination import ResourceCoordinator
 from app.runtime import AppConfig, AppRuntime
 from app.secret_store import SecretStore
-from app.security import LoginThrottle, ProviderUrlPolicy
+from app.security import LoginThrottle, ProviderUrlPolicy, install_redirect_policy
 from app.speech_service import SpeechService
 from app.task_model_service import TaskModelService
 from app.turn_events import TurnEventBroker
@@ -99,6 +99,7 @@ def build_services(
         ("ComfyUI", config.comfyui_base_url),
     ):
         provider_url_policy.normalize(endpoint, label=label)
+    install_redirect_policy(provider_url_policy)
     login_throttle = LoginThrottle(
         max_attempts=config.login_max_attempts,
         window_seconds=config.login_window_seconds,

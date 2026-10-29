@@ -7,7 +7,9 @@ import math
 import re
 import threading
 import time
+import urllib.error
 from urllib.parse import urlsplit, urlunsplit
+import urllib.request
 
 from fastapi.responses import JSONResponse
 
@@ -92,6 +94,49 @@ class ProviderUrlPolicy:
                 or host in _KNOWN_CONTAINER_HOSTS
             )
         return any(address.version == network.version and address in network for network in _PRIVATE_PROVIDER_RANGES)
+
+    def inside(self, url: str) -> bool:
+        """Whether a URL's host is on the private-LAN side of this policy."""
+
+        host = (urlsplit(url).hostname or "").lower().rstrip(".")
+        return bool(host) and self._host_allowed(host)
+
+
+class LanBoundaryRedirectHandler(urllib.request.HTTPRedirectHandler):
+    """Follow a redirect only if it stays on the side of the LAN boundary it began on.
+
+    The policy above is checked when an address is configured, and urllib would
+    otherwise follow a redirect anywhere after that: a LAN service could send
+    a prompt or a picture to the internet, and an internet address the owner
+    asked for - an avatar, a model lookup - could send the server into the LAN.
+    The same host is always allowed; another host must be on the same side.
+    """
+
+    def __init__(self, policy: ProviderUrlPolicy):
+        super().__init__()
+        self.policy = policy
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        source, target = urlsplit(req.full_url), urlsplit(newurl)
+        same_host = (source.hostname, source.port) == (target.hostname, target.port)
+        if target.scheme not in {"http", "https"} or not (
+            same_host or self.policy.inside(req.full_url) == self.policy.inside(newurl)
+        ):
+            raise urllib.error.HTTPError(
+                req.full_url, code, "A redirect across the private-LAN boundary was refused.", headers, fp
+            )
+        return super().redirect_request(req, fp, code, msg, headers, newurl)
+
+
+def install_redirect_policy(policy: ProviderUrlPolicy) -> None:
+    """Make every urllib request this process makes follow redirects under `policy`.
+
+    Every provider, speech, media and lookup call goes through urllib's shared
+    opener, so this one place covers the call sites that exist and the ones
+    added later.
+    """
+
+    urllib.request.install_opener(urllib.request.build_opener(LanBoundaryRedirectHandler(policy)))
 
 
 class LoginThrottle:

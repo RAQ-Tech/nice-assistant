@@ -1,12 +1,17 @@
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import tempfile
+import threading
 import unittest
 from pathlib import Path
 from unittest import mock
+import urllib.error
+import urllib.request
 
 from app.asgi import create_app
 from app.provider_registry import ProviderRegistry
 from app.runtime import AppConfig
 from app.secret_store import SecretStore
+from app.security import LanBoundaryRedirectHandler, ProviderUrlPolicy
 from tests.support import FakeChatProvider, TestApp, fast_hash, fast_verify
 
 
@@ -122,6 +127,73 @@ class LanHardeningTests(unittest.TestCase):
             self.assertEqual(response.status_code, 200)
             self.assertNotIn("sk-supersecret123456", response.text)
             self.assertIn("REDACTED", response.text)
+
+
+class _Redirects(BaseHTTPRequestHandler):
+    def do_GET(self):
+        targets = {"/out": "http://provider.example.invalid/steal", "/in": "/ok", "/file": "file:///etc/passwd"}
+        if self.path in targets:
+            self.send_response(302)
+            self.send_header("Location", targets[self.path])
+            self.end_headers()
+            return
+        self.send_response(200)
+        self.end_headers()
+        self.wfile.write(b"fine")
+
+    def log_message(self, *_args):
+        pass
+
+
+class RedirectsStayOnTheirSideTests(unittest.TestCase):
+    """A redirect cannot carry a request across the private-LAN boundary. ADR 0049."""
+
+    def _allowed(self, source: str, target: str, allowed_hosts=()) -> bool:
+        handler = LanBoundaryRedirectHandler(ProviderUrlPolicy(allowed_hosts))
+        try:
+            handler.redirect_request(urllib.request.Request(source), None, 302, "Found", {}, target)
+        except urllib.error.HTTPError as exc:
+            self.assertIn("private-LAN boundary", exc.msg)
+            return False
+        return True
+
+    def test_each_direction(self):
+        self.assertTrue(self._allowed("http://ollama.lan:11434/api/chat", "http://ollama.lan:11434/api/chat/"))
+        self.assertTrue(self._allowed("http://ollama:11434/x", "http://comfyui:8188/y"))
+        self.assertTrue(self._allowed("https://api.openai.com/v1/x", "https://cdn.openai.com/y"))
+        # A LAN service sending the server - and whatever it was carrying - out.
+        self.assertFalse(self._allowed("http://ollama.lan:11434/api/chat", "https://collector.example.com/"))
+        # An address on the internet sending the server into the LAN.
+        self.assertFalse(self._allowed("https://avatars.example.com/a.png", "http://router.lan/admin"))
+        self.assertFalse(self._allowed("https://avatars.example.com/a.png", "http://localhost:3000/api/v1/users"))
+        self.assertFalse(self._allowed("http://ollama.lan/x", "ftp://ollama.lan/x"))
+
+    def test_an_allowlisted_host_counts_as_inside(self):
+        self.assertTrue(self._allowed("http://gpu-box:11434/x", "http://nas.lan/y", allowed_hosts=("gpu-box",)))
+        self.assertFalse(self._allowed("http://gpu-box:11434/x", "https://example.com/y", allowed_hosts=("gpu-box",)))
+
+    def test_every_request_the_app_makes_follows_the_rule(self):
+        server = ThreadingHTTPServer(("127.0.0.1", 0), _Redirects)
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        base = f"http://127.0.0.1:{server.server_address[1]}"
+        try:
+            with tempfile.TemporaryDirectory() as tmp, TestApp(Path(tmp)):
+                # The shared opener every provider call uses, as the app left it.
+                with urllib.request.urlopen(f"{base}/in", timeout=5) as response:
+                    self.assertEqual(response.read(), b"fine")
+                with self.assertRaises(urllib.error.HTTPError) as refused:
+                    urllib.request.urlopen(f"{base}/out", timeout=5)
+                refused.exception.close()
+                self.assertIn("private-LAN boundary", refused.exception.msg)
+                # urllib refuses this one itself, before the boundary is asked.
+                with self.assertRaises(urllib.error.HTTPError) as refused:
+                    urllib.request.urlopen(f"{base}/file", timeout=5)
+                refused.exception.close()
+        finally:
+            server.shutdown()
+            server.server_close()
+            thread.join(timeout=5)
 
 
 if __name__ == "__main__":
