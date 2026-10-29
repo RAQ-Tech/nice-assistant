@@ -15,13 +15,15 @@ consecutive full-suite passes.
 The canonical command is `python scripts/verify.py`; use `--repeat 3` for a
 foundation change. Node/npm are required. The command runs strict TypeScript
 checking, Vitest, a clean Vite production build, Python compilation/static/
-formatting checks, coverage plus the Python suite, the process smoke, and
+formatting checks, the mypy type check of `app`, coverage plus the Python suite, the process smoke, and
 Playwright browser journeys. It then runs the deterministic human-experience
 scenario subset. Run that subset directly with
 `python scripts/evaluate_human_experience.py` or `npm run evaluate:human`.
 Branch coverage is enforced at a minimum of 70 percent across `app`; no legacy
-server exclusion remains. Static analysis also enforces a cyclomatic complexity
-ceiling of 15. Thirteen functions predate the rule and carry an explicit
+server exclusion remains. Static analysis checks that every name is defined and
+used and catches the common Python mistakes (ruff's F and B rules), and mypy
+checks every annotation in `app` at its default strictness. It also enforces a
+cyclomatic complexity ceiling of 15. Thirteen functions predate the rule and carry an explicit
 `# noqa: C901`; those markers are the debt list, and new code is expected to stay
 under the ceiling rather than add to it.
 

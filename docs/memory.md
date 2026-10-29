@@ -17,7 +17,10 @@ embedding model gives each memory a vector, the question gets one when it is
 asked, and the two are compared by direction. Anything below a similarity floor
 is dropped rather than ranked last, and at most six memories are promoted ahead
 of merely recent ones: a tenuous memory in a context window is worse than none,
-because the model reads whatever is there as relevant. Both numbers were
+because the model reads whatever is there as relevant. The question is compared
+with the newest 400 memories in scope that have a vector, not only the ones
+recency would have chosen anyway; that ceiling keeps the comparison a fixed
+cost of about 12 ms however much is remembered (ADR 0048). Both numbers were
 measured against a real model rather than reasoned out, and ADR 0039 records
 what was measured and what the first guess would have cost.
 
@@ -110,9 +113,8 @@ then limited to global plus the current workspace, persona, and chat. Only
 preserve continuity when wording does not overlap; context budgeting performs a
 second whole-entry selection pass.
 
-FTS is deliberately lexical and local. A future semantic retriever may implement
-the same owner/scope/status contract, but no embedding provider is implied or
-advertised by Memory v2.
+FTS is deliberately lexical and local. Recall by meaning, described above, keeps
+the same owner, scope and status contract and runs on a local embedding model.
 
 ## API and browser behavior
 

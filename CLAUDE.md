@@ -23,7 +23,7 @@ npm run verify
 
 It runs, in order: browser typecheck, browser unit tests, browser production
 build, the public-repository privacy audit, Python compile, static analysis and
-formatter checks, the unit/API suite with coverage, the process smoke check, the
+formatter checks, the type check, the unit/API suite with coverage, the process smoke check, the
 Playwright browser journeys, and the human-experience scenarios.
 
 Variants, for when they are the right tool:

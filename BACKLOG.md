@@ -18,7 +18,7 @@ npm run verify
 
 That command runs, in order: browser typecheck, browser unit tests, browser
 production build, the public-repository privacy audit, Python compile, static
-analysis and formatter checks, the unit/API suite with coverage, the process
+analysis and formatter checks, the type check, the unit/API suite with coverage, the process
 smoke check, the Playwright browser journeys, and the human-experience
 scenarios. Use `npm run verify:foundation` to repeat the suite three times when
 a change could introduce order-dependent or flaky behavior.
@@ -30,7 +30,7 @@ browser route is not acceptance evidence for those.
 Most items carry their own **Done when** list. Those criteria are in addition to
 the verifier, never instead of it.
 
-Last full verifier run: passed, 2026-10-28.
+Last full verifier run: passed, 2026-10-29.
 
 ## Status vocabulary
 
@@ -547,6 +547,30 @@ Batch 4 of the same review: the first five minutes. See
 What is left is the password manager in a real browser profile, item 20 in
 section 4.
 
+### 1M. Correctness and housekeeping - delivered 2026-10-29
+
+Batch 6 of the same review. See
+[ADR 0048](docs/decisions/0048-correctness-and-housekeeping.md).
+
+- Recall by meaning reaches the newest 400 memories with vectors, not only
+  the forty that recency had already chosen.
+- Opening old chats no longer slowly grows the server's memory.
+- A reply that fails before the model says a word is tried once more.
+- Password digests are compared in constant time.
+- The linter checks unused names and common Python mistakes, and mypy checks
+  the whole application; both are in the verifier.
+- The three waiting dependency updates are merged, Vitest at 5.0.5.
+- The three largest modules are split along real seams: the API's request
+  and response models, the repository's picture side, and identity binding.
+
+Two smaller findings from the same review are not done. Passwords are hashed
+with 120,000 PBKDF2 iterations where current guidance is 600,000; raising
+it needs the iteration count stored with each hash so existing passwords
+still verify and are upgraded at their next sign-in. Provider requests follow
+HTTP redirects without applying the private-LAN host policy to where they
+lead; only an address the owner configured can redirect, so the exposure is
+small, but the policy should hold for every hop.
+
 ## 2. Decided
 
 Answered by the owner on 2026-08-17, with additions from the settings
@@ -915,7 +939,7 @@ done:
 - Update the product, architecture, security, testing, operations, roadmap, and
   debt documents in the same change as the behavior they describe.
 - Record durable architectural choices as ADRs in `docs/decisions/`. The next
-  free number is 0048.
+  free number is 0049.
 - Run `python scripts/audit_public_repo.py` before every public commit. This
   file must never contain deployment addresses, hostnames, user-specific paths,
   hardware inventories, or account identifiers.
