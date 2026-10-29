@@ -109,13 +109,19 @@ export class ChatRenderer {
         },
       }, [
         el('small', { textContent: roleLabel }),
-        message.isTyping
+        // Three dots until the first words, the way any messaging app shows
+        // somebody writing. What the server is doing - queued, thinking - is
+        // the talk button's to say, never the conversation's.
+        message.isTyping && !message.text
           ? el('button', {
               class: `typing-indicator ${this.appState.pendingRequest ? 'clickable' : ''}`,
-              textContent: this.appState.pendingRequest?.progress || 'typing…',
+              type: 'button',
+              title: this.appState.pendingRequest ? 'Stop this reply' : undefined,
+              'aria-label': this.appState.pendingRequest ? `Stop ${personaName}'s reply` : `${personaName} is writing`,
+              'data-testid': 'typing-indicator',
               disabled: !this.appState.pendingRequest,
               onclick: () => void this.appState.pendingRequest?.cancel(),
-            })
+            }, [el('span'), el('span'), el('span')])
           : null,
         hasThinking && showThinking
           ? el('details', { class: 'think-block', open: true }, [

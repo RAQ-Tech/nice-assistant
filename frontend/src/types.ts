@@ -847,7 +847,8 @@ export interface Turn {
   status: JobStatus;
   provider: string;
   model: string;
-  user_message_id: Id;
+  /** Null when the persona spoke first and nothing was said before it. */
+  user_message_id: Id | null;
   assistant_message_id: Id | null;
   accumulated_text: string;
   error: { code: string; message: string } | null;

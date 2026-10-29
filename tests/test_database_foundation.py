@@ -42,7 +42,7 @@ class DatabaseFoundationTests(unittest.TestCase):
             journal_mode = conn.execute("PRAGMA journal_mode").fetchone()[0]
             conn.close()
 
-            self.assertEqual(version, "0044_persistent_sessions")
+            self.assertEqual(version, "0045_turns_the_persona_opens")
             self.assertIn("setting_values", tables)
             self.assertIn("conversation_turns", tables)
             self.assertIn("conversation_summaries", tables)
@@ -870,6 +870,90 @@ class DatabaseFoundationTests(unittest.TestCase):
                     "id,user_id,kind,filename,local_path,generation_plan_id,created_at"
                     ") VALUES('bad-media','u','image','bad.png','bad.png','missing-plan',3)"
                 )
+            conn.close()
+
+    def test_turns_the_persona_opens_keep_every_link_to_existing_turns(self):
+        """Rebuilding the turns table must not cut what points at a turn.
+
+        Dropping a table other tables reference sets their links to NULL while
+        foreign keys are on. A memory, a job, a picture request and a task-model
+        run each name a turn here, and each still names it afterwards.
+        """
+
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "opening-upgrade.db"
+            config = Config()
+            config.set_main_option("script_location", str(Path(__file__).resolve().parents[1] / "migrations"))
+            config.set_main_option("sqlalchemy.url", database.sqlite_url(path))
+            engine = database.build_engine(path)
+            with engine.begin() as connection:
+                config.attributes["connection"] = connection
+                command.upgrade(config, "0044_persistent_sessions")
+            engine.dispose()
+            conn = database.connect_sqlite(path)
+            conn.execute("INSERT INTO users(id,username,password_hash,is_admin,created_at) VALUES('u','owner','h',1,1)")
+            conn.execute(
+                "INSERT INTO chats(id,user_id,last_turn_sequence,title,created_at,updated_at) VALUES('c','u',1,'Chat',1,1)"
+            )
+            conn.execute("INSERT INTO messages(id,chat_id,role,text,created_at) VALUES('m','c','user','hello',1)")
+            conn.execute("INSERT INTO messages(id,chat_id,role,text,created_at) VALUES('r','c','assistant','hi',2)")
+            conn.execute(
+                "INSERT INTO conversation_turns(id,user_id,chat_id,user_message_id,assistant_message_id,"
+                "sequence_number,provider,model,status,created_at) VALUES('t','u','c','m','r',1,'ollama','m','completed',1)"
+            )
+            conn.execute(
+                "INSERT INTO async_jobs(id,user_id,chat_id,kind,status,created_at,updated_at,turn_id) "
+                "VALUES('j','u','c','chat','completed',1,1,'t')"
+            )
+            conn.execute(
+                "INSERT INTO memories(id,user_id,tier,content,created_at,source_turn_id) "
+                "VALUES('mem','u','global','Likes tea',1,'t')"
+            )
+            conn.execute(
+                "INSERT INTO capability_requests(id,user_id,chat_id,turn_id,capability_key,arguments_json,status,"
+                "permission_mode,idempotency_key,requested_at) "
+                "VALUES('cap','u','c','t','media.generate_image','{}','completed','confirm','k',1)"
+            )
+            conn.execute(
+                "INSERT INTO task_model_runs(id,user_id,role,chat_id,turn_id,status,started_at) "
+                "VALUES('run','u','title_generation','c','t','completed',1)"
+            )
+            conn.commit()
+            conn.close()
+
+            engine = database.build_engine(path)
+            with engine.begin() as connection:
+                config.attributes["connection"] = connection
+                command.upgrade(config, "head")
+            engine.dispose()
+            conn = database.connect_sqlite(path)
+            self.assertEqual(
+                conn.execute("SELECT user_message_id FROM conversation_turns WHERE id='t'").fetchone()[0], "m"
+            )
+            self.assertEqual(conn.execute("SELECT turn_id FROM async_jobs WHERE id='j'").fetchone()[0], "t")
+            self.assertEqual(conn.execute("SELECT source_turn_id FROM memories WHERE id='mem'").fetchone()[0], "t")
+            self.assertEqual(conn.execute("SELECT turn_id FROM capability_requests WHERE id='cap'").fetchone()[0], "t")
+            self.assertEqual(conn.execute("SELECT turn_id FROM task_model_runs WHERE id='run'").fetchone()[0], "t")
+            # A turn with nothing said in front of it is now allowed, and the
+            # rules that were there before still hold.
+            conn.execute(
+                "INSERT INTO conversation_turns(id,user_id,chat_id,sequence_number,provider,model,status,created_at) "
+                "VALUES('greeting','u','c',2,'ollama','m','completed',3)"
+            )
+            with self.assertRaises(sqlite3.IntegrityError):
+                conn.execute(
+                    "INSERT INTO conversation_turns(id,user_id,chat_id,sequence_number,provider,model,status,created_at) "
+                    "VALUES('bad','u','c',3,'ollama','m','mystery',3)"
+                )
+            with self.assertRaises(sqlite3.IntegrityError):
+                conn.execute(
+                    "INSERT INTO conversation_turns(id,user_id,chat_id,sequence_number,provider,model,status,created_at) "
+                    "VALUES('twin','u','c',2,'ollama','m','completed',3)"
+                )
+            self.assertEqual(conn.execute("PRAGMA foreign_key_check").fetchall(), [])
+            indexes = {row[1] for row in conn.execute("PRAGMA index_list(conversation_turns)")}
+            self.assertIn("idx_conversation_turns_user_chat", indexes)
+            self.assertIn("idx_conversation_turns_user_status", indexes)
             conn.close()
 
     def test_restart_recovery_fails_linked_unfinished_job_and_turn_without_assistant_text(self):

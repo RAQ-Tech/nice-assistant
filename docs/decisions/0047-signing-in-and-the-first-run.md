@@ -1,6 +1,6 @@
 # ADR 0047: Signing in, staying signed in, and the first run
 
-- Status: accepted
+- Status: accepted; the empty first conversation extended by ADR 0052
 - Date: 2026-10-28
 - Owners: Nice Assistant maintainers
 

@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { ApiError, type ApiClient } from '../src/api';
 import { AuthView } from '../src/auth_view';
@@ -135,12 +135,13 @@ describe('meeting a companion', () => {
     memory_mode: 'saved' as const, title: 'New chat', hidden_in_ui: false, created_at: 2, updated_at: 2,
   };
 
-  function setUp(models: string[], visionModels: string[], overrides: Partial<ApiClient> = {}) {
+  function setUp(models: string[], visionModels: string[], overrides: Partial<ApiClient> = {}, speech = 'disabled') {
     const appState = createState();
     appState.session = session;
     appState.settings = normalizeSettings({
-      global_default_model: null, default_memory_mode: 'saved', stt_provider: 'disabled', tts_provider: 'disabled',
-      tts_format: 'wav', openai_api_key: null, onboarding_done: false, preferences: {},
+      global_default_model: null, default_memory_mode: 'saved', stt_provider: 'disabled', tts_provider: speech,
+      tts_format: 'wav', openai_api_key: null, onboarding_done: false,
+      preferences: { tts_voice_local: 'af_heart', tts_speed_local: '1.1', tts_local_base_url: 'http://speech.lan:8880' },
     });
     appState.models = models;
     appState.visionModels = visionModels;
@@ -152,6 +153,9 @@ describe('meeting a companion', () => {
       updateSettings: vi.fn(async (wire: unknown) => wire),
       createChat: vi.fn(async () => chat),
       models: vi.fn(async () => ({ models: ['demo'], vision_models: [] })),
+      voices: vi.fn(async () => ({ voices: ['af_heart', 'bf_emma', 'am_adam'] })),
+      voiceSample: vi.fn(async () => new Blob(['audio'], { type: 'audio/mpeg' })),
+      updatePersona: vi.fn(async (_id: string, input: Partial<Persona>) => ({ ...persona, ...input })),
       ...overrides,
     } as unknown as ApiClient;
     const openChat = vi.fn();
@@ -195,6 +199,8 @@ describe('meeting a companion', () => {
     submit(host);
     await settle();
     expect(client.createPersona).toHaveBeenCalledTimes(1);
+    // Nothing changed in between, so nothing is sent again.
+    expect(client.updatePersona).not.toHaveBeenCalled();
     expect(openChat).toHaveBeenCalledWith(chat.id);
   });
 
@@ -208,5 +214,91 @@ describe('meeting a companion', () => {
     expect(client.models).toHaveBeenCalled();
     expect(appState.models).toEqual(['demo']);
     expect(host.querySelector<HTMLSelectElement>('#setup-model')!.value).toBe('demo');
+  });
+
+  describe('choosing their voice', () => {
+    afterEach(() => vi.unstubAllGlobals());
+
+    async function listed(draw: () => HTMLElement): Promise<HTMLElement> {
+      await vi.waitFor(() => expect(draw().querySelector('select[data-testid="setup-voice"]')).not.toBeNull());
+      return draw();
+    }
+
+    it('offers the voices the speech service has, starting from the usual one', async () => {
+      const { client, draw } = setUp(['demo'], [], {}, 'local');
+      const host = await listed(draw);
+      const select = host.querySelector<HTMLSelectElement>('[data-testid="setup-voice"]')!;
+      expect(client.voices).toHaveBeenCalledWith('http://speech.lan:8880');
+      expect(select.value).toBe('');
+      expect(select.options[0]?.textContent).toBe('Same as Spoken replies (Heart · female)');
+      expect([...select.querySelectorAll('optgroup')].map((group) => group.label)).toEqual(['American English', 'British English']);
+      expect(host.querySelector('label[for="' + select.id + '"]')!.textContent).toBe('Their voice');
+    });
+
+    it('plays a sample of the voice chosen, at the speed replies are spoken', async () => {
+      const played: string[] = [];
+      vi.stubGlobal('Audio', class {
+        constructor(readonly src: string) {}
+        play() { played.push(this.src); return Promise.resolve(); }
+        pause() {}
+        addEventListener() {}
+      });
+      vi.stubGlobal('URL', { ...URL, createObjectURL: () => 'blob:sample', revokeObjectURL: vi.fn() });
+      const { client, draw } = setUp(['demo'], [], {}, 'local');
+      const select = (await listed(draw)).querySelector<HTMLSelectElement>('[data-testid="setup-voice"]')!;
+      select.value = 'bf_emma';
+      select.dispatchEvent(new Event('change'));
+      draw().querySelector<HTMLButtonElement>('[data-testid="setup-voice-sample"]')!.click();
+      await vi.waitFor(() => expect(played).toEqual(['blob:sample']));
+      expect(client.voiceSample).toHaveBeenCalledWith('bf_emma', '1.1');
+    });
+
+    it('shows nothing to choose when replies are not spoken', async () => {
+      const { client, draw } = setUp(['demo'], []);
+      await settle();
+      expect(draw().querySelector('[data-testid="setup-voice"]')).toBeNull();
+      expect(client.voices).not.toHaveBeenCalled();
+    });
+
+    it('keeps the chosen voice on the new persona, under the speech service that speaks it', async () => {
+      const { client, draw } = setUp(['demo'], [], {}, 'local');
+      const select = (await listed(draw)).querySelector<HTMLSelectElement>('[data-testid="setup-voice"]')!;
+      select.value = 'bf_emma';
+      select.dispatchEvent(new Event('change'));
+      const host = draw();
+      type(host, '#setup-name', 'Nova');
+      submit(host);
+      await settle();
+      expect(client.createPersona).toHaveBeenCalledWith(expect.objectContaining({ voice_preferences: { local: { voice: 'bf_emma' } } }));
+    });
+
+    it('gives the persona no voice of its own when the usual one is kept', async () => {
+      const { client, draw } = setUp(['demo'], [], {}, 'local');
+      const host = await listed(draw);
+      type(host, '#setup-name', 'Nova');
+      submit(host);
+      await settle();
+      expect(client.createPersona).toHaveBeenCalledWith(expect.objectContaining({ voice_preferences: {} }));
+    });
+
+    it('keeps a voice changed after a failed attempt, without making a twin', async () => {
+      const createChat = vi.fn()
+        .mockRejectedValueOnce(new Error('The server is busy.'))
+        .mockResolvedValueOnce(chat);
+      const { client, openChat, draw } = setUp(['demo'], [], { createChat } as Partial<ApiClient>, 'local');
+      let host = await listed(draw);
+      type(host, '#setup-name', 'Nova');
+      submit(host);
+      await settle();
+      host = draw();
+      const select = host.querySelector<HTMLSelectElement>('[data-testid="setup-voice"]')!;
+      select.value = 'am_adam';
+      select.dispatchEvent(new Event('change'));
+      submit(draw());
+      await settle();
+      expect(client.createPersona).toHaveBeenCalledTimes(1);
+      expect(client.updatePersona).toHaveBeenCalledWith(persona.id, expect.objectContaining({ voice_preferences: { local: { voice: 'am_adam' } } }));
+      expect(openChat).toHaveBeenCalledWith(chat.id);
+    });
   });
 });

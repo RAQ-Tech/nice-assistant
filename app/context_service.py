@@ -148,10 +148,11 @@ class ContextService:
         turn_id: str,
         user_id: str,
         chat_id: str,
-        current_message_id: str,
+        current_message_id: str | None,
         workspace_id: str | None,
         persona_id: str | None,
         persona_instructions: str,
+        opening: str = "",
         persona_name: str = "",
         example_dialogue: str = "",
         owner_profile: str = "",
@@ -191,7 +192,11 @@ class ContextService:
         compaction_due = self._compaction_due(history, prompt_budget)
 
         protected_sections = _protected_sections(application_instructions, persona_instructions, owner_profile)
-        current_message = {"role": "user", "content": current["text"]}
+        # When the persona speaks first nothing was said, so the application
+        # says what it wants in that place, as itself (ADR 0052).
+        current_message = (
+            {"role": "system", "content": opening} if opening else {"role": "user", "content": current["text"]}
+        )
         # Photos (ADR 0046) cost the model tokens the text estimate cannot see,
         # so what they cost comes out of what the text may use.
         image_count = _show_photos(current_message, current.get("photos"), history)
@@ -539,9 +544,11 @@ class ContextService:
         memory_mode,
     ):
         with self._uow() as uow:
-            current = uow.repo.message(current_message_id)
-            if not current or current.chat_id != chat_id:
+            # None is the persona speaking first, with nothing said to answer.
+            current = uow.repo.message(current_message_id) if current_message_id else None
+            if current_message_id and (not current or current.chat_id != chat_id):
                 return None, [], 0, [], None
+            said = current.text if current else ""
             current_turn = uow.repo.turn(user_id, turn_id)
             summary = self._durable_summary(uow, user_id, chat_id)
             history, earlier_count = self._load_history(
@@ -549,7 +556,7 @@ class ContextService:
                 user_id=user_id,
                 chat_id=chat_id,
                 before_sequence=current_turn.sequence_number if current_turn else 0,
-                before_created_at=current.created_at,
+                before_created_at=current.created_at if current else None,
                 summary=summary,
             )
             memories = []
@@ -568,15 +575,17 @@ class ContextService:
                             workspace_id=workspace_id,
                             persona_id=persona_id,
                             chat_id=chat_id,
-                            search_query=memory_search_query(current.text),
+                            search_query=memory_search_query(said),
                             # None when no embedding model is pulled, which
                             # leaves retrieval exactly as it was.
-                            query_vector=self.memories.question_vector(current.text) if self.memories else None,
+                            query_vector=self.memories.question_vector(said) if self.memories and current else None,
                         )
                     )
                 ]
-            photos = [row.data for row in uow.repo.photos_for_messages([current.id]).get(current.id, [])]
-            current_view = {"id": current.id, "text": current.text, "photos": photos}
+            photos = []
+            if current:
+                photos = [row.data for row in uow.repo.photos_for_messages([current.id]).get(current.id, [])]
+            current_view = {"id": current.id if current else None, "text": said, "photos": photos}
             return current_view, history, earlier_count, memories, summary
 
     @staticmethod

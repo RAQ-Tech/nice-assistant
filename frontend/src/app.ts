@@ -41,7 +41,7 @@ const dialogs = createDialogs(state, () => render());
 const router = new Router((route) => void handleRoute(route));
 const settingsView = new SettingsView(render, closeSettings, dialogs, state, api, (section, item) => router.settings(section, false, item ?? null));
 const authView = new AuthView(authenticated, render);
-const setupView = new SetupView(state, api, machine, render, (chatId) => router.chat(chatId));
+const setupView = new SetupView(state, api, machine, render, (chatId) => { chat.greetWhenOpened(chatId); router.chat(chatId); });
 const chatRenderer = new ChatRenderer(
   media,
   playback,

@@ -110,7 +110,9 @@ server, proxy, bridge, and second listener have been removed.
 - Same-origin write-header/origin enforcement, bounded login lockout, strict
   cookies, optional HTTPS `Secure` cookies, and private-LAN provider URL policy
 - First-run setup page: name a companion, describe them, choose the model they
-  think with, and start talking; nothing else is reachable until it is done
+  think with and, where replies are spoken, their voice by ear, and start
+  talking; nothing else is reachable until it is done, and the companion says
+  hello first (ADR 0052)
 - Chat list/new chat + transcript + per-chat model and memory mode, with
   explicit individual and bulk hide/delete actions
 - Tiered memory CRUD APIs + basic UI controls:

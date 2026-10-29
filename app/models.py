@@ -159,8 +159,9 @@ class ConversationTurn(Base):
     id: Mapped[str] = mapped_column(Text, primary_key=True)
     user_id: Mapped[str] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
     chat_id: Mapped[str] = mapped_column(ForeignKey("chats.id", ondelete="CASCADE"), nullable=False)
-    user_message_id: Mapped[str] = mapped_column(
-        ForeignKey("messages.id", ondelete="CASCADE"), nullable=False, unique=True
+    # None when the persona spoke first and nothing prompted the reply (ADR 0052).
+    user_message_id: Mapped[str | None] = mapped_column(
+        ForeignKey("messages.id", ondelete="CASCADE"), nullable=True, unique=True
     )
     assistant_message_id: Mapped[str | None] = mapped_column(
         ForeignKey("messages.id", ondelete="SET NULL"), unique=True

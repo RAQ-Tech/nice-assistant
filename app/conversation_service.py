@@ -257,6 +257,19 @@ class ConversationService:
         self._start(ctx, user_id, chat_id)
         return turn_payload, job_payload
 
+    def greet(self, user_id: str, chat_id: str, values: dict) -> tuple[dict, dict]:
+        """The persona speaks first, in a conversation where nothing has been said.
+
+        A turn like any other - streamed, spoken, kept - except that no message
+        prompted it, so nothing is stored that a later prompt could replay as
+        somebody's words. See ADR 0052.
+        """
+
+        with self._uow() as uow:
+            ctx, turn_payload, job_payload = self._open_turn(uow.repo, user_id, chat_id, "", values, opening=True)
+        self._start(ctx, user_id, chat_id)
+        return turn_payload, job_payload
+
     def photo(self, user_id: str, photo_id: str):
         with self._uow() as uow:
             return uow.repo.message_photo(user_id, photo_id)
@@ -268,7 +281,8 @@ class ConversationService:
         the same words, or the new ones somebody corrected them to - in one
         transaction, so a refused request leaves the conversation as it was.
         Only the latest: answering an earlier message again would leave every
-        reply after it answering something that was no longer said.
+        reply after it answering something that was no longer said. The
+        persona's greeting, with nothing said since, is greeted again.
         """
 
         with self._uow() as uow:
@@ -276,17 +290,22 @@ class ConversationService:
             turns = uow.repo.turns_for_chat(user_id, chat_id)
             if turns and turns[-1].id != turn.id:
                 raise ConflictError("Only the latest message can be answered again.")
-            said = uow.repo.message(turn.user_message_id)
+            opening = turn.user_message_id is None
+            if opening and values.get("text"):
+                raise RequestError("Nothing of yours was said here to correct.", 400)
+            said = uow.repo.message(turn.user_message_id) if turn.user_message_id else None
             text = str(values.get("text") or "").strip() or (said.text if said else "")
             # A photo sent with the message goes with it into the new turn.
             photos = [
                 NormalizedPhoto(row.data, row.width, row.height)
                 for row in uow.repo.photos_for_messages([turn.user_message_id]).get(turn.user_message_id, [])
             ]
-            if not text and not photos:
+            if not opening and not text and not photos:
                 raise RequestError("text required", 400)
             unfinished = self._forget_exchange(uow, chat_id, turn)
-            ctx, turn_payload, job_payload = self._open_turn(uow.repo, user_id, chat_id, text, values, photos)
+            ctx, turn_payload, job_payload = self._open_turn(
+                uow.repo, user_id, chat_id, text, values, photos, opening=opening
+            )
         self._cancel_followups(user_id, unfinished)
         self._start(ctx, user_id, chat_id)
         return turn_payload, job_payload
@@ -345,10 +364,16 @@ class ConversationService:
         except ValueError:
             result = {}
         followups = [*(result.get("followup_job_ids") or []), result.get("memory_extraction_job_id")]
-        said = uow.repo.message(turn.user_message_id)
-        if said:
-            uow.repo.drop_summaries_from(chat_id, said.created_at)
+        # Its first message: what was said, or the reply when the persona spoke first.
+        first_id = turn.user_message_id or turn.assistant_message_id
+        first = uow.repo.message(first_id) if first_id else None
+        if first:
+            uow.repo.drop_summaries_from(chat_id, first.created_at)
         uow.repo.delete_messages([turn.assistant_message_id, turn.user_message_id])
+        if turn.user_message_id is None:
+            # Deleting a message takes its turn with it; a greeting's turn has none to go with.
+            uow.session.delete(turn)
+            uow.session.flush()
         return [value for value in followups if isinstance(value, str) and value]
 
     def _cancel_followups(self, user_id: str, job_ids: list[str]) -> None:
@@ -374,12 +399,21 @@ class ConversationService:
             execution=TurnPipeline(self, ctx).execution(),
         )
 
-    def _open_turn(self, repo, user_id: str, chat_id: str, text: str, values: dict, photos=()):
-        """Resolve the turn against its chat and write it, in one transaction."""
+    def _open_turn(self, repo, user_id: str, chat_id: str, text: str, values: dict, photos=(), opening=False):
+        """Resolve the turn against its chat and write it, in one transaction.
+
+        `opening` is the persona speaking first: no message is written, and the
+        turn is refused once anything has been said or is still being answered.
+        """
 
         chat = repo.chat(user_id, chat_id)
         if not chat:
             raise NotFoundError("chat not found")
+        if opening and (
+            repo.messages(chat_id)
+            or any(row.status not in TERMINAL_STATES for row in repo.turns_for_chat(user_id, chat_id))
+        ):
+            raise ConflictError("This conversation has already begun.")
         # ADR 0032: the chat owns its binding. A payload may still repeat the
         # bound values for compatibility, but may never change them, and is
         # refused before anything durable is written.
@@ -413,17 +447,20 @@ class ConversationService:
             )
 
         stamp = now_ts()
-        user_message = repo.add_message(chat_id, "user", text, created_at=stamp)
-        for photo in photos:
-            repo.add_message_photo(
-                user_id=user_id,
-                message_id=user_message.id,
-                content=photo.content,
-                width=photo.width,
-                height=photo.height,
-                mime_type=PHOTO_MIME_TYPE,
-            )
-        should_generate_title = chat_title_needs_autogeneration(chat.title)
+        user_message_id = None
+        if not opening:
+            user_message_id = repo.add_message(chat_id, "user", text, created_at=stamp).id
+            for photo in photos:
+                repo.add_message_photo(
+                    user_id=user_id,
+                    message_id=user_message_id,
+                    content=photo.content,
+                    width=photo.width,
+                    height=photo.height,
+                    mime_type=PHOTO_MIME_TYPE,
+                )
+        # A greeting is not a title; the first thing somebody says still names the chat.
+        should_generate_title = not opening and chat_title_needs_autogeneration(chat.title)
         deterministic_title = None
         if should_generate_title:
             deterministic_title = generate_chat_title_from_first_user_message(text)
@@ -434,7 +471,7 @@ class ConversationService:
         turn = repo.add_turn(
             user_id=user_id,
             chat_id=chat_id,
-            message_id=user_message.id,
+            message_id=user_message_id,
             provider=PERSONA_PROVIDER,
             model=model,
         )
@@ -458,7 +495,7 @@ class ConversationService:
             explicit_image_request=bool(allow_persona_image_sends and is_high_confidence_image_action_request(text)),
             turn_id=turn.id,
             job_id=job.id,
-            user_message_id=user_message.id,
+            user_message_id=user_message_id,
             should_generate_title=should_generate_title,
             deterministic_title=deterministic_title,
             preferences=preferences,

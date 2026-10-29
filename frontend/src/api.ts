@@ -474,6 +474,15 @@ export class ApiClient {
     });
   }
 
+  /** The persona speaks first, in a conversation where nothing has been said yet. */
+  greet(chatId: string, input: Pick<TurnInput, 'model' | 'memory_mode' | 'model_settings'>): Promise<TurnAccepted> {
+    const { model, memory_mode, model_settings } = input;
+    return this.request(`/chats/${encodeURIComponent(chatId)}/greeting`, {
+      method: 'POST',
+      body: JSON.stringify({ model, memory_mode, model_settings }),
+    });
+  }
+
   /** Answer the latest message again; `text` set means what it was corrected to. */
   answerAgain(chatId: string, messageId: string, input: Omit<TurnInput, 'text'> & { text: string | null }): Promise<TurnAccepted> {
     return this.request(`/chats/${encodeURIComponent(chatId)}/messages/${encodeURIComponent(messageId)}/again`, {

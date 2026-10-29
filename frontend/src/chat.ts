@@ -19,6 +19,7 @@ export class ChatController {
   private onNavigate: (chatId: string) => void = () => undefined;
   private streamAbort: AbortController | null = null;
   private speaker: ReplySpeaker | null = null;
+  private greetFor: string | null = null;
   private readonly capabilityPolls = new Set<string>();
 
   constructor(
@@ -67,6 +68,10 @@ export class ChatController {
       this.appState.uiError = '';
       this.stateMachine.transition('idle');
       this.resumeCapabilities(detail.chat.id, capabilities.items);
+      if (this.greetFor === chatId) {
+        this.greetFor = null;
+        if (!detail.messages.length) void this.greet(detail.chat);
+      }
     } catch (error) {
       this.appState.uiError = errorMessage(error, 'Unable to open this chat.');
       this.stateMachine.transition('error');
@@ -98,6 +103,11 @@ export class ChatController {
     return chat;
   }
 
+  /** Have the persona speak first once this new conversation is open (ADR 0052). */
+  greetWhenOpened(chatId: string): void {
+    this.greetFor = chatId;
+  }
+
   /** Send a message, with a photo when one was chosen (ADR 0046). */
   async send(rawText: string, photo: string | null = null): Promise<void> {
     const text = rawText.trim();
@@ -117,10 +127,12 @@ export class ChatController {
     const said = this.appState.messages[start];
     const corrected = rawText?.trim() || null;
     const text = corrected ?? said?.text ?? '';
-    if (!chat || !said || !text || !this.readyForTurn()) return;
+    // Nothing said yet: the reply is the persona's greeting, and it greets again.
+    const greeting = !said && this.appState.messages.some((message) => message.role === 'assistant');
+    if (!chat || (!greeting && !text) || !this.readyForTurn()) return;
     this.appState.editingMessageId = null;
-    this.appState.messages = this.appState.messages.slice(0, start);
-    await this.runTurn(chat, text, (input) => this.client.answerAgain(chat.id, messageId, { ...input, text: corrected }));
+    this.appState.messages = this.appState.messages.slice(0, Math.max(start, 0));
+    await this.runTurn(chat, greeting ? null : text, (input) => this.client.answerAgain(chat.id, messageId, { ...input, text: corrected }));
   }
 
   /** Delete a message and the reply it belongs with. */
@@ -148,6 +160,12 @@ export class ChatController {
     }
   }
 
+  /** The persona's first words. If they cannot be had, nothing is said: the chat still invites the first word. */
+  private async greet(chat: Chat): Promise<void> {
+    if (!this.readyForTurn()) return;
+    await this.runTurn(chat, null, (input) => this.client.greet(chat.id, input));
+  }
+
   private readyForTurn(): boolean {
     // Speech while the reply is still being written is not barge-in: the
     // stop control ends the turn and its speech together. Once the reply is
@@ -158,9 +176,10 @@ export class ChatController {
     return ['idle', 'transcribing'].includes(this.appState.phase);
   }
 
+  /** One reply, streamed and spoken. `text` null is the persona speaking first, with nothing said. */
   private async runTurn(
     chat: Chat,
-    text: string,
+    text: string | null,
     accept: (input: TurnInput) => Promise<TurnAccepted>,
     photo: string | null = null,
   ): Promise<void> {
@@ -168,23 +187,26 @@ export class ChatController {
     const persona = this.appState.personas.find((item) => item.id === chat.persona_id);
     const model = this.appState.selectedModel ?? chat.model_override ?? persona?.default_model ?? settings.global_default_model;
     const memoryMode = this.appState.selectedMemoryMode ?? chat.memory_mode ?? settings.default_memory_mode;
-    const optimisticUser: Message = {
+    const now = Math.floor(Date.now() / 1000);
+    const optimisticUser: Message | null = text === null ? null : {
       id: clientId('local-user'),
       role: 'user',
       text,
-      created_at: Math.floor(Date.now() / 1000),
+      created_at: now,
       ...(photo ? { photos: [{ id: 'local-photo', url: photo, width: 0, height: 0 }] } : {}),
     };
     const typing: Message = {
       id: clientId('typing'),
       role: 'assistant',
       text: '',
-      created_at: optimisticUser.created_at,
+      created_at: now,
       isTyping: true,
     };
-    this.appState.messages.push(optimisticUser, typing);
-    this.appState.draftMessage = '';
-    this.appState.draftPhoto = null;
+    this.appState.messages.push(...(optimisticUser ? [optimisticUser] : []), typing);
+    if (optimisticUser) {
+      this.appState.draftMessage = '';
+      this.appState.draftPhoto = null;
+    }
     this.appState.uiError = '';
     this.stateMachine.transition('queued');
     this.onChange();
@@ -193,13 +215,13 @@ export class ChatController {
     let reachedServer = false;
     try {
       const accepted = await accept({
-        text,
+        text: text ?? '',
         model: model || null,
         memory_mode: memoryMode,
         model_settings: modelSettings(settings, model || ''),
       });
       reachedServer = true;
-      optimisticUser.id = accepted.turn.user_message_id;
+      if (optimisticUser && accepted.turn.user_message_id) optimisticUser.id = accepted.turn.user_message_id;
       typing.id = `typing-${accepted.turn.id}`;
       const abort = new AbortController();
       ownedJobId = accepted.job.id;
@@ -261,14 +283,15 @@ export class ChatController {
       this.appState.messages = this.appState.messages.filter((message) => message !== typing);
       // Never accepted, so nothing was kept: put the words back where they
       // were typed rather than lose them with the failure.
-      if (!reachedServer && !this.appState.draftMessage) this.appState.draftMessage = text;
+      if (!reachedServer && text && !this.appState.draftMessage) this.appState.draftMessage = text;
       if (!reachedServer && photo && !this.appState.draftPhoto) this.appState.draftPhoto = photo;
       try {
         await this.reconcileChat(chat.id);
       } catch {
         // Preserve the original turn outcome when metadata reconciliation is unavailable.
       }
-      if (!aborted) {
+      // A greeting that could not be made is not a failure anybody needs to see.
+      if (!aborted && text !== null) {
         this.appState.uiError = errorMessage(error, 'The conversation turn failed.');
         this.stateMachine.transition('error');
       } else if (this.appState.phase !== 'idle') {

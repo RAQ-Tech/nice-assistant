@@ -545,7 +545,25 @@ Batch 4 of the same review: the first five minutes. See
   spoken in.
 
 What is left is the password manager in a real browser profile, item 20 in
-section 4.
+section 4. The voice choice and the greeting the plan also promised followed as
+1P.
+
+### 1P. The persona speaks first - delivered 2026-10-29
+
+The two promises of the first-run plan that 1L did not keep. See
+[ADR 0052](docs/decisions/0052-the-persona-speaks-first.md).
+
+- The first conversation opens with the persona greeting the owner in its own
+  words, streamed and spoken like any reply. Nothing is stored that a later
+  prompt could replay as the owner's words; if the model cannot be reached,
+  the quiet "Say hello to Nova." is all there is.
+- Setup offers the persona's voice, by ear, when the local speech service
+  speaks replies, and keeps it on the persona.
+- A reply on its way shows three dots, not "Queued" or "Thinking…".
+
+A new account starts with spoken replies off, so on a fresh install the voice
+is chosen later, on the persona's page. What is left is hearing the greeting
+from a real model in the chosen voice, item 22 in section 4.
 
 ### 1O. Choosing a voice by ear - delivered 2026-10-29
 
@@ -836,6 +854,13 @@ than from a checklist, and to exercise preset routing on the way.
     when** it opens full-screen from its icon, a drifting hold still sends,
     the screen stays on through the conversation, and the reply is read
     once. Source: ADR 0050.
+22. **Being greeted by a real model, in the chosen voice.** Tests prove the
+    greeting turn and its prompt with a fake model and fake speech. On the
+    deployment, with the local speech service on: make a new account, choose a
+    voice by ear on the setup page, and start talking. **Done when** the persona
+    greets you first in a sentence or two of its own, in the voice chosen, the
+    sample and the greeting sound alike, and the next reply answers what you
+    said rather than the request to greet. Source: ADR 0052.
 
 ## 5. Temporary by agreement
 

@@ -275,6 +275,15 @@ that could be cancelled into a dead composer. Signing in is `auth_view.ts`, a
 real form that password managers recognise; it asks `GET /api/v1/signup`
 whether an account can be created before offering to.
 
+When the local speech service speaks replies, setup carries its own
+`VoicePicker` (ADR 0051), and the chosen voice goes on the new persona under
+`local`. Setup hands the new chat to `ChatController.greetWhenOpened`; once the
+chat has loaded and is still empty, the controller asks
+`POST /api/v1/chats/{id}/greeting` and runs the same turn path a sent message
+does - streamed, spoken - with no message of the owner's in front of it, and
+with failure kept silent so the empty chat's invitation stands (ADR 0052). A
+reply on its way is three dots rather than the job's progress text.
+
 The chat header carries the mark from `web/favicon.svg` as a link to `#/`. An
 anchor rather than a button, so keyboard reach, middle-click, and history come
 from the browser rather than from handlers this repository would have to keep

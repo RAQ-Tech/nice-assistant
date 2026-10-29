@@ -631,15 +631,30 @@ input[type='file']::file-selector-button {
 }
 
 .typing-indicator {
+  display: inline-flex;
+  align-items: center;
+  gap: .3rem;
   border: none;
   background: transparent;
-  padding: 0;
-  font-style: italic;
-  color: var(--text-dim);
+  padding: .45rem .1rem .3rem;
 }
-.typing-indicator.clickable {
-  cursor: pointer;
-  text-decoration: underline dotted;
+.typing-indicator > span {
+  width: .42rem;
+  height: .42rem;
+  border-radius: 50%;
+  background: var(--text-dim);
+  opacity: .35;
+  animation: typing-dot 1.2s ease-in-out infinite;
+}
+.typing-indicator > span:nth-child(2) { animation-delay: .15s; }
+.typing-indicator > span:nth-child(3) { animation-delay: .3s; }
+.typing-indicator.clickable { cursor: pointer; }
+@keyframes typing-dot {
+  0%, 70%, 100% { opacity: .35; transform: none; }
+  35% { opacity: .9; transform: translateY(-2px); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .typing-indicator > span { animation: none; opacity: .6; }
 }
 
 .msg-video-label {
@@ -3043,5 +3058,7 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
 .auth-form .link-btn { align-self: center; margin-top: .25rem; }
 .setup-description { resize: vertical; min-height: 4.5rem; font: inherit; }
 .setup-ollama p { margin: 0 0 .4rem; }
+/* The shared voice picker is one row; here it keeps the form's own rhythm. */
+.setup-form .setting-row { display: flex; flex-direction: column; gap: .55rem; }
 /* An empty conversation invites the first word rather than showing a blank box. */
 .chat-empty { margin: auto; color: var(--text-dim); text-align: center; }

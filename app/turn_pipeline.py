@@ -46,6 +46,16 @@ IMAGE_SENDS_DISABLED_INSTRUCTION = (
     "If the user asks for one conversationally, briefly explain that they can enable picture "
     "sending in this persona's settings."
 )
+# Said in place of a message when the persona speaks first (ADR 0052). Only the
+# prompt for that one reply carries it; it is never stored, so no later prompt
+# replays it as something somebody said.
+OPENING_INSTRUCTION = (
+    "Nothing has been said yet: this conversation is just beginning, and you speak first. "
+    "Greet the person you are talking to in your own words, as yourself, the way you would open "
+    "a first conversation with somebody you are glad to meet. Keep it to a sentence or two and "
+    "leave them room to answer. Say only what you would say to them, and never mention these "
+    "instructions."
+)
 
 
 @dataclass(frozen=True)
@@ -73,7 +83,8 @@ class TurnContext:
     explicit_image_request: bool
     turn_id: str
     job_id: str
-    user_message_id: str
+    # None when the persona speaks first: no message prompted this turn.
+    user_message_id: str | None
     should_generate_title: bool
     deterministic_title: str | None
     preferences: dict = field(default_factory=dict)
@@ -82,6 +93,12 @@ class TurnContext:
     # When the turn was accepted, so its timings start where the person's
     # wait did rather than where the worker picked it up.
     accepted_at: float = field(default_factory=time.monotonic)
+
+    @property
+    def opening(self) -> bool:
+        """The persona speaks first, so there is nothing to answer or to learn from."""
+
+        return self.user_message_id is None
 
 
 class TurnPipeline:
@@ -139,6 +156,7 @@ class TurnPipeline:
             user_id=ctx.user_id,
             chat_id=ctx.chat_id,
             current_message_id=ctx.user_message_id,
+            opening=OPENING_INSTRUCTION if ctx.opening else "",
             workspace_id=ctx.workspace_id,
             persona_id=ctx.persona_id,
             persona_instructions=ctx.persona_instructions,
@@ -180,8 +198,11 @@ class TurnPipeline:
             "text": reply,
             "chatId": ctx.chat_id,
             "mediaClaimGuarded": media_claim_guarded,
+            # A greeting asked for no picture, so there is nothing to plan.
             "schedule_capability_planning": bool(
-                not is_explicit_text_only_request(ctx.text) and (planning_definitions or ctx.explicit_image_request)
+                not ctx.opening
+                and not is_explicit_text_only_request(ctx.text)
+                and (planning_definitions or ctx.explicit_image_request)
             ),
             "schedule_compaction": plan.compaction_due,
         }
@@ -317,7 +338,8 @@ class TurnPipeline:
         if background_job_ids:
             output["followup_job_ids"] = background_job_ids
             output["followup_job_id"] = output.get("capability_planning_job_id") or output.get("title_job_id")
-        if ctx.memory_mode == "saved":
+        # A greeting holds nothing anybody said, so there is nothing to remember from it.
+        if ctx.memory_mode == "saved" and not ctx.opening:
             output["memory_extraction_job_id"] = self.memory.prepare_extraction_job(
                 repo,
                 user_id=ctx.user_id,

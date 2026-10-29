@@ -201,6 +201,13 @@ class TurnAgain(StrictModel):
     model_settings: ModelGenerationSettings = Field(default_factory=ModelGenerationSettings)
 
 
+class TurnGreeting(StrictModel):
+    # The persona speaks first, so there are no words; only how the reply is made.
+    model: str | None = None
+    memory_mode: str | None = Field(default=None, pattern="^(off|saved)$")
+    model_settings: ModelGenerationSettings = Field(default_factory=ModelGenerationSettings)
+
+
 class ProviderCheck(StrictModel):
     provider: str
     settings: dict = Field(default_factory=dict)
@@ -501,7 +508,8 @@ class TurnRepresentation(BaseModel):
     status: TurnState
     provider: str
     model: str
-    user_message_id: str
+    # None for a turn the persona opened: nothing was said before it.
+    user_message_id: str | None = None
     assistant_message_id: str | None = None
     accumulated_text: str = ""
     error: TurnErrorRepresentation | None = None
