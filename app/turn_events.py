@@ -62,13 +62,27 @@ class TurnEventBroker:
             self._prune_locked()
             return self._streams.setdefault(turn_id, _TurnStream(self.max_events, self.max_bytes))
 
+    def _existing(self, turn_id: str) -> _TurnStream | None:
+        """The stream if one is live, without making one.
+
+        Only a stream that has ended is ever pruned, so a stream made by reading
+        a turn that finished long ago - every page that opens an old chat does
+        this - would never end and never be pruned. Reading leaves no trace.
+        """
+
+        with self._lock:
+            self._prune_locked()
+            return self._streams.get(turn_id)
+
     def publish(self, turn_id: str, event: str, data: dict) -> TurnEvent:
         if self._stopped:
             return TurnEvent(0, event, data)
         return self._stream(turn_id).publish(event, data)
 
     def subscribe(self, turn_id: str, snapshot: dict, last_event_id: int | None = None):
-        stream = self._stream(turn_id)
+        finished = snapshot.get("status") in {"completed", "failed", "cancelled"}
+        # A finished turn will publish nothing more; waiting on it needs no new stream.
+        stream = self._existing(turn_id) if finished else self._stream(turn_id)
         cursor = max(0, int(last_event_id or 0))
         # A subscriber applies the snapshot's accumulated_text as authoritative, so any
         # delta already folded into it would be rendered a second time if replayed. State
@@ -80,9 +94,11 @@ class TurnEventBroker:
             return event.event == "assistant.delta" and event.sequence <= text_cursor
 
         yield TurnEvent(0, "turn.snapshot", snapshot)
+        if stream is None:
+            return
         with stream.condition:
             replay_available = any(event.sequence > cursor and not covered(event) for event in stream.events)
-        if snapshot.get("status") in {"completed", "failed", "cancelled"} and not replay_available:
+        if finished and not replay_available:
             return
         while not self._stopped:
             heartbeat = False
@@ -113,7 +129,9 @@ class TurnEventBroker:
                 stream.condition.notify_all()
 
     def accumulated_text(self, turn_id: str) -> str:
-        stream = self._stream(turn_id)
+        stream = self._existing(turn_id)
+        if stream is None:
+            return ""
         with stream.condition:
             return stream.accumulated_text
 
@@ -124,7 +142,9 @@ class TurnEventBroker:
         a delta landing between two separate reads would otherwise be applied twice.
         """
 
-        stream = self._stream(turn_id)
+        stream = self._existing(turn_id)
+        if stream is None:
+            return "", 0
         with stream.condition:
             return stream.accumulated_text, stream.text_sequence
 

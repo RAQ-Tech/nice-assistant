@@ -657,8 +657,8 @@ class MediaCatalogService:
             )
             if model_id and not model:
                 raise NotFoundError("media catalog model not found")
-            installed = {}
-            installed_counts = {}
+            installed: dict[str, Any] = {}
+            installed_counts: dict[str, int] = {}
             for row in resources:
                 if row.resource_type != "workflow" or not row.source_template_id:
                     continue

@@ -152,7 +152,7 @@ class SpeechService:
     def _session_piece(self, session, plan: dict, cancelled):
         started = time.monotonic()
         outcome = "failed"
-        produced = []
+        produced: list[bytes] = []
         try:
             for piece in self._provider_stream(plan, cancelled):
                 if not produced:
@@ -211,7 +211,7 @@ class SpeechService:
     def _streamed_audio(self, user_id: str, plan: dict, audio_id: str, cancelled):
         started = time.monotonic()
         outcome = "failed"
-        collected = []
+        collected: list[bytes] = []
         try:
             for piece in self._provider_stream(plan, cancelled):
                 if not collected:

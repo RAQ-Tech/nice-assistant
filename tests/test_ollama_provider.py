@@ -110,7 +110,9 @@ class OllamaProviderTests(unittest.TestCase):
 
     def test_midstream_error_and_malformed_frame_are_normalized(self):
         for frame, code in ((b'{"error":"boom"}\n', "stream_error"), (b"not-json\n", "invalid_stream")):
-            provider = OllamaChatProvider("http://ollama", opener=lambda *_args, **_kwargs: FakeResponse([frame]))
+            provider = OllamaChatProvider(
+                "http://ollama", opener=lambda *_args, _frame=frame, **_kwargs: FakeResponse([_frame])
+            )
             with self.assertRaises(ProviderError) as raised:
                 list(provider.stream(self.request(), CancellationToken()))
             self.assertEqual(raised.exception.code, code)

@@ -155,8 +155,11 @@ class ApplicationRepository:
         row = self.session.get(AppSetting, user_id)
         if not row:
             return None
+        return self._settings_response(row)
+
+    def _settings_response(self, row: AppSetting) -> dict:
         values = self.session.scalars(
-            select(SettingValue).where(SettingValue.user_id == user_id).order_by(SettingValue.key)
+            select(SettingValue).where(SettingValue.user_id == row.user_id).order_by(SettingValue.key)
         ).all()
         if values:
             preferences = {}
@@ -201,7 +204,9 @@ class ApplicationRepository:
         if not preserve_secret and submitted_key:
             row.openai_api_key = None
             row.openai_api_key_encrypted = self.secret_store.encrypt(submitted_key)
-        preferences = values.get("preferences") if isinstance(values.get("preferences"), dict) else {}
+        preferences = values.get("preferences")
+        if not isinstance(preferences, dict):
+            preferences = {}
         row.preferences_json = json.dumps(preferences, separators=(",", ":"))
         self.session.execute(delete(SettingValue).where(SettingValue.user_id == user_id))
         stamp = now_ts()
@@ -216,7 +221,7 @@ class ApplicationRepository:
                 )
             )
         self.session.flush()
-        return self.settings(user_id)
+        return self._settings_response(row)
 
     # Shared provider resource coordination
     def resource_coordination_setting(self):
@@ -957,27 +962,16 @@ class ApplicationRepository:
         if persona_id:
             scopes.append(and_(Memory.tier == "persona", Memory.tier_ref_id == persona_id))
         scopes.append(and_(Memory.tier == "chat", Memory.tier_ref_id == chat_id))
+        in_scope = (Memory.user_id == user_id, Memory.status == "active", or_(*scopes))
         limit = min(100, max(1, int(limit)))
         recent = list(
             self.session.scalars(
-                select(Memory)
-                .where(
-                    Memory.user_id == user_id,
-                    Memory.status == "active",
-                    or_(*scopes),
-                )
-                .order_by(Memory.updated_at.desc(), Memory.id.desc())
-                .limit(limit)
+                select(Memory).where(*in_scope).order_by(Memory.updated_at.desc(), Memory.id.desc()).limit(limit)
             ).all()
         )
-        semantic_ids = self._semantic_memory_ids(user_id, query_vector, recent, limit)
+        semantic_ids = self._semantic_memory_ids(in_scope, query_vector, limit)
         if not search_query:
-            if not semantic_ids:
-                return recent
-            by_recent = {row.id: row for row in recent}
-            ranked = [by_recent[memory_id] for memory_id in semantic_ids if memory_id in by_recent]
-            ranked.extend(row for row in recent if row.id not in set(semantic_ids))
-            return ranked[:limit]
+            return self._promoted(user_id, semantic_ids, recent, limit)
 
         clauses = ["m.tier='global'"]
         params = {"user_id": user_id, "query": search_query, "limit": limit}
@@ -1003,29 +997,48 @@ class ApplicationRepository:
         )
         ordered_ids = list(matched_ids)
         ordered_ids.extend(memory_id for memory_id in semantic_ids if memory_id not in set(matched_ids))
+        return self._promoted(user_id, ordered_ids, recent, limit)
+
+    def _promoted(self, user_id: str, ordered_ids: list[str], recent: list, limit: int) -> list:
+        """The promoted memories in their order, then the recent ones not already among them."""
+
         if not ordered_ids:
             return recent
-        matched_rows = list(
-            self.session.scalars(select(Memory).where(Memory.user_id == user_id, Memory.id.in_(ordered_ids))).all()
-        )
-        by_id = {row.id: row for row in matched_rows}
+        by_id = {row.id: row for row in recent}
+        missing = [memory_id for memory_id in ordered_ids if memory_id not in by_id]
+        if missing:
+            by_id.update(
+                (row.id, row)
+                for row in self.session.scalars(
+                    select(Memory).where(Memory.user_id == user_id, Memory.id.in_(missing))
+                ).all()
+            )
         ranked = [by_id[memory_id] for memory_id in ordered_ids if memory_id in by_id]
         seen = set(ordered_ids)
         ranked.extend(row for row in recent if row.id not in seen)
         return ranked[:limit]
 
-    def _semantic_memory_ids(self, user_id: str, query_vector, recent, limit: int) -> list[str]:
+    def _semantic_memory_ids(self, in_scope, query_vector, limit: int) -> list[str]:
         """Memory ids whose meaning is close to the question, best first.
 
-        Only the memories already in scope are considered, and only a bounded
-        number of them, so this costs the same whether the assistant remembers a
-        hundred things or ten thousand. A vector from a different model scores
-        zero rather than raising: one stale row must not break a retrieval.
+        The question is compared with the newest `MAX_CANDIDATES` stored vectors
+        in scope - not just the memories recency already put in front of the
+        model, which made the comparison find only what was there anyway. Only
+        identifiers and vectors are read, and the count is bounded, so this
+        costs the same whether the assistant remembers four hundred things or
+        ten thousand. A vector from a different model scores zero rather than
+        raising: one stale row must not break a retrieval.
         """
 
         if not query_vector:
             return []
-        candidates = [(row.id, unpack(row.embedding)) for row in recent[:MAX_CANDIDATES] if row.embedding]
+        rows = self.session.execute(
+            select(Memory.id, Memory.embedding)
+            .where(*in_scope, Memory.embedding.is_not(None))
+            .order_by(Memory.updated_at.desc(), Memory.id.desc())
+            .limit(MAX_CANDIDATES)
+        ).all()
+        candidates = ((memory_id, unpack(raw)) for memory_id, raw in rows)
         return [memory_id for memory_id, _score in rank(query_vector, candidates)][:limit]
 
     def memories_needing_embedding(self, model: str, limit: int = 50):
@@ -1666,7 +1679,7 @@ class ApplicationRepository:
     def capability_requests_for_turns(self, turn_ids) -> dict:
         """Each turn's requests in the order `capability_requests_for_turn` gives them."""
 
-        grouped = {turn_id: [] for turn_id in dict.fromkeys(turn_ids) if turn_id}
+        grouped: dict[str, list] = {turn_id: [] for turn_id in dict.fromkeys(turn_ids) if turn_id}
         ids = list(grouped)
         for start in range(0, len(ids), IN_CLAUSE_CHUNK):
             chunk = ids[start : start + IN_CLAUSE_CHUNK]

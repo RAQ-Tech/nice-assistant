@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 import json
-from typing import Literal
+from typing import Any, Literal
 
 from app.provider_contracts import ChatToolCall
 from app.service_errors import RequestError
@@ -21,13 +21,16 @@ CAPABILITY_LEGAL_TRANSITIONS = {
 }
 
 
+MediaOperation = Literal["generate", "inpaint", "outpaint", "image_to_image"]
+
+
 @dataclass(frozen=True)
 class MediaTaskRequirements:
     """Semantic media request. Resource identity is deliberately excluded."""
 
     kind: Literal["image", "video"]
     prompt: str
-    operation: Literal["generate", "inpaint", "outpaint", "image_to_image"] = "generate"
+    operation: MediaOperation = "generate"
     domains: tuple[str, ...] = ()
     content_tags: tuple[str, ...] = ()
     required_features: tuple[str, ...] = ()
@@ -46,7 +49,7 @@ class MediaTaskRequirements:
     preferred_preset_id: str = ""
 
     def as_arguments(self) -> dict:
-        arguments = {
+        arguments: dict[str, Any] = {
             "prompt": self.prompt,
             "operation": self.operation,
             "domains": list(self.domains),
@@ -190,7 +193,9 @@ class CapabilityRegistry:
 def capability_tool_result(capability: dict) -> str:
     """Return the minimal safe result sent back into future model context."""
 
-    result = capability.get("result") if isinstance(capability.get("result"), dict) else {}
+    result = capability.get("result")
+    if not isinstance(result, dict):
+        result = {}
     payload = {
         "capability": capability.get("capability_key"),
         "status": capability.get("status"),

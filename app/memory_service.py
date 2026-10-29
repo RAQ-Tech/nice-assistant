@@ -5,6 +5,7 @@ import re
 import unicodedata
 
 from sqlalchemy.exc import IntegrityError
+from collections.abc import Sequence
 
 from app.auth import redact_sensitive_text
 from app.job_service import JobExecution, JobService
@@ -407,7 +408,7 @@ class MemoryService:
             uow.repo.delete_memory(row)
             return {"ok": True, "id": deleted_id, "deleted": True}
 
-    def bulk_action(self, user_id: str, action: str, memory_ids: list[str]) -> dict:
+    def bulk_action(self, user_id: str, action: str, memory_ids: Sequence[str]) -> dict:
         ids = list(dict.fromkeys(str(value).strip() for value in memory_ids if str(value).strip()))
         if not ids:
             raise RequestError("At least one item must be selected.", 400)

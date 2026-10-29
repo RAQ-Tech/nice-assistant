@@ -12,6 +12,7 @@ an operator can read what was sent and reproduce it exactly.
 """
 
 from __future__ import annotations
+from typing import Any
 
 from app.media import clean_user_image_prompt
 from app.media_scene import render_scene, scene_is_empty
@@ -128,7 +129,7 @@ def compile_prompt(intent: str, dialect=None, *, loras=(), allow_nsfw: bool = Tr
     request.
     """
 
-    resolved = dialect if isinstance(dialect, dict) and dialect else dict(DEFAULT_DIALECT)
+    resolved: dict[str, Any] = dialect if isinstance(dialect, dict) and dialect else dict(DEFAULT_DIALECT)
     style = resolved.get("style") or "natural_language"
     # A planned request carries a typed scene; a direct request carries the
     # user's own words, which are already what they asked for.

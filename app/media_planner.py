@@ -492,7 +492,7 @@ def _resolve_stages(definition: dict, workflow, resources) -> tuple[list, list]:
         if index and not row:
             reasons.append(f"stage '{name}' has no workflow, so it cannot receive the previous stage's image")
             continue
-        if index and not _json(row.default_settings_json, {}).get("source_image_bindings"):
+        if index and row and not _json(row.default_settings_json, {}).get("source_image_bindings"):
             reasons.append(f"stage '{name}' has no source image binding, so it cannot receive the previous image")
             continue
         stages.append((name, row))
@@ -573,7 +573,7 @@ def _fill_slots(
     catalog compatibility edges still decide what may fill it.
     """
 
-    chosen = []
+    chosen: list = []
     used = set(taken)
     domains = set(coverage_domains)
     content = set(coverage_content)

@@ -44,7 +44,7 @@ class RedactedJsonFormatter(logging.Formatter):
     def format(self, record: logging.LogRecord) -> str:
         message = redact_sensitive_text(record.getMessage())
         if record.exc_info:
-            message = f"{message} exception={record.exc_info[0].__name__}"
+            message = f"{message} exception={getattr(record.exc_info[0], '__name__', 'Exception')}"
             location = exception_location(record.exc_info)
             if location:
                 message = f"{message} at {location}"

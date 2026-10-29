@@ -7,7 +7,7 @@ import zipfile
 from pathlib import Path
 from unittest import mock
 
-from app import auth, chat, media, providers, settings
+from app import auth, chat, media, providers
 from app.provider_contracts import CancellationToken, ProviderError
 from app.speech_clients import openai_speech
 from app.storage import BackupStore, backup_name_from_api_path, read_json, safe_name
@@ -57,6 +57,8 @@ class RefactoredModuleContractTests(unittest.TestCase):
     def test_extracted_helpers_keep_safe_contracts(self):
         password_hash = auth.hash_password("pass1234")
         self.assertTrue(auth.verify_password("pass1234", password_hash))
+        self.assertFalse(auth.verify_password("pass12345", password_hash))
+        self.assertFalse(auth.verify_password("pass1234", "not-a-stored-hash"))
         sensitive = "openai_api_key=sk-contractsecret123456 bearer abcdefghijklmnop"
         self.assertNotIn("sk-contractsecret123456", auth.redact_sensitive_text(sensitive))
         self.assertEqual(chat.generate_chat_title("Please explain durable queues"), "explain durable queues")

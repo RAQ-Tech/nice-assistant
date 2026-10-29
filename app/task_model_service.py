@@ -193,7 +193,7 @@ class TaskModelService:
             )
 
         started = time.monotonic()
-        attempts = []
+        attempts: list[dict] = []
         resolved_attempts = self._resolved_attempts(profile_data)
         if not resolved_attempts:
             return self._fallback_or_raise(
@@ -485,7 +485,7 @@ class TaskModelService:
 
     @staticmethod
     def _wire(value: Any) -> Any:
-        if is_dataclass(value):
+        if is_dataclass(value) and not isinstance(value, type):
             return asdict(value)
         return value
 

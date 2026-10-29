@@ -3,12 +3,14 @@ from __future__ import annotations
 from dataclasses import dataclass
 import json
 import secrets
+from typing import Any, cast
 
 from app.auth import redact_sensitive_text
 from app.capability_contracts import (
     CAPABILITY_LEGAL_TRANSITIONS,
     CAPABILITY_TERMINAL_STATES,
     CapabilityRegistry,
+    MediaOperation,
 )
 from app.job_service import JobExecution, JobService
 from app.identity_conditioning import IDENTITY_CONTROL_FEATURE
@@ -321,7 +323,7 @@ class CapabilityService:
             for item in offered.available
         ]
         definitions = self.planning_definitions(user_id)
-        result = {
+        result: dict[str, Any] = {
             "message": message[:2000],
             "shortlist": shortlist,
             "requested": False,
@@ -739,7 +741,8 @@ class CapabilityService:
             requirements = requirements.__class__(
                 kind=requirements.kind,
                 prompt=requirements.prompt,
-                operation=request.operation,
+                # Checked against the offered operations when the plan was parsed.
+                operation=cast(MediaOperation, request.operation),
                 domains=request.domains,
                 content_tags=request.content_tags,
                 required_features=request.required_features,
@@ -1121,8 +1124,8 @@ class CapabilityService:
                     to_status="queued",
                     detail={"source": "explicit_user_action"},
                 )
-                if chat_id:
-                    assistant = uow.repo.add_message(chat_id, "assistant", "")
+                if chat:
+                    assistant = uow.repo.add_message(chat.id, "assistant", "")
                     chat.updated_at = now_ts()
                     uow.repo.add_chat_attachment(
                         user_id=user_id,
@@ -1267,7 +1270,7 @@ class CapabilityService:
             response = self._response(uow.repo, row, job=job)
             kind = definition.kind
             chat_id = original.chat_id
-        if submit:
+        if submit and job:
             self._submit(response["id"], job.id, kind, user_id, chat_id, values)
         return response
 
@@ -1383,7 +1386,7 @@ class CapabilityService:
             response = self._response(uow.repo, row, job=job)
             kind = definition.kind
             chat_id = original.chat_id
-        if submit:
+        if submit and job:
             self._submit(response["id"], job.id, kind, user_id, chat_id, values)
         return response
 

@@ -346,7 +346,7 @@ class MediaService:
                         error_message=exc.user_message,
                     )
                 raise
-            except Exception as exc:
+            except Exception:
                 if attempt and not self._attempt_terminal(attempt):
                     self._finish_attempt(
                         attempt,

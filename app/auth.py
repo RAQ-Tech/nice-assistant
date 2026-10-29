@@ -1,5 +1,6 @@
 import base64
 import hashlib
+import hmac
 import re
 import secrets
 
@@ -14,7 +15,8 @@ def verify_password(password: str, stored: str) -> bool:
     try:
         salt, digest = stored.split("$", 1)
         dk = hashlib.pbkdf2_hmac("sha256", password.encode(), salt.encode(), 120000)
-        return base64.b64encode(dk).decode() == digest
+        # Constant time, so how long a wrong guess takes says nothing about how close it was.
+        return hmac.compare_digest(base64.b64encode(dk).decode(), digest)
     except Exception:
         return False
 

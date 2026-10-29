@@ -3,7 +3,6 @@ from __future__ import annotations
 import asyncio
 import json
 import mimetypes
-from pathlib import Path
 from typing import Literal
 
 from fastapi import APIRouter, Cookie, Depends, File, Header, Query, Request, Response, UploadFile
@@ -667,7 +666,7 @@ class MediaCatalogResourceWrite(StrictModel):
     enabled: bool = True
     priority: int = Field(default=50, ge=0, le=100)
     operations: list[Literal["generate", "inpaint", "outpaint", "image_to_image"]] = Field(
-        default_factory=lambda: ["generate"], min_length=1, max_length=4
+        default=["generate"], min_length=1, max_length=4
     )
     domains: list[str] = Field(default_factory=list, max_length=64)
     content_tags: list[str] = Field(default_factory=list, max_length=64)

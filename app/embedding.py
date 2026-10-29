@@ -27,9 +27,10 @@ import urllib.request
 # nomic-embed-text, 1024 for mxbai-embed-large - and a refusal past that, since
 # a vector this large is a misconfiguration rather than a better answer.
 MAX_DIMENSIONS = 4096
-# How many stored vectors one question is compared against. Comparison is a few
-# microseconds each, so this is the ceiling on the whole added cost rather than
-# a quality limit; beyond it, recency has already decided.
+# How many stored vectors one question is compared against: the newest this many
+# in scope. Measured at about 30 microseconds each for a 768-dimension vector,
+# so about 12 ms for all of them on a desktop CPU. That cost is the reason for
+# the ceiling; beyond it, recency has already decided.
 MAX_CANDIDATES = 400
 # Measured, not guessed. Against twelve ordinary memories and nine questions on
 # a real nomic-embed-text, right answers scored 0.42 to 0.64 and wrong ones had

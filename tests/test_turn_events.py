@@ -35,6 +35,26 @@ class TurnEventBrokerTests(unittest.TestCase):
         self.assertEqual(events[0].event, "turn.snapshot")
         self.assertEqual(events[0].data["accumulated_text"], "durable")
 
+    def test_reading_finished_turns_leaves_nothing_behind(self):
+        # Every page that opens an old chat reads its turns. Each read used to
+        # leave an empty stream that never ended, so it was never pruned.
+        broker = TurnEventBroker()
+        for index in range(1000):
+            turn_id = f"old-{index}"
+            self.assertEqual(broker.snapshot_state(turn_id), ("", 0))
+            self.assertEqual(broker.accumulated_text(turn_id), "")
+            events = list(broker.subscribe(turn_id, {"status": "completed"}))
+            self.assertEqual([event.event for event in events], ["turn.snapshot"])
+        self.assertEqual(broker._streams, {})
+
+    def test_a_subscriber_can_wait_for_a_turn_that_has_not_published_yet(self):
+        broker = TurnEventBroker()
+        stream = broker.subscribe("queued", {"status": "queued"})
+        self.assertEqual(next(stream).event, "turn.snapshot")
+        broker.publish("queued", "assistant.delta", {"text": "hi"})
+        broker.publish("queued", "turn.completed", {})
+        self.assertEqual([event.event for event in stream if event], ["assistant.delta", "turn.completed"])
+
 
 if __name__ == "__main__":
     unittest.main()

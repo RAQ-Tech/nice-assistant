@@ -51,8 +51,8 @@ def parse_additional_parameters(raw):
         return {}
     try:
         parsed = json.loads(text)
-    except (TypeError, ValueError):
-        raise ValueError("Additional Parameters must be valid JSON object text")
+    except (TypeError, ValueError) as exc:
+        raise ValueError("Additional Parameters must be valid JSON object text") from exc
     if not isinstance(parsed, dict):
         raise ValueError("Additional Parameters must be a JSON object")
     return parsed

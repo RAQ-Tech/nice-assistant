@@ -1,5 +1,3 @@
-import json
-
 from app.media import (
     IMAGE_QUALITY_ALIASES,
     IMAGE_QUALITY_VALUES,
