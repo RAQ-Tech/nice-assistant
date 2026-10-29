@@ -1,5 +1,6 @@
 import type { ApiClient } from './api';
 import { el, errorMessage, formatDate } from './dom';
+import { icon } from './icons';
 import type { MediaLibraryItem } from './types';
 
 export type IdentityMediaPickerMode = 'reference' | 'validation';
@@ -42,7 +43,7 @@ export class IdentityMediaPicker {
     return el('div', { class: 'identity-media-picker', 'data-testid': `identity-media-picker-${options.mode}` }, [
       el('div', { class: 'task-model-head' }, [
         el('strong', { textContent: options.mode === 'reference' ? 'Recent generated images' : 'Choose an image' }),
-        el('button', { class: 'icon-btn', textContent: '✕ Close', onclick: () => { this.close(); this.renderApp(); } }),
+        el('button', { class: 'icon-btn', type: 'button', onclick: () => { this.close(); this.renderApp(); } }, [icon('close'), ' Close']),
       ]),
       options.blockedMessage ? el('div', { class: 'provider-check-message', textContent: options.blockedMessage }) : null,
       this.loading ? el('div', { class: 'meta', textContent: 'Loading images…' }) : null,

@@ -8,7 +8,7 @@ export const SETTINGS_DEFAULTS: Settings = {
   tts_format: 'mp3',
   openai_api_key: '',
   onboarding_done: false,
-  general_theme: 'dark',
+  general_theme: 'system',
   general_show_system_messages: false,
   general_show_thinking: false,
   general_auto_logout: true,

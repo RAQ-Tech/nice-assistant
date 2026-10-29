@@ -2,6 +2,7 @@ import { api, type ApiClient } from './api';
 import { avatarErrorFallback, avatarSource } from './avatar';
 import { degradationSuggestsMoreContext, describeContextDegradation, replyWasTruncated } from './context_notice';
 import { copyText, downloadUrl, el, errorMessage } from './dom';
+import { icon, iconButton } from './icons';
 import { markdown } from './markdown';
 import { extractImageUrl, extractVideoUrl, illustratedPassage, speechText, stripVideoLinks } from './media';
 import { state } from './state';
@@ -130,7 +131,7 @@ export class ChatRenderer {
         videoUrl
           ? el('button', { class: 'msg-video-preview', onclick: () => { this.appState.chatVideoPreview = videoUrl; this.renderApp(); } }, [
               el('video', { class: 'msg-inline-video', src: videoUrl, preload: 'metadata', muted: true, playsInline: true }),
-              el('span', { class: 'msg-video-play', textContent: '▶' }),
+              el('span', { class: 'msg-video-play' }, [icon('play')]),
               el('span', { class: 'msg-video-label', textContent: 'Play video' }),
             ])
           : null,
@@ -141,37 +142,34 @@ export class ChatRenderer {
           ? null
           : el('div', { class: 'msg-actions' }, [
               place.latestReply && this.actions && !this.appState.pendingRequest && ['idle', 'error'].includes(this.appState.phase)
-                ? el('button', { class: 'icon-btn', textContent: '↻', title: 'Answer again', 'aria-label': 'Answer again', 'data-testid': 'message-again', onclick: () => this.actions?.again(message.id) })
+                ? iconButton('again', 'Answer again', { 'data-testid': 'message-again', onclick: () => this.actions?.again(message.id) })
                 : null,
               place.latestSaid && this.actions && !this.appState.pendingRequest && ['idle', 'error'].includes(this.appState.phase)
-                ? el('button', { class: 'icon-btn', textContent: '✎', title: 'Edit', 'aria-label': 'Edit this message', 'data-testid': 'message-edit', onclick: () => this.actions?.edit(message) })
+                ? iconButton('edit', 'Edit this message', { 'data-testid': 'message-edit', onclick: () => this.actions?.edit(message) })
                 : null,
               message.role === 'assistant' && message.text.trim()
-                ? el('button', { class: 'icon-btn', textContent: '🖼', title: 'Generate an image from this reply', onclick: () => void this.generateImage(message) })
+                ? iconButton('image', 'Generate an image from this reply', { onclick: () => void this.generateImage(message) })
                 : null,
               hasThinking
-                ? el('button', {
-                    class: 'icon-btn',
-                    textContent: showThinking ? '🙈' : '💭',
-                    title: showThinking ? 'Hide thinking' : 'Show thinking',
+                ? iconButton(showThinking ? 'hide' : 'show', showThinking ? 'Hide thinking' : 'Show thinking', {
                     onclick: () => {
                       this.appState.thinkingExpanded[message.id] = !showThinking;
                       this.renderApp();
                     },
                   })
                 : null,
-              el('button', { class: 'icon-btn', textContent: '⧉', title: 'Copy', onclick: () => void copyText(visibleText || message.text) }),
-              imageUrl ? el('button', { class: 'icon-btn', textContent: '⬇', title: 'Save image', onclick: () => downloadUrl(imageUrl, `nice-assistant-image-${Date.now()}.png`) }) : null,
-              videoUrl ? el('button', { class: 'icon-btn', textContent: '⬇', title: 'Save video', onclick: () => downloadUrl(videoUrl, `nice-assistant-video-${Date.now()}.mp4`) }) : null,
+              iconButton('copy', 'Copy', { onclick: () => void copyText(visibleText || message.text) }),
+              imageUrl ? iconButton('download', 'Save image', { onclick: () => downloadUrl(imageUrl, `nice-assistant-image-${Date.now()}.png`) }) : null,
+              videoUrl ? iconButton('download', 'Save video', { onclick: () => downloadUrl(videoUrl, `nice-assistant-video-${Date.now()}.mp4`) }) : null,
               audioUrl
-                ? el('button', { class: 'icon-btn', textContent: '⟲', title: 'Replay response audio', onclick: () => void this.replayAudio(message.id, audioUrl) })
+                ? iconButton('replay', 'Play this reply again', { onclick: () => void this.replayAudio(message.id, audioUrl) })
                 : null,
               this.appState.currentAudioMessageId === message.id
-                ? el('button', { class: 'icon-btn', textContent: '■', title: 'Stop audio', onclick: () => this.playback.stop() })
+                ? iconButton('stop', 'Stop speaking', { onclick: () => this.playback.stop() })
                 : null,
-              el('button', { class: 'icon-btn', textContent: '🧠', title: 'Propose a memory fact', onclick: () => void this.saveMemory(message) }),
+              iconButton('remember', 'Remember this', { onclick: () => void this.saveMemory(message) }),
               this.actions && isStored(message) && !this.appState.pendingRequest && ['idle', 'error'].includes(this.appState.phase)
-                ? el('button', { class: 'icon-btn', textContent: '🗑', title: 'Delete', 'aria-label': 'Delete this message and its reply', 'data-testid': 'message-delete', onclick: () => this.actions?.remove(message) })
+                ? iconButton('remove', 'Delete this message and its reply', { 'data-testid': 'message-delete', onclick: () => this.actions?.remove(message) })
                 : null,
             ]),
       ]),
@@ -312,7 +310,7 @@ export class ChatRenderer {
             },
           }, [
             el('video', { class: 'msg-inline-video', src: attachment.content_url, preload: 'metadata', muted: true, playsInline: true }),
-            el('span', { class: 'msg-video-play', textContent: '▶' }),
+            el('span', { class: 'msg-video-play' }, [icon('play')]),
             el('span', { class: 'msg-video-label', textContent: 'Play video' }),
           ]);
       const extraFrames = attachment.kind === 'image' ? (attachment.frames ?? []) : [];

@@ -1,4 +1,5 @@
 import { el, errorMessage } from './dom';
+import { icon } from './icons';
 import { state } from './state';
 
 /**
@@ -46,7 +47,7 @@ export function canSendPhoto(model: string, visionModels: readonly string[]): bo
 /** The camera button: a phone offers its camera and library, a computer its files. */
 export function photoPicker(render: () => void): HTMLElement {
   return el('label', { class: 'icon-btn composer-attach', title: 'Send a photo', 'data-testid': 'photo-attach' }, [
-    '📷',
+    icon('camera'),
     el('input', {
       type: 'file',
       accept: 'image/*',

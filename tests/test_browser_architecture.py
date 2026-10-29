@@ -9,6 +9,7 @@ SOURCE = ROOT / "frontend" / "src"
 class BrowserArchitectureTests(unittest.TestCase):
     def test_browser_is_split_into_typed_modules_and_generated_for_python_packaging(self):
         expected = {
+            "a11y.ts",
             "api.ts",
             "app.ts",
             "audio_context.ts",
@@ -33,6 +34,8 @@ class BrowserArchitectureTests(unittest.TestCase):
             "home_controls.ts",
             "home_view.ts",
             "setup_view.ts",
+            "theme.ts",
+            "icons.ts",
             "auth_view.ts",
             "chat_rendering.ts",
             "capabilities.ts",
@@ -138,6 +141,30 @@ class BrowserArchitectureTests(unittest.TestCase):
             depth += line.count("{") - line.count("}")
             self.assertGreaterEqual(depth, 0, f"styles.css:{number} closes a rule that was never opened")
         self.assertEqual(depth, 0, f"styles.css leaves {depth} rule(s) open")
+
+    def test_every_colour_is_a_theme_token(self):
+        """Colours are named once per theme, so a theme cannot be half applied.
+
+        The light theme existed, but about a hundred colours were written into
+        individual rules and ignored it: settings cards became grey slabs and
+        Hold to Talk stayed dark on a white page. Literal colours belong only in
+        the blocks that define the themes; every rule names a token instead.
+        """
+
+        import re
+
+        text = (SOURCE / "styles.css").read_text(encoding="utf-8")
+        literal = re.compile(r"#[0-9a-fA-F]{3,8}\b|rgba?\(|hsla?\(")
+        blocks = re.compile(r"^(:root|\[data-theme='light'\]) \{.*?^\}", re.S | re.M)
+        outside = blocks.sub("", text)
+        offending = [line.strip() for line in outside.splitlines() if literal.search(line)]
+        self.assertEqual(offending, [], "colour literals outside the theme token blocks")
+
+        defined = set(re.findall(r"(--[\w-]+)\s*:", text))
+        # Set from TypeScript at runtime rather than in the stylesheet.
+        defined |= {"--mic-level"}
+        used = set(re.findall(r"var\((--[\w-]+)", text))
+        self.assertEqual(sorted(used - defined), [], "variables used but never defined")
 
     def test_product_source_uses_only_the_canonical_api(self):
         source = "\n".join(path.read_text(encoding="utf-8") for path in SOURCE.glob("*.ts"))

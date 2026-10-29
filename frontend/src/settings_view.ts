@@ -1,6 +1,7 @@
 import { api, type ApiClient } from './api';
 import { settingsNav } from './settings_nav';
 import { el, errorMessage, formatDate } from './dom';
+import { icon } from './icons';
 import { EverydaySettingsView, type EverydaySettingsSection } from './everyday_settings_view';
 import { MediaCatalogSettingsView } from './media_catalog_settings_view';
 import { ModelSettingsView } from './model_settings_view';
@@ -23,6 +24,7 @@ import { actionRow, choiceField, pageHint, textField } from './settings_page';
 import { advancedSettings, settingsCard, titleCase } from './settings_ui';
 import { state } from './state';
 import { TaskModelSettingsView } from './task_model_settings_view';
+import { applyTheme } from './theme';
 import type {
   AppState,
   IdentitySetupIntent,
@@ -158,7 +160,7 @@ export class SettingsView {
           ? el('div', { class: 'success-banner', textContent: 'Settings saved' })
           : null,
         el('div', { class: 'chips' }, [
-          el('button', { class: 'icon-btn', textContent: '✕ Close', onclick: this.close }),
+          el('button', { class: 'icon-btn', type: 'button', onclick: this.close }, [icon('close'), ' Close']),
           !selfSaving
             ? el('button', {
                 class: 'send-btn',
@@ -389,7 +391,7 @@ export class SettingsView {
     if (!settings) return;
     settings[key] = value;
     this.appState.settingsSavedAt = 0;
-    if (key === 'general_theme') document.documentElement.dataset.theme = String(value);
+    if (key === 'general_theme') applyTheme(value);
     if (key === 'general_show_system_messages') this.appState.showSystemMessages = Boolean(value);
     if (key === 'general_show_thinking') this.appState.showThinkingByDefault = Boolean(value);
     if (key === 'general_voice_responses') this.appState.voiceResponsesEnabled = Boolean(value);

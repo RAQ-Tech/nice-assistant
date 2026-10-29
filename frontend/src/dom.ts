@@ -53,8 +53,12 @@ export function escapeHtml(value: string): string {
 }
 
 interface FocusSnapshot {
-  selector: string;
+  /** What the control is: its tag and the name a person would know it by. */
+  key: string;
+  /** Which of the controls with that key. */
   index: number;
+  /** Where it was among every focusable control, for when its name changed. */
+  position: number;
   start: number | null;
   end: number | null;
 }
@@ -163,29 +167,53 @@ export function restoreScrollPositions(root: ParentNode, snapshots: ScrollSnapsh
   }
 }
 
+const FOCUSABLE = 'input, textarea, select, button, a[href], [tabindex]:not([tabindex="-1"])';
+
+function focusKey(node: Element): string {
+  const name = node.getAttribute('data-testid') || node.getAttribute('aria-label') || node.getAttribute('name')
+    || node.getAttribute('title') || (node.tagName === 'BUTTON' ? (node.textContent ?? '').trim().slice(0, 40) : '');
+  return `${node.tagName}|${name}`;
+}
+
+/**
+ * Which control had focus, so a re-render can give it back.
+ *
+ * Rendering replaces every element, and the browser's focus goes with them:
+ * a keyboard user who pressed a button was sent back to the top of the page
+ * each time. Text fields were the first to be kept, by position; any control
+ * is kept now, by what it is called, so a list that changed above it does not
+ * move focus onto its neighbour.
+ */
 export function captureFocus(root: HTMLElement): FocusSnapshot | null {
   const active = document.activeElement;
-  if (!(active instanceof HTMLInputElement || active instanceof HTMLTextAreaElement) || !root.contains(active)) {
-    return null;
-  }
-  const fields = [...root.querySelectorAll<HTMLInputElement | HTMLTextAreaElement>('input, textarea')];
-  const index = fields.indexOf(active);
-  if (index < 0) return null;
+  if (!(active instanceof HTMLElement) || !root.contains(active) || !active.matches(FOCUSABLE)) return null;
+  const key = focusKey(active);
+  const all = [...root.querySelectorAll(FOCUSABLE)];
+  const field = active instanceof HTMLInputElement || active instanceof HTMLTextAreaElement;
   return {
-    selector: 'input, textarea',
-    index,
-    start: active.selectionStart,
-    end: active.selectionEnd,
+    key,
+    index: all.filter((node) => focusKey(node) === key).indexOf(active),
+    position: all.indexOf(active),
+    start: field ? active.selectionStart : null,
+    end: field ? active.selectionEnd : null,
   };
 }
 
 export function restoreFocus(root: HTMLElement, snapshot: FocusSnapshot | null, modalOpen: boolean): void {
   if (!snapshot || modalOpen) return;
-  const fields = root.querySelectorAll<HTMLInputElement | HTMLTextAreaElement>(snapshot.selector);
-  const target = fields.item(snapshot.index);
-  if (!target || target.disabled) return;
-  target.focus();
-  if (snapshot.start !== null && snapshot.end !== null) target.setSelectionRange(snapshot.start, snapshot.end);
+  const all = [...root.querySelectorAll<HTMLElement>(FOCUSABLE)];
+  const target = all.filter((node) => focusKey(node) === snapshot.key)[snapshot.index]
+    ?? (snapshot.key.split('|')[0] === all[snapshot.position]?.tagName ? all[snapshot.position] : undefined);
+  if (!target || (target as HTMLButtonElement).disabled) return;
+  const field = target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement;
+  target.focus({ preventScroll: !field });
+  if (field && snapshot.start !== null && snapshot.end !== null) {
+    try {
+      target.setSelectionRange(snapshot.start, snapshot.end);
+    } catch {
+      // Not every input type keeps a selection.
+    }
+  }
 }
 
 export function formatDate(timestamp: number | null | undefined): string {

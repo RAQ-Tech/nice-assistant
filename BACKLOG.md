@@ -547,6 +547,23 @@ Batch 4 of the same review: the first five minutes. See
 What is left is the password manager in a real browser profile, item 20 in
 section 4.
 
+### 1N. A phone app on the home screen - delivered 2026-10-29
+
+Batch 5 of the same review, as an installable web app rather than native
+apps, by the owner's choice. See
+[ADR 0050](docs/decisions/0050-a-phone-app-on-the-home-screen.md).
+
+- It installs to a home screen, opens full-screen with its own icon, and
+  says plainly when the server cannot be reached.
+- The screen stays on while talking, and for a minute after.
+- Hold to Talk ends only when the finger lifts; a brush is discarded.
+- Real icons replace the text characters and emoji.
+- Replies and errors are announced to screen readers, focus survives every
+  redraw, dialogs take focus, and the chat list works from a keyboard.
+- The light theme is complete, and "Match my device" is the default.
+
+What is left is the same on real hardware, item 21 in section 4.
+
 ### 1M. Correctness and housekeeping - delivered 2026-10-29
 
 Batch 6 of the same review. See
@@ -798,6 +815,16 @@ than from a checklist, and to exercise preset routing on the way.
     offer to save, sign out, and sign in again. **Done when** the browser offers
     to save the password once, fills it on the next visit, and a phone signed in
     with "Keep me signed in" is still signed in a day later. Source: ADR 0047.
+21. **The installed app on a real phone.** Unit tests and Playwright prove the
+    manifest, the hold, the wake lock calls and the announcements, not what a
+    phone and a screen reader do with them. Over the deployment's HTTPS
+    address: install from Chrome on Android (menu, Install app) and from
+    Safari on iPhone (Share, Add to Home Screen); hold to talk while moving
+    the finger; leave a hands-free conversation running past the screen
+    timeout; and listen to one reply with TalkBack or VoiceOver. **Done
+    when** it opens full-screen from its icon, a drifting hold still sends,
+    the screen stays on through the conversation, and the reply is read
+    once. Source: ADR 0050.
 
 ## 5. Temporary by agreement
 
@@ -938,7 +965,7 @@ done:
 - Update the product, architecture, security, testing, operations, roadmap, and
   debt documents in the same change as the behavior they describe.
 - Record durable architectural choices as ADRs in `docs/decisions/`. The next
-  free number is 0050.
+  free number is 0051.
 - Run `python scripts/audit_public_repo.py` before every public commit. This
   file must never contain deployment addresses, hostnames, user-specific paths,
   hardware inventories, or account identifiers.

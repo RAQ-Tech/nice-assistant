@@ -11,6 +11,21 @@ native-select, option, placeholder, and file-picker colors. Both themes declare
 their native `color-scheme`; individual settings screens must not depend on a
 browser-default white control or dropdown background.
 
+Every colour is a token. The `:root` block defines the dark theme and the
+theme-independent tokens (the brand gradient, and everything laid over a picture
+or video); `[data-theme='light']` overrides what differs. Rules name tokens and
+never write a colour, which `tests/test_browser_architecture.py` enforces along
+with every `var()` being defined. `theme.ts` resolves "Match my device" to one
+of the two, follows the system setting live, and remembers the last choice so
+the first paint is right (ADR 0050).
+
+Icons are line drawings in `icons.ts`, in the text colour and hidden from
+assistive technology; an icon-only button is built with `iconButton`, which
+names it. `a11y.ts` owns the two live regions outside the redrawn page and
+moves focus into a dialog that opens. `wake_lock.ts` keeps the screen on while
+a conversation is happening. `frontend/public` holds the web app manifest, the
+app icons, and a service worker that caches only `offline.html`.
+
 Use Node.js 24 and the pinned lockfile:
 
 ```bash

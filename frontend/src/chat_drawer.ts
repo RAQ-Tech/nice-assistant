@@ -1,6 +1,7 @@
 import type { ApiClient } from './api';
 import type { ChatController } from './chat';
 import { el, errorMessage, formatDate } from './dom';
+import { iconButton } from './icons';
 import type { Dialogs } from './settings_view';
 import type { AppState, Chat } from './types';
 
@@ -57,11 +58,7 @@ export class ChatDrawer {
               this.callbacks.render();
             },
           }),
-          el('button', {
-            class: 'icon-btn',
-            textContent: '✕',
-            onclick: () => { this.appState.drawerOpen = false; this.callbacks.render(); },
-          }),
+          iconButton('close', 'Close the chat list', { onclick: () => { this.appState.drawerOpen = false; this.callbacks.render(); } }),
         ]),
       ]),
       el('button', {
@@ -90,8 +87,13 @@ export class ChatDrawer {
   }
 
   private row(item: Chat): HTMLElement {
-    return el('div', {
-      class: `chat-row ${item.id === this.appState.currentChat?.id ? 'active' : ''} ${this.selectionMode ? 'selecting' : ''}`,
+    const current = item.id === this.appState.currentChat?.id;
+    // A real button, stretched over the row by CSS: the whole row still opens on
+    // a click, and now Tab reaches it and Enter opens it.
+    const open = el('button', {
+      class: 'chat-row-open',
+      type: 'button',
+      'aria-current': current ? 'page' : false,
       onclick: () => {
         if (this.selectionMode) {
           this.toggle(item.id);
@@ -101,6 +103,10 @@ export class ChatDrawer {
         this.callbacks.openChat(item.id);
       },
     }, [
+      el('span', { class: 'title', textContent: item.title || 'Untitled chat' }),
+      el('span', { class: 'meta', textContent: formatDate(item.updated_at || item.created_at) }),
+    ]);
+    return el('div', { class: `chat-row ${current ? 'active' : ''} ${this.selectionMode ? 'selecting' : ''}` }, [
       this.selectionMode ? el('input', {
         type: 'checkbox',
         checked: this.selectedIds.has(item.id),
@@ -112,13 +118,9 @@ export class ChatDrawer {
           this.callbacks.render();
         },
       }) : null,
-      el('div', { class: 'title', textContent: item.title || 'Untitled chat' }),
-      el('div', { class: 'meta', textContent: formatDate(item.updated_at || item.created_at) }),
+      open,
       !this.selectionMode ? el('div', { class: 'chat-actions' }, [
-        el('button', {
-          class: 'icon-btn',
-          textContent: '✎',
-          title: 'Rename chat',
+        iconButton('edit', 'Rename chat', {
           onclick: (event: Event) => { event.stopPropagation(); void this.rename(item); },
         }),
         el('button', {

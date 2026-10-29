@@ -143,7 +143,7 @@ section has an address of its own, `#/settings/<section>/<item>`.
 
 Conversation:
 
-- **General** is Theme, Model, whether replies are spoken, and the
+- **General** is Theme (Match my device, Light or Dark), Model, whether replies are spoken, and the
   visualizer. Technical messages, model thinking and signing out after
   inactivity are folded.
 - **Models** is the list Ollama reports, the default marked, with the shared

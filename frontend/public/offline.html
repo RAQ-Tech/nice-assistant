@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"/>
+  <title>Nice Assistant</title>
+  <style>
+    :root { color-scheme: dark; --bg: #071018; --text: #e7f2ff; --dim: #8da5bf; --edge: rgba(112, 164, 214, 0.28); }
+    @media (prefers-color-scheme: light) { :root { color-scheme: light; --bg: #f1f7ff; --text: #153049; --dim: #5f7892; --edge: rgba(99, 136, 173, 0.35); } }
+    body { margin: 0; min-height: 100vh; display: grid; place-items: center; background: var(--bg); color: var(--text);
+      font-family: Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; text-align: center; padding: 1.5rem; box-sizing: border-box; }
+    img { width: 72px; height: 72px; border-radius: 16px; }
+    p { color: var(--dim); max-width: 22rem; line-height: 1.5; }
+    button { font: inherit; color: inherit; background: none; border: 1px solid var(--edge); border-radius: 12px; padding: .6rem 1.2rem; cursor: pointer; }
+  </style>
+</head>
+<body>
+  <main>
+    <img src="/icons/icon-192.png" alt=""/>
+    <h1>Can't reach Nice Assistant</h1>
+    <p>This device isn't connected to the server right now. Check that it's on your home network or your private connection, then try again.</p>
+    <button type="button" onclick="location.reload()">Try again</button>
+  </main>
+</body>
+</html>

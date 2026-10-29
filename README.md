@@ -375,6 +375,14 @@ python scripts/backup_restore_drill.py /path/to/nice-assistant-snapshot-....zip
 
 For iPhone/Android browsers, microphone capture usually requires **HTTPS** (or localhost secure contexts). LAN HTTP works for desktop testing first.
 
+## Installing on a phone
+
+Over an HTTPS address, the app can be put on a home screen and opens full-screen
+like an app: in Chrome on Android, open the menu and choose **Install app**; in
+Safari on iPhone, tap **Share**, then **Add to Home Screen**. It is still the same
+web app - updates arrive with the container, and nothing is cached that could
+keep an old version running. While a conversation is going, the screen stays on.
+
 ## API highlights
 
 - `GET /health`

@@ -1,4 +1,5 @@
 import { el } from './dom';
+import { icon } from './icons';
 import type { MediaJournal, MediaJournalStage } from './types';
 
 /**
@@ -60,11 +61,10 @@ export function generationLogOverlay(journal: MediaJournal, exportUrl: string, c
         [
           el('button', {
             class: 'icon-btn generation-log-close',
-            textContent: '✕',
             title: 'Close log',
             ariaLabel: 'Close log',
             onclick: close,
-          }),
+          }, [icon('close')]),
           el('h3', { textContent: 'Generation log' }),
           el('p', { class: 'meta', textContent: `${journal.kind} · ${journal.origin} · ${journal.status}` }),
           el('dl', { class: 'generation-log-summary' }, [
