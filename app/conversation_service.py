@@ -8,12 +8,11 @@ from app.chat import (
     chat_title_needs_autogeneration,
     generate_chat_title,
     generate_chat_title_from_first_user_message,
-    parse_model_options,
     persona_instruction_block,
 )
 from app.capability_service import attachment_response
 from app.chat_photos import PHOTO_MIME_TYPE, NormalizedPhoto, normalize_chat_photo, photo_from_data_url
-from app.job_service import TERMINAL_STATES, JobExecution, JobService, turn_response
+from app.job_service import TERMINAL_STATES, JobService, turn_response
 from app.context_service import ContextService
 from app.memory_service import MemoryService
 from app.persona_card import CARD_FIELDS
@@ -21,25 +20,13 @@ from app.owner_profile import render_owner_profile
 from app.persona_lore import entry_from_row
 from app.models import AsyncJob
 from app.persona_output import (
-    PERSONA_OUTPUT_REMOVED_FALLBACK,
-    PersonaOutputStreamFilter,
     safe_persona_output_text,
 )
-from app.provider_contracts import ChatRequest, ProviderError
 from app.provider_registry import ProviderRegistry
 from app.repositories import UnitOfWork, now_ts
 from app.service_errors import ConflictError, NotFoundError, RequestError
-from app.media_scene import EMPTY_SCENE
 from app.task_contracts import (
-    CAPABILITY_PLANNING,
-    TITLE_GENERATION,
-    CapabilityPlanningTaskInput,
-    PlannedCapability,
-    TitleTaskInput,
-    guard_premature_media_completion_claim,
-    is_explicit_text_only_request,
     is_high_confidence_image_action_request,
-    is_high_confidence_media_action_request,
 )
 from app.turn_events import TurnEventBroker
 from app.turn_pipeline import TurnContext, TurnPipeline
@@ -144,7 +131,7 @@ class ConversationService:
             chat = uow.repo.chat(user_id, chat_id)
             if not chat:
                 return None
-            attachments = {}
+            attachments: dict[str, list] = {}
             for row in uow.repo.chat_attachments(user_id, chat_id):
                 attachments.setdefault(row.assistant_message_id, []).append(
                     attachment_response(row, uow.repo.attachment_frames(row.id))

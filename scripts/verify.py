@@ -67,6 +67,11 @@ def main() -> int:
     else:
         print("\nWARNING: ruff is unavailable; install the dev extra with: pip install -e .[dev]", flush=True)
 
+    if importlib.util.find_spec("mypy"):
+        run("Type check", [sys.executable, "-m", "mypy"], env)
+    else:
+        print("\nWARNING: mypy is unavailable; install the dev extra with: pip install -e .[dev]", flush=True)
+
     coverage_available = importlib.util.find_spec("coverage") is not None
     for index in range(args.repeat):
         label = f"Unit/API suite {index + 1}/{args.repeat}"

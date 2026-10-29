@@ -165,6 +165,56 @@ class SemanticRecallTests(unittest.TestCase):
             # No shared word between "what do I drive" and "Owns a 2019 Tacoma".
             self.assertEqual(found[0].content, "Owns a 2019 Tacoma")
 
+    def test_an_old_memory_is_found_behind_many_newer_ones(self):
+        # The comparison used to look only at the forty newest memories - the
+        # ones recency had already chosen - so anything older could be found by
+        # an exact word and nothing else.
+        from sqlalchemy import update
+
+        from app.models import Memory
+
+        with tempfile.TemporaryDirectory() as tmp, TestApp(Path(tmp)) as running:
+            user_id = running.create_and_login()
+            memories = running.services.memory
+            memories.embedding_model = "fake-embed"
+            memories.embedding_base_url = "http://127.0.0.1:11434"
+            old = self._memory(running, "Owns a 2019 Tacoma")
+            for index in range(45):
+                self._memory(running, f"Likes song number {index}")
+            with mock.patch(
+                "app.memory_service.ollama_embed", side_effect=lambda _u, _m, text, **_kw: self._vector_for(text)
+            ):
+                memories.embed_pending(limit=100)
+                question = memories.question_vector("what do I drive")
+            # Older than all of them, not just created first in the same second.
+            with memories._uow() as uow:
+                uow.repo.session.execute(update(Memory).where(Memory.id == old["id"]).values(updated_at=1))
+
+            with memories._uow() as uow:
+                found = uow.repo.relevant_memories(
+                    user_id,
+                    workspace_id=None,
+                    persona_id=None,
+                    chat_id="none",
+                    search_query=None,
+                    query_vector=question,
+                )
+                found_with_words = uow.repo.relevant_memories(
+                    user_id,
+                    workspace_id=None,
+                    persona_id=None,
+                    chat_id="none",
+                    search_query="44",
+                    query_vector=question,
+                )
+
+            self.assertEqual(len(found), 40)
+            self.assertEqual(found[0].content, "Owns a 2019 Tacoma")
+            # A keyword match still comes first, and meaning comes straight after.
+            self.assertEqual(
+                [row.content for row in found_with_words[:2]], ["Likes song number 44", "Owns a 2019 Tacoma"]
+            )
+
     def test_nothing_changes_when_no_embedding_model_is_configured(self):
         with tempfile.TemporaryDirectory() as tmp, TestApp(Path(tmp)) as running:
             user_id = running.create_and_login()

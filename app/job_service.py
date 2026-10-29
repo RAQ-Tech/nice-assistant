@@ -4,6 +4,8 @@ from dataclasses import dataclass
 import json
 import threading
 import time
+from typing import Any
+from collections.abc import Callable
 
 from app.auth import redact_sensitive_text
 from app.job_queue import JobQueue, new_job
@@ -25,12 +27,12 @@ LEGAL_TRANSITIONS = {
 
 @dataclass
 class JobExecution:
-    execute: object
-    on_start: object | None = None
-    on_success: object | None = None
-    on_failure: object | None = None
-    on_cancel: object | None = None
-    after_success: object | None = None
+    execute: Callable[..., Any]
+    on_start: Callable[..., Any] | None = None
+    on_success: Callable[..., Any] | None = None
+    on_failure: Callable[..., Any] | None = None
+    on_cancel: Callable[..., Any] | None = None
+    after_success: Callable[..., Any] | None = None
 
 
 class InvalidJobTransition(RuntimeError):
@@ -448,7 +450,7 @@ class JobService:
             else:
                 event = None
         if turn_id:
-            self.broker.publish(turn_id, "turn.completed", event)
+            self.broker.publish(turn_id, "turn.completed", event or {})
         return True, result
 
     def _fail(self, job_id: str, turn_id: str | None, code: str, message: str, on_failure=None) -> None:

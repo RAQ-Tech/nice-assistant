@@ -1,4 +1,5 @@
 from fastapi import Response
+from typing import Any
 
 from app.resource_service import REMEMBERED_SESSION_SECONDS, AuthContext
 from app.runtime import SESSION_COOKIE
@@ -11,7 +12,7 @@ def set_session_cookie(
     *,
     secure: bool,
 ) -> None:
-    options = {
+    options: dict[str, Any] = {
         "httponly": True,
         "samesite": "strict",
         "path": "/",

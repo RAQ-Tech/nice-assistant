@@ -4,10 +4,9 @@ import base64
 from dataclasses import dataclass
 import hashlib
 import json
-import math
 
 from app.capability_contracts import CapabilityRegistry, capability_tool_result
-from app.context_policy import ContextPolicy, TokenEstimator, prompt_budget_tokens, safety_reserve_tokens
+from app.context_policy import ContextPolicy, TokenEstimator, prompt_budget_tokens
 from app.memory_service import memory_search_query, normalize_memory_content
 from app.persona_card import EXAMPLE_DIALOGUE_LABEL, select_example_dialogue
 from app.persona_lore import lore_section, select_lore
@@ -339,8 +338,12 @@ class ContextService:
         """How many tokens the prompt may use, after output and safety are reserved."""
 
         context_window = self._context_window(provider, model, preferences, model_settings)
-        overrides = preferences.get("model_overrides") if isinstance(preferences.get("model_overrides"), dict) else {}
-        model_override = overrides.get(model) if isinstance(overrides.get(model), dict) else {}
+        overrides = preferences.get("model_overrides")
+        if not isinstance(overrides, dict):
+            overrides = {}
+        model_override = overrides.get(model)
+        if not isinstance(model_override, dict):
+            model_override = {}
         output_value = (
             model_settings.get("num_predict")
             or model_override.get("num_predict")
@@ -349,7 +352,6 @@ class ContextService:
         )
         output_tokens = self._integer_setting(output_value, self.policy.output_tokens_default)
         output_tokens = min(max(1, output_tokens), max(1, context_window // 2))
-        safety_tokens = safety_reserve_tokens(context_window)
         prompt_budget = prompt_budget_tokens(context_window, output_tokens)
         if prompt_budget < 512:
             raise ProviderError(
@@ -646,7 +648,7 @@ class ContextService:
                 ordered_rows.append((assistant_message, self._tool_calls(capability_rows), capability_rows))
         said = [row.id for row in ordered_rows if not isinstance(row, tuple) and row.role == "user"]
         history = self._history_items(ordered_rows, uow.repo.photos_for_messages(said))
-        if started_at_boundary and not any(item["id"] == summary.through_message_id for item in history):
+        if started_at_boundary and summary and not any(item["id"] == summary.through_message_id for item in history):
             # The boundary was not where it was expected. Reading everything is
             # slower and was always correct.
             return self._load_history(
@@ -946,8 +948,12 @@ class ContextService:
         return dict(item.get("provider_message") or {"role": item["role"], "content": item["text"]})
 
     def _context_window(self, provider, model, preferences, model_settings):
-        overrides = preferences.get("model_overrides") if isinstance(preferences.get("model_overrides"), dict) else {}
-        model_override = overrides.get(model) if isinstance(overrides.get(model), dict) else {}
+        overrides = preferences.get("model_overrides")
+        if not isinstance(overrides, dict):
+            overrides = {}
+        model_override = overrides.get(model)
+        if not isinstance(model_override, dict):
+            model_override = {}
         desired = (
             model_settings.get("context_window_tokens")
             or model_override.get("context_window_tokens")

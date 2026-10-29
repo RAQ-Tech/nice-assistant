@@ -757,10 +757,11 @@ def _parse_memory(
         if normalized in seen:
             continue
         seen.add(normalized)
-        if isinstance(value.get("confidence"), bool):
+        raw_confidence: Any = value.get("confidence")
+        if isinstance(raw_confidence, bool):
             raise TaskContractError("task model returned invalid memory confidence")
         try:
-            confidence = float(value.get("confidence"))
+            confidence = float(raw_confidence)
         except (TypeError, ValueError) as exc:
             raise TaskContractError("task model returned invalid memory confidence") from exc
         if not 0 <= confidence <= 1:
@@ -841,7 +842,7 @@ def _capability_schema(task_input: CapabilityPlanningTaskInput) -> dict:
     keys = [item.key for item in task_input.available_capabilities]
 
     def vocabulary_array(values: tuple[str, ...]) -> dict:
-        schema = {
+        schema: dict[str, Any] = {
             "type": "array",
             "items": {"type": "string"},
         }

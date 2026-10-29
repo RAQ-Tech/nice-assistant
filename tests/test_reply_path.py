@@ -17,7 +17,7 @@ import unittest
 from unittest import mock
 
 from app.observability import MetricsRegistry, RedactedJsonFormatter
-from app.provider_contracts import ChatDelta, LoadedModel, provider_endpoint, shared_context_window
+from app.provider_contracts import ChatDelta, LoadedModel, ProviderError, provider_endpoint, shared_context_window
 from app.repositories import UnitOfWork
 from app.task_contracts import CONVERSATION_SUMMARY
 from tests.support import FakeChatProvider, TestApp
@@ -301,6 +301,62 @@ class TheVoiceLoopIsTimedTests(unittest.TestCase):
             metrics.stage("turn.first_token", value)
         stage = metrics.snapshot()["stages"]["turn.first_token"]
         self.assertEqual((stage["recent_p50"], stage["recent_p95"], stage["max"]), (50, 95, 100))
+
+
+class _FlakyProvider(FakeChatProvider):
+    """Fails the first attempts as told, then answers."""
+
+    def __init__(self, failures, *, after_text=False):
+        super().__init__(["Back again."])
+        self.failures = list(failures)
+        self.after_text = after_text
+
+    def stream(self, request, cancellation):
+        self.requests.append(request)
+        if self.failures:
+            if self.after_text:
+                yield ChatDelta("Half a", done=False)
+            raise self.failures.pop(0)
+        yield ChatDelta("Back again.", done=True)
+
+
+def _failure(code: str, retryable: bool = True) -> ProviderError:
+    return ProviderError(provider="ollama", code=code, user_message="The model provider failed.", retryable=retryable)
+
+
+class AFailedStartIsTriedOnceMoreTests(unittest.TestCase):
+    def _reply(self, provider):
+        with tempfile.TemporaryDirectory() as tmp, TestApp(Path(tmp), chat_provider=provider) as running:
+            running.create_and_login()
+            chat = running.client.post("/api/v1/chats", json={}).json()
+            started = running.client.post(
+                f"/api/v1/chats/{chat['id']}/turns", json={"text": "hello", "memory_mode": "off"}
+            ).json()
+            return _reply_job(running, started["job"]["id"])
+
+    def test_a_dropped_connection_before_any_text_is_tried_again(self):
+        provider = _FlakyProvider([_failure("unavailable")])
+        job = self._reply(provider)
+        self.assertEqual(job["status"], "completed")
+        self.assertEqual(job["result"]["text"], "Back again.")
+        self.assertEqual(len(provider.requests), 2)
+
+    def test_only_once(self):
+        provider = _FlakyProvider([_failure("unavailable"), _failure("unavailable")])
+        self.assertEqual(self._reply(provider)["status"], "failed")
+        self.assertEqual(len(provider.requests), 2)
+
+    def test_not_once_text_has_arrived(self):
+        # What was already shown cannot be taken back by a second attempt.
+        provider = _FlakyProvider([_failure("incomplete_stream")], after_text=True)
+        self.assertEqual(self._reply(provider)["status"], "failed")
+        self.assertEqual(len(provider.requests), 1)
+
+    def test_not_after_a_timeout_or_a_refusal(self):
+        for failure in (_failure("timeout"), _failure("http_400", retryable=False)):
+            provider = _FlakyProvider([failure])
+            self.assertEqual(self._reply(provider)["status"], "failed", failure.code)
+            self.assertEqual(len(provider.requests), 1, failure.code)
 
 
 if __name__ == "__main__":

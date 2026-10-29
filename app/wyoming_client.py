@@ -53,7 +53,7 @@ def parse_address(raw, default_port: int = DEFAULT_WYOMING_PORT) -> tuple[str, i
 
 
 def _send(sock: socket.socket, kind: str, data=None, payload: bytes = b"") -> None:
-    header = {"type": kind}
+    header: dict[str, object] = {"type": kind}
     if data is not None:
         header["data"] = data
     if payload:

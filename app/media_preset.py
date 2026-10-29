@@ -14,6 +14,7 @@ catalog, so the service answers that.
 from __future__ import annotations
 
 import re
+from typing import Any
 
 from app.identity_conditioning import CONDITIONING_MECHANISMS
 from app.prompt_dialect import normalize_dialect
@@ -60,7 +61,7 @@ def _sampler(values) -> dict:
     unknown = set(values) - set(SAMPLER_KEYS)
     if unknown:
         raise RequestError(f"preset sampler settings include unsupported fields: {', '.join(sorted(unknown))}", 400)
-    result = {}
+    result: dict[str, Any] = {}
     if "steps" in values and values["steps"] is not None:
         try:
             result["steps"] = int(values["steps"])

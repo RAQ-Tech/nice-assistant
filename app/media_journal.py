@@ -121,10 +121,10 @@ def redact(value, *, _depth: int = 0):
         return result
     if isinstance(value, (list, tuple)):
         items = list(value)
-        result = [redact(item, _depth=_depth + 1) for item in items[:MAX_ITEMS]]
+        trimmed = [redact(item, _depth=_depth + 1) for item in items[:MAX_ITEMS]]
         if len(items) > MAX_ITEMS:
-            result.append(f"[truncated: {len(items) - MAX_ITEMS} more items]")
-        return result
+            trimmed.append(f"[truncated: {len(items) - MAX_ITEMS} more items]")
+        return trimmed
     if isinstance(value, str):
         text = _scrub_paths_in_text(value)
         if len(text) > MAX_STRING_LENGTH:

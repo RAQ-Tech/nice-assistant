@@ -54,7 +54,8 @@ class SummaryFailureProvider(FakeChatProvider):
 class FailFirstTurnProvider(FakeChatProvider):
     def stream(self, request, cancellation):
         self.requests.append(request)
-        if len(self.requests) == 1:
+        # The first turn and the one retry a failure before any text gets.
+        if len(self.requests) <= 2:
             raise ProviderError(
                 provider="ollama",
                 code="temporary_failure",
@@ -214,7 +215,7 @@ class ContextServiceTests(unittest.TestCase):
     def test_long_chat_creates_and_reuses_durable_summary(self):
         provider = FakeChatProvider(["compact reply"])
         with tempfile.TemporaryDirectory() as tmp, TestApp(Path(tmp), chat_provider=provider) as running:
-            user_id = running.create_and_login()
+            running.create_and_login()
             chat = running.client.post("/api/v1/chats", json={"title": "Long"}).json()
             with UnitOfWork(
                 running.services.runtime.session_factory,

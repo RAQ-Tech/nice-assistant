@@ -219,8 +219,27 @@ class TurnPipeline:
         self.broker.publish(self.ctx.turn_id, "assistant.delta", {"turn_id": self.ctx.turn_id, "text": text})
 
     def _stream(self, provider, plan, token) -> tuple[str, int | None, str | None]:
-        """Consume the provider stream, filtered, and return what it said."""
+        """Consume the provider stream, filtered, and return what it said.
 
+        A failure before the model has said a word - a dropped connection, a
+        reloading Ollama answering 503 - is tried once more, because nothing has
+        been shown that a second attempt could contradict. Not once text has
+        arrived, and not after a timeout, which would double a wait that was
+        already the longest one allowed.
+        """
+
+        try:
+            return self._stream_once(provider, plan, token)
+        except ProviderError as exc:
+            if not exc.retryable or exc.code == "timeout" or self.first_token_at is not None or token.cancelled:
+                raise
+            if self.logger:
+                self.logger.warning(
+                    "reply failed before any text turn_id=%s code=%s; trying once more", self.ctx.turn_id, exc.code
+                )
+            return self._stream_once(provider, plan, token)
+
+    def _stream_once(self, provider, plan, token) -> tuple[str, int | None, str | None]:
         ctx = self.ctx
         guard_media_claims = is_high_confidence_media_action_request(ctx.text)
         output_filter = PersonaOutputStreamFilter()

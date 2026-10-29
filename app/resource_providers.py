@@ -12,6 +12,13 @@ from app.provider_contracts import (
 )
 
 
+def _field(payload, key: str, kind: type):
+    """`payload[key]` when it is a `kind`, else an empty one: a reply is never trusted to have its shape."""
+
+    value = payload.get(key) if isinstance(payload, dict) else None
+    return value if isinstance(value, kind) else kind()
+
+
 def _auth_headers(value: str | None) -> dict[str, str]:
     raw = str(value or "").strip()
     if not raw:
@@ -66,14 +73,14 @@ class ComfyUIResourceProvider:
         base = endpoint.rstrip("/")
         try:
             stats = _request_json(f"{base}/system_stats", timeout=self.timeout_seconds, api_auth=api_auth)
-            devices = stats.get("devices") if isinstance(stats.get("devices"), list) else []
+            devices = _field(stats, "devices", list)
             device = next((item for item in devices if isinstance(item, dict) and item.get("type") != "cpu"), None)
             queue_depth = None
             active_jobs = None
             try:
                 queue = _request_json(f"{base}/queue", timeout=self.timeout_seconds, api_auth=api_auth)
-                running = queue.get("queue_running") if isinstance(queue.get("queue_running"), list) else []
-                pending = queue.get("queue_pending") if isinstance(queue.get("queue_pending"), list) else []
+                running = _field(queue, "queue_running", list)
+                pending = _field(queue, "queue_pending", list)
                 active_jobs = len(running)
                 queue_depth = len(pending)
             except Exception:
@@ -125,8 +132,8 @@ class Automatic1111ResourceProvider:
                 timeout=self.timeout_seconds,
                 api_auth=api_auth,
             )
-            cuda = payload.get("cuda") if isinstance(payload.get("cuda"), dict) else {}
-            system = cuda.get("system") if isinstance(cuda.get("system"), dict) else {}
+            cuda = _field(payload, "cuda", dict)
+            system = _field(cuda, "system", dict)
             total = _mb(system.get("total"))
             free = _mb(system.get("free"))
             status = CapacityStatus.KNOWN if free is not None else CapacityStatus.UNKNOWN
@@ -168,7 +175,7 @@ class OllamaResourceProvider:
     def snapshot(self, endpoint: str, api_auth: str | None = None) -> ProviderCapacitySnapshot:
         try:
             payload = _request_json(f"{endpoint.rstrip('/')}/api/ps", timeout=self.timeout_seconds)
-            values = payload.get("models") if isinstance(payload.get("models"), list) else []
+            values = _field(payload, "models", list)
             loaded = []
             for value in values:
                 if not isinstance(value, dict):

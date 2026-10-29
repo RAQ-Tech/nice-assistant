@@ -1,11 +1,13 @@
 from __future__ import annotations
 
+from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 import hashlib
 import json
 import threading
 import time
+from typing import Any
 from urllib.parse import urlsplit, urlunsplit
 
 from app.provider_contracts import CapacityStatus, ProviderCapacitySnapshot
@@ -65,8 +67,8 @@ class AdmissionRecord:
     execution_started: bool = False
     cancellation_recorded: bool = False
     snapshot: ProviderCapacitySnapshot | None = None
-    on_wait: object | None = None
-    on_reject: object | None = None
+    on_wait: Callable[[str], None] | None = None
+    on_reject: Callable[[str, str], None] | None = None
 
 
 class ResourceCoordinator:
@@ -89,7 +91,7 @@ class ResourceCoordinator:
             "automatic1111": Automatic1111ResourceProvider(config.provider_timeout_seconds),
         }
         self.provider_url_policy = provider_url_policy
-        self._policy = {
+        self._policy: dict[str, Any] = {
             "mode": "disabled",
             "reserve_vram_mb": 1024,
             "max_wait_seconds": 300,
@@ -140,7 +142,9 @@ class ResourceCoordinator:
             return None
         with self._uow() as uow:
             settings = uow.repo.settings(user_id) or {}
-        preferences = settings.get("preferences") if isinstance(settings.get("preferences"), dict) else {}
+        preferences = settings.get("preferences")
+        if not isinstance(preferences, dict):
+            preferences = {}
         selected = str(values.get("provider") or preferences.get("image_provider") or "disabled").lower()
         backend_override = None
         if selected == "local/automatic1111":
@@ -540,7 +544,9 @@ class ResourceCoordinator:
 
     def _endpoint_specs(self, repo, user_id: str) -> list[dict]:
         settings = repo.settings(user_id) or {}
-        preferences = settings.get("preferences") if isinstance(settings.get("preferences"), dict) else {}
+        preferences = settings.get("preferences")
+        if not isinstance(preferences, dict):
+            preferences = {}
         configured_local = preferences.get("image_local_base_url")
         api_auth = preferences.get("image_local_api_auth")
         values = [

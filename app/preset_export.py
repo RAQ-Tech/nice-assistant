@@ -27,7 +27,7 @@ from app.preset_bundle import BUNDLE_VERSION
 PORTABLE_SAMPLER_KEYS = ("steps", "cfg_scale", "sampler_name", "scheduler")
 
 
-def _resource_name(resources: dict, resource_id: str) -> str:
+def _resource_name(resources: dict, resource_id: str | None) -> str:
     row = resources.get(resource_id or "")
     return str(getattr(row, "external_id", "") or "") if row else ""
 

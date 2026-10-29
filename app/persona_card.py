@@ -8,7 +8,6 @@ size limit is enforced when the card is saved rather than when a turn is planned
 from __future__ import annotations
 
 from dataclasses import dataclass
-import math
 
 from app.context_policy import ContextPolicy, TokenEstimator, safety_reserve_tokens
 

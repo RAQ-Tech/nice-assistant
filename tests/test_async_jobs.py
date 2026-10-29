@@ -10,7 +10,7 @@ from sqlalchemy import func, select
 
 from app.job_service import JobExecution, LEGAL_TRANSITIONS, InvalidJobTransition, transition_job, transition_turn
 from app.models import MediaFile
-from app.provider_contracts import ChatToolCall, MediaArtifact, ProviderError
+from app.provider_contracts import MediaArtifact, ProviderError
 from app.repositories import UnitOfWork
 from app.task_contracts import CAPABILITY_PLANNING, TITLE_GENERATION
 from tests.support import FakeChatProvider, TestApp

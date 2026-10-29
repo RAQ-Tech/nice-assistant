@@ -942,7 +942,7 @@ class MediaCatalogTests(unittest.TestCase):
         )
         image_provider = FakeImageProvider()
         with tempfile.TemporaryDirectory() as tmp, TestApp(Path(tmp), chat_provider=chat_provider) as running:
-            user_id = running.create_and_login()
+            running.create_and_login()
             running.services.providers.media_providers["local-image"] = image_provider
             running.client.put(
                 "/api/v1/settings",

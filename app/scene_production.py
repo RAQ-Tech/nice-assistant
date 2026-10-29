@@ -93,7 +93,7 @@ class SceneProductionRunner:
 
         self._embed_pending()
         self._snapshot_avatars()
-        results = []
+        results: list[dict] = []
         if not (self.backlog and self.enabled):
             return results
         for user_id in self._owners():

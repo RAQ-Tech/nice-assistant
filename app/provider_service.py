@@ -281,7 +281,7 @@ def _inspect_comfyui_object_info(  # noqa: C901 - one pass over one provider pay
     request_candidates = empty_request_input_candidates()
     asset_checks = []
     structural_issues = []
-    adjacency = {node_id: set() for node_id in nodes}
+    adjacency: dict[str, set[str]] = {node_id: set() for node_id in nodes}
     output_nodes = set()
     identity_nodes = set()
 
@@ -567,7 +567,7 @@ class ProviderService:
         are not there.
         """
 
-        empty = {"checkpoints": [], "samplers": [], "schedulers": []}
+        empty: dict[str, list[str]] = {"checkpoints": [], "samplers": [], "schedulers": []}
         try:
             effective = self._effective_settings(user_id, overrides)
             object_info = self._comfyui_object_info(effective)

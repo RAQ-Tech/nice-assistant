@@ -374,6 +374,8 @@ class ResourceService:
             pass
 
     def _snapshot_avatar(self, persona_id: str, url: str) -> str:
+        if self.avatar_dir is None:
+            raise AvatarUnavailable("No folder is configured to keep pictures in.")
         if self.avatar_fetch:
             return snapshot(self.avatar_dir, persona_id, url, fetch=self.avatar_fetch)
         return snapshot(self.avatar_dir, persona_id, url)

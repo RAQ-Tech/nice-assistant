@@ -9,20 +9,21 @@ description = "Private-LAN, voice-first assistant"
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
-  "alembic==1.19.1",
-  "cryptography==50.0.1",
-  "fastapi==0.141.1",
+  "alembic==1.20.0",
+  "cryptography==50.0.2",
+  "fastapi==0.143.3",
   "Pillow==12.3.0",
   "python-multipart==0.0.32",
-  "SQLAlchemy==2.0.52",
-  "uvicorn==0.52.4",
+  "SQLAlchemy==2.1.5",
+  "uvicorn==0.54.0",
 ]
 
 [project.optional-dependencies]
 dev = [
-  "coverage==7.16.0",
+  "coverage==7.16.2",
   "httpx==0.28.1",
-  "ruff==0.16.5",
+  "mypy==2.4.1",
+  "ruff==0.17.1",
 ]
 
 [tool.setuptools.packages.find]
@@ -36,13 +37,31 @@ target-version = "py311"
 line-length = 120
 
 [tool.ruff.lint]
-# E9/F63/F7/F82 are "does this parse". C901 measures how tangled a function has
-# become, which is where defects concentrate and where an agent is least able to
-# change code safely without reading all of it.
-select = ["E9", "F63", "F7", "F82", "C901"]
+# E9 and F are "does this parse, and is every name real and used": an unused
+# import is where a moved function used to be, and the next reader goes looking
+# for it. B is the common Python mistakes - a loop variable captured late, a
+# mutable default, an exception that loses its cause. C901 measures how tangled
+# a function has become, which is where defects concentrate and where an agent
+# is least able to change code safely without reading all of it.
+select = ["E9", "F", "B", "C901"]
+
+[tool.ruff.lint.flake8-bugbear]
+# FastAPI's parameter declarations are evaluated once on purpose.
+extend-immutable-calls = ["fastapi.Depends", "fastapi.File", "fastapi.Query"]
 
 [tool.ruff.lint.mccabe]
 max-complexity = 15
+
+[tool.mypy]
+# The whole application, at mypy's default strictness: every annotation that is
+# written must be true, and a function without annotations is not yet checked
+# inside. Most of what this found was a dictionary whose type was inferred from
+# its first value, or an optional value used where only the code's own logic -
+# not anything the checker could see - said it was present.
+python_version = "3.11"
+files = ["app"]
+# Said once here rather than as a note on every such function.
+disable_error_code = ["annotation-unchecked"]
 
 [tool.coverage.run]
 branch = true
