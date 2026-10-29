@@ -424,6 +424,11 @@ input[type='file']::file-selector-button {
 }
 
 /* Icon buttons are quiet: no box until the pointer says so. */
+/* A voice and the button that plays it, on one line. */
+.voice-choice { display: flex; align-items: center; gap: .4rem; }
+.voice-choice > select, .voice-choice > input { flex: 1; min-width: 0; }
+.voice-problem { margin: .3rem 0 0; color: var(--danger-text); }
+
 /* Line icons from icons.ts: drawn in the text colour, sized by the text around them. */
 .icon {
   width: 1.25em;

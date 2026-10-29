@@ -136,3 +136,38 @@ describe('a persona page', () => {
     expect(appState.personas[0]?.name).toBe('Someone else');
   });
 });
+
+describe('a persona voice', () => {
+  it('is chosen on the page and saved for the speech service in use', async () => {
+    vi.useFakeTimers();
+    try {
+      const appState = configuredState();
+      appState.settings!.tts_provider = 'local';
+      appState.settings!.tts_voice_local = 'af_heart';
+      appState.settingsItem = 'guide';
+      const updatePersona = vi.fn().mockImplementation((id: string, input: PersonaInput) =>
+        Promise.resolve({ ...persona(), ...input, id }),
+      );
+      const client = { updatePersona, voices: vi.fn().mockResolvedValue({ voices: ['af_heart', 'bf_emma'] }) } as unknown as ApiClient;
+      const render = vi.fn();
+      const view = new SettingsView(render, vi.fn(), dialogs(), appState, client);
+      view.node();
+      await vi.runAllTimersAsync();
+
+      const select = view.node().querySelector<HTMLSelectElement>('[data-testid="persona-voice"]')!;
+      // Nothing chosen yet: the usual voice, named.
+      expect(select.value).toBe('');
+      expect(select.options[0]?.textContent).toBe('Same as Spoken replies (Heart · female)');
+      select.value = 'bf_emma';
+      select.dispatchEvent(new Event('change'));
+
+      const save = view.node().querySelector<HTMLButtonElement>('[data-testid="persona-save"]')!;
+      expect(save.disabled).toBe(false);
+      save.click();
+      await vi.waitFor(() => expect(updatePersona).toHaveBeenCalled());
+      expect(updatePersona.mock.calls[0]![1].voice_preferences).toEqual({ local: { voice: 'bf_emma' } });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});

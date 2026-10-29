@@ -36,6 +36,7 @@ class BrowserArchitectureTests(unittest.TestCase):
             "setup_view.ts",
             "theme.ts",
             "icons.ts",
+            "voice_picker.ts",
             "auth_view.ts",
             "chat_rendering.ts",
             "capabilities.ts",

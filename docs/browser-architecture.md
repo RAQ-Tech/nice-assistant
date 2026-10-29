@@ -23,7 +23,8 @@ Icons are line drawings in `icons.ts`, in the text colour and hidden from
 assistive technology; an icon-only button is built with `iconButton`, which
 names it. `a11y.ts` owns the two live regions outside the redrawn page and
 moves focus into a dialog that opens. `wake_lock.ts` keeps the screen on while
-a conversation is happening. `frontend/public` holds the web app manifest, the
+a conversation is happening. `voice_picker.ts` lists the speech service's voices
+and plays a kept sample of each (ADR 0051). `frontend/public` holds the web app manifest, the
 app icons, and a service worker that caches only `offline.html`.
 
 Use Node.js 24 and the pinned lockfile:

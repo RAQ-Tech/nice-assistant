@@ -161,7 +161,9 @@ Voice:
 
 - **Spoken replies** is who speaks - Off, a local service on this machine,
   or OpenAI, which leaves it - then the fields that provider actually reads,
-  a connection check, and the stored format and voice direction folded.
+  a connection check, and the stored format and voice direction folded. A
+  local voice is picked from the service's own list and can be heard before
+  it is chosen; a persona's page has the same picker, defaulting to this one.
 - **Transcription** is who transcribes, the language, and for a local service
   which of its two shapes it is: OpenAI-compatible (speaches, whisper.cpp,
   LocalAI) or Wyoming, the one Home Assistant voice already runs. Hands-free

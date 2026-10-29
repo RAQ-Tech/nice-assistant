@@ -1257,6 +1257,19 @@ def voices(
     return {"voices": services(request).speech.voices(context.user_id, base_url)}
 
 
+@router.get("/speech/samples", tags=["speech"])
+def voice_sample(
+    request: Request,
+    voice: str,
+    speed: str | None = None,
+    context: AuthContext = Depends(current_user),
+):
+    """One fixed sentence in this voice, for choosing between voices by ear."""
+
+    audio = services(request).speech.voice_sample(context.user_id, voice, speed)
+    return Response(content=audio, media_type="audio/mpeg", headers={"Cache-Control": "private, max-age=86400"})
+
+
 @router.post("/speech/syntheses", tags=["speech"])
 async def synthesize(
     body: SpeechSynthesisCreate,

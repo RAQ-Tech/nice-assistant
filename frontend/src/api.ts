@@ -822,6 +822,19 @@ export class ApiClient {
     return this.request(`/speech/voices?base_url=${encodeURIComponent(baseUrl)}`);
   }
 
+  /** One fixed sentence in this voice, made once by the speech service and kept. */
+  async voiceSample(voice: string, speed: string): Promise<Blob> {
+    const query = new URLSearchParams({ voice, speed });
+    const response = await fetch(`${this.base}/speech/samples?${query}`, { credentials: 'same-origin' });
+    if (!response.ok) {
+      const payload = (await response.json().catch(() => null)) as ErrorPayload | null;
+      const error = payload?.error;
+      const message = typeof error === 'string' ? error : error?.message ?? `That voice could not be played (${response.status}).`;
+      throw new ApiError(message, response.status, response.status);
+    }
+    return response.blob();
+  }
+
   synthesize(
     input: Record<string, unknown>,
     signal?: AbortSignal,

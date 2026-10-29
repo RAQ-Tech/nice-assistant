@@ -17,10 +17,12 @@ import {
   pageNav,
   saveButton,
   switchField,
+  textField,
   thingList,
 } from './settings_page';
 import { advancedSettings, settingsCard } from './settings_ui';
 import type { AppState, Persona, Settings } from './types';
+import { describeVoice, type VoicePicker } from './voice_picker';
 
 /**
  * Personas: the list, and one page per person.
@@ -47,6 +49,7 @@ interface BaseFields {
   workspace_ids: string[];
   personality_details: string | null;
   system_prompt: string | null;
+  voice_preferences: Persona['voice_preferences'];
 }
 
 function baseFields(persona: Persona): BaseFields {
@@ -59,6 +62,7 @@ function baseFields(persona: Persona): BaseFields {
     workspace_ids: [...persona.workspace_ids],
     personality_details: persona.personality_details,
     system_prompt: persona.system_prompt,
+    voice_preferences: JSON.parse(JSON.stringify(persona.voice_preferences ?? {})) as Persona['voice_preferences'],
   };
 }
 
@@ -95,6 +99,7 @@ export class PersonaPageView {
     private readonly face: PersonaFaceView,
     private readonly change: SettingChange,
     private readonly pictures: PersonaPicturesView | null = null,
+    private readonly voices: VoicePicker | null = null,
   ) {}
 
   /** The Personas page: everybody, and the way a new person arrives. */
@@ -171,6 +176,7 @@ export class PersonaPageView {
           persona.allow_image_sends = value;
           this.renderApp();
         }, { hover: 'Pictures asked for in conversation. Direct image actions stay available either way.', testId: 'persona-pictures' }),
+        this.voiceRow(persona),
         this.appState.workspaces.length > 1 ? this.workspaceRow(persona) : null,
         this.face.node(persona),
         this.pictures?.node(persona) ?? null,
@@ -205,6 +211,42 @@ export class PersonaPageView {
       return;
     }
     void this.leave(persona, go);
+  }
+
+  /**
+   * The persona's own voice, for the speech service in use.
+   *
+   * Stored per provider, so choosing a local voice leaves an OpenAI one alone.
+   * Empty means the voice set under Spoken replies.
+   */
+  private voiceRow(persona: Persona): HTMLElement | null {
+    const settings = this.appState.settings;
+    const provider = settings?.tts_provider ?? 'disabled';
+    if (!settings || provider === 'disabled') return null;
+    const usual = provider === 'local' ? settings.tts_voice_local : settings.tts_voice_openai;
+    const value = persona.voice_preferences?.[provider]?.voice ?? '';
+    const change = (voice: string) => {
+      const preferences = { ...(persona.voice_preferences ?? {}) };
+      const own = { ...(preferences[provider] ?? {}) };
+      if (voice) own.voice = voice;
+      else delete own.voice;
+      if (Object.keys(own).length) preferences[provider] = own;
+      else delete preferences[provider];
+      persona.voice_preferences = preferences;
+      this.renderApp();
+    };
+    if (provider === 'local' && this.voices) {
+      return this.voices.field({
+        label: 'Voice',
+        value,
+        speed: persona.voice_preferences?.[provider]?.speed || settings.tts_speed_local,
+        baseUrl: settings.tts_local_base_url,
+        change,
+        inherit: { label: `Same as Spoken replies (${describeVoice(usual).label})`, voice: usual },
+        testId: 'persona-voice',
+      });
+    }
+    return textField('Voice', value, change, { hover: `Empty uses the voice under Spoken replies (${usual}).`, testId: 'persona-voice' });
   }
 
   private workspaceRow(persona: Persona): HTMLElement {
@@ -277,7 +319,10 @@ export class PersonaPageView {
 
   private revert(persona: Persona): void {
     if (!this.original) return;
-    Object.assign(persona, this.original, { workspace_ids: [...this.original.workspace_ids] });
+    Object.assign(persona, this.original, {
+      workspace_ids: [...this.original.workspace_ids],
+      voice_preferences: JSON.parse(JSON.stringify(this.original.voice_preferences)) as Persona['voice_preferences'],
+    });
   }
 
   private async leave(persona: Persona, go: () => void): Promise<void> {
