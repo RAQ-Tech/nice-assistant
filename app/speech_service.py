@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import hashlib
+import re
 import secrets
 import shutil
 import subprocess
@@ -38,6 +40,12 @@ FORMATS = {"mp3", "opus", "aac", "flac", "wav", "pcm"}
 # Converting a minute of speech takes well under a second. A conversion still
 # running after this long is stuck on a damaged upload, not working on one.
 AUDIO_CONVERSION_TIMEOUT_SECONDS = 30
+# What a voice says when somebody asks to hear it. One fixed sentence, so each
+# voice is made once and kept; changing it makes every sample again.
+VOICE_SAMPLE_TEXT = "Hi, it's lovely to meet you. This is how I'll sound when we talk."
+# A voice name as Kokoro writes one - `af_heart`, or a blend such as
+# `af_bella(2)+af_heart(1)` - and nothing that could be a path.
+_VOICE_NAME = re.compile(r"[A-Za-z0-9_.()+\-]{1,120}")
 
 
 class SpeechService:
@@ -77,6 +85,30 @@ class SpeechService:
         finally:
             if self.metrics:
                 self.metrics.provider("local", "voices", outcome, int((time.monotonic() - started) * 1000))
+
+    def voice_sample(self, user_id: str, voice: str, speed: str | None = None) -> bytes:
+        """A voice saying one fixed sentence, made the first time and kept after.
+
+        Played beside a voice picker, so choosing a voice is listening rather than
+        guessing from a name. Only the speech service on this network makes them:
+        a sample of a cloud voice would send a request off the machine just to
+        browse. The cache is keyed by everything that changes the sound, so a new
+        speed or a different service makes a new sample rather than replaying an
+        old one.
+        """
+
+        if not _VOICE_NAME.fullmatch(str(voice or "")):
+            raise RequestError("Choose a voice to hear.", 400)
+        plan = self._speech_plan(user_id, {"text": VOICE_SAMPLE_TEXT, "voice": voice, "speed": speed, "format": "mp3"})
+        if plan["provider"] != "local":
+            raise RequestError("Samples come from the speech service on this network.", 400)
+        identity = "|".join((plan["base_url"] or "", plan["model"], plan["voice"], plan["speed"], VOICE_SAMPLE_TEXT))
+        target = self.config.voice_sample_dir / f"{hashlib.sha256(identity.encode()).hexdigest()[:32]}.mp3"
+        if target.is_file():
+            return target.read_bytes()
+        audio = self._provider_audio(plan, None)
+        write_artifact_atomic(target, audio)
+        return audio
 
     def synthesize(self, user_id: str, values: dict, cancelled=None) -> dict:
         """Speak this text, or stop the moment nobody is waiting for it.

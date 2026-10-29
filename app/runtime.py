@@ -158,6 +158,12 @@ class AppConfig:
         return self.data_dir / "images"
 
     @property
+    def voice_sample_dir(self) -> Path:
+        """Kept samples of each voice. A cache: never backed up, safe to delete."""
+
+        return self.data_dir / "voice-samples"
+
+    @property
     def video_dir(self) -> Path:
         return self.data_dir / "videos"
 

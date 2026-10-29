@@ -25,6 +25,7 @@ import { advancedSettings, settingsCard, titleCase } from './settings_ui';
 import { state } from './state';
 import { TaskModelSettingsView } from './task_model_settings_view';
 import { applyTheme } from './theme';
+import { VoicePicker } from './voice_picker';
 import type {
   AppState,
   IdentitySetupIntent,
@@ -89,7 +90,8 @@ export class SettingsView {
     });
     const pictures = new PersonaPicturesView(renderApp, appState, client);
     const change = <K extends keyof Settings>(key: K, value: Settings[K], shouldRender?: boolean) => this.set(key, value, shouldRender);
-    this.everydayView = new EverydaySettingsView(appState, change, (provider) => this.providerControl(provider));
+    const voices = new VoicePicker(client, renderApp);
+    this.everydayView = new EverydaySettingsView(appState, change, (provider) => this.providerControl(provider), voices);
     this.modelView = new ModelSettingsView(
       appState,
       change,
@@ -109,6 +111,7 @@ export class SettingsView {
       new PersonaFaceView(appState, client, renderApp, dialogs, setUpIdentityControl, (persona) => pictures.foldContent(persona)),
       change,
       pictures,
+      voices,
     );
     this.operationsView = new OperationsSettingsView(renderApp, appState, client, dialogs);
   }

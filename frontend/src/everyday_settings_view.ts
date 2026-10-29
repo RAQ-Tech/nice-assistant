@@ -3,6 +3,7 @@ import { actionRow, choiceField, longField, numberField, pageHint, switchField, 
 import { advancedSettings, settingsCard } from './settings_ui';
 import { THEME_CHOICES, themeLabel } from './theme';
 import type { AppState, Settings } from './types';
+import type { VoicePicker } from './voice_picker';
 
 export type EverydaySettingsSection =
   | 'General'
@@ -31,6 +32,7 @@ export class EverydaySettingsView {
     private readonly appState: AppState,
     private readonly change: SettingChange,
     private readonly providerControl: (provider: string) => HTMLElement,
+    private readonly voices: VoicePicker | null = null,
   ) {}
 
   nodes(section: EverydaySettingsSection, settings: Settings): HTMLElement[] {
@@ -107,9 +109,19 @@ export class EverydaySettingsView {
           type: 'url',
           hover: 'The Kokoro-compatible service on this network.',
         }),
-        textField('Voice', settings.tts_voice_local, (value) => this.change('tts_voice_local', value), {
-          hover: 'Unless a persona chooses its own.',
-        }),
+        this.voices
+          ? this.voices.field({
+              label: 'Voice',
+              value: settings.tts_voice_local,
+              speed: settings.tts_speed_local,
+              baseUrl: settings.tts_local_base_url,
+              change: (value) => this.change('tts_voice_local', value),
+              hover: 'Unless a persona chooses its own.',
+              testId: 'tts-voice-local',
+            })
+          : textField('Voice', settings.tts_voice_local, (value) => this.change('tts_voice_local', value), {
+              hover: 'Unless a persona chooses its own.',
+            }),
         numberField('Speed', settings.tts_speed_local, (value) => this.change('tts_speed_local', value), { step: '0.1', hover: '1 is normal.' }),
       );
       more.push(

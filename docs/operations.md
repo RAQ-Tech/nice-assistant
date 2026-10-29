@@ -355,7 +355,11 @@ container the deployment already runs is the one to keep.
 
 **Speech with Kokoro.** A Kokoro-compatible HTTP service on the LAN, port 8880
 by convention. Spoken replies: "Local service - on this machine", the service
-address, and a voice name the service reports.
+address, and a voice chosen from the list the service reports, with a play
+button to hear each one. Kokoro's voices ship inside its container, so
+updating that container is how new ones arrive. Samples are kept in
+`DATA_DIR/voice-samples`; it is a cache, left out of backups, and safe to
+delete (ADR 0051).
 
 ## Runtime lifecycle
 

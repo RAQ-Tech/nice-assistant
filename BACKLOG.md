@@ -547,6 +547,17 @@ Batch 4 of the same review: the first five minutes. See
 What is left is the password manager in a real browser profile, item 20 in
 section 4.
 
+### 1O. Choosing a voice by ear - delivered 2026-10-29
+
+Asked for by the owner. See
+[ADR 0051](docs/decisions/0051-choosing-a-voice-by-ear.md).
+
+- The local voice is chosen from the voices the speech service reports,
+  named and grouped by language, instead of typed.
+- A play button beside it speaks one fixed sentence in that voice; the
+  server makes each sample once and keeps it.
+- A persona can have its own voice, chosen the same way on its page.
+
 ### 1N. A phone app on the home screen - delivered 2026-10-29
 
 Batch 5 of the same review, as an installable web app rather than native
@@ -965,7 +976,7 @@ done:
 - Update the product, architecture, security, testing, operations, roadmap, and
   debt documents in the same change as the behavior they describe.
 - Record durable architectural choices as ADRs in `docs/decisions/`. The next
-  free number is 0051.
+  free number is 0052.
 - Run `python scripts/audit_public_repo.py` before every public commit. This
   file must never contain deployment addresses, hostnames, user-specific paths,
   hardware inventories, or account identifiers.
