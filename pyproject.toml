@@ -60,6 +60,8 @@ max-complexity = 15
 # not anything the checker could see - said it was present.
 python_version = "3.11"
 files = ["app"]
+# Said once here rather than as a note on every such function.
+disable_error_code = ["annotation-unchecked"]
 
 [tool.coverage.run]
 branch = true
