@@ -1,4 +1,5 @@
 import { el } from './dom';
+import { icon } from './icons';
 import type { AppState } from './types';
 
 /**
@@ -16,10 +17,9 @@ export function imageOverlay(
 ): HTMLElement {
   const stepper = gallery && gallery.total > 1 ? gallery : null;
   let touchStartX = 0;
-  const arrow = (delta: number, label: string, glyph: string) =>
+  const arrow = (delta: number, label: string, glyph: 'previous' | 'next') =>
     el('button', {
       class: `icon-btn media-preview-step media-preview-step-${delta < 0 ? 'previous' : 'next'}`,
-      textContent: glyph,
       title: label,
       'aria-label': label,
       'data-testid': `image-preview-${delta < 0 ? 'previous' : 'next'}`,
@@ -27,7 +27,7 @@ export function imageOverlay(
         event.stopPropagation();
         stepper?.step(delta);
       },
-    });
+    }, [icon(glyph)]);
   return el('div', { class: 'modal-backdrop media-preview-backdrop', 'data-testid': 'image-preview', onclick: close }, [
     el('div', {
       class: 'media-preview-frame',
@@ -49,12 +49,11 @@ export function imageOverlay(
     }, [
       el('button', {
         class: 'icon-btn media-preview-close',
-        textContent: '✕',
         title: 'Close preview',
         'aria-label': 'Close preview',
         onclick: close,
-      }),
-      ...(stepper ? [arrow(-1, 'Previous picture', '‹'), arrow(1, 'Next picture', '›')] : []),
+      }, [icon('close')]),
+      ...(stepper ? [arrow(-1, 'Previous picture', 'previous'), arrow(1, 'Next picture', 'next')] : []),
       el('img', {
         class: 'media-preview-image',
         src: url,
@@ -104,11 +103,10 @@ export function videoOverlay(appState: AppState, render: () => void): HTMLElemen
     }, [
       el('button', {
         class: 'icon-btn media-preview-close',
-        textContent: '✕',
         title: 'Close preview',
         'aria-label': 'Close preview',
         onclick: close,
-      }),
+      }, [icon('close')]),
       el('video', { class: 'video-preview-media', src: appState.chatVideoPreview, controls: true, autoplay: true }),
     ]),
   ]);

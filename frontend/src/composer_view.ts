@@ -2,6 +2,7 @@ import type { ChatController } from './chat';
 import { composerState, heardSoFar } from './composer_state';
 import type { ConversationLoop } from './conversation_loop';
 import { el } from './dom';
+import { icon } from './icons';
 import { photoPicker } from './photo_upload';
 import type { RecordingController } from './recording';
 import { state } from './state';
@@ -54,11 +55,11 @@ export function composerView(personaName: string, deps: ComposerDeps): HTMLEleme
             el('img', { src: state.draftPhoto, alt: 'The photo to send' }),
             el('button', {
               class: 'icon-btn',
-              textContent: '×',
+              type: 'button',
               title: 'Remove the photo',
               'aria-label': 'Remove the photo',
               onclick: () => { state.draftPhoto = null; deps.render(); },
-            }),
+            }, [icon('close')]),
           ])
         : null,
       el('div', { class: 'composer-row' }, [

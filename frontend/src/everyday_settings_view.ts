@@ -1,6 +1,7 @@
 import { el } from './dom';
 import { actionRow, choiceField, longField, numberField, pageHint, switchField, textField } from './settings_page';
 import { advancedSettings, settingsCard } from './settings_ui';
+import { THEME_CHOICES, themeLabel } from './theme';
 import type { AppState, Settings } from './types';
 
 export type EverydaySettingsSection =
@@ -44,8 +45,8 @@ export class EverydaySettingsView {
   private general(settings: Settings): HTMLElement[] {
     return [
       settingsCard([
-        choiceField('Theme', settings.general_theme, ['dark', 'light'], (value) => this.change('general_theme', value), {
-          display: titleCase,
+        choiceField('Theme', settings.general_theme, THEME_CHOICES, (value) => this.change('general_theme', value), {
+          display: themeLabel,
           testId: 'general-theme',
         }),
         choiceField('Model', settings.global_default_model, ['', ...this.appState.models], (value) => this.change('global_default_model', value), {

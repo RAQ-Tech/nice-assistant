@@ -38,10 +38,23 @@ export function talkButton(
         ? 'Thinking…'
         : handsFree ? 'Tap to Talk' : 'Hold to Talk';
   const hold = {
-    onpointerdown: () => { stopSpeaking(); void recording.start(); },
-    onpointerup: () => void recording.stop(),
-    onpointercancel: () => void recording.stop(),
-    onpointerleave: (event: PointerEvent) => { if (event.buttons === 1) void recording.stop(); },
+    onpointerdown: (event: PointerEvent) => {
+      // One finger, or the main mouse button. A second finger landing is not a
+      // second recording.
+      if (!event.isPrimary || event.button !== 0) return;
+      event.preventDefault();
+      beginHold(event.pointerId, stopSpeaking, recording);
+    },
+    // A long press on a phone otherwise opens a menu, which ends the touch.
+    oncontextmenu: (event: Event) => event.preventDefault(),
+    onkeydown: (event: KeyboardEvent) => {
+      if ((event.key !== ' ' && event.key !== 'Enter') || event.repeat) return;
+      event.preventDefault();
+      beginHold(KEYBOARD, stopSpeaking, recording);
+    },
+    onkeyup: (event: KeyboardEvent) => {
+      if (event.key === ' ' || event.key === 'Enter') endHold(KEYBOARD, recording);
+    },
   };
   const tap = {
     onclick: () => {
@@ -65,7 +78,6 @@ export function talkButton(
     class: `talk-btn ${listening ? 'active' : ''} ${listening && handsFree ? 'listening' : ''}`,
     textContent: label,
     disabled: busy && !listening,
-    'aria-live': 'polite',
     'data-testid': 'talk-button',
     title: listening && handsFree ? 'Tap to send now, or before speaking to stop.' : (transcriptionDestination() ?? ''),
     ...(handsFree ? tap : hold),
@@ -76,6 +88,44 @@ export function talkButton(
     button,
     el('span', { class: 'meta talk-destination', 'data-testid': 'talk-destination', textContent: destination }),
   ]);
+}
+
+/** Shorter than this, a press was a brush against the button rather than a turn. */
+export const BRIEF_PRESS_MS = 350;
+const KEYBOARD = -1;
+
+let held: { pointer: number; since: number; release: (event: PointerEvent) => void } | null = null;
+
+/**
+ * Start a held recording, and end it however the hold ends.
+ *
+ * The end is listened for on the window, not the button. The page is redrawn
+ * as recording starts, which replaces the button under the finger; and a
+ * finger that drifts off the edge mid-sentence has not let go. Only lifting it
+ * - anywhere - is the decision. The button's `touch-action: none` keeps the
+ * browser from turning a slightly moving hold into a scroll and cancelling it.
+ */
+function beginHold(pointer: number, stopSpeaking: () => void, recording: RecordingController): void {
+  if (held) return;
+  const release = (event: PointerEvent) => endHold(event.pointerId, recording);
+  held = { pointer, since: performance.now(), release };
+  if (pointer !== KEYBOARD) {
+    window.addEventListener('pointerup', release);
+    window.addEventListener('pointercancel', release);
+  }
+  stopSpeaking();
+  void recording.start();
+}
+
+function endHold(pointer: number, recording: RecordingController): void {
+  if (!held || held.pointer !== pointer) return;
+  const brief = performance.now() - held.since < BRIEF_PRESS_MS;
+  window.removeEventListener('pointerup', held.release);
+  window.removeEventListener('pointercancel', held.release);
+  held = null;
+  // Nothing worth sending fits in a brush; discard it rather than transcribe a click.
+  if (brief) recording.cancel();
+  else void recording.stop();
 }
 
 /**

@@ -68,7 +68,9 @@ class RequestBodyLimitMiddleware:
         return await JSONResponse(status_code=413, content=content)(scope, receive, send)
 
 
-BROWSER_FILE_SUFFIXES = frozenset({".html", ".js", ".css", ".svg", ".png", ".ico", ".webp"})
+BROWSER_FILE_SUFFIXES = frozenset({".html", ".js", ".css", ".svg", ".png", ".ico", ".webp", ".webmanifest"})
+# What `mimetypes` does not know on every platform.
+BROWSER_MEDIA_TYPES = {".webmanifest": "application/manifest+json"}
 
 
 def _browser_file(web_dir, path: str, request: Request):
@@ -96,7 +98,9 @@ def _browser_file(web_dir, path: str, request: Request):
         raise HTTPException(status_code=404, detail="not found")
     response = FileResponse(
         target,
-        media_type=mimetypes.guess_type(target.name)[0] or "application/octet-stream",
+        media_type=BROWSER_MEDIA_TYPES.get(target.suffix.lower())
+        or mimetypes.guess_type(target.name)[0]
+        or "application/octet-stream",
         stat_result=target.stat(),
         headers={"Cache-Control": "no-cache"},
     )

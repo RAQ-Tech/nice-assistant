@@ -177,7 +177,7 @@ describe('durable chat attachments', () => {
       id: 'message-1', role: 'assistant', text: '**Long reply:** perhaps concise answers are best.', created_at: 1,
     }, null)!;
 
-    (node.querySelector('[title="Propose a memory fact"]') as HTMLButtonElement).click();
+    (node.querySelector('[title="Remember this"]') as HTMLButtonElement).click();
 
     await vi.waitFor(() => expect(proposeMemory).toHaveBeenCalledWith(
       'chat', 'chat-1', 'The user prefers concise answers.', 'message-1',

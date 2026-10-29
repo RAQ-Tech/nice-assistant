@@ -393,7 +393,7 @@ test('mobile touch and keyboard input keep conversation controls usable', async 
   await composer.pressSequentially('keyboard line two');
   await expect(composer).toHaveValue('keyboard line one\nkeyboard line two');
 
-  await page.getByTitle('Chat controls and details').tap();
+  await page.getByTitle('Chat details').tap();
   const blurToggle = page.getByTestId('toggle-chat-image-blur');
   await expect(blurToggle).toBeVisible();
   await blurToggle.tap();
@@ -505,7 +505,7 @@ test('settings review memory and media use only canonical APIs', async ({ page }
   await page.getByTestId('catalog-inventory').locator(':scope > summary').click();
   await page.getByTestId('media-plan-preview').click();
   await expect(page.locator('.media-plan-preview')).toContainText('Ready');
-  await page.getByRole('button', { name: '✕ Close' }).click();
+  await page.getByRole('button', { name: 'Close', exact: true }).click();
   await (await messageAction(page, 'Generate an image from this reply')).click();
   await expect(page.locator('img.msg-inline-image')).toHaveAttribute('src', '/api/v1/media/media-1');
   expect(fixture.memoryApproved).toBe(true);

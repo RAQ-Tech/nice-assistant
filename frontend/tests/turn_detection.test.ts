@@ -338,6 +338,20 @@ describe('Hands-free recording', () => {
     }
   });
 
+  it('honours a brush that was discarded before the microphone opened', async () => {
+    try {
+      const { controller, appState } = recordingSetup([QUIET]);
+      const starting = controller.start();
+      controller.cancel();
+      await starting;
+      // The cancel used to be dropped, and the microphone opened and kept recording.
+      expect(controller.recording).toBe(false);
+      expect(appState.phase).not.toBe('recording');
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
   it('never watches the level when the button is being held', async () => {
     vi.useFakeTimers();
     try {

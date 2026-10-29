@@ -33,7 +33,8 @@ export class RecordingController {
   private listener: HandsFreeListener | null = null;
   private readonly segments = new TranscriptSegments();
   private starting = false;
-  private stopWhenStarted = false;
+  /** What a held button asked for while the microphone was still opening. */
+  private whenStarted: 'stop' | 'cancel' | null = null;
 
   constructor(
     private readonly appState: AppState = state,
@@ -121,10 +122,10 @@ export class RecordingController {
     }
     this.onChange();
     // A held button let go while the microphone was still being opened.
-    if (this.stopWhenStarted) {
-      this.stopWhenStarted = false;
-      await this.stop();
-    }
+    const then = this.whenStarted;
+    this.whenStarted = null;
+    if (then === 'cancel') this.cancel();
+    else if (then === 'stop') await this.stop();
   }
 
   /**
@@ -209,7 +210,7 @@ export class RecordingController {
 
   async stop(): Promise<void> {
     if (this.starting) {
-      this.stopWhenStarted = true;
+      this.whenStarted = 'stop';
       return;
     }
     const recorder = this.recorder;
@@ -250,7 +251,10 @@ export class RecordingController {
   }
 
   cancel(): void {
-    this.stopWhenStarted = false;
+    if (this.starting) {
+      this.whenStarted = 'cancel';
+      return;
+    }
     if (this.recorder?.state === 'recording') this.recorder.stop();
     this.appState.partialTranscript = '';
     this.stopListening();

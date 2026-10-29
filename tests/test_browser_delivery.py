@@ -61,3 +61,54 @@ class ModuleShapeTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class InstallableAppTests(unittest.TestCase):
+    """What a phone needs to put the app on its home screen. ADR 0050."""
+
+    def test_the_manifest_names_the_app_and_its_icons(self):
+        import json
+
+        from PIL import Image
+
+        web = Path(__file__).resolve().parents[1] / "web"
+        manifest = json.loads((web / "manifest.webmanifest").read_text(encoding="utf-8"))
+        self.assertEqual(manifest["display"], "standalone")
+        self.assertEqual((manifest["start_url"], manifest["scope"]), ("/", "/"))
+        self.assertTrue(manifest["name"] and manifest["short_name"])
+        purposes = set()
+        for entry in manifest["icons"]:
+            width, height = (int(value) for value in entry["sizes"].split("x"))
+            with Image.open(web / entry["src"].lstrip("/")) as picture:
+                # A declared size the file does not have is an icon Chrome rejects.
+                self.assertEqual(picture.size, (width, height), entry["src"])
+            purposes.add((entry.get("purpose", "any"), width))
+        self.assertTrue({("any", 192), ("any", 512), ("maskable", 512)} <= purposes)
+
+        page = (web / "index.html").read_text(encoding="utf-8")
+        for link in ('rel="manifest"', 'rel="apple-touch-icon"', 'name="theme-color"'):
+            self.assertIn(link, page)
+
+    def test_the_server_hands_them_out_with_the_right_types(self):
+        with tempfile.TemporaryDirectory() as tmp, TestApp(Path(tmp)) as running:
+            manifest = running.client.get("/manifest.webmanifest")
+            self.assertEqual(manifest.status_code, 200)
+            self.assertEqual(manifest.headers["content-type"], "application/manifest+json")
+            for path, kind in (
+                ("/sw.js", "javascript"),
+                ("/offline.html", "text/html"),
+                ("/icons/icon-192.png", "image/png"),
+            ):
+                response = running.client.get(path)
+                self.assertEqual(response.status_code, 200, path)
+                self.assertIn(kind, response.headers["content-type"], path)
+                # The service worker in particular must never be kept stale.
+                self.assertEqual(response.headers.get("cache-control"), "no-cache", path)
+
+    def test_the_service_worker_keeps_nothing_but_the_offline_page(self):
+        worker = (Path(__file__).resolve().parents[1] / "frontend" / "public" / "sw.js").read_text(encoding="utf-8")
+        # A cached copy of the app would outlive an update; only this page is stored.
+        self.assertEqual(worker.count("cache.add("), 1)
+        self.assertIn("cache.add(OFFLINE)", worker)
+        self.assertNotIn("cache.put(", worker)
+        self.assertIn("if (event.request.mode !== 'navigate') return;", worker)

@@ -22,6 +22,10 @@ import { normalizeSettings, settingsWire } from './settings';
 import { SettingsView, type Dialogs } from './settings_view';
 import { SetupView } from './setup_view';
 import { clearIdentitySetupContext, machine, state } from './state';
+import { announceChanges, focusOpenDialog } from './a11y';
+import { icon, iconButton } from './icons';
+import { applyTheme } from './theme';
+import { keepAwakeWhileTalking } from './wake_lock';
 import type { ModalState, RouteState, Session } from './types';
 import { Visualizer } from './visualization';
 
@@ -135,7 +139,7 @@ async function authenticated(session: Session): Promise<void> {
   state.showThinkingByDefault = state.settings.general_show_thinking;
   state.voiceResponsesEnabled = state.settings.general_voice_responses;
   state.showViz = state.settings.general_show_viz;
-  document.documentElement.dataset.theme = state.settings.general_theme;
+  applyTheme(state.settings.general_theme);
   state.lastActivityAt = Date.now();
   armSessionTimer();
 
@@ -263,6 +267,9 @@ function render(): void {
   if (state.chatVideoPreview) root.append(videoOverlay(state, render));
   if (state.modal) root.append(modalNode(state.modal));
   restoreFocus(root, focus, Boolean(state.modal));
+  focusOpenDialog(root);
+  announceChanges(state);
+  keepAwakeWhileTalking(state);
   // After focus restore, so focus() cannot drag a pane the reader left.
   restoreScrollPositions(document, scrolls);
   const pane = document.querySelector<HTMLElement>(MESSAGES_PANE);
@@ -338,11 +345,10 @@ function shell(): HTMLElement {
         ? el('button', {
             id: 'jumpBtn',
             class: 'jump-bottom show',
-            textContent: '↓',
             title: 'Go to the newest message',
             'aria-label': 'Go to the newest message',
             onclick: () => scrollBottom(true),
-          })
+          }, [icon('down')])
         : null,
       state.uiError
         ? el('div', { class: 'error-banner' }, [
@@ -371,7 +377,7 @@ function topbar(personaName: string, avatar: string): HTMLElement {
     }, [
       el('img', { class: 'topbar-home-mark', src: '/favicon.svg', alt: '' }),
     ]),
-    el('button', { class: 'icon-btn', textContent: '☰', title: 'Chats', 'aria-label': 'Open the chat list', 'data-drawer-toggle': 'true', 'data-testid': 'drawer-toggle', onclick: () => { state.drawerOpen = !state.drawerOpen; render(); } }),
+    iconButton('menu', 'Chats', { 'aria-expanded': state.drawerOpen, 'data-drawer-toggle': 'true', 'data-testid': 'drawer-toggle', onclick: () => { state.drawerOpen = !state.drawerOpen; render(); } }),
     el('div', { class: 'header-meta' }, [
       el('button', {
         class: 'image-preview-trigger topbar-avatar-trigger',
@@ -388,9 +394,9 @@ function topbar(personaName: string, avatar: string): HTMLElement {
       ]),
     ]),
     el('span', { class: 'sr-only', textContent: state.statusText, 'data-testid': 'client-phase' }),
-    el('button', { class: 'icon-btn', textContent: '⋯', title: 'Chat controls and details', 'aria-expanded': state.showChatControlsMenu, onclick: () => { state.showChatControlsMenu = !state.showChatControlsMenu; render(); } }),
-    el('button', { class: 'icon-btn', textContent: '⚙', title: 'Settings', 'data-testid': 'open-settings', onclick: () => router.settings(state.settingsSection) }),
-    el('button', { class: 'icon-btn', textContent: '↪', title: 'Log out', 'data-testid': 'logout', onclick: () => void logout() }),
+    iconButton('more', 'Chat details', { 'aria-expanded': state.showChatControlsMenu, onclick: () => { state.showChatControlsMenu = !state.showChatControlsMenu; render(); } }),
+    iconButton('settings', 'Settings', { 'data-testid': 'open-settings', onclick: () => router.settings(state.settingsSection) }),
+    iconButton('signOut', 'Sign out', { 'data-testid': 'logout', onclick: () => void logout() }),
   ]);
 }
 
@@ -587,6 +593,7 @@ function handleKeydown(event: KeyboardEvent): void {
     state.personaAvatarPreview = '';
     render();
   } else if (state.showSettings) closeSettings();
+  else if (state.drawerOpen) { state.drawerOpen = false; render(); }
 }
 
 function noteActivity(): void {
