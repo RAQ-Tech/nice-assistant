@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from app.auth import hash_password, is_masked_secret, mask_secret, verify_password
+from app.auth import hash_password, is_masked_secret, mask_secret, password_needs_rehash, verify_password
 from app.persona_voice import parse as parse_voice_preferences
 from app.context_policy import ContextPolicy, TokenEstimator
 from app.owner_profile import owner_profile_tokens, profile_budget, profile_too_large_message
@@ -152,6 +152,7 @@ class ResourceService:
         session_ttl_seconds: int,
         password_hasher=hash_password,
         password_verifier=verify_password,
+        password_needs_rehash=password_needs_rehash,
         persona_delete_hook=None,
         provider_url_policy=None,
         media_catalog=None,
@@ -166,6 +167,7 @@ class ResourceService:
         self.session_ttl_seconds = session_ttl_seconds
         self.password_hasher = password_hasher
         self.password_verifier = password_verifier
+        self.password_needs_rehash = password_needs_rehash
         self.persona_delete_hook = persona_delete_hook
         self.provider_url_policy = provider_url_policy
         self.media_catalog = media_catalog
@@ -200,6 +202,10 @@ class ResourceService:
             user = uow.repo.user_by_username(username.strip())
             if not user or not self.password_verifier(password, user.password_hash):
                 raise AuthenticationError("invalid credentials")
+            if self.password_needs_rehash(user.password_hash):
+                # The only moment the password itself is in hand: a hash made more
+                # weakly than today's is replaced as its owner signs in.
+                user.password_hash = self.password_hasher(password)
             ttl = REMEMBERED_SESSION_SECONDS if remember else self.session_ttl_seconds
             session = uow.repo.create_session(user.id, ttl, persistent=remember)
             settings = uow.repo.settings(user.id) or {}

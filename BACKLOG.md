@@ -563,13 +563,12 @@ Batch 6 of the same review. See
 - The three largest modules are split along real seams: the API's request
   and response models, the repository's picture side, and identity binding.
 
-Two smaller findings from the same review are not done. Passwords are hashed
-with 120,000 PBKDF2 iterations where current guidance is 600,000; raising
-it needs the iteration count stored with each hash so existing passwords
-still verify and are upgraded at their next sign-in. Provider requests follow
-HTTP redirects without applying the private-LAN host policy to where they
-lead; only an address the owner configured can redirect, so the exposure is
-small, but the policy should hold for every hop.
+The two smaller security findings from the same review followed the same
+day; see [ADR 0049](docs/decisions/0049-password-strength-and-redirects.md).
+Passwords are hashed at 600,000 iterations with the count stored in the hash,
+and an older hash is strengthened at its owner's next sign-in. A redirect
+can no longer carry a request across the private-LAN boundary in either
+direction.
 
 ## 2. Decided
 
@@ -939,7 +938,7 @@ done:
 - Update the product, architecture, security, testing, operations, roadmap, and
   debt documents in the same change as the behavior they describe.
 - Record durable architectural choices as ADRs in `docs/decisions/`. The next
-  free number is 0049.
+  free number is 0050.
 - Run `python scripts/audit_public_repo.py` before every public commit. This
   file must never contain deployment addresses, hostnames, user-specific paths,
   hardware inventories, or account identifiers.

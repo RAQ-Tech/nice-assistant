@@ -46,6 +46,11 @@ kind at once. Credentials are never kept in browser storage; the sign-in page is
 a real form so a password manager can keep them instead. Login failures are bounded per client and normalized username
 and do not disclose whether a username exists.
 
+Passwords are stored as PBKDF2-HMAC-SHA256 at 600,000 iterations, in the form
+`pbkdf2_sha256$iterations$salt$digest`, and compared in constant time. A hash
+from before ADR 0049, at 120,000 iterations, still verifies and is replaced at
+its owner's next successful sign-in.
+
 User-configurable LAN provider base URLs accept only HTTP(S), contain no
 credentials/query/fragment, and must target a private/loopback/Tailscale address,
 a recognized LAN/container hostname, or an exact
@@ -53,6 +58,11 @@ a recognized LAN/container hostname, or an exact
 literal IP targets are rejected. An allowlist entry is an operator trust grant,
 not proof that the remote service is private; public-internet providers remain
 fixed server adapters rather than browser-supplied URLs.
+
+The policy also holds after a request is sent. A redirect is followed only to
+the same host or to another host on the same side of the policy, so a LAN
+service cannot send a request to the internet and an internet address cannot
+send the server into the LAN (ADR 0049).
 
 ## Deployment automation authority
 
