@@ -1083,7 +1083,7 @@ class ApplicationRepository(MediaRepository):
             .order_by(ConversationTurn.sequence_number)
         ).all()
 
-    def add_turn(self, *, user_id: str, chat_id: str, message_id: str, provider: str, model: str):
+    def add_turn(self, *, user_id: str, chat_id: str, message_id: str | None, provider: str, model: str):
         sequence = self.session.scalar(
             update(Chat)
             .where(Chat.id == chat_id, Chat.user_id == user_id)

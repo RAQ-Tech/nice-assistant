@@ -43,6 +43,7 @@ from app.api_models import (
     ChatUpdate,
     TurnCreate,
     TurnAgain,
+    TurnGreeting,
     ProviderCheck,
     ComfyUIWorkflowInspection,
     CheckpointDiscovery,
@@ -508,6 +509,24 @@ def create_turn(
         chat_id,
         body.model_dump(),
     )
+    return {"turn": turn, "job": job}
+
+
+@router.post(
+    "/chats/{chat_id}/greeting",
+    response_model=TurnAcceptedResponse,
+    status_code=202,
+    tags=["turns"],
+)
+def greet(
+    chat_id: str,
+    body: TurnGreeting,
+    request: Request,
+    context: AuthContext = Depends(current_user),
+):
+    """The persona speaks first, in a conversation where nothing has been said yet."""
+
+    turn, job = services(request).conversations.greet(context.user_id, chat_id, body.model_dump())
     return {"turn": turn, "job": job}
 
 

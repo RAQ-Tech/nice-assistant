@@ -74,50 +74,107 @@ const visualIdentityProfile = {
   verification_configured: false, validation_ready: false, references: [],
 };
 
-test('the first visit makes the account, meets a companion and lands in a conversation', async ({ page }) => {
-  let authenticated = false;
-  let createdWorkspace = false;
-  let personaBody: Record<string, unknown> | null = null;
-  let loginBody: Record<string, unknown> | null = null;
-  let chatBody: Record<string, unknown> | null = null;
-  let onboardingDone = false;
+const GREETING = "Oh, hello! I'm Nova. I've been hoping you'd stop by.";
+
+/**
+ * A first visit, from the welcome page to the setup page. With `speech` the
+ * local speech service speaks replies, so setup offers a voice; `greeting` is
+ * whether the model can be reached to open the first conversation.
+ */
+async function firstVisit(page: Page, options: { speech: boolean; greeting: 'spoken' | 'unreachable' }) {
+  const seen = {
+    authenticated: false,
+    createdWorkspace: false,
+    greeted: false,
+    onboardingDone: false,
+    persona: null as Record<string, unknown> | null,
+    login: null as Record<string, unknown> | null,
+    chat: null as Record<string, unknown> | null,
+    sample: null as URLSearchParams | null,
+    spoken: null as Record<string, unknown> | null,
+  };
   const firstChat = {
     id: 'chat-first', workspace_id: workspace.id, persona_id: persona.id, model_override: 'seeing',
     memory_mode: 'saved', title: 'New chat', hidden_in_ui: false, created_at: 200, updated_at: 200,
   };
+  const firstSettings = {
+    ...settings,
+    onboarding_done: false,
+    tts_provider: options.speech ? 'local' : 'disabled',
+    preferences: { ...settings.preferences, tts_voice_local: 'af_heart', tts_speed_local: '1', tts_local_base_url: 'http://speech.lan:8880' },
+  };
   await page.route('**/api/v1/**', async (route) => {
     const request = route.request();
-    const path = new URL(request.url()).pathname;
+    const url = new URL(request.url());
+    const path = url.pathname;
     const method = request.method();
-    if (path === '/api/v1/session' && method === 'GET' && !authenticated) {
+    if (path === '/api/v1/session' && method === 'GET' && !seen.authenticated) {
       await json(route, { error: { code: 'authentication_required', message: 'authentication required' } }, 401);
     } else if (path === '/api/v1/signup') await json(route, { open: true, first_account: true });
     else if (path === '/api/v1/users' && method === 'POST') await json(route, { id: 'user-1' }, 201);
     else if (path === '/api/v1/session' && method === 'POST') {
-      authenticated = true;
-      loginBody = request.postDataJSON();
+      seen.authenticated = true;
+      seen.login = request.postDataJSON();
       await json(route, { ...session, persistent: true });
     } else if (path === '/api/v1/models') await json(route, { models: ['demo', 'seeing'], vision_models: ['seeing'] });
-    else if (path === '/api/v1/workspaces' && method === 'GET') await json(route, { items: createdWorkspace ? [workspace] : [] });
+    else if (path === '/api/v1/speech/voices') await json(route, { voices: ['af_heart', 'bf_emma', 'am_adam'] });
+    else if (path === '/api/v1/speech/samples') {
+      seen.sample = url.searchParams;
+      await route.fulfill({ status: 200, contentType: 'audio/wav', body: silentWav() });
+    } else if (path === '/api/v1/workspaces' && method === 'GET') await json(route, { items: seen.createdWorkspace ? [workspace] : [] });
     else if (path === '/api/v1/workspaces' && method === 'POST') {
-      createdWorkspace = true;
+      seen.createdWorkspace = true;
       await json(route, workspace);
-    } else if (path === '/api/v1/personas' && method === 'GET') await json(route, { items: personaBody ? [persona] : [] });
+    } else if (path === '/api/v1/personas' && method === 'GET') await json(route, { items: seen.persona ? [persona] : [] });
     else if (path === '/api/v1/personas' && method === 'POST') {
-      personaBody = request.postDataJSON();
-      await json(route, persona);
+      seen.persona = request.postDataJSON();
+      await json(route, { ...persona, voice_preferences: seen.persona?.voice_preferences ?? {} });
     } else if (path === '/api/v1/chats' && method === 'POST') {
-      chatBody = request.postDataJSON();
+      seen.chat = request.postDataJSON();
       await json(route, firstChat);
-    } else if (path === '/api/v1/chats') await json(route, { items: chatBody ? [firstChat] : [] });
-    else if (path === `/api/v1/chats/${firstChat.id}`) await json(route, { chat: firstChat, messages: [] });
+    } else if (path === '/api/v1/chats') await json(route, { items: seen.chat ? [firstChat] : [] });
+    else if (path === `/api/v1/chats/${firstChat.id}/greeting` && method === 'POST') {
+      if (options.greeting === 'unreachable') {
+        await json(route, { error: { code: 'unavailable', message: 'Ollama is not reachable.' } }, 503);
+        return;
+      }
+      seen.greeted = true;
+      await json(route, {
+        turn: {
+          id: 'turn-greeting', chat_id: firstChat.id, job_id: 'greeting-job', status: 'queued', provider: 'ollama', model: 'seeing',
+          user_message_id: null, assistant_message_id: null, accumulated_text: '', error: null,
+          created_at: 201, started_at: null, completed_at: null,
+        },
+        job: job('greeting-job', 'queued', null),
+      }, 202);
+    } else if (path === '/api/v1/turns/turn-greeting/events') {
+      await route.fulfill({
+        status: 200,
+        contentType: 'text/event-stream',
+        body: [
+          'id: 1\nevent: turn.started\ndata: {"status":"running"}\n\n',
+          `id: 2\nevent: assistant.delta\ndata: ${JSON.stringify({ text: GREETING })}\n\n`,
+          'id: 3\nevent: turn.completed\ndata: {"status":"completed"}\n\n',
+        ].join(''),
+      });
+    } else if (path === '/api/v1/jobs/greeting-job') await json(route, job('greeting-job', 'completed', { text: GREETING }));
+    else if (path === `/api/v1/chats/${firstChat.id}`) {
+      await json(route, {
+        chat: firstChat,
+        messages: seen.greeted ? [{ id: 'greeting', role: 'assistant', text: GREETING, created_at: 202 }] : [],
+      });
+    } else if (path === '/api/v1/speech/syntheses' && method === 'POST') {
+      seen.spoken = request.postDataJSON();
+      await json(route, { audio_id: 'greeting-audio', audio_url: '/api/v1/audio/greeting-audio', format: 'wav' });
+    } else if (path === '/api/v1/audio/greeting-audio') await route.fulfill({ status: 200, contentType: 'audio/wav', body: silentWav() });
     else if (path === '/api/v1/memories') await json(route, { items: [] });
     else if (path === '/api/v1/capability-requests') await json(route, { items: [] });
-    else if (path === '/api/v1/settings' && method === 'GET') await json(route, { ...settings, onboarding_done: false });
+    else if (path === '/api/v1/settings' && method === 'GET') await json(route, firstSettings);
     else if (path === '/api/v1/settings' && method === 'PUT') {
-      onboardingDone = request.postDataJSON().onboarding_done === true;
-      await json(route, { ...settings, onboarding_done: true });
-    } else await json(route, { error: { code: 404, message: `Unhandled ${method} ${path}` } }, 404);
+      seen.onboardingDone = request.postDataJSON().onboarding_done === true;
+      await json(route, { ...firstSettings, onboarding_done: true });
+    } else if (path === '/api/v1/diagnostics/client-events') await json(route, { ok: true });
+    else await json(route, { error: { code: 404, message: `Unhandled ${method} ${path}` } }, 404);
   });
 
   await page.goto('/');
@@ -134,16 +191,53 @@ test('the first visit makes the account, meets a companion and lands in a conver
   await expect(page.getByTestId('chat-input')).toHaveCount(0);
   await expect(page.getByTestId('setup-model')).toHaveValue('seeing');
   await page.getByLabel('Their name').fill('Nova');
+  return seen;
+}
+
+test('the first visit makes the account, meets a companion by voice, and is greeted first', async ({ page }) => {
+  const seen = await firstVisit(page, { speech: true, greeting: 'spoken' });
+
+  // The voices the speech service has, heard before choosing.
+  const voice = page.getByLabel('Their voice');
+  await expect(voice).toHaveValue('');
+  await expect(voice.locator('option').first()).toHaveText('Same as Spoken replies (Heart · female)');
+  await voice.selectOption('bf_emma');
+  await page.getByTestId('setup-voice-sample').click();
+  await expect.poll(() => seen.sample?.get('voice')).toBe('bf_emma');
+  await page.getByTestId('setup-start').click();
+
+  // The persona speaks first, in its own words, with nothing put in the owner's mouth.
+  await expect(page.getByTestId('message-assistant')).toContainText(GREETING);
+  await expect(page.getByTestId('message-user')).toHaveCount(0);
+  await expect(page.getByTestId('chat-empty')).toHaveCount(0);
+  await expect(page.getByTestId('chat-input')).toBeVisible();
+  // Spoken, by the persona, and nothing technical said in the conversation.
+  await expect.poll(() => seen.spoken).toMatchObject({ persona_id: persona.id, chat_id: 'chat-first' });
+  expect(String(seen.spoken?.text)).toContain("I'm Nova");
+  await expect(page.locator('.error-banner, .message-audio-error')).toHaveCount(0);
+
+  expect(seen.login).toMatchObject({ username: 'owner', remember: true });
+  expect(seen.createdWorkspace).toBe(true);
+  expect(seen.persona).toMatchObject({ name: 'Nova', default_model: 'seeing', voice_preferences: { local: { voice: 'bf_emma' } } });
+  expect(String(seen.persona?.system_prompt)).toContain('like a close friend');
+  expect(seen.chat).toMatchObject({ persona_id: persona.id, model: 'seeing' });
+  expect(seen.onboardingDone).toBe(true);
+});
+
+test('without speech, and with the model out of reach, the first conversation quietly invites the first word', async ({ page }) => {
+  const seen = await firstVisit(page, { speech: false, greeting: 'unreachable' });
+  // Replies are not spoken here, so there is no voice to choose.
+  await expect(page.getByLabel('Their voice')).toHaveCount(0);
   await page.getByTestId('setup-start').click();
 
   await expect(page.getByTestId('chat-empty')).toHaveText('Say hello to Nova.');
   await expect(page.getByTestId('chat-input')).toBeVisible();
-  expect(loginBody).toMatchObject({ username: 'owner', remember: true });
-  expect(createdWorkspace).toBe(true);
-  expect(personaBody).toMatchObject({ name: 'Nova', default_model: 'seeing' });
-  expect(String((personaBody as Record<string, unknown> | null)?.system_prompt)).toContain('like a close friend');
-  expect(chatBody).toMatchObject({ persona_id: persona.id, model: 'seeing' });
-  expect(onboardingDone).toBe(true);
+  await expect(page.getByTestId('message-assistant')).toHaveCount(0);
+  // The greeting that could not be made is not reported: the invitation is all there is.
+  await expect(page.locator('.error-banner')).toHaveCount(0);
+  expect(seen.persona).toMatchObject({ name: 'Nova', voice_preferences: {} });
+  expect(seen.greeted).toBe(false);
+  expect(seen.onboardingDone).toBe(true);
 });
 
 test('a wrong password says so and keeps what was typed', async ({ page }) => {
@@ -357,7 +451,9 @@ test('typed chat streams a turn and persists the canonical result', async ({ pag
   await expect(page.getByText('Earlier reply')).toBeVisible();
   await page.getByTestId('chat-input').fill('Hello there');
   await page.getByTestId('chat-send').click();
-  await expect(page.getByText('Hello from stream')).toBeVisible();
+  // In the conversation: once the reply is complete, the screen-reader
+  // announcement says the same words, and an unscoped match would race it.
+  await expect(page.getByTestId('message-pane').getByText('Hello from stream')).toBeVisible();
   await expect(page.getByTestId('client-phase')).toHaveText('Idle');
   expect(fixture.turnBody?.text).toBe('Hello there');
   // Read from the same default the page uses rather than restated here. A
@@ -1125,4 +1221,23 @@ async function messageAction(page: Page, title: string) {
 
 async function json(route: Parameters<Parameters<Page['route']>[1]>[0], body: unknown, status = 200): Promise<void> {
   await route.fulfill({ status, contentType: 'application/json', body: JSON.stringify(body) });
+}
+
+/** A tenth of a second of silence, so audio in a journey really plays. */
+function silentWav(): Buffer {
+  const samples = 800;
+  const buffer = Buffer.alloc(44 + samples * 2);
+  buffer.write('RIFF', 0);
+  buffer.writeUInt32LE(36 + samples * 2, 4);
+  buffer.write('WAVEfmt ', 8);
+  buffer.writeUInt32LE(16, 16);
+  buffer.writeUInt16LE(1, 20);
+  buffer.writeUInt16LE(1, 22);
+  buffer.writeUInt32LE(8000, 24);
+  buffer.writeUInt32LE(16000, 28);
+  buffer.writeUInt16LE(2, 32);
+  buffer.writeUInt16LE(16, 34);
+  buffer.write('data', 36);
+  buffer.writeUInt32LE(samples * 2, 40);
+  return buffer;
 }

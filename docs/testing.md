@@ -643,6 +643,16 @@ installed-browser acceptance.
   password manager needs and keeps what was typed on failure, and that setup
   ends in a conversation without making a second persona on retry. The browser
   journey covers a first visit end to end, with no false "session ended".
+- Greeting tests (`tests/test_persona_greeting.py`,
+  `frontend/tests/greeting.test.ts`, ADR 0052) prove the persona opens an empty
+  conversation with no user message stored or put in its prompt, that the next
+  prompt holds the greeting as said and never the request for it, that a
+  greeting names, plans and learns nothing, can be said again and deleted, and
+  that one that cannot be had shows nothing. Migration `0045` is proved to keep
+  every link to an existing turn. Setup's voice is proved offered, hidden with
+  speech off, stored on the persona and kept across a retry; both browser
+  journeys run the first visit, once greeted in a chosen voice and once
+  falling back to the quiet invitation.
 - Memory tests cover legacy data migration, exact-duplicate supersession, FTS
   population/ranking, active-only scoped retrieval, nonblocking extraction,
   provenance, review transitions, superseding edits, forget/undo, extraction

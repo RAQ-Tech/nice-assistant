@@ -9,6 +9,11 @@ turn against the chat that owns its binding, writes the user message, turn, and
 job, and returns. `_open_turn` is the only code that reads a chat to decide a
 turn's model, memory mode, persona material, or lore.
 
+`ConversationService.greet` is the one turn with no user message: the persona
+speaking first in an empty conversation (ADR 0052). Its `user_message_id` is
+null, its prompt ends with an application instruction that is never stored, and
+it schedules no title, picture planning or memory extraction.
+
 `TurnPipeline` in `app/turn_pipeline.py` decides what happens to it: streaming
 the reply through the persona output filter and the media-claim guard,
 committing the assistant message, and scheduling and submitting the title,

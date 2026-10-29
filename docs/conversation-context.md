@@ -44,6 +44,12 @@ Prompt order is application policy, persona instructions, saved memory,
 conversation summary, recent chronological turns, and the current user message
 exactly once.
 
+When the persona speaks first (ADR 0052) there is no current user message. Its
+place is taken by one system message from the application asking for a short
+greeting in the persona's own words. That message belongs to the greeting's
+prompt alone and is never stored, so a later prompt holds the greeting as an
+assistant message and nothing that asked for it.
+
 Only completed prior turns enter a later model prompt. Failed and cancelled
 turns remain visible in the durable transcript and diagnostics, but their
 unanswered user text is not replayed as a second instruction on the next turn.
