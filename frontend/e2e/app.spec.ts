@@ -646,7 +646,7 @@ test('form controls and native dropdown options stay legible in both themes', as
 });
 
 test('everyday settings are sparse pages with help on hover and the rest folded', async ({ page }) => {
-  await installAuthenticatedFixture(page);
+  await installAuthenticatedFixture(page, { speech: true });
   await page.goto('/#/settings/General');
 
   await expect(page.getByRole('heading', { name: 'General' })).toBeVisible();

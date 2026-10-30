@@ -93,7 +93,14 @@ export class SettingsView {
     const voices = new VoicePicker(client, renderApp);
     // A "Set up" link inside settings goes through the section menu's own guard.
     const open = (section: string) => this.openSection(normalizeSection(section));
-    this.everydayView = new EverydaySettingsView(appState, change, (provider) => this.providerControl(provider), voices, open);
+    this.everydayView = new EverydaySettingsView(
+      appState,
+      change,
+      (provider) => this.providerControl(provider),
+      voices,
+      open,
+      () => this.mediaCatalogView.modelsNode(),
+    );
     this.modelView = new ModelSettingsView(
       appState,
       change,

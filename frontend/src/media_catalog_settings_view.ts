@@ -19,6 +19,7 @@ import {
   numberField,
   pageHint,
   pageNav,
+  setupRow,
   textField,
   thingList,
   type ThingChip,
@@ -154,6 +155,13 @@ export class MediaCatalogSettingsView {
     return this.list(catalog.resources);
   }
 
+  /** The models and the way more get in, also shown under a ComfyUI connection. */
+  modelsNode(): HTMLElement | null {
+    const resources = this.appState.mediaCatalog?.resources;
+    if (!resources) return null;
+    return this.modelsView.node(resources.filter((entry) => entry.resource_type === 'model' && entry.kind === 'image'));
+  }
+
   /** Leave only with intact work, whichever page is open. */
   beforeLeave(go: () => void): void {
     const item = this.appState.settingsItem;
@@ -219,15 +227,22 @@ export class MediaCatalogSettingsView {
       testId: `catalog-${kind}-open-${entry.id}`,
       onOpen: () => this.navigate(entry.id),
     });
-    const readiness = models.length === 0
-      ? 'Nothing can be generated until a model is enabled. Find models on ComfyUI below.'
-      : models.length === 1
-        ? 'One model means every picture shares its look. Add more from ComfyUI, and open one to say when to use it.'
-        : `${models.length} models, ${workflows.filter((entry) => entry.enabled).length} workflows and ${recipes.filter((entry) => entry.enabled).length} recipes are enabled.`;
+    // The catalog is filled from ComfyUI. Until pictures point at one, a
+    // "Find models" button could only fail, so the page says where to start.
+    const settings = this.appState.settings;
+    const comfyui = settings?.image_provider === 'local' && settings.image_local_backend === 'comfyui';
+    const readiness = !comfyui && models.length === 0
+      ? 'The catalog is filled from ComfyUI, and pictures are not set up to use one yet.'
+      : models.length === 0
+        ? 'Nothing can be generated until a model is enabled. Find models on ComfyUI below.'
+        : models.length === 1
+          ? 'One model means every picture shares its look. Add more from ComfyUI, and open one to say when to use it.'
+          : `${models.length} models, ${workflows.filter((entry) => entry.enabled).length} workflows and ${recipes.filter((entry) => entry.enabled).length} recipes are enabled.`;
     return [
       settingsCard([
         pageHint(readiness, 'catalog-readiness'),
-        this.modelsView.node(resources.filter((entry) => entry.resource_type === 'model' && entry.kind === 'image')),
+        comfyui ? null : setupRow('ComfyUI', 'Image Generation', 'catalog-comfyui-setup'),
+        comfyui || models.length ? this.modelsNode() : null,
         groupTitle(`Recipes (${recipes.length})`, 'A recipe pairs a model with a workflow and its numbers, and its note says when to use it. Chats choose between recipes.', 'catalog-recipes'),
         thingList(recipes.map((preset) => ({
           id: preset.id,

@@ -12,7 +12,7 @@ import {
 } from './settings_page';
 import { advancedSettings, settingsCard } from './settings_ui';
 import { THEME_CHOICES, themeLabel } from './theme';
-import type { AppState, Settings } from './types';
+import type { AppState, MediaCatalogResource, Settings } from './types';
 import type { VoicePicker } from './voice_picker';
 
 export type EverydaySettingsSection =
@@ -44,6 +44,8 @@ export class EverydaySettingsView {
     private readonly providerControl: (provider: string) => HTMLElement,
     private readonly voices: VoicePicker | null = null,
     private readonly open: OpenSection | undefined = undefined,
+    /** The catalog's model finder, shown under a ComfyUI connection. */
+    private readonly pictureModels: (() => HTMLElement | null) | undefined = undefined,
   ) {}
 
   nodes(section: EverydaySettingsSection, settings: Settings): HTMLElement[] {
@@ -106,8 +108,11 @@ export class EverydaySettingsView {
         hover: 'What a reply is spoken and kept in. MP3 and AAC start speaking before the reply is finished; the others wait for all of it.',
       }),
     ];
-    if (provider === 'openai') {
+    if (provider === 'disabled') {
+      fields.push(pageHint('Replies are text only. To hear them, connect a Kokoro voice service on your network, or OpenAI.', 'tts-needs'));
+    } else if (provider === 'openai') {
       fields.push(
+        this.openAiKey(settings),
         textField('Voice', settings.tts_voice_openai, (value) => this.change('tts_voice_openai', value), {
           hover: 'Unless a persona chooses its own.',
         }),
@@ -123,8 +128,12 @@ export class EverydaySettingsView {
       fields.push(
         textField('Service address', settings.tts_local_base_url, (value) => this.change('tts_local_base_url', value), {
           type: 'url',
+          placeholder: 'e.g. http://your-server:8880',
           hover: 'The Kokoro-compatible service on this network.',
         }),
+        // Tried straight after the address, because nothing below it - the
+        // voices especially - can work until the address does.
+        this.providerControl('kokoro'),
         this.voices
           ? this.voices.field({
               label: 'Voice',
@@ -148,9 +157,25 @@ export class EverydaySettingsView {
     }
     return [
       settingsCard(fields),
-      provider === 'disabled' ? null : settingsCard([this.providerControl(provider === 'local' ? 'kokoro' : 'openai')]),
-      advancedSettings('More options', 'Audio format and provider details.', more, { testId: 'tts-advanced-settings' }),
+      provider === 'openai' ? settingsCard([this.providerControl('openai')]) : null,
+      provider === 'disabled' ? null : advancedSettings('More options', 'Audio format and provider details.', more, { testId: 'tts-advanced-settings' }),
     ].filter((node): node is HTMLElement => node !== null);
+  }
+
+  /**
+   * The OpenAI key, where OpenAI is chosen.
+   *
+   * It lived only under Your profile's fold, so choosing OpenAI on a page and
+   * pressing Test failed for a reason that page never mentioned. It is the
+   * same stored value in both places.
+   */
+  private openAiKey(settings: Settings): HTMLElement {
+    return textField('OpenAI API key', settings.openai_api_key, (value) => this.change('openai_api_key', value), {
+      type: 'password',
+      placeholder: 'sk-…',
+      hover: 'Kept encrypted on the server, used for every OpenAI feature switched on, and never shown again in full.',
+      testId: 'openai-key',
+    });
   }
 
   private stt(settings: Settings): HTMLElement[] {
@@ -161,13 +186,16 @@ export class EverydaySettingsView {
         display: providerLabel,
       }),
     ];
-    if (provider !== 'disabled') {
+    if (provider === 'disabled') {
+      fields.push(pageHint('Talking is off. Connect a Whisper service on your network, or OpenAI, and every chat can be spoken to.', 'stt-needs'));
+    } else {
       fields.push(choiceField('Language', settings.stt_language, ['auto', 'en', 'es', 'fr', 'de'], (value) => this.change('stt_language', value), {
         display: languageLabel,
         hover: 'Detecting is convenient. Fixing one is more consistent.',
       }));
     }
-    if (provider === 'local') fields.push(...this.localTranscription(settings));
+    if (provider === 'local') fields.push(...this.localTranscription(settings), this.providerControl('whisper'));
+    if (provider === 'openai') fields.push(this.openAiKey(settings), this.providerControl('openai'));
     return [
       settingsCard(fields),
       provider === 'disabled'
@@ -191,8 +219,7 @@ export class EverydaySettingsView {
               testId: 'stt-streaming',
             }),
           ]),
-      provider === 'disabled' ? null : settingsCard([this.providerControl(provider === 'local' ? 'whisper' : 'openai')]),
-      advancedSettings('More options', 'Recordings.', [
+      provider === 'disabled' ? null : advancedSettings('More options', 'Recordings.', [
         switchField('Keep source recordings', settings.stt_store_recordings, (value) => this.change('stt_store_recordings', value), {
           hover: 'Keeps the original recording after it is transcribed. Off is the more private default.',
         }),
@@ -217,43 +244,67 @@ export class EverydaySettingsView {
       }),
       wyoming
         ? textField('Service address', settings.stt_wyoming_address, (value) => this.change('stt_wyoming_address', value), {
+            placeholder: 'e.g. your-server:10300',
             hover: 'Host and port on this network - port 10300 unless it was changed. The model is whatever that service has loaded.',
           })
         : textField('Service address', settings.stt_local_base_url, (value) => this.change('stt_local_base_url', value), {
             type: 'url',
+            placeholder: 'e.g. http://your-server:8000',
             hover: 'A Whisper service on this network that speaks the OpenAI transcription API.',
           }),
       ...(wyoming
         ? []
         : [textField('Model', settings.stt_model_local, (value) => this.change('stt_model_local', value), {
+            placeholder: 'e.g. whisper-1',
             hover: 'What to ask the service to load. Most accept whisper-1; some want their own name.',
           })]),
     ];
   }
 
+  /**
+   * Where pictures come from, set up in the order it can be done.
+   *
+   * Off says what pictures need and nothing else: a shape and a blur switch
+   * for pictures nobody can make were two more things to read past. Chosen,
+   * it reads like the connection it is - which service, where, try it - and
+   * with ComfyUI the next step, finding the models it already has, sits right
+   * under the connection instead of on another page.
+   */
   private image(settings: Settings): HTMLElement[] {
     const provider = settings.image_provider;
     const local = provider === 'local';
+    const comfy = local && settings.image_local_backend === 'comfyui';
     const readiness = this.appState.mediaReadiness;
+    const choice = choiceField('Image provider', provider, ['disabled', 'local', 'openai'], (value) => this.change('image_provider', value), {
+      testId: 'image-provider',
+      display: providerLabel,
+      hover: 'Local is ComfyUI or Automatic1111 on this network. OpenAI sends the prompt to OpenAI.',
+    });
+    if (provider === 'disabled') {
+      return [settingsCard([choice, pageHint('No pictures yet. Connect ComfyUI on your network, or OpenAI.', 'image-readiness')])];
+    }
+    const catalogModels = this.catalogModels();
     const fields: (HTMLElement | null)[] = [
-      choiceField('Image provider', provider, ['disabled', 'local', 'openai'], (value) => this.change('image_provider', value), {
-        testId: 'image-provider',
-        display: providerLabel,
-        hover: 'Local is Automatic1111 or ComfyUI on this network. OpenAI sends the prompt to OpenAI.',
-      }),
+      choice,
       local
-        ? choiceField('Local image service', settings.image_local_backend, ['automatic1111', 'comfyui'], (value) => this.change('image_local_backend', value), {
-            display: (value) => (value === 'automatic1111' ? 'Automatic1111' : 'ComfyUI'),
-            hover: 'Which API the local image container exposes.',
+        ? choiceField('Local image service', settings.image_local_backend, LOCAL_IMAGE_SERVICES, (value) => this.change('image_local_backend', value), {
+            display: providerName,
+            hover: 'Which API the local image container exposes. The catalog and recipes need ComfyUI.',
           })
         : null,
       local
         ? textField('Service address', settings.image_local_base_url, (value) => this.change('image_local_base_url', value), {
             type: 'url',
+            placeholder: `e.g. http://your-server:${comfy ? 8188 : 7860}`,
             hover: 'Its address on this network.',
           })
         : null,
-      local ? this.oneOffModel(settings) : null,
+      provider === 'openai' ? this.openAiKey(settings) : null,
+      actionRow([this.providerControl(local ? settings.image_local_backend : 'openai')]),
+      readiness ? pageHint(readiness.basic_generation.message, 'image-readiness') : null,
+      // With ComfyUI and an empty catalog, the finder below is how a model
+      // gets chosen; a box for typing a filename would be the wrong way in.
+      local && !(comfy && !catalogModels.length) ? this.oneOffModel(settings, catalogModels) : null,
       local
         ? switchField('Allow explicit local prompts', settings.image_local_allow_nsfw, (value) => this.change('image_local_allow_nsfw', value), {
             hover: 'Only for the self-hosted local path. Nothing explicit is ever sent to a cloud service.',
@@ -284,15 +335,11 @@ export class EverydaySettingsView {
             hover: 'How much OpenAI rewrites the prompt before generating. None keeps it as written.',
           })
         : null,
-      provider === 'disabled'
-        ? pageHint('Image generation is off.', 'image-readiness')
-        : readiness
-          ? pageHint(readiness.basic_generation.message, 'image-readiness')
-          : null,
-      provider === 'disabled' ? null : actionRow([this.providerControl(local ? settings.image_local_backend : 'openai')]),
     ];
+    const finder = comfy ? this.pictureModels?.() ?? null : null;
     return [
       settingsCard(fields.filter((node): node is HTMLElement => node !== null)),
+      finder ? settingsCard([finder], '', 'image-models') : null,
       local
         ? advancedSettings('More options', 'The service login, and tuning for one-off pictures. Recipes carry their own numbers.', [
             textField('Basic authentication', settings.image_local_api_auth, (value) => this.change('image_local_api_auth', value), {
@@ -332,10 +379,13 @@ export class EverydaySettingsView {
    * stored value the catalog does not know stays selectable rather than being
    * silently rewritten.
    */
-  private oneOffModel(settings: Settings): HTMLElement {
-    const hover = 'Used for one-off pictures, and it breaks a tie when routing has nothing else to go on.';
-    const models = (this.appState.mediaCatalog?.resources ?? [])
+  private catalogModels(): MediaCatalogResource[] {
+    return (this.appState.mediaCatalog?.resources ?? [])
       .filter((item) => item.resource_type === 'model' && item.kind === 'image' && item.external_id && item.external_id !== 'provider-default');
+  }
+
+  private oneOffModel(settings: Settings, models: MediaCatalogResource[]): HTMLElement {
+    const hover = 'Used for one-off pictures, and it breaks a tie when routing has nothing else to go on.';
     if (!models.length) {
       return textField('Model or checkpoint', settings.image_local_model, (value) => this.change('image_local_model', value), {
         testId: 'image-local-model',
@@ -359,6 +409,9 @@ export class EverydaySettingsView {
   // a stored legacy cloud choice renders and saves as Off.
   private video(settings: Settings): HTMLElement[] {
     const provider = settings.video_provider === 'local' ? 'local' : 'disabled';
+    // Video is made by the ComfyUI that makes pictures, so with that not set
+    // up the honest next step is on the pictures page, not here.
+    const comfy = settings.image_provider === 'local' && settings.image_local_backend === 'comfyui';
     return [
       settingsCard([
         choiceField('Video provider', provider, ['disabled', 'local'], (value) => this.change('video_provider', value), {
@@ -368,7 +421,8 @@ export class EverydaySettingsView {
         }),
         provider === 'local'
           ? pageHint('What local video needs: a video model and a video workflow in Media Catalog, paired as a recipe. A chat that asks for a clip picks one, exactly as pictures do.', 'video-needs')
-          : pageHint('Video generation is off.', 'video-needs'),
+          : pageHint('Video clips come from the same ComfyUI that makes pictures.', 'video-needs'),
+        comfy ? null : setupRow('Pictures with ComfyUI', 'Image Generation', 'video-pictures-setup', this.open),
         provider === 'local' ? actionRow([this.providerControl('comfyui')]) : null,
       ].filter((node): node is HTMLElement => node !== null)),
     ];
@@ -426,6 +480,10 @@ const PROVIDER_NAMES: Record<string, string> = { openai: 'OpenAI', 'openai-image
 export function providerName(value: string): string {
   return PROVIDER_NAMES[value] ?? titleCase(value);
 }
+
+// ComfyUI first: the catalog, recipes and identity work all speak it, and it
+// is the default for a new install (`SETTINGS_DEFAULTS`).
+const LOCAL_IMAGE_SERVICES = ['comfyui', 'automatic1111'];
 
 // The shapes offered by name. Anything else remains reachable through Custom,
 // so an unusual stored size is shown rather than silently rewritten.

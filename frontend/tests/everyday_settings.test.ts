@@ -19,6 +19,76 @@ function setup(overrides: Partial<Settings> = {}) {
   return { root, settings, view, change };
 }
 
+describe('a feature that is off says what it needs, and switched on reads like a connection', () => {
+  it('says once, on each Off page, what would switch it on', () => {
+    const page = (section: 'TTS' | 'STT' | 'Image Generation') => {
+      const { root, settings, view } = setup();
+      root.append(...view.nodes(section, settings));
+      return root;
+    };
+    expect(page('TTS').querySelector('[data-testid="tts-needs"]')?.textContent).toContain('Kokoro');
+    expect(page('STT').querySelector('[data-testid="stt-needs"]')?.textContent).toContain('Whisper');
+    const image = page('Image Generation');
+    expect(image.querySelector('[data-testid="image-readiness"]')?.textContent).toContain('ComfyUI');
+    // "Image generation is off." under a dropdown that already said Off, and a
+    // shape and a blur switch for pictures nobody could make.
+    expect(image.textContent).not.toContain('Image generation is off');
+    expect(image.querySelector('[data-testid="image-shape"]')).toBeNull();
+    for (const root of [page('TTS'), page('STT'), image]) {
+      expect(root.querySelectorAll('.page-hint')).toHaveLength(1);
+      expect(root.textContent).not.toContain('More options');
+    }
+  });
+
+  it('shows what an address looks like, and tries it straight after', () => {
+    const { root, settings, view } = setup({ tts_provider: 'local' });
+    root.append(...view.nodes('TTS', settings));
+    const address = [...root.querySelectorAll('.setting-row')].find((row) => row.textContent?.startsWith('Service address'));
+    expect(address?.querySelector('input')?.placeholder).toBe('e.g. http://your-server:8880');
+    // The test sits under the address, before the voices that need it.
+    expect(address?.nextSibling?.textContent).toBe('check kokoro');
+  });
+
+  it('asks for the OpenAI key on the page where OpenAI is chosen', () => {
+    for (const [section, key] of [['TTS', 'tts_provider'], ['STT', 'stt_provider'], ['Image Generation', 'image_provider']] as const) {
+      const { root, settings, view, change } = setup({ [key]: 'openai' });
+      root.append(...view.nodes(section, settings));
+      const field = root.querySelector('[data-testid="openai-key"]') as HTMLInputElement;
+      expect(field.type).toBe('password');
+      field.value = 'sk-test';
+      field.dispatchEvent(new Event('input'));
+      // The same stored value Your profile edits, not a second copy.
+      expect(change).toHaveBeenCalledWith('openai_api_key', 'sk-test');
+    }
+  });
+
+  it('offers ComfyUI first, and with an empty catalog the model finder instead of a filename box', () => {
+    const appState = createState();
+    const finder = document.createElement('div');
+    finder.dataset.testid = 'finder';
+    const view = new EverydaySettingsView(appState, vi.fn(), (provider) => document.createTextNode(`check ${provider}`) as unknown as HTMLElement, null, undefined, () => finder);
+    const root = document.createElement('div');
+    root.append(...view.nodes('Image Generation', { ...SETTINGS_DEFAULTS, image_provider: 'local' }));
+
+    const service = [...root.querySelectorAll('.setting-row')].find((row) => row.textContent?.startsWith('Local image service'));
+    expect([...(service?.querySelectorAll('option') ?? [])].map((option) => option.textContent)).toEqual(['ComfyUI', 'Automatic1111']);
+    expect((service?.querySelector('select') as HTMLSelectElement).value).toBe('comfyui');
+    expect(root.textContent).toContain('check comfyui');
+    expect(root.querySelector('[data-testid="finder"]')).toBe(finder);
+    expect(root.querySelector('[data-testid="image-local-model"]')).toBeNull();
+  });
+
+  it('sends video to the pictures page while ComfyUI is not set up', () => {
+    const { root, settings, view } = setup();
+    root.append(...view.nodes('Video Generation', settings));
+    expect(root.querySelector('[data-testid="video-pictures-setup-link"]')?.getAttribute('href')).toBe('#/settings/Image%20Generation');
+
+    const ready = setup({ image_provider: 'local', image_local_backend: 'comfyui' });
+    ready.root.append(...ready.view.nodes('Video Generation', ready.settings));
+    expect(ready.root.querySelector('[data-testid="video-pictures-setup"]')).toBeNull();
+  });
+});
+
 describe('a control that cannot work yet is a way to set it up', () => {
   it('replaces speaking replies aloud with a link while nothing can speak them', () => {
     const off = setup({ tts_provider: 'disabled' });
@@ -46,14 +116,14 @@ describe('a control that cannot work yet is a way to set it up', () => {
 
 describe('the image page speaks in shapes, not typed sizes', () => {
   it('offers named shapes and keeps unusual sizes reachable as Custom', () => {
-    const { root, settings, view } = setup({ image_size: '1024x1024' });
+    const { root, settings, view } = setup({ image_provider: 'local', image_size: '1024x1024' });
     root.append(...view.nodes('Image Generation', settings));
 
     const shape = root.querySelector('[data-testid="image-shape"]') as HTMLSelectElement;
     expect(shape.value).toBe('1024x1024');
     expect([...shape.options].map((option) => option.textContent)).toContain('Portrait — 832×1216');
     // A stored size the picker does not name is shown, not rewritten.
-    const custom = setup({ image_size: '1152x896' });
+    const custom = setup({ image_provider: 'local', image_size: '1152x896' });
     custom.root.append(...custom.view.nodes('Image Generation', custom.settings));
     expect((custom.root.querySelector('[data-testid="image-shape"]') as HTMLSelectElement).value).toBe('custom');
     expect(custom.root.textContent).toContain('Custom size');
@@ -88,7 +158,7 @@ describe('video is local only', () => {
 
     const provider = root.querySelector('[data-testid="video-provider"]') as HTMLSelectElement;
     expect(provider.value).toBe('disabled');
-    expect(root.textContent).toContain('Video generation is off.');
+    expect(root.textContent).toContain('Video clips come from the same ComfyUI that makes pictures.');
   });
 
   it('says what local video needs and checks the same ComfyUI pictures use', () => {

@@ -10,6 +10,7 @@ import time
 from typing import Any
 from urllib.parse import urlsplit, urlunsplit
 
+from app.media import normalize_local_image_backend
 from app.provider_contracts import CapacityStatus, ProviderCapacitySnapshot
 from app.repositories import UnitOfWork
 from app.resource_providers import (
@@ -153,10 +154,9 @@ class ResourceCoordinator:
             selected, backend_override = "local", "comfyui"
         if selected != "local":
             return None
-        backend = str(
-            backend_override or values.get("backend") or preferences.get("image_local_backend") or "automatic1111"
-        ).lower()
-        provider = "comfyui" if backend == "comfyui" else "automatic1111"
+        provider = normalize_local_image_backend(
+            backend_override or values.get("backend") or preferences.get("image_local_backend")
+        )
         default_endpoint = self.config.comfyui_base_url if provider == "comfyui" else self.config.automatic1111_base_url
         endpoint = normalize_endpoint(
             values.get("base_url") or preferences.get("image_local_base_url") or default_endpoint

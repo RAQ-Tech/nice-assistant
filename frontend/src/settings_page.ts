@@ -27,6 +27,8 @@ export interface FieldOptions {
   step?: string | undefined;
   rows?: number | undefined;
   disabled?: boolean | undefined;
+  /** What a value looks like, shown faintly while the box is empty. */
+  placeholder?: string | undefined;
   /** Runs once the value is committed - after `change`, on the change event. */
   commit?: (() => void) | undefined;
 }
@@ -51,6 +53,7 @@ export function textField(
     type: options.type ?? 'text',
     step: options.step,
     value,
+    placeholder: options.placeholder,
     disabled: options.disabled,
     'data-testid': options.testId,
     oninput: (event: Event) => change((event.currentTarget as HTMLInputElement).value),
