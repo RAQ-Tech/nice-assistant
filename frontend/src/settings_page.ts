@@ -137,6 +137,44 @@ export function pageHint(text: string, testId?: string): HTMLElement {
   return el('p', { class: 'meta page-hint', 'data-testid': testId, textContent: text });
 }
 
+/** Opens a settings page; inside settings it is the one that guards unsaved work. */
+export type OpenSection = (section: string) => void;
+
+/**
+ * The way to the page that makes something work.
+ *
+ * A control that cannot work yet - replies spoken with no voice to speak them,
+ * a talk button with nothing to transcribe - is a promise that ends in an
+ * error. In its place goes one link to the settings page that keeps it. It is
+ * a real link, so it also works from outside settings; inside, `open` routes
+ * it through the same guard the section menu uses.
+ */
+export function setupLink(
+  label: string,
+  section: string,
+  testId: string,
+  options: { className?: string | undefined; open?: OpenSection | undefined; hover?: string | undefined } = {},
+): HTMLElement {
+  return el('a', {
+    class: options.className ?? 'pill-btn setup-link',
+    href: `#/settings/${encodeURIComponent(section)}`,
+    textContent: label,
+    title: options.hover,
+    'data-testid': testId,
+    onclick: options.open
+      ? (event: Event) => { event.preventDefault(); options.open?.(section); }
+      : undefined,
+  });
+}
+
+/** What is not set up yet, named once, beside the link that sets it up. */
+export function setupRow(label: string, section: string, testId: string, open?: OpenSection, hover?: string): HTMLElement {
+  return el('div', { class: 'setting-row setup-row', title: hover, 'data-testid': testId }, [
+    el('span', { textContent: label }),
+    setupLink('Set up', section, `${testId}-link`, { open }),
+  ]);
+}
+
 /** A group's name on a list page, with its help on hover. */
 export function groupTitle(text: string, hover?: string, testId?: string): HTMLElement {
   return el('h4', { class: 'settings-subheading', title: hover, 'data-testid': testId, textContent: text });

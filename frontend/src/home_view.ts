@@ -1,5 +1,6 @@
 import type { ApiClient } from './api';
 import { el } from './dom';
+import { providerName } from './everyday_settings_view';
 import { continueCard, type HomeFact, personaStrip, pictureGrid, statusCard } from './home_cards';
 import { HomeControls } from './home_controls';
 import type {
@@ -157,8 +158,8 @@ export class HomeView {
         class: 'meta',
         'data-testid': 'home-locality-summary',
         textContent: locality.everything_local
-          ? 'Everything switched on runs on this machine.'
-          : 'Some of this leaves this machine, or nobody has said whether it does.',
+          ? 'Everything switched on stays on your network.'
+          : 'Some of this leaves your network, or nobody has said whether it does.',
       }),
       el('ul', { class: 'home-facts' }, locality.parts.map((part) => el('li', {
         class: 'home-fact',
@@ -171,12 +172,12 @@ export class HomeView {
           textContent: part.locality === 'off'
             ? 'Off'
             : part.locality === 'cloud'
-              ? `${part.provider} — leaves this machine`
+              ? `${providerName(part.provider)} — leaves your network`
               : part.locality === 'unknown'
-                // Saying "on this machine" here would be a privacy claim
+                // Saying "on your network" here would be a privacy claim
                 // nobody has checked, which is worse than admitting ignorance.
-                ? `${part.provider} — nobody has said where this runs`
-                : `${part.provider} — on this machine`,
+                ? `${providerName(part.provider)} — nobody has said where this runs`
+                : `${providerName(part.provider)} — on your network`,
         }),
       ]))),
     ]);

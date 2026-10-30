@@ -1,6 +1,7 @@
 import type { ConversationLoop } from './conversation_loop';
 import { el } from './dom';
 import type { RecordingController } from './recording';
+import { setupLink } from './settings_page';
 import { state } from './state';
 
 /**
@@ -27,6 +28,14 @@ export function talkButton(
   recording: RecordingController,
   loop?: ConversationLoop,
 ): HTMLElement {
+  // With nothing to transcribe, a button that says "Hold to Talk" is a promise
+  // that ends in an error. It becomes the way to the page that keeps it.
+  if ((state.settings?.stt_provider ?? 'disabled') === 'disabled') {
+    return setupLink('Set up talking', 'STT', 'talk-setup', {
+      className: 'talk-btn talk-setup',
+      hover: 'Talk instead of typing: choose what turns your voice into words.',
+    });
+  }
   const handsFree = Boolean(state.settings?.stt_hands_free);
   const listening = state.phase === 'recording';
   const conversing = Boolean(loop?.running);

@@ -347,7 +347,7 @@ test('the homepage carries the pre-generation control and says what it is doing'
   await expect.poll(() => fixture.savedPreferences?.pregeneration_enabled).toBe(true);
 });
 
-test('the homepage says when the deployment will not allow overnight pictures', async ({ page }) => {
+test('the homepage leaves out overnight pictures when the deployment will not allow them', async ({ page }) => {
   await installAuthenticatedFixture(page);
   await page.route('**/api/v1/scene-backlog/production-readiness', (route) => route.fulfill({
     status: 200,
@@ -360,12 +360,23 @@ test('the homepage says when the deployment will not allow overnight pictures', 
   }));
   await page.goto('/');
 
-  await expect(page.getByTestId('home-pregeneration-forbidden')).toBeVisible();
-  await expect(page.getByTestId('home-pregeneration-toggle')).toBeDisabled();
+  // A switch nobody here can turn on would only sit there disabled.
+  await expect(page.getByTestId('home-controls')).toBeVisible();
+  await expect(page.getByTestId('home-pregeneration')).toHaveCount(0);
+});
+
+test('with nothing to speak replies, the homepage offers to set it up', async ({ page }) => {
+  await installAuthenticatedFixture(page);
+  await page.goto('/');
+
+  await expect(page.getByTestId('home-speech-toggle')).toHaveCount(0);
+  await page.getByTestId('home-speech-setup-link').click();
+  await expect(page).toHaveURL(/#\/settings\/TTS$/);
+  await expect(page.getByRole('heading', { name: 'Spoken replies' })).toBeVisible();
 });
 
 test('speech and memory mode are editable from the homepage', async ({ page }) => {
-  const fixture = await installAuthenticatedFixture(page);
+  const fixture = await installAuthenticatedFixture(page, { speech: true });
   await page.goto('/');
 
   // The fixture starts with speech on, so clicking turns it off. Asserting the
@@ -667,7 +678,7 @@ test('everyday settings are sparse pages with help on hover and the rest folded'
 });
 
 test('a reader who has scrolled stays put when they use a control', async ({ page }) => {
-  await installAuthenticatedFixture(page);
+  await installAuthenticatedFixture(page, { speech: true });
   // Short viewport so the dashboard and the settings detail pane genuinely
   // overflow: a scroll position has to exist before staying put means anything.
   await page.setViewportSize({ width: 1100, height: 360 });
@@ -854,7 +865,7 @@ test('model video requests remain pending until the user approves them', async (
 
 async function installAuthenticatedFixture(
   page: Page,
-  options: { holdMedia?: boolean; renameOnTurn?: boolean } = {},
+  options: { holdMedia?: boolean; renameOnTurn?: boolean; speech?: boolean } = {},
 ): Promise<{
   requestedPaths: string[];
   turnBody: CapturedTurnBody | null;
@@ -944,7 +955,9 @@ async function installAuthenticatedFixture(
       await json(route, { ...persona, ...request.postDataJSON() });
     }
     else if (path === '/api/v1/chats' && method === 'GET') await json(route, { items: [chat] });
-    else if (path === '/api/v1/settings' && method === 'GET') await json(route, settings);
+    // Speech is a choice per journey: with nothing to speak, the controls for
+    // spoken replies are a link to set it up instead.
+    else if (path === '/api/v1/settings' && method === 'GET') await json(route, options.speech ? { ...settings, tts_provider: 'local' } : settings);
     else if (path === '/api/v1/settings' && method === 'PUT') {
       const body = request.postDataJSON();
       result.settingsUpdated = body.preferences.general_theme === 'light';

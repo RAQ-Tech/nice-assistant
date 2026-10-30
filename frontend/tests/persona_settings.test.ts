@@ -76,9 +76,24 @@ describe('a persona page', () => {
     expect(render).toHaveBeenCalled();
   });
 
+  it('offers to set pictures and a voice up, rather than switches that cannot do anything yet', () => {
+    const appState = configuredState();
+    appState.settingsItem = 'guide';
+    const view = new SettingsView(vi.fn(), vi.fn(), dialogs(), appState, {} as ApiClient);
+    const node = view.node();
+
+    // With nothing to make pictures, the permission, the face and the kept
+    // pictures could only describe something that cannot happen.
+    expect(node.textContent).not.toContain('Allowed to send pictures');
+    expect(node.querySelector('[data-testid="persona-face-switch"]')).toBeNull();
+    expect(node.querySelector('[data-testid="persona-pictures-setup-link"]')?.getAttribute('href')).toBe('#/settings/Image%20Generation');
+    expect(node.querySelector('[data-testid="persona-voice-setup-link"]')?.getAttribute('href')).toBe('#/settings/TTS');
+  });
+
   it('persists the per-persona image permission independently of direct image actions', async () => {
     const appState = configuredState();
     appState.settingsItem = 'guide';
+    (appState.settings as NonNullable<typeof appState.settings>).image_provider = 'local';
     const updatePersona = vi.fn().mockImplementation((id: string, input: PersonaInput) =>
       Promise.resolve({ ...persona(), ...input, id }),
     );

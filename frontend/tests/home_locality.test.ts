@@ -44,8 +44,8 @@ describe('Where this goes', () => {
     render();
 
     const card = root.querySelector('[data-testid="home-locality"]');
-    expect(card?.textContent).toContain('Everything switched on runs on this machine.');
-    expect(card?.textContent).toContain('ollama — on this machine');
+    expect(card?.textContent).toContain('Everything switched on stays on your network.');
+    expect(card?.textContent).toContain('Ollama — on your network');
     // Off is not local and not cloud, and saying either would be a small lie.
     expect(card?.textContent).toContain('Off');
   });
@@ -61,10 +61,10 @@ describe('Where this goes', () => {
     render();
 
     const card = root.querySelector('[data-testid="home-locality"]');
-    expect(card?.textContent).toContain('Some of this leaves this machine');
+    expect(card?.textContent).toContain('Some of this leaves your network');
     // The words carry it, not the colour, so it reads the same to somebody who
     // cannot see the colour.
-    expect(card?.textContent).toContain('openai — leaves this machine');
+    expect(card?.textContent).toContain('OpenAI — leaves your network');
     expect(root.querySelector('[data-testid="home-locality-cloud"]')).not.toBeNull();
   });
 

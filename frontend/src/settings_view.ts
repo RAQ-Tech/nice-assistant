@@ -91,7 +91,9 @@ export class SettingsView {
     const pictures = new PersonaPicturesView(renderApp, appState, client);
     const change = <K extends keyof Settings>(key: K, value: Settings[K], shouldRender?: boolean) => this.set(key, value, shouldRender);
     const voices = new VoicePicker(client, renderApp);
-    this.everydayView = new EverydaySettingsView(appState, change, (provider) => this.providerControl(provider), voices);
+    // A "Set up" link inside settings goes through the section menu's own guard.
+    const open = (section: string) => this.openSection(normalizeSection(section));
+    this.everydayView = new EverydaySettingsView(appState, change, (provider) => this.providerControl(provider), voices, open);
     this.modelView = new ModelSettingsView(
       appState,
       change,
@@ -112,6 +114,7 @@ export class SettingsView {
       change,
       pictures,
       voices,
+      open,
     );
     this.operationsView = new OperationsSettingsView(renderApp, appState, client, dialogs);
   }

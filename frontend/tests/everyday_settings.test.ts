@@ -19,6 +19,31 @@ function setup(overrides: Partial<Settings> = {}) {
   return { root, settings, view, change };
 }
 
+describe('a control that cannot work yet is a way to set it up', () => {
+  it('replaces speaking replies aloud with a link while nothing can speak them', () => {
+    const off = setup({ tts_provider: 'disabled' });
+    off.root.append(...off.view.nodes('General', off.settings));
+    expect(off.root.textContent).not.toContain('Speak replies aloud');
+    expect(off.root.textContent).not.toContain('audio visualizer');
+    expect(off.root.querySelector('[data-testid="general-speech-setup-link"]')?.getAttribute('href')).toBe('#/settings/TTS');
+
+    const on = setup({ tts_provider: 'local' });
+    on.root.append(...on.view.nodes('General', on.settings));
+    expect(on.root.textContent).toContain('Speak replies aloud');
+    expect(on.root.querySelector('[data-testid="general-speech-setup"]')).toBeNull();
+  });
+
+  it('goes through the page guard when one is given', () => {
+    const open = vi.fn();
+    const view = new EverydaySettingsView(createState(), vi.fn(), () => document.createElement('span'), null, open);
+    const root = document.createElement('div');
+    root.append(...view.nodes('General', { ...SETTINGS_DEFAULTS }));
+
+    (root.querySelector('[data-testid="general-speech-setup-link"]') as HTMLAnchorElement).click();
+    expect(open).toHaveBeenCalledWith('TTS');
+  });
+});
+
 describe('the image page speaks in shapes, not typed sizes', () => {
   it('offers named shapes and keeps unusual sizes reachable as Custom', () => {
     const { root, settings, view } = setup({ image_size: '1024x1024' });
@@ -82,7 +107,7 @@ describe('video is local only', () => {
 
 describe('the everyday pages are sparse', () => {
   it('shows the few General choices, with help on hover and the rest folded', () => {
-    const { root, settings, view } = setup();
+    const { root, settings, view } = setup({ tts_provider: 'local' });
     root.append(...view.nodes('General', settings));
 
     expect(root.querySelectorAll('.info-tip-trigger')).toHaveLength(0);
@@ -107,8 +132,8 @@ describe('the everyday pages are sparse', () => {
     const provider = local.root.querySelector('[data-testid="tts-provider"]') as HTMLSelectElement;
     expect([...provider.options].map((option) => option.textContent)).toEqual([
       'Off',
-      'Local service — on this machine',
-      'Openai — leaves this machine',
+      'Local service — on your network',
+      'OpenAI — leaves your network',
     ]);
     expect(local.root.textContent).toContain('Service address');
     expect(local.root.textContent).toContain('check kokoro');

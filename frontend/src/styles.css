@@ -787,6 +787,14 @@ input[type='file']::file-selector-button {
 .talk-control { display: flex; flex-direction: column; align-items: stretch; gap: 0.25rem; }
 .talk-destination { font-size: 0.75rem; text-align: center; opacity: 0.75; }
 
+/* Something not set up yet: its name, and one link to the page that sets it up.
+   Links styled as buttons, because they go somewhere rather than act. */
+a.pill-btn, a.talk-btn { color: inherit; text-decoration: none; display: inline-flex; align-items: center; justify-content: center; }
+.talk-setup { color: var(--text-dim); white-space: nowrap; }
+.setup-row { display: flex; align-items: center; justify-content: space-between; gap: .6rem; }
+.setup-row > span { color: var(--text); }
+.setup-row .setup-link { padding: .3rem .8rem; }
+
 /* Listening hands-free: a ring that moves with the voice it hears, so it is
    plain the microphone is open and hearing. The level is set ten times a
    second from the microphone, straight onto the button. */

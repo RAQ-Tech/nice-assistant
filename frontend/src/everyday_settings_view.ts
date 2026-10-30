@@ -1,5 +1,15 @@
 import { el } from './dom';
-import { actionRow, choiceField, longField, numberField, pageHint, switchField, textField } from './settings_page';
+import {
+  actionRow,
+  choiceField,
+  longField,
+  numberField,
+  type OpenSection,
+  pageHint,
+  setupRow,
+  switchField,
+  textField,
+} from './settings_page';
 import { advancedSettings, settingsCard } from './settings_ui';
 import { THEME_CHOICES, themeLabel } from './theme';
 import type { AppState, Settings } from './types';
@@ -33,6 +43,7 @@ export class EverydaySettingsView {
     private readonly change: SettingChange,
     private readonly providerControl: (provider: string) => HTMLElement,
     private readonly voices: VoicePicker | null = null,
+    private readonly open: OpenSection | undefined = undefined,
   ) {}
 
   nodes(section: EverydaySettingsSection, settings: Settings): HTMLElement[] {
@@ -55,12 +66,17 @@ export class EverydaySettingsView {
           display: (value) => value || 'Automatic',
           hover: 'Used when a persona or chat has not chosen one.',
         }),
-        switchField('Speak replies aloud', settings.general_voice_responses, (value) => this.change('general_voice_responses', value), {
-          hover: 'Plays each finished reply, once spoken replies are set up.',
-        }),
-        switchField('Show the audio visualizer', settings.general_show_viz, (value) => this.change('general_show_viz', value), {
-          hover: 'A waveform while a reply is playing.',
-        }),
+        // Both only mean something once there is a voice to hear.
+        ...(settings.tts_provider === 'disabled'
+          ? [setupRow('Spoken replies', 'TTS', 'general-speech-setup', this.open, 'Replies are text until something can speak them.')]
+          : [
+              switchField('Speak replies aloud', settings.general_voice_responses, (value) => this.change('general_voice_responses', value), {
+                hover: 'Plays each finished reply.',
+              }),
+              switchField('Show the audio visualizer', settings.general_show_viz, (value) => this.change('general_show_viz', value), {
+                hover: 'A waveform while a reply is playing.',
+              }),
+            ]),
       ]),
       advancedSettings('More options', 'Technical messages, thinking, and signing out.', [
         switchField('Show system and tool messages', settings.general_show_system_messages, (value) => this.change('general_show_system_messages', value), {
@@ -392,15 +408,23 @@ const LOCAL_PROVIDERS = new Set(['ollama', 'local', 'local-image', 'local-video'
  *
  * Both kinds are legitimate choices. Choosing one without knowing which kind it
  * is, is not, so the distinction travels with the name rather than living in a
- * paragraph above the control.
+ * paragraph above the control. A local service is usually another box on the
+ * same network, not this one, so "network" is the boundary named.
  */
 export function providerLabel(value: string): string {
   if (value === 'disabled') return 'Off';
-  if (value === 'local') return 'Local service — on this machine';
-  if (CLOUD_PROVIDERS.has(value)) return `${titleCase(value)} — leaves this machine`;
-  if (LOCAL_PROVIDERS.has(value)) return `${titleCase(value)} — on this machine`;
+  if (value === 'local') return 'Local service — on your network';
+  if (CLOUD_PROVIDERS.has(value)) return `${providerName(value)} — leaves your network`;
+  if (LOCAL_PROVIDERS.has(value)) return `${providerName(value)} — on your network`;
   // Neither list claims it, so neither does this.
-  return `${titleCase(value)} — nobody has said where this runs`;
+  return `${providerName(value)} — nobody has said where this runs`;
+}
+
+const PROVIDER_NAMES: Record<string, string> = { openai: 'OpenAI', 'openai-image': 'OpenAI', comfyui: 'ComfyUI', automatic1111: 'Automatic1111' };
+
+/** A provider by the name its makers use, not by its identifier title-cased. */
+export function providerName(value: string): string {
+  return PROVIDER_NAMES[value] ?? titleCase(value);
 }
 
 // The shapes offered by name. Anything else remains reachable through Custom,
