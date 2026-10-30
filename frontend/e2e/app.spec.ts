@@ -1236,9 +1236,15 @@ async function messageAction(page: Page, title: string) {
 /**
  * Open a settings page by its name in the list. A phone shows the list or a
  * page, never both, so from a page it steps back to the list first.
+ *
+ * It waits for settings to be on screen before deciding. Asked straight after
+ * the Settings button, before the screen had drawn, "is the item visible?"
+ * answered no on a slower machine, and the hidden "Settings" back button was
+ * then waited on until the test timed out.
  */
 async function openSettingsPage(page: Page, name: string): Promise<void> {
   const item = page.getByTestId(`settings-nav-${name}`);
+  await expect(page.getByTestId('settings-screen')).toBeVisible();
   if (!(await item.isVisible())) await page.getByTestId('settings-back').click();
   await item.click();
 }
