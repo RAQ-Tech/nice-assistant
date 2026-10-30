@@ -791,9 +791,15 @@ input[type='file']::file-selector-button {
    Links styled as buttons, because they go somewhere rather than act. */
 a.pill-btn, a.talk-btn { color: inherit; text-decoration: none; display: inline-flex; align-items: center; justify-content: center; }
 .talk-setup { color: var(--text-dim); white-space: nowrap; }
-.setup-row { display: flex; align-items: center; justify-content: space-between; gap: .6rem; }
+/* The link sits beside its name: across a wide card, the eye loses which
+   "Set up" belongs to which line. */
+.setup-row { display: flex; align-items: center; justify-content: flex-start; gap: .75rem; }
 .setup-row > span { color: var(--text); }
 .setup-row .setup-link { padding: .3rem .8rem; }
+
+/* Saved, said quietly beside Close; and reset, at the end of a page. */
+.settings-save-status { margin: 0; }
+.settings-reset-row { justify-content: flex-end; padding-top: .3rem; }
 
 /* Listening hands-free: a ring that moves with the voice it hears, so it is
    plain the microphone is open and hearing. The level is set ten times a
@@ -1018,6 +1024,9 @@ a.pill-btn, a.talk-btn { color: inherit; text-decoration: none; display: inline-
 }
 
 .settings-nav-item:hover { background: var(--hover); color: var(--text); }
+
+/* Back to the list of settings: only a phone, which shows one or the other. */
+.settings-back { display: none; }
 
 .settings-nav-item.active {
   background: var(--accent-soft);
@@ -2116,38 +2125,38 @@ a.pill-btn, a.talk-btn { color: inherit; text-decoration: none; display: inline-
   }
 
   .settings-layout {
-    grid-template-rows: auto minmax(0, 1fr);
+    grid-template-rows: minmax(0, 1fr);
     gap: .6rem;
   }
 
-  /* On a phone the pages are one scrolling chip row under the search box.
-     The groups dissolve rather than render as clipped columns: on a strip the
-     headings cost more width than they explain, and search does that job. */
+  /* On a phone, settings is a list and then a page, the way a phone's own
+     settings are. A sideways strip of fourteen names dropped the groups and
+     scrolled the open page's name out of sight. The list keeps its groups and
+     fills the screen; choosing a page replaces it, and "Settings" goes back. */
+  .settings-screen.at-index .settings-detail,
+  .settings-screen:not(.at-index) .settings-nav {
+    display: none;
+  }
+
   .settings-nav {
     max-height: none;
     padding: .45rem;
   }
 
-  .settings-nav-list {
-    flex-direction: row;
-    overflow-x: auto;
-    overflow-y: hidden;
-    scrollbar-width: thin;
-  }
-
-  .settings-nav-group {
-    display: contents;
-  }
-
-  .settings-nav-group-title {
-    display: none;
-  }
-
   .settings-nav-item {
-    width: auto;
-    flex: 0 0 auto;
-    white-space: nowrap;
-    text-align: center;
+    border-bottom: 1px solid var(--rule);
+    border-radius: 0;
+  }
+
+  /* At the list nothing is open yet, so nothing is marked as open. */
+  .settings-screen.at-index .settings-nav-item.active {
+    background: transparent;
+    color: var(--text-dim);
+    font-weight: inherit;
+  }
+
+  .settings-back {
+    display: inline-flex;
   }
 
   .settings-detail {
@@ -2155,7 +2164,8 @@ a.pill-btn, a.talk-btn { color: inherit; text-decoration: none; display: inline-
   }
 
   .settings-section-head {
-    align-items: flex-start;
+    align-items: center;
+    justify-content: flex-start;
     flex-wrap: wrap;
   }
 

@@ -50,14 +50,15 @@ describe('the persona list', () => {
     const node = view.node();
     expect(node.querySelectorAll('.thing-open')).toHaveLength(2);
     expect(node.querySelectorAll('.info-tip-trigger')).toHaveLength(0);
-    expect(node.querySelector('[data-testid="settings-save"]')).not.toBeNull();
+    // A reset button over a list of people read as though it reset the people.
+    expect(node.querySelector('[data-testid="settings-reset"]')).toBeNull();
     (node.querySelector('[data-testid="persona-open-scout"]') as HTMLButtonElement).click();
 
     expect(appState.settingsItem).toBe('scout');
     const page = view.node();
     expect((page.querySelector('[data-testid="persona-page-name"]') as HTMLInputElement).value).toBe('Scout');
-    // The page saves itself, so the header's Save has nothing to write here.
-    expect(page.querySelector('[data-testid="settings-save"]')).toBeNull();
+    // A persona's own page keeps its Save, and asks before leaving unsaved.
+    expect(page.querySelector('[data-testid="persona-save"]')).not.toBeNull();
   });
 });
 

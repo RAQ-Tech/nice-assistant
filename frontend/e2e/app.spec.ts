@@ -575,22 +575,23 @@ test('settings review memory and media use only canonical APIs', async ({ page }
   const fixture = await installAuthenticatedFixture(page);
   await page.goto('/#/chats/chat-1');
   await page.getByTestId('open-settings').click();
-  await page.getByTestId('settings-nav-memory').click();
+  await openSettingsPage(page, 'memory');
   await expect(page.getByText('Pending review (1)')).toBeVisible();
   await page.getByText('Pending review (1)').click();
   await page.getByRole('button', { name: 'Approve' }).click();
   await expect(page.getByText('Active (1)')).toBeVisible();
-  await page.getByTestId('settings-nav-general').click();
+  await openSettingsPage(page, 'general');
   await page.locator('.setting-row').filter({ hasText: 'Theme' }).locator('select').selectOption('light');
-  await page.getByTestId('settings-save').click();
-  await expect(page.getByText('Settings saved')).toBeVisible();
-  await page.getByTestId('settings-nav-personas').click();
+  // Nothing to press: the change saves itself, and the header says so.
+  await expect.poll(() => fixture.savedPreferences?.general_theme).toBe('light');
+  await expect(page.getByTestId('settings-save-status')).toHaveText('Saved');
+  await openSettingsPage(page, 'personas');
   await page.getByTestId('persona-open-persona-1').click();
   const personaPage = page.getByTestId('persona-page');
   await personaPage.locator('.setting-toggle-row').filter({ hasText: 'Allowed to send pictures' }).locator('input').uncheck();
   await page.getByTestId('persona-save').click();
   await expect(page.getByTestId('persona-save')).toHaveText('Saved');
-  await page.getByTestId('settings-nav-task-models').click();
+  await openSettingsPage(page, 'task-models');
   await page.getByTestId('task-model-title_generation').click();
   await page.getByTestId('task-model-model-title_generation').selectOption('demo');
   const taskModelSaveRequest = page.waitForRequest((request) =>
@@ -599,7 +600,7 @@ test('settings review memory and media use only canonical APIs', async ({ page }
   await page.getByTestId('task-model-save-title_generation').click();
   expect((await taskModelSaveRequest).postDataJSON().model).toBe('demo');
   await expect(page.getByText(/Ready: Task model is ready/)).toBeVisible();
-  await page.getByTestId('settings-nav-media-catalog').click();
+  await openSettingsPage(page, 'media-catalog');
   // A model is a page of its own, reached from the list, and saved from there.
   await page.getByTestId('catalog-model-open-media-model-1').click();
   await page.getByTestId('model-page-name').fill('Fantasy portrait model');
@@ -656,14 +657,14 @@ test('everyday settings are sparse pages with help on hover and the rest folded'
   const speak = page.locator('.setting-toggle-row').filter({ hasText: 'Speak replies aloud' });
   await expect(speak).toHaveAttribute('title', /Plays each finished reply/);
 
-  await page.getByTestId('settings-nav-image-generation').click();
+  await openSettingsPage(page, 'image-generation');
   await expect(page.getByText('Local image service', { exact: true })).toBeVisible();
   await expect(page.locator('.info-tip-trigger')).toHaveCount(0);
   await expect(page.locator('.settings-intro')).toHaveCount(0);
   await expect(page.getByTestId('image-advanced-settings')).not.toHaveAttribute('open', '');
 
   // A persona is a page of its own, reached from the list.
-  await page.getByTestId('settings-nav-personas').click();
+  await openSettingsPage(page, 'personas');
   await expect(page.getByTestId('persona-open-persona-1')).toBeVisible();
   await expect(page.locator('.info-tip-trigger')).toHaveCount(0);
   await page.getByTestId('persona-open-persona-1').click();
@@ -728,7 +729,7 @@ test('a reader who has scrolled stays put when they use a control', async ({ pag
 
   // Switching sections is navigation, not a refresh: the pane is the same
   // shape but shows different content, so the new section starts at the top.
-  await page.getByTestId('settings-nav-memory').click();
+  await openSettingsPage(page, 'memory');
   await expect(page.locator('.settings-detail h3').first()).not.toHaveText('General');
   expect(await page.evaluate(() => document.querySelector<HTMLElement>('.settings-detail')?.scrollTop)).toBe(0);
 });
@@ -743,13 +744,13 @@ test('operator settings are lists of things, each opening a page with the expert
   await expect(page.getByTestId('model-settings-provenance')).toContainText('shared defaults');
   await page.getByTestId('model-settings-page-back').click();
 
-  await page.getByTestId('settings-nav-task-models').click();
+  await openSettingsPage(page, 'task-models');
   await expect(page.getByTestId('settings-save')).toHaveCount(0);
   await page.getByTestId('task-model-title_generation').click();
   await expect(page.getByTestId('task-model-page-name')).toHaveText('Chat titles');
   await expect(page.getByTestId('task-model-advanced-title_generation')).not.toHaveAttribute('open', '');
 
-  await page.getByTestId('settings-nav-media-catalog').click();
+  await openSettingsPage(page, 'media-catalog');
   // A list of plain things, one line out loud, and the operator tools folded.
   await expect(page.getByTestId('catalog-readiness')).toBeVisible();
   await expect(page.locator('.page-hint')).toHaveCount(1);
@@ -1230,6 +1231,16 @@ async function messageAction(page: Page, title: string) {
   await button.waitFor({ state: 'attached' });
   if (!(await button.isVisible())) await page.locator('article.msg.assistant small').first().click();
   return button;
+}
+
+/**
+ * Open a settings page by its name in the list. A phone shows the list or a
+ * page, never both, so from a page it steps back to the list first.
+ */
+async function openSettingsPage(page: Page, name: string): Promise<void> {
+  const item = page.getByTestId(`settings-nav-${name}`);
+  if (!(await item.isVisible())) await page.getByTestId('settings-back').click();
+  await item.click();
 }
 
 async function json(route: Parameters<Parameters<Page['route']>[1]>[0], body: unknown, status = 200): Promise<void> {

@@ -66,7 +66,7 @@ describe('the navigation', () => {
     const { node } = built();
 
     const titles = [...node.querySelectorAll('.settings-nav-group-title')].map((title) => title.textContent);
-    expect(titles).toEqual(['Conversation', 'Voice', 'Pictures', 'Personas', 'System']);
+    expect(titles).toEqual(['Conversation', 'Voice', 'Pictures', 'Personas', 'Advanced']);
     // The friendly label is what a person reads; the id stays in the testid so
     // every deep link and existing test still lands.
     const tts = node.querySelector('[data-testid="settings-nav-tts"]') as HTMLButtonElement;

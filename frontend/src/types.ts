@@ -1126,6 +1126,8 @@ export interface AppState {
   showJumpBottom: boolean;
   showSettings: boolean;
   settingsSection: string;
+  /** Settings was opened at its list rather than a page; a phone shows only the list. */
+  settingsAtIndex: boolean;
   /** The thing open inside the section, when the section is a list of them. */
   settingsItem: string | null;
   modal: ModalState | null;

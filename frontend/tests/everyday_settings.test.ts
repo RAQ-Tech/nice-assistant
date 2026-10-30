@@ -89,6 +89,24 @@ describe('a feature that is off says what it needs, and switched on reads like a
   });
 });
 
+describe('your profile', () => {
+  it('chooses a timezone from a list, keeping "local" and any stored stranger', () => {
+    const { root, settings, view, change } = setup({ user_timezone: 'local' });
+    root.append(...view.nodes('User', settings));
+    const zone = root.querySelector('[data-testid="user-timezone"]') as HTMLSelectElement;
+    expect(zone.value).toBe('local');
+    expect(zone.options[0]?.textContent).toMatch(/^Match this device/);
+    expect([...zone.options].some((option) => option.value === 'America/New_York')).toBe(true);
+    zone.value = 'Europe/London';
+    zone.dispatchEvent(new Event('change'));
+    expect(change).toHaveBeenCalledWith('user_timezone', 'Europe/London');
+
+    const odd = setup({ user_timezone: 'Mars/Olympus_Mons' });
+    odd.root.append(...odd.view.nodes('User', odd.settings));
+    expect((odd.root.querySelector('[data-testid="user-timezone"]') as HTMLSelectElement).value).toBe('Mars/Olympus_Mons');
+  });
+});
+
 describe('a control that cannot work yet is a way to set it up', () => {
   it('replaces speaking replies aloud with a link while nothing can speak them', () => {
     const off = setup({ tts_provider: 'disabled' });

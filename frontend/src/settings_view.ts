@@ -13,6 +13,7 @@ import { PersonaPageView } from './persona_page_view';
 import { PersonaPicturesView } from './persona_pictures_view';
 import {
   resetSettingsSection,
+  SETTINGS_SECTION_KEYS,
   SETTINGS_SECTIONS,
   sectionLabel,
   settingsWire,
@@ -43,8 +44,17 @@ const PROVIDERS: readonly [string, string][] = [
   ['comfyui', 'ComfyUI'],
 ];
 
-/** Sections whose pages save themselves, so the header's Save has nothing to write. */
-const SELF_SAVING_SECTIONS: readonly SettingsSection[] = ['Data', 'Task Models', 'Media Catalog', 'GPU Coordination'];
+/**
+ * Pages that are settings rather than lists of things. Personas and
+ * Workspaces each hold one setting, and a reset button sitting over a list of
+ * people read as though it would reset the people.
+ */
+const RESETTABLE_SECTIONS: readonly SettingsSection[] = [
+  'General', 'Models', 'Memory', 'TTS', 'STT', 'Image Generation', 'Video Generation', 'User',
+];
+
+/** How long typing may pause before what was typed is saved. */
+const SAVE_DELAY_MS = 600;
 
 export type Dialogs = SettingsDialogs;
 
@@ -59,6 +69,10 @@ export class SettingsView {
   private readonly personaPages: PersonaPageView;
   private readonly selectedMemoryIds = new Set<string>();
   private memoryActionBusy = false;
+  /** Bumped on every change, so a save can tell whether it is still the newest. */
+  private revision = 0;
+  private saveTimer: ReturnType<typeof setTimeout> | null = null;
+  private saveAgain = false;
 
   constructor(
     private readonly renderApp: () => void,
@@ -66,8 +80,10 @@ export class SettingsView {
     private readonly dialogs: Dialogs,
     private readonly appState: AppState = state,
     private readonly client: ApiClient = api,
-    private readonly navigateSettings: (section: SettingsSection, item?: string | null) => void = (section, item = null) => {
-      appState.settingsSection = section;
+    /** A page in settings, or with no section the list of them. */
+    private readonly navigateSettings: (section: SettingsSection | null, item?: string | null) => void = (section, item = null) => {
+      appState.settingsAtIndex = !section;
+      appState.settingsSection = section ?? appState.settingsSection;
       appState.settingsItem = item;
       renderApp();
     },
@@ -154,9 +170,6 @@ export class SettingsView {
     }
     const section = normalizeSection(this.appState.settingsSection);
     const item = this.appState.settingsItem;
-    // A persona's page saves itself; the list around it still holds one
-    // ordinary setting, so the header's Save belongs to the list only.
-    const selfSaving = SELF_SAVING_SECTIONS.includes(section) || (section === 'Personas' && Boolean(item));
     this.appState.settingsSection = section;
     if (
       section === 'GPU Coordination'
@@ -166,23 +179,19 @@ export class SettingsView {
     ) {
       void this.operationsView.refreshCoordination();
     }
-    return el('div', { class: 'settings-screen', 'data-testid': 'settings-screen' }, [
+    return el('div', {
+      class: `settings-screen ${this.appState.settingsAtIndex ? 'at-index' : ''}`.trim(),
+      'data-testid': 'settings-screen',
+    }, [
       el('div', { class: 'settings-header' }, [
         el('h2', { textContent: 'Settings' }),
-        this.appState.settingsSavedAt
-          ? el('div', { class: 'success-banner', textContent: 'Settings saved' })
-          : null,
         el('div', { class: 'chips' }, [
-          el('button', { class: 'icon-btn', type: 'button', onclick: this.close }, [icon('close'), ' Close']),
-          !selfSaving
-            ? el('button', {
-                class: 'send-btn',
-                textContent: this.appState.settingsSaving ? 'Saving…' : 'Save settings',
-                disabled: this.appState.settingsSaving,
-                'data-testid': 'settings-save',
-                onclick: () => void this.persist(),
-              })
-            : null,
+          this.saveStatus(),
+          el('button', {
+            class: 'icon-btn',
+            type: 'button',
+            onclick: () => { this.flush(); this.close(); },
+          }, [icon('close'), ' Close']),
         ]),
       ]),
       this.appState.settingsError
@@ -200,22 +209,62 @@ export class SettingsView {
         }),
         el('section', { class: 'settings-detail glass' }, [
           el('div', { class: 'settings-section-head' }, [
+            el('button', {
+              class: 'pill-btn settings-back',
+              type: 'button',
+              textContent: '‹ Settings',
+              'data-testid': 'settings-back',
+              onclick: () => this.openIndex(),
+            }),
             el('h3', { textContent: sectionLabel(section) }),
-            !selfSaving && !item
-              ? el('button', {
-                  class: 'pill-btn',
-                  textContent: 'Reset to Default',
-                  onclick: () => {
-                    resetSettingsSection(settings, section);
-                    this.renderApp();
-                  },
-                })
-              : null,
           ]),
           ...this.section(section, item, settings),
+          // Rare, and it undoes things, so it waits at the end of the page
+          // rather than sitting beside the title of every one.
+          !item && RESETTABLE_SECTIONS.includes(section)
+            ? el('div', { class: 'chips settings-reset-row' }, [
+                el('button', {
+                  class: 'link-btn',
+                  textContent: 'Reset to Default',
+                  'data-testid': 'settings-reset',
+                  onclick: () => void this.reset(settings, section),
+                }),
+              ])
+            : null,
         ]),
       ]),
     ]);
+  }
+
+  /**
+   * Whether the last change reached the server - said quietly, once.
+   *
+   * There is no Save here. Changes here save as they are made, the way a
+   * phone's own settings do; the header button this replaced was the reason
+   * a theme could be chosen, look applied, and be gone after a reload.
+   */
+  private saveStatus(): HTMLElement {
+    const text = this.appState.settingsSaving || this.saveTimer
+      ? 'Saving…'
+      : this.appState.settingsError
+        ? 'Not saved'
+        : this.appState.settingsSavedAt ? 'Saved' : '';
+    return el('span', { class: 'meta settings-save-status', 'aria-live': 'polite', 'data-testid': 'settings-save-status', textContent: text });
+  }
+
+  /** Back to the list of settings, through the same guards as any other way out. */
+  private openIndex(): void {
+    this.personaPages.beforeLeave(() => this.mediaCatalogView.beforeLeave(() => this.navigateSettings(null, null)));
+  }
+
+  /** Put a page back to how it started, once somebody has said so. */
+  private async reset(settings: Settings, section: SettingsSection): Promise<void> {
+    const label = sectionLabel(section);
+    if (!(await this.dialogs.confirm('Reset to default', `Put everything on ${label} back to how it started?`, 'Reset'))) return;
+    resetSettingsSection(settings, section);
+    if (SETTINGS_SECTION_KEYS[section].includes('general_theme')) applyTheme(settings.general_theme);
+    this.scheduleSave();
+    this.renderApp();
   }
 
   /** Switch sections, and load whatever that section reads on arrival. */
@@ -309,15 +358,20 @@ export class SettingsView {
 
   private workspaces(settings: Settings): HTMLElement[] {
     const workspaces = this.appState.workspaces;
+    // With one workspace there is nothing to choose between, and "None"
+    // beside the one that exists read as though something was missing.
+    const choice = workspaces.length > 1
+      ? [settingsCard([
+          choiceField('Default workspace', settings.workspaces_default_workspace_id, ['', ...workspaces.map((item) => item.id)], (value) => {
+            this.set('workspaces_default_workspace_id', value);
+          }, {
+            display: (value) => workspaces.find((item) => item.id === value)?.name ?? 'The first one',
+            hover: 'Where a new persona goes when nothing more specific has been chosen.',
+          }),
+        ])]
+      : [];
     return [
-      settingsCard([
-        choiceField('Default workspace', settings.workspaces_default_workspace_id, ['', ...workspaces.map((item) => item.id)], (value) => {
-          this.set('workspaces_default_workspace_id', value);
-        }, {
-          display: (value) => workspaces.find((item) => item.id === value)?.name ?? 'None',
-          hover: 'Where a new persona goes when nothing more specific has been chosen.',
-        }),
-      ]),
+      ...choice,
       pageHint('A workspace is a private grouping of personas and conversations, not a separate account.'),
       ...workspaces.map((workspace) =>
         el('div', { class: 'persona-card workspace-card', 'data-testid': `workspace-${workspace.id}` }, [
@@ -409,31 +463,64 @@ export class SettingsView {
     if (key === 'general_show_thinking') this.appState.showThinkingByDefault = Boolean(value);
     if (key === 'general_voice_responses') this.appState.voiceResponsesEnabled = Boolean(value);
     if (key === 'general_show_viz') this.appState.showViz = Boolean(value);
+    this.scheduleSave();
     if (shouldRender) this.renderApp();
+  }
+
+  /** Save once the changes stop: a pause in typing, or straight after a click. */
+  private scheduleSave(): void {
+    this.revision += 1;
+    if (this.saveTimer) clearTimeout(this.saveTimer);
+    this.saveTimer = setTimeout(() => {
+      this.saveTimer = null;
+      void this.persist();
+    }, SAVE_DELAY_MS);
+  }
+
+  /** Save now whatever is waiting - on Close, so nothing is left for a timer. */
+  flush(): void {
+    if (!this.saveTimer) return;
+    clearTimeout(this.saveTimer);
+    this.saveTimer = null;
+    void this.persist();
   }
 
   private async persist(): Promise<void> {
     const settings = this.appState.settings;
     if (!settings) return;
+    // One write at a time; a change made during it is saved straight after.
+    if (this.appState.settingsSaving) {
+      this.saveAgain = true;
+      return;
+    }
+    const revision = this.revision;
     this.appState.settingsSaving = true;
     this.appState.settingsError = '';
     this.renderApp();
     try {
       const saved = await this.client.updateSettings(settingsWire(settings));
-      Object.assign(settings, saved.preferences, {
-        global_default_model: saved.global_default_model ?? '',
-        default_memory_mode: saved.default_memory_mode,
-        stt_provider: saved.stt_provider,
-        tts_provider: saved.tts_provider,
-        tts_format: saved.tts_format,
-        openai_api_key: saved.openai_api_key ?? settings.openai_api_key,
-        onboarding_done: saved.onboarding_done,
-      });
+      // The server's copy is only taken while it is still the newest: taking
+      // it after somebody typed on would put back what they just replaced.
+      if (revision === this.revision) {
+        Object.assign(settings, saved.preferences, {
+          global_default_model: saved.global_default_model ?? '',
+          default_memory_mode: saved.default_memory_mode,
+          stt_provider: saved.stt_provider,
+          tts_provider: saved.tts_provider,
+          tts_format: saved.tts_format,
+          openai_api_key: saved.openai_api_key ?? settings.openai_api_key,
+          onboarding_done: saved.onboarding_done,
+        });
+      }
       this.appState.settingsSavedAt = Date.now();
     } catch (error) {
       this.appState.settingsError = errorMessage(error, 'Unable to save settings.');
     } finally {
       this.appState.settingsSaving = false;
+      if (this.saveAgain) {
+        this.saveAgain = false;
+        void this.persist();
+      }
       this.renderApp();
     }
   }

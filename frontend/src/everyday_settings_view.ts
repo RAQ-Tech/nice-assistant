@@ -438,9 +438,7 @@ export class EverydaySettingsView {
           hover: 'A few durable facts, sent with every message.',
         }),
         pageHint('Sent with every message, so keep it short: it competes with the conversation itself.'),
-        textField('Timezone', settings.user_timezone, (value) => this.change('user_timezone', value), {
-          hover: '“local” for the browser’s own, or a name such as America/New_York.',
-        }),
+        timezoneField(settings.user_timezone, (value) => this.change('user_timezone', value)),
       ]),
       advancedSettings('More options', 'Credentials. Encrypted at rest, and never sent back in full.', [
         textField('OpenAI API key', settings.openai_api_key, (value) => this.change('openai_api_key', value), {
@@ -479,6 +477,26 @@ const PROVIDER_NAMES: Record<string, string> = { openai: 'OpenAI', 'openai-image
 /** A provider by the name its makers use, not by its identifier title-cased. */
 export function providerName(value: string): string {
   return PROVIDER_NAMES[value] ?? titleCase(value);
+}
+
+/**
+ * The timezone, chosen from the ones the browser knows.
+ *
+ * It was a text box that started out reading "local" and asked for names such
+ * as America/New_York to be typed exactly. "local" stays the stored value for
+ * following this device, and a stored zone the list lacks stays selectable.
+ */
+function timezoneField(current: string, change: (value: string) => void): HTMLElement {
+  const known = typeof Intl.supportedValuesOf === 'function' ? Intl.supportedValuesOf('timeZone') : [];
+  const hover = 'Times the persona mentions are in this zone.';
+  if (!known.length) return textField('Timezone', current, change, { hover, placeholder: 'e.g. America/New_York' });
+  const device = Intl.DateTimeFormat().resolvedOptions().timeZone;
+  const values = ['local', ...(current !== 'local' && !known.includes(current) ? [current] : []), ...known];
+  return choiceField('Timezone', current || 'local', values, change, {
+    display: (value) => (value === 'local' ? `Match this device${device ? ` (${device.replace(/_/g, ' ')})` : ''}` : value.replace(/_/g, ' ')),
+    hover,
+    testId: 'user-timezone',
+  });
 }
 
 // ComfyUI first: the catalog, recipes and identity work all speak it, and it
