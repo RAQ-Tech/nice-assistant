@@ -72,8 +72,8 @@ supervised server session and never grants a general remote shell.
   discarded rather than queued for review; raise it for fewer, surer candidates)
 - `NICE_ASSISTANT_DEVELOPMENT_PROJECT_SYNC=0` (development-only escape hatch;
   production must keep the image-authoritative default)
-- `AUTOMATIC1111_BASE_URL=http://127.0.0.1:7860` (default local image endpoint for `image_provider=local`)
-- `COMFYUI_BASE_URL=http://127.0.0.1:8188` (default local image endpoint when local backend is ComfyUI)
+- `AUTOMATIC1111_BASE_URL=http://127.0.0.1:7860` (default local image endpoint when the local backend is Automatic1111)
+- `COMFYUI_BASE_URL=http://127.0.0.1:8188` (default local image endpoint when the local backend is ComfyUI, the default backend)
 - `NICE_ASSISTANT_ALLOWED_ORIGINS` (comma-separated exact HTTPS reverse-proxy origins)
 - `NICE_ASSISTANT_SECURE_COOKIES=0` (set to `1` behind HTTPS)
 - `NICE_ASSISTANT_TRUST_PROXY_HEADERS=0` (enable only behind a trusted header-sanitizing proxy)
@@ -113,6 +113,10 @@ server, proxy, bridge, and second listener have been removed.
   think with and, where replies are spoken, their voice by ear, and start
   talking; nothing else is reachable until it is done, and the companion says
   hello first (ADR 0052)
+- Settings a first-time user can follow: a feature that is off says what it
+  needs, a control that cannot work yet is a "Set up" link to its page,
+  everyday settings save as they change, and on a phone settings is a list
+  and then a page (ADR 0053)
 - Chat list/new chat + transcript + per-chat model and memory mode, with
   explicit individual and bulk hide/delete actions
 - Tiered memory CRUD APIs + basic UI controls:
@@ -185,10 +189,10 @@ server, proxy, bridge, and second listener have been removed.
 - Default chat chrome keeps persona and conversation essentials visible while
   workspace, model, memory, state, and visualization controls remain under
   progressive disclosure
-- STT/TTS provider settings in UI (disabled by default)
+- STT/TTS provider settings in UI (off by default, each page saying what it needs)
 - OpenAI STT plus OpenAI and Kokoro-compatible request/response TTS
 - Provider readiness checks in Settings for Ollama, OpenAI, Kokoro, Automatic1111, and ComfyUI
-- Local image generation through Automatic1111 (`/sdapi/v1/txt2img`) or ComfyUI (`/upload/image`, `/prompt`, `/history/{prompt_id}`, `/view`) with per-user endpoint override in Settings
+- Local image generation through ComfyUI (`/upload/image`, `/prompt`, `/history/{prompt_id}`, `/view`), the default, or Automatic1111 (`/sdapi/v1/txt2img`), with per-user endpoint override in Settings
 - Enabling a media provider after initial setup bootstraps a missing starter catalog model without replacing operator-managed catalog resources
 - Persona-chat image planning keeps the user's requested subject authoritative:
   unrelated images use ordinary catalog models, while persona images prefer an

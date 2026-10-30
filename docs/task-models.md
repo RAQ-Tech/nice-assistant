@@ -14,7 +14,7 @@ their call to make rather than this product's.
 What it must never be is the choice that happens by itself. Every role defaults
 to the local provider, nothing falls back from a local provider to a cloud one
 unless somebody paired them deliberately, and the settings control names each
-option as running on this machine or leaving it - so picking one is informed
+option as staying on your network or leaving it - so picking one is informed
 rather than incidental.
 
 The homepage says where each part of a conversation currently goes, computed by
@@ -23,7 +23,7 @@ Both lists there are explicit, and a provider on neither reads as unknown rather
 than as local. Guessing either way is wrong, but not equally wrong: calling an
 unrecognised provider local is a privacy claim made on no evidence, and the
 person who most needs the answer is the one it would mislead. An unknown part
-also stops the summary claiming everything stays on this machine.
+also stops the summary claiming everything stays on your network.
 
 ## What a readiness check knows
 

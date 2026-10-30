@@ -354,7 +354,7 @@ the other shape Transcription offers. It buys nothing over Wyoming here; the
 container the deployment already runs is the one to keep.
 
 **Speech with Kokoro.** A Kokoro-compatible HTTP service on the LAN, port 8880
-by convention. Spoken replies: "Local service - on this machine", the service
+by convention. Spoken replies: "Local service - on your network", the service
 address, and a voice chosen from the list the service reports, with a play
 button to hear each one. Kokoro's voices ship inside its container, so
 updating that container is how new ones arrive. Samples are kept in
