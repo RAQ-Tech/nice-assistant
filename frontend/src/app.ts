@@ -182,6 +182,7 @@ async function applyCurrentRoute(): Promise<void> {
   if (state.route.kind === 'settings') {
     state.showSettings = true;
     state.settingsSection = state.route.section ?? 'General';
+    state.settingsAtIndex = !state.route.section;
     state.settingsItem = state.route.item ?? null;
     return;
   }
@@ -395,7 +396,7 @@ function topbar(personaName: string, avatar: string): HTMLElement {
     ]),
     el('span', { class: 'sr-only', textContent: state.statusText, 'data-testid': 'client-phase' }),
     iconButton('more', 'Chat details', { 'aria-expanded': state.showChatControlsMenu, onclick: () => { state.showChatControlsMenu = !state.showChatControlsMenu; render(); } }),
-    iconButton('settings', 'Settings', { 'data-testid': 'open-settings', onclick: () => router.settings(state.settingsSection) }),
+    iconButton('settings', 'Settings', { 'data-testid': 'open-settings', onclick: () => router.settings() }),
     iconButton('signOut', 'Sign out', { 'data-testid': 'logout', onclick: () => void logout() }),
   ]);
 }

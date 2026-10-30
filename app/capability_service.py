@@ -13,6 +13,7 @@ from app.capability_contracts import (
     MediaOperation,
 )
 from app.job_service import JobExecution, JobService
+from app.media import normalize_local_image_backend
 from app.identity_conditioning import IDENTITY_CONTROL_FEATURE
 from app.repositories import UnitOfWork, now_ts
 from app.provider_contracts import CancellationToken, ProviderError
@@ -535,7 +536,7 @@ class CapabilityService:
             settings = uow.repo.settings(user_id) or {}
             preferences = settings.get("preferences") or {}
             configured = str(preferences.get("image_provider") or "disabled").strip().lower()
-            local_backend = str(preferences.get("image_local_backend") or "automatic1111").strip().lower()
+            local_backend = normalize_local_image_backend(preferences.get("image_local_backend"))
         provider_key = {
             "local/automatic1111": "automatic1111",
             "local/comfyui": "comfyui",

@@ -12,6 +12,7 @@ from app.identity_conditioning import (
     IDENTITY_CONTROL_FEATURE,
     public_identity_conditioning,
 )
+from app.media import normalize_local_image_backend
 from app.media_clients import CHECKPOINT_INPUT_NAMES
 from app.media_identity_binding import IdentityBinding
 from app.media_planner import PROVIDER_DEFAULT, build_media_plan, workflow_mechanisms
@@ -1410,19 +1411,22 @@ class MediaCatalogService(IdentityBinding):
                     )
                 )
             else:
-                backend = str(preferences.get("image_local_backend") or "automatic1111").lower()
-                if backend not in LOCAL_BACKENDS:
-                    backend = "automatic1111"
+                backend = normalize_local_image_backend(preferences.get("image_local_backend"))
                 allow_nsfw = bool(preferences.get("image_local_allow_nsfw", False))
+                external_id = str(preferences.get("image_local_model") or PROVIDER_DEFAULT)
+                # The first thing the model finder shows a new install, so it
+                # is named the way a person would say it.
+                service = "ComfyUI" if backend == "comfyui" else "Automatic1111"
+                name = f"{service}'s default model" if external_id == PROVIDER_DEFAULT else f"Imported {service} model"
                 values.append(
                     MediaCatalogService._resource_row_values(
                         {
                             "resource_type": "model",
                             "kind": "image",
-                            "name": f"Imported {backend} image model",
+                            "name": name,
                             "provider_key": "local-image",
                             "backend": backend,
-                            "external_id": str(preferences.get("image_local_model") or PROVIDER_DEFAULT),
+                            "external_id": external_id,
                             "enabled": True,
                             "priority": 50,
                             "operations": ["generate"],

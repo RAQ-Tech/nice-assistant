@@ -1,5 +1,6 @@
 import type { ApiClient } from './api';
 import { el, errorMessage, formatBytes, formatDate } from './dom';
+import { providerName } from './everyday_settings_view';
 import type { SettingsDialogs } from './settings_contracts';
 import { actionRow, choiceField, numberField, pageHint, switchField } from './settings_page';
 import { advancedSettings, operatorEditor, settingsCard, titleCase } from './settings_ui';
@@ -191,10 +192,15 @@ export class OperationsSettingsView {
   /** One provider endpoint: what it reports, and whether this app may act on it. */
   private endpointCard(endpoint: ResourceEndpointStatus): HTMLElement {
     const snapshot = endpoint.snapshot;
-    const capacity = snapshot?.free_vram_mb == null
-      ? titleCase(snapshot?.status ?? 'not checked')
-      : `${snapshot.free_vram_mb} MB free of ${snapshot.total_vram_mb ?? 'unknown'} MB`;
-    const status = snapshot?.status === 'known' ? 'Measured' : titleCase(snapshot?.status ?? 'Not checked');
+    // A service nobody set up is not a fault. Unreachable at its default
+    // address and unused, it says so in grey instead of a red "Unavailable".
+    const unused = snapshot?.status === 'unavailable' && !this.inUse(endpoint.provider);
+    const capacity = unused
+      ? 'Not in use'
+      : snapshot?.free_vram_mb == null
+        ? titleCase(snapshot?.status ?? 'not checked')
+        : `${snapshot.free_vram_mb} MB free of ${snapshot.total_vram_mb ?? 'unknown'} MB`;
+    const status = unused ? 'Not in use' : snapshot?.status === 'known' ? 'Measured' : titleCase(snapshot?.status ?? 'Not checked');
     const abilities = [
       endpoint.capabilities.reports_capacity ? 'reports capacity' : null,
       endpoint.capabilities.reports_queue ? 'reports its queue' : null,
@@ -202,7 +208,7 @@ export class OperationsSettingsView {
       endpoint.capabilities.supports_precise_cancel ? 'cancels precisely' : 'cancels cooperatively',
     ].filter((item): item is string => item !== null).join(' · ');
     return operatorEditor(
-      titleCase(endpoint.provider),
+      providerName(endpoint.provider),
       `${endpoint.endpoint_label} · ${capacity}`,
       status,
       [
@@ -226,16 +232,26 @@ export class OperationsSettingsView {
         onToggle: (open) => open ? this.openEndpoints.add(endpoint.provider) : this.openEndpoints.delete(endpoint.provider),
         testId: `resource-endpoint-${endpoint.provider}`,
         className: 'resource-endpoint-card',
-        statusClass: snapshot?.status === 'known' ? 'ok' : snapshot?.status === 'unavailable' ? 'fail' : 'idle',
+        statusClass: snapshot?.status === 'known' ? 'ok' : snapshot?.status === 'unavailable' && !unused ? 'fail' : 'idle',
       },
     );
+  }
+
+  /** Whether the settings point anything at this provider: chat always uses Ollama. */
+  private inUse(provider: string): boolean {
+    const settings = this.appState.settings;
+    if (provider === 'ollama' || !settings) return true;
+    const local = settings.image_provider === 'local';
+    if (provider === 'comfyui') return (local && settings.image_local_backend === 'comfyui') || settings.video_provider === 'local';
+    if (provider === 'automatic1111') return local && settings.image_local_backend === 'automatic1111';
+    return true;
   }
 
   private coordinationEvents(): HTMLElement {
     const rows = this.appState.resourceCoordinationEvents.length
       ? this.appState.resourceCoordinationEvents.slice(0, 20).map((event) => el('div', { class: 'task-run-row' }, [
           el('div', {}, [
-            el('strong', { textContent: `${titleCase(event.provider)} · ${titleCase(event.action)}` }),
+            el('strong', { textContent: `${providerName(event.provider)} · ${titleCase(event.action)}` }),
             el('div', { class: 'meta', textContent: `${titleCase(event.outcome)} · ${formatDate(event.created_at)}` }),
           ]),
         ]))

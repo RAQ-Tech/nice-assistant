@@ -9,6 +9,7 @@ from unittest import mock
 import urllib.error
 
 from app.media import (
+    DEFAULT_LOCAL_IMAGE_BACKEND,
     adjust_prompt_for_local_sd,
     adjust_prompt_for_openai_image,
     clean_user_image_prompt,
@@ -99,9 +100,10 @@ class LocalImageBaseUrlTests(unittest.TestCase):
 
 
 class LocalImageBackendTests(unittest.TestCase):
-    def test_backend_defaults_to_automatic1111(self):
-        self.assertEqual(normalize_local_image_backend(""), "automatic1111")
-        self.assertEqual(normalize_local_image_backend("unknown"), "automatic1111")
+    def test_a_missing_or_unknown_backend_is_the_shipped_default(self):
+        # The default itself is pinned once, in test_local_image_default.py.
+        self.assertEqual(normalize_local_image_backend(""), DEFAULT_LOCAL_IMAGE_BACKEND)
+        self.assertEqual(normalize_local_image_backend("unknown"), DEFAULT_LOCAL_IMAGE_BACKEND)
 
     def test_known_backends_are_supported(self):
         self.assertEqual(normalize_local_image_backend("automatic1111"), "automatic1111")

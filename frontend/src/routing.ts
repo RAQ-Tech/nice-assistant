@@ -28,9 +28,14 @@ export class Router {
 
   /**
    * A settings section, and optionally one thing inside it - a persona, a
-   * model, a background role - so a page has an address of its own.
+   * model, a background role - so a page has an address of its own. No
+   * section is the list of them, which is what a phone shows first.
    */
-  settings(section = 'General', replace = false, item: string | null = null): void {
+  settings(section: string | null = null, replace = false, item: string | null = null): void {
+    if (!section) {
+      this.go('#/settings', replace);
+      return;
+    }
     const path = item ? `${encodeURIComponent(section)}/${encodeURIComponent(item)}` : encodeURIComponent(section);
     this.go(`#/settings/${path}`, replace);
   }
@@ -55,7 +60,9 @@ export function parseRoute(hash: string): RouteState {
   const [kind, encoded, encodedItem] = value.split('/', 3);
   if (kind === 'chats' && encoded) return { kind: 'chat', chatId: decodeURIComponent(encoded) };
   if (kind === 'settings') {
-    const route: RouteState = { kind: 'settings', section: decodeURIComponent(encoded || 'General') };
+    // No section is the list of settings, not a quiet "General".
+    if (!encoded) return { kind: 'settings' };
+    const route: RouteState = { kind: 'settings', section: decodeURIComponent(encoded) };
     if (encodedItem) route.item = decodeURIComponent(encodedItem);
     return route;
   }

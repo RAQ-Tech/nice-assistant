@@ -44,7 +44,8 @@ npm run frontend:e2e
 - `state.ts` and `types.ts`: one typed application state and legal client phase
   transitions. Illegal transitions throw rather than create ambiguous UI state.
 - `routing.ts`: hash-based home/chat/settings navigation with no server-side
-  route ownership.
+  route ownership. `#/settings` with no section is the list of settings,
+  which is all a phone shows until a page is chosen (ADR 0053).
 - `chat.ts` and `chat_rendering.ts`: turn submission, delta rendering, terminal
   reconciliation, persisted transcript refresh, message/media presentation, and
   editable pending memory proposals.
@@ -57,12 +58,15 @@ npm run frontend:e2e
   retry, progress polling, cancellation, and protected result rendering.
 - `settings.ts` and `settings_view.ts`: canonical settings envelope,
   normalization, memory review with explicit bulk actions, workspaces, the
-  section-and-item route, and composition of the focused settings views.
+  section-and-item route, and composition of the focused settings views. The
+  settings object saves itself a moment after each change, one write at a
+  time, and a newer change is never overwritten by an older answer.
 - `settings_page.ts`: the one-page-per-thing shell - back and neighbour
   arrows, the headline, chips that open a page, fields whose help waits on
-  hover, the single visible hint, and the leave guard.
+  hover, the single visible hint, the leave guard, and the "Set up" row that
+  stands in for a control that cannot work yet.
 - `persona_page_view.ts`: the persona list and one page per persona,
-  composing the character card and lorebook editors and saving itself.
+  composing the character card and lorebook editors, with its own Save.
 - `everyday_settings_view.ts`: General, Spoken replies, Transcription, Image
   Generation, Video Generation and Your profile as sparse pages.
 - `model_settings_view.ts`: the conversation models Ollama reports as a list,

@@ -2,6 +2,7 @@ import type { ApiClient } from './api';
 import { el, errorMessage } from './dom';
 import { providerLabel } from './everyday_settings_view';
 import { normalizeSettings, settingsWire } from './settings';
+import { setupRow } from './settings_page';
 import type { AppState, PregenerationReadiness, SceneBacklogEntry } from './types';
 
 /**
@@ -40,12 +41,18 @@ export class HomeControls {
   ) {}
 
   node(readiness: PregenerationReadiness | null, produced: SceneBacklogEntry | null): HTMLElement {
+    const settings = this.appState.settings;
+    const pictures = (settings?.image_provider ?? 'disabled') !== 'disabled';
+    const voice = (settings?.tts_provider ?? 'disabled') !== 'disabled';
     return el('section', { class: 'home-card', 'data-testid': 'home-controls' }, [
       el('h2', { class: 'home-card-title', textContent: 'Quick settings' }),
       this.chatModel(),
-      this.images(),
-      this.pregeneration(readiness, produced),
-      this.speech(),
+      // Something not set up is one link, not a switch that cannot do anything.
+      pictures ? this.images() : setupRow('Pictures', 'Image Generation', 'home-image-setup'),
+      // Nothing to make, or a deployment that will not let it be made: either
+      // way a switch here could only sit there disabled.
+      pictures && !readiness?.deployment_forbids ? this.pregeneration(readiness, produced) : null,
+      voice ? this.speech() : setupRow('Spoken replies', 'TTS', 'home-speech-setup'),
       this.memory(),
     ]);
   }
@@ -123,14 +130,13 @@ export class HomeControls {
 
   private pregeneration(readiness: PregenerationReadiness | null, produced: SceneBacklogEntry | null): HTMLElement {
     const settings = this.appState.settings;
-    const forbidden = Boolean(readiness?.deployment_forbids);
-    const enabled = forbidden ? false : Boolean(settings?.pregeneration_enabled ?? readiness?.enabled ?? false);
+    const enabled = Boolean(settings?.pregeneration_enabled ?? readiness?.enabled ?? false);
     return el('div', { class: 'home-control', 'data-testid': 'home-pregeneration' }, [
       el('label', { class: 'home-control-row' }, [
         el('input', {
           type: 'checkbox',
           checked: enabled,
-          disabled: forbidden || this.saving || !settings,
+          disabled: this.saving || !settings,
           'data-testid': 'home-pregeneration-toggle',
           onchange: (event: Event) => {
             if (!this.appState.settings) return;
@@ -140,18 +146,12 @@ export class HomeControls {
         }),
         el('span', { textContent: 'Make pictures overnight' }),
       ]),
-      forbidden
-        ? el('p', {
-            class: 'meta',
-            'data-testid': 'home-pregeneration-forbidden',
-            textContent: 'Turned off for this deployment, so it cannot be switched on here.',
-          })
-        : el('div', { class: 'home-control-row' }, [
-            el('span', { class: 'meta', textContent: 'Between' }),
-            this.hourSelect('pregeneration_start_hour', readiness?.start_hour ?? 2),
-            el('span', { class: 'meta', textContent: 'and' }),
-            this.hourSelect('pregeneration_end_hour', readiness?.end_hour ?? 6),
-          ]),
+      el('div', { class: 'home-control-row' }, [
+        el('span', { class: 'meta', textContent: 'Between' }),
+        this.hourSelect('pregeneration_start_hour', readiness?.start_hour ?? 2),
+        el('span', { class: 'meta', textContent: 'and' }),
+        this.hourSelect('pregeneration_end_hour', readiness?.end_hour ?? 6),
+      ]),
       this.status(readiness, produced),
     ]);
   }

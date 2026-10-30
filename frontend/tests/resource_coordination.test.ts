@@ -104,4 +104,39 @@ describe('GPU coordination settings', () => {
       })],
     }));
   });
+
+  it('shows a service nobody set up as not in use rather than as a fault', () => {
+    const page = (imageProvider: string) => {
+      const appState = createState();
+      appState.session = { user_id: 'owner', expires_at: 1, ttl_seconds: 1800, is_admin: true };
+      appState.settings = normalizeSettings({
+        global_default_model: null,
+        default_memory_mode: 'saved',
+        stt_provider: 'disabled',
+        tts_provider: 'disabled',
+        tts_format: 'wav',
+        openai_api_key: null,
+        onboarding_done: true,
+        preferences: { image_provider: imageProvider, image_local_backend: 'comfyui' },
+      });
+      appState.settingsSection = 'GPU Coordination';
+      const status = coordination();
+      status.endpoints[0]!.snapshot = { ...status.endpoints[0]!.snapshot!, status: 'unavailable', free_vram_mb: null, total_vram_mb: null };
+      appState.resourceCoordination = status;
+      return new SettingsView(vi.fn(), vi.fn(), dialogs, appState, {} as ApiClient).node()
+        .querySelector('[data-testid="resource-endpoint-comfyui"]') as HTMLElement;
+    };
+
+    // A fresh install lists the default addresses of services it was never
+    // pointed at; a red "Unavailable" there reads as something broken.
+    const unused = page('disabled');
+    expect(unused.textContent).toContain('ComfyUI');
+    expect(unused.textContent).toContain('Not in use');
+    expect(unused.querySelector('.fail')).toBeNull();
+
+    // Once pictures are pointed at it, unreachable is a real fault again.
+    const used = page('local');
+    expect(used.textContent).toContain('Unavailable');
+    expect(used.querySelector('.fail')).not.toBeNull();
+  });
 });

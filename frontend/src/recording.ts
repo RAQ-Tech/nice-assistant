@@ -92,7 +92,7 @@ export class RecordingController {
     // open it twice and leave one copy running.
     if (this.recording || this.starting) return;
     if (!this.appState.settings || this.appState.settings.stt_provider === 'disabled') {
-      this.appState.uiError = 'Speech-to-text is disabled. Enable OpenAI STT in Settings.';
+      this.appState.uiError = 'Talking is not set up yet. Choose what transcribes it under Settings, Transcription.';
       this.onChange();
       return;
     }

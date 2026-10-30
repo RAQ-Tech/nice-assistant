@@ -66,6 +66,35 @@ const dialogs = {
 } as unknown as Dialogs;
 
 describe('Media catalog settings', () => {
+  it('says where to start while pictures do not point at ComfyUI, instead of a finder that can only fail', () => {
+    const page = (preferences: Record<string, unknown>) => {
+      const appState = createState();
+      appState.settings = normalizeSettings({
+        global_default_model: null,
+        default_memory_mode: 'saved',
+        stt_provider: 'disabled',
+        tts_provider: 'disabled',
+        tts_format: 'wav',
+        openai_api_key: null,
+        onboarding_done: true,
+        preferences,
+      });
+      appState.settingsSection = 'Media Catalog';
+      appState.mediaCatalog = { ...catalog(), resources: [] };
+      const client = { mediaPresets: vi.fn().mockResolvedValue({ items: [] }) } as unknown as ApiClient;
+      return new SettingsView(vi.fn(), vi.fn(), dialogs, appState, client).node();
+    };
+
+    const fresh = page({});
+    expect(fresh.querySelector('[data-testid="catalog-readiness"]')?.textContent).toContain('not set up to use one yet');
+    expect(fresh.querySelector('[data-testid="catalog-comfyui-setup-link"]')?.getAttribute('href')).toBe('#/settings/Image%20Generation');
+    expect(fresh.querySelector('[data-testid="catalog-discover-models"]')).toBeNull();
+
+    const connected = page({ image_provider: 'local', image_local_backend: 'comfyui' });
+    expect(connected.querySelector('[data-testid="catalog-comfyui-setup"]')).toBeNull();
+    expect(connected.querySelector('[data-testid="catalog-discover-models"]')).not.toBeNull();
+  });
+
   it('creates workflows as disabled drafts so executable JSON can be reviewed before enabling', async () => {
     const appState = createState();
     appState.settings = normalizeSettings({

@@ -32,6 +32,20 @@ that proved it:
 - Dangerous actions are separate, explicit, and reversible where possible.
 - Every control that offers a provider says which kind it is in the option
   itself.
+- A control that cannot work yet is not shown as though it could. In its
+  place goes one row naming the thing and a "Set up" link to the page that
+  makes it work (`setupRow`), on the homepage, in a chat and in settings
+  alike. A switch that could only sit there disabled is left out.
+- A feature that is off says once what it needs. Switched on, its page reads
+  in the order it can be done: the service, its address with an example of
+  what one looks like, Test straight under it, then whatever needs it.
+- Everyday settings save as they change, and the header says "Saving…" and
+  "Saved" beside Close. A page about one thing - a persona, a model or recipe
+  in the catalog, a background role, GPU coordination - keeps its own Save
+  and the leave guard above. "Reset to Default" asks first and sits at the
+  end of a page. See ADR 0053.
+- On a phone, settings is a list and then a page: `#/settings` is the list
+  with its groups, a page replaces it, and "‹ Settings" goes back.
 
 ## Local and cloud
 
@@ -43,8 +57,10 @@ would be deciding for them.
 Three rules make the choice safe rather than removing it. Every default is local
 or off. Nothing escalates from a local provider to a cloud one without somebody
 having paired them. And every control that offers a provider says which kind it
-is, in the option itself - "leaves this machine" rather than a warning paragraph
-somebody has already scrolled past.
+is, in the option itself - "leaves your network" rather than a warning paragraph
+somebody has already scrolled past. A local service is "on your network": it is
+usually another box on the LAN, and "this machine" sent people looking for it on
+the wrong one.
 
 A provider nobody has classified reads as unknown, not as local. A privacy
 claim should fail closed, and an unknown part stops the page claiming everything
@@ -137,14 +153,15 @@ if it is still there when routing is trusted, it is clutter.
 
 Every group outside Pictures now has the model-page shape. Navigation is
 unchanged: five groups named for intent - Conversation, Voice, Pictures,
-Personas, System - a search box that matches the words a person actually
+Personas, Advanced (named System until 2026-10-29) - a search box that matches the words a person actually
 thinks, and section ids that still answer every deep link. A thing inside a
 section has an address of its own, `#/settings/<section>/<item>`.
 
 Conversation:
 
 - **General** is Theme (Match my device, Light or Dark), Model, whether replies are spoken, and the
-  visualizer. Technical messages, model thinking and signing out after
+  visualizer - the last two only once something can speak, and until then
+  one "Spoken replies · Set up" row. Technical messages, model thinking and signing out after
   inactivity are folded.
 - **Models** is the list Ollama reports, the default marked, with the shared
   defaults under it - default model, temperature, reply length, context
@@ -152,19 +169,23 @@ Conversation:
   prefilled from the defaults and says so; the first change customizes that
   model alone, a switch makes it the default for new chats, and one action
   returns it to the shared defaults. Everything still lives in the one
-  settings object the header's Save writes.
+  settings object, which saves as it changes.
 - **Memory** is the mode for new chats, one line saying that only approved
   memories reach a conversation and what forget and delete each mean, then
   the pending, active and history groups with their atomic bulk actions.
 
 Voice:
 
-- **Spoken replies** is who speaks - Off, a local service on this machine,
-  or OpenAI, which leaves it - then the fields that provider actually reads,
-  a connection check, and the stored format and voice direction folded. A
+- **Spoken replies** is who speaks - Off, a local service on your network,
+  or OpenAI, which leaves it. Off says what would switch it on: a Kokoro
+  voice service, or OpenAI. Chosen, it is the fields that provider actually
+  reads - the address with an example and the connection check straight
+  under it, OpenAI's key where OpenAI is chosen - and the stored format and
+  voice direction folded. A
   local voice is picked from the service's own list and can be heard before
   it is chosen; a persona's page has the same picker, defaulting to this one.
-- **Transcription** is who transcribes, the language, and for a local service
+- **Transcription** is who transcribes; Off says a Whisper service or OpenAI
+  would let every chat be spoken to. Then the language, and for a local service
   which of its two shapes it is: OpenAI-compatible (speaches, whisper.cpp,
   LocalAI) or Wyoming, the one Home Assistant voice already runs. Hands-free
   listening and transcribing at natural pauses appear once something can
@@ -173,28 +194,37 @@ Voice:
   cuts a person off; keeping recordings is folded. Hands-free is a
   conversation, not a single turn: the microphone opens again after each
   reply (ADR 0044). The stored format is MP3 unless chosen otherwise, and its
-  hover names the formats that can start speaking early.
+  hover names the formats that can start speaking early. The address carries
+  an example and the connection check follows it. With nothing to transcribe,
+  a chat's talk button is "Set up talking", a link to this page.
 
 Pictures (the two generation pages moved over on 2026-09-03):
 
 - **Image Generation** is where pictures come from - Off, a local service on
-  this network, or OpenAI - then only what that choice reads: for a local
-  service which of its two APIs it speaks, its address, the model for
-  one-off pictures chosen from the catalog by name (a typed box only while
-  the catalog is empty, and a stored name the catalog lacks stays
-  selectable), and whether explicit prompts are allowed; then the shape,
-  and whether pictures arrive blurred in chat. The one line out loud is
-  readiness, the connection check sits under it, and the service login and
-  the tuning for one-off pictures are folded.
+  your network, or OpenAI. Off is that choice and one line: connect ComfyUI
+  on your network, or OpenAI. Chosen, it is only what that choice reads, in
+  the order it can be done: for a local service which of its two APIs it
+  speaks (ComfyUI first, and the default), its address with an example, the
+  connection check, then readiness as the one line out loud; OpenAI's key
+  where OpenAI is chosen; the model for one-off pictures chosen from the
+  catalog by name (a stored name the catalog lacks stays selectable), and
+  whether explicit prompts are allowed; then the shape, and whether pictures
+  arrive blurred in chat. With ComfyUI, the catalog's model finder sits
+  under the connection, and while the catalog is empty it replaces the box
+  for typing a filename. The service login and the tuning for one-off
+  pictures are folded.
 - **Video Generation** is Off or the same local ComfyUI, and the one line
   says what local video needs: a video model and a video workflow in Media
-  Catalog, paired as a recipe.
+  Catalog, paired as a recipe. Until pictures use ComfyUI, a "Pictures with
+  ComfyUI · Set up" row points there.
 - **Media Catalog** is four lists of plain things - models, recipes,
   workflows, LoRAs - each thing a chip that opens a page of its own at
   `#/settings/Media Catalog/<id>`, with two actions beside the workflows:
   add one (the paste box and the shipped graphs, on a page of their own) and
   identity control (the guided setup, likewise). The one line out loud is
-  whether pictures can be made at all. A model's page is unchanged; a
+  whether pictures can be made at all. Until pictures point at ComfyUI, that
+  line says the catalog is filled from ComfyUI, a "ComfyUI · Set up" row
+  links to Image Generation, and there is no finder that could only fail. A model's page is unchanged; a
   recipe's page is its name, the note that says when to use it (the one
   hint, until there is a note), whether it is offered, its model, its
   numbers and sizes, with wording, negatives, priority and the raw
@@ -209,21 +239,26 @@ Personas:
 
 - **Personas** is the people, each a chip with their picture or initials, and
   one page each: picture and name as the headline, model, whether the persona
-  may send pictures, which workspaces it is available in (only when there is
+  may send pictures, its voice, which workspaces it is available in (only when there is
   more than one), the face - one switch, "Looks like this photo", and the
   photos, with a line only when something needs a hand: add a photo, or
   install a workflow that can use one - the preferred recipes and the kept
   pictures under it, with comparison inside the face's own fold - then the
   Character card and Lorebook editors - each still
   with its own save, its cost meter and its preview - and free-form
-  instructions and deletion folded. The page saves itself; leaving with
-  unsaved changes asks. Instructions for a new persona sit under the list.
-- **Workspaces** is the default workspace, one line on what a workspace is,
-  and each workspace with its name editable in place.
+  instructions and deletion folded. With pictures off, the permission, the
+  face and the kept pictures are one "Pictures · Set up" row; with nothing to
+  speak, the voice is "Voice · Set up". The page has its own Save, and
+  leaving with unsaved changes asks. Instructions for a new persona sit under
+  the list.
+- **Workspaces** is one line on what a workspace is and each workspace with
+  its name editable in place; the default workspace is offered once there is
+  more than one to choose between.
 - **Your profile** is name, About you with the one visible reminder to keep it
-  short, timezone, and the OpenAI key folded.
+  short, timezone chosen from the zones the browser knows ("Match this
+  device" by default), and the OpenAI key folded.
 
-System:
+Advanced:
 
 - **Background models** is the roles - chat titles, summaries, memory
   proposals, capability planning - each a chip saying which model it uses or
@@ -234,9 +269,10 @@ System:
 - **GPU Coordination** is the mode, its save, timing and reserve folded, the
   one line that unknown capacity is never presented as free VRAM, and each
   provider endpoint as a row that opens to what it reports and two switches:
-  nothing else uses it, and only then, allow releasing its models. The
-  managed-mode warning stays in the flow because it changes another
-  service's state.
+  nothing else uses it, and only then, allow releasing its models. A service
+  nothing points at reads "Not in use" in grey rather than a red
+  "Unavailable". The managed-mode warning stays in the flow because it
+  changes another service's state.
 - **Data** is the backup and diagnostic actions, one line to verify an archive
   before relying on it, and each archive as a row with download, verify and
   delete.
@@ -330,5 +366,10 @@ right now in the platform's own words, and what it last made.
 There is no second copy of any of these values. Every control reads and writes
 the same settings object the settings page edits, which is the same one sent to
 `PUT /settings`, so the two surfaces cannot drift apart - there is nothing to
-drift. When a deployment forbids background production the switch is disabled
-and says so, rather than moving and being ignored.
+drift.
+
+A control here that cannot work yet is a "Set up" row instead: pictures and
+spoken replies each link to their page until something makes or speaks them.
+Overnight production is left out until pictures are on and the deployment
+allows it (`PREGENERATION_ENABLED`); a switch nobody on the page can turn on
+would only sit there disabled, which every fresh install used to show.

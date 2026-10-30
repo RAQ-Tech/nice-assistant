@@ -31,11 +31,19 @@ def normalize_local_image_base_url(base_url, default_base_url):
     return candidate.rstrip("/")
 
 
+LOCAL_IMAGE_BACKENDS = {"automatic1111", "comfyui"}
+# The local image service a new install assumes. ComfyUI, because the catalog,
+# recipes and identity work all speak it; Automatic1111 serves one-off pictures
+# only. `frontend/src/settings.ts` carries the same default, and
+# `tests/test_local_image_default.py` fails the build if the two drift.
+DEFAULT_LOCAL_IMAGE_BACKEND = "comfyui"
+
+
 def normalize_local_image_backend(value):
-    candidate = (value or "").strip().lower()
-    if candidate in {"automatic1111", "comfyui"}:
+    candidate = str(value or "").strip().lower()
+    if candidate in LOCAL_IMAGE_BACKENDS:
         return candidate
-    return "automatic1111"
+    return DEFAULT_LOCAL_IMAGE_BACKEND
 
 
 def _coerce_number(value, default, cast_type=float):

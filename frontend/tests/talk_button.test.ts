@@ -28,15 +28,23 @@ describe('Where a recording goes', () => {
     expect(node.querySelector('[data-testid="talk-button"]')).not.toBeNull();
   });
 
-  it('says nothing when transcription is off', () => {
+  it('leads to setting talking up when nothing can transcribe', () => {
     withSettings({ stt_provider: 'disabled' });
+    const recording = fakeRecording();
 
-    const node = talkButton(false, () => undefined, fakeRecording());
+    const node = talkButton(false, () => undefined, recording);
 
     expect(transcriptionDestination()).toBeNull();
     // Nothing is being sent anywhere, so a warning would be noise.
     expect(node.querySelector('[data-testid="talk-destination"]')).toBeNull();
-    expect((node as HTMLButtonElement).dataset.testid).toBe('talk-button');
+    // "Hold to Talk" here used to end in a red error in the conversation.
+    // It is a link to the page that makes it work instead, and never records.
+    expect(node.tagName).toBe('A');
+    expect(node.dataset.testid).toBe('talk-setup');
+    expect(node.getAttribute('href')).toBe('#/settings/STT');
+    expect(node.textContent).toBe('Set up talking');
+    node.click();
+    expect(recording.start).not.toHaveBeenCalled();
   });
 
   it('says nothing once transcription happens on this machine', () => {

@@ -548,6 +548,29 @@ What is left is the password manager in a real browser profile, item 20 in
 section 4. The voice choice and the greeting the plan also promised followed as
 1P.
 
+### 1Q. Settings a first-time user can find their way through - delivered 2026-10-29
+
+Asked for by the owner, after a walk through a fresh install found that every
+feature that starts off was a dead end. See
+[ADR 0053](docs/decisions/0053-settings-for-a-first-time-user.md) and
+`docs/settings-experience.md`.
+
+- A control that cannot work yet is a "Set up" link to the page that makes it
+  work: the talk button, spoken replies and pictures on the homepage, General
+  page and persona page. Overnight pictures stays away until pictures exist and
+  the deployment allows them.
+- A page whose feature is off says once what it needs. Switched on, it reads in
+  the order it can be done: the service, its address with an example, Test
+  under it, then what needs it. OpenAI's key is asked for where OpenAI is chosen.
+- ComfyUI is the local image service a new install assumes, and its model
+  finder sits under the connection.
+- Everyday settings save as they change; a page about one thing keeps its Save.
+- On a phone, settings is a list and then a page. "System" is "Advanced".
+- A new account's first load no longer answers picture readiness with a 500.
+
+What is left is the same walk on real hardware with real voice and picture
+services, item 23 in section 4.
+
 ### 1P. The persona speaks first - delivered 2026-10-29
 
 The two promises of the first-run plan that 1L did not keep. See
@@ -861,6 +884,16 @@ than from a checklist, and to exercise preset routing on the way.
     greets you first in a sentence or two of its own, in the voice chosen, the
     sample and the greeting sound alike, and the next reply answers what you
     said rather than the request to greet. Source: ADR 0052.
+23. **Setting voice and pictures up from nothing, on the deployment.** Item 1Q
+    was walked on a real server with an empty data folder and a stand-in
+    Ollama; no speech or picture service was connected. On a fresh account
+    against the real services: from a chat, follow "Set up talking" and connect
+    the Wyoming service; follow the homepage's "Set up" for spoken replies and
+    connect Kokoro; connect ComfyUI on Image Generation and add two models from
+    the finder under it; then do the same on a phone, from the settings list.
+    **Done when** each feature works by following only what the pages say, no
+    page needed a second visit to take effect, and a reload shows every choice
+    still made. Source: ADR 0053.
 
 ## 5. Temporary by agreement
 

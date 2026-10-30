@@ -45,7 +45,7 @@ export const SETTINGS_DEFAULTS: Settings = {
   image_quality: 'none',
   image_local_allow_nsfw: false,
   civitai_lookup_skip_confirm: false,
-  image_local_backend: 'automatic1111',
+  image_local_backend: 'comfyui',
   image_local_base_url: '',
   image_local_api_auth: '',
   image_local_model: '',
@@ -98,13 +98,17 @@ export type SettingsSection = (typeof SETTINGS_SECTIONS)[number];
  * they speak are different subsystems to find either one. The section ids are
  * unchanged, so every deep link and test that names one still works; only the
  * wayfinding is new.
+ *
+ * The last group is "Advanced" rather than "System": background models, GPU
+ * coordination and backups are worth having and nothing a first conversation
+ * needs, and the name says so before anybody opens one.
  */
 export const SETTINGS_GROUPS: readonly { name: string; sections: readonly SettingsSection[] }[] = [
   { name: 'Conversation', sections: ['General', 'Models', 'Memory'] },
   { name: 'Voice', sections: ['TTS', 'STT'] },
   { name: 'Pictures', sections: ['Image Generation', 'Video Generation', 'Media Catalog'] },
   { name: 'Personas', sections: ['Personas', 'Workspaces', 'User'] },
-  { name: 'System', sections: ['Task Models', 'GPU Coordination', 'Data'] },
+  { name: 'Advanced', sections: ['Task Models', 'GPU Coordination', 'Data'] },
 ] as const;
 
 /** What the navigation calls a section. Ids stay; only the jargon goes. */

@@ -13,9 +13,11 @@ import {
   choiceField,
   leaveGuard,
   longField,
+  type OpenSection,
   pageHead,
   pageNav,
   saveButton,
+  setupRow,
   switchField,
   textField,
   thingList,
@@ -100,6 +102,7 @@ export class PersonaPageView {
     private readonly change: SettingChange,
     private readonly pictures: PersonaPicturesView | null = null,
     private readonly voices: VoicePicker | null = null,
+    private readonly open: OpenSection | undefined = undefined,
   ) {}
 
   /** The Personas page: everybody, and the way a new person arrives. */
@@ -172,14 +175,10 @@ export class PersonaPageView {
           persona.default_model = value || null;
           this.renderApp();
         }, { display: (value) => value || 'Automatic', hover: 'Overrides the default model for this persona only.', testId: 'persona-model' }),
-        switchField('Allowed to send pictures', persona.allow_image_sends !== false, (value) => {
-          persona.allow_image_sends = value;
-          this.renderApp();
-        }, { hover: 'Pictures asked for in conversation. Direct image actions stay available either way.', testId: 'persona-pictures' }),
+        ...this.pictureRows(persona),
         this.voiceRow(persona),
         this.appState.workspaces.length > 1 ? this.workspaceRow(persona) : null,
-        this.face.node(persona),
-        this.pictures?.node(persona) ?? null,
+        ...(this.picturesOn() ? [this.face.node(persona), this.pictures?.node(persona) ?? null] : []),
         this.card.node(persona),
         this.lore.node(persona),
         advancedSettings('More options', 'Free-form instructions, and deleting this persona.', [
@@ -213,6 +212,25 @@ export class PersonaPageView {
     void this.leave(persona, go);
   }
 
+  private picturesOn(): boolean {
+    return (this.appState.settings?.image_provider ?? 'disabled') !== 'disabled';
+  }
+
+  /**
+   * Whether this persona may send pictures, once anything can make them.
+   *
+   * With pictures off, the switch, the face and the kept pictures could only
+   * describe something that cannot happen, so the page says the one thing
+   * that matters - not set up - and links to where it is.
+   */
+  private pictureRows(persona: Persona): HTMLElement[] {
+    if (!this.picturesOn()) return [setupRow('Pictures', 'Image Generation', 'persona-pictures-setup', this.open, 'Nothing makes pictures yet.')];
+    return [switchField('Allowed to send pictures', persona.allow_image_sends !== false, (value) => {
+      persona.allow_image_sends = value;
+      this.renderApp();
+    }, { hover: 'Pictures asked for in conversation. Direct image actions stay available either way.', testId: 'persona-pictures' })];
+  }
+
   /**
    * The persona's own voice, for the speech service in use.
    *
@@ -222,7 +240,8 @@ export class PersonaPageView {
   private voiceRow(persona: Persona): HTMLElement | null {
     const settings = this.appState.settings;
     const provider = settings?.tts_provider ?? 'disabled';
-    if (!settings || provider === 'disabled') return null;
+    if (!settings) return null;
+    if (provider === 'disabled') return setupRow('Voice', 'TTS', 'persona-voice-setup', this.open, 'Nothing speaks replies yet.');
     const usual = provider === 'local' ? settings.tts_voice_local : settings.tts_voice_openai;
     const value = persona.voice_preferences?.[provider]?.voice ?? '';
     const change = (voice: string) => {

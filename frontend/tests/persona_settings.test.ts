@@ -50,14 +50,15 @@ describe('the persona list', () => {
     const node = view.node();
     expect(node.querySelectorAll('.thing-open')).toHaveLength(2);
     expect(node.querySelectorAll('.info-tip-trigger')).toHaveLength(0);
-    expect(node.querySelector('[data-testid="settings-save"]')).not.toBeNull();
+    // A reset button over a list of people read as though it reset the people.
+    expect(node.querySelector('[data-testid="settings-reset"]')).toBeNull();
     (node.querySelector('[data-testid="persona-open-scout"]') as HTMLButtonElement).click();
 
     expect(appState.settingsItem).toBe('scout');
     const page = view.node();
     expect((page.querySelector('[data-testid="persona-page-name"]') as HTMLInputElement).value).toBe('Scout');
-    // The page saves itself, so the header's Save has nothing to write here.
-    expect(page.querySelector('[data-testid="settings-save"]')).toBeNull();
+    // A persona's own page keeps its Save, and asks before leaving unsaved.
+    expect(page.querySelector('[data-testid="persona-save"]')).not.toBeNull();
   });
 });
 
@@ -76,9 +77,24 @@ describe('a persona page', () => {
     expect(render).toHaveBeenCalled();
   });
 
+  it('offers to set pictures and a voice up, rather than switches that cannot do anything yet', () => {
+    const appState = configuredState();
+    appState.settingsItem = 'guide';
+    const view = new SettingsView(vi.fn(), vi.fn(), dialogs(), appState, {} as ApiClient);
+    const node = view.node();
+
+    // With nothing to make pictures, the permission, the face and the kept
+    // pictures could only describe something that cannot happen.
+    expect(node.textContent).not.toContain('Allowed to send pictures');
+    expect(node.querySelector('[data-testid="persona-face-switch"]')).toBeNull();
+    expect(node.querySelector('[data-testid="persona-pictures-setup-link"]')?.getAttribute('href')).toBe('#/settings/Image%20Generation');
+    expect(node.querySelector('[data-testid="persona-voice-setup-link"]')?.getAttribute('href')).toBe('#/settings/TTS');
+  });
+
   it('persists the per-persona image permission independently of direct image actions', async () => {
     const appState = configuredState();
     appState.settingsItem = 'guide';
+    (appState.settings as NonNullable<typeof appState.settings>).image_provider = 'local';
     const updatePersona = vi.fn().mockImplementation((id: string, input: PersonaInput) =>
       Promise.resolve({ ...persona(), ...input, id }),
     );
