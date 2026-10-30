@@ -11,6 +11,7 @@ import json
 import secrets
 
 from sqlalchemy import delete, func, select, update
+from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session as OrmSession
 
@@ -54,18 +55,24 @@ class MediaRepository:
         row = self.session.get(MediaCatalogSetting, user_id)
         if row:
             return row
+        # A new account's first page load asks for the catalog and for picture
+        # readiness at once, and both found no row and both inserted one; the
+        # second failed the unique key and answered 500. Inserting only when
+        # absent, then reading whichever row won, makes the pair safe.
         stamp = now_ts()
-        row = MediaCatalogSetting(
-            user_id=user_id,
-            vram_budget_mb=10240,
-            max_loras=4,
-            legacy_imported=0,
-            created_at=stamp,
-            updated_at=stamp,
+        self.session.execute(
+            sqlite_insert(MediaCatalogSetting)
+            .values(
+                user_id=user_id,
+                vram_budget_mb=10240,
+                max_loras=4,
+                legacy_imported=0,
+                created_at=stamp,
+                updated_at=stamp,
+            )
+            .on_conflict_do_nothing(index_elements=["user_id"])
         )
-        self.session.add(row)
-        self.session.flush()
-        return row
+        return self.session.get(MediaCatalogSetting, user_id, populate_existing=True)
 
     def save_media_catalog_setting(self, user_id: str, values: dict):
         row = self.media_catalog_setting(user_id)
