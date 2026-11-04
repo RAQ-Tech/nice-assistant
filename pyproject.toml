@@ -1,5 +1,5 @@
 [build-system]
-requires = ["setuptools>=80,<85"]
+requires = ["setuptools>=80"]
 build-backend = "setuptools.build_meta"
 
 [project]
@@ -7,20 +7,20 @@ name = "nice-assistant"
 version = "0.1.0"
 description = "Private-LAN, voice-first assistant"
 readme = "README.md"
-requires-python = ">=3.11"
+requires-python = ">=3.15"
 dependencies = [
   "alembic==1.20.1",
   "cryptography==50.0.2",
   "fastapi==0.162.0",
   "Pillow==13.0.0",
   "python-multipart==0.0.33",
-  "SQLAlchemy==2.1.6",
+  "SQLAlchemy==2.1.8",
   "uvicorn==0.54.0",
 ]
 
 [project.optional-dependencies]
 dev = [
-  "coverage==7.17.0",
+  "coverage==7.17.1",
   "httpx==0.28.1",
   "mypy==2.4.1",
   "ruff==0.17.3",
@@ -33,7 +33,7 @@ include = ["app*", "migrations*", "web*"]
 web = ["*.css", "*.html", "*.js", "*.svg", "*.webmanifest", "icons/*.png"]
 
 [tool.ruff]
-target-version = "py311"
+target-version = "py315"
 line-length = 120
 
 [tool.ruff.lint]
@@ -58,7 +58,7 @@ max-complexity = 15
 # inside. Most of what this found was a dictionary whose type was inferred from
 # its first value, or an optional value used where only the code's own logic -
 # not anything the checker could see - said it was present.
-python_version = "3.11"
+python_version = "3.15"
 files = ["app"]
 # Said once here rather than as a note on every such function.
 disable_error_code = ["annotation-unchecked"]

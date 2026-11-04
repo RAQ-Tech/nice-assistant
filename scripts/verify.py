@@ -36,7 +36,7 @@ def main() -> int:
 
     npm = shutil.which("npm.cmd" if os.name == "nt" else "npm")
     if not npm:
-        raise SystemExit("npm is required; install Node.js 24 or newer")
+        raise SystemExit("npm is required; install Node.js 26 or newer")
     run("Browser typecheck", [npm, "run", "frontend:typecheck"], env)
     run("Browser unit tests", [npm, "run", "frontend:test"], env)
     run("Browser production build", [npm, "run", "frontend:build"], env)

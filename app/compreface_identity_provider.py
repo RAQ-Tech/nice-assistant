@@ -67,7 +67,7 @@ class CompreFaceIdentityProvider:
             else:
                 status = ProviderStatus.UNAVAILABLE
                 message = "CompreFace verification endpoint is unavailable."
-        except (OSError, URLError, ValueError):
+        except OSError, URLError, ValueError:
             status = ProviderStatus.UNAVAILABLE
             message = "CompreFace verification endpoint is unavailable."
         return ProviderHealth(self.name, status, message, int((time.monotonic() - started) * 1000))
@@ -161,7 +161,7 @@ class CompreFaceIdentityProvider:
                 for match in matches:
                     try:
                         similarities.append(float(match.get("similarity")))
-                    except (AttributeError, TypeError, ValueError):
+                    except AttributeError, TypeError, ValueError:
                         continue
         if not similarities:
             raise self._provider_error(422)

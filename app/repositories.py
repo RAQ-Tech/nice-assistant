@@ -142,12 +142,12 @@ class ApplicationRepository(MediaRepository):
             for value in values:
                 try:
                     preferences[value.key] = json.loads(value.value_json)
-                except (TypeError, ValueError):
+                except TypeError, ValueError:
                     continue
         else:
             try:
                 preferences = json.loads(row.preferences_json or "{}")
-            except (TypeError, ValueError):
+            except TypeError, ValueError:
                 preferences = {}
         api_key = row.openai_api_key or ""
         if row.openai_api_key_encrypted:

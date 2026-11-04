@@ -27,7 +27,7 @@ a conversation is happening. `voice_picker.ts` lists the speech service's voices
 and plays a kept sample of each (ADR 0051). `frontend/public` holds the web app manifest, the
 app icons, and a service worker that caches only `offline.html`.
 
-Use Node.js 24 and the pinned lockfile:
+Use Node.js 26 (the version the `Dockerfile` builds with) and the pinned lockfile:
 
 ```bash
 npm ci

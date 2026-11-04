@@ -271,7 +271,7 @@ class SceneBacklogService:
             row = rows[0]
             try:
                 scene = json.loads(row.scene_json or "{}")
-            except (TypeError, ValueError):
+            except TypeError, ValueError:
                 scene = {}
             prompt = scene_summary(scene)
             if not prompt:
@@ -350,7 +350,7 @@ class SceneBacklogService:
     def _public(row) -> dict:
         try:
             scene = json.loads(row.scene_json or "{}")
-        except (TypeError, ValueError):
+        except TypeError, ValueError:
             scene = {}
         return {
             "id": row.id,

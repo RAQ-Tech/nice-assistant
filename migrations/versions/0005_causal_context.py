@@ -119,7 +119,7 @@ def upgrade():
     for user_id, raw in rows:
         try:
             preferences = json.loads(raw or "{}")
-        except (TypeError, ValueError):
+        except TypeError, ValueError:
             continue
         if isinstance(preferences, dict) and "memory_auto_save_user_facts" in preferences:
             preferences.pop("memory_auto_save_user_facts", None)

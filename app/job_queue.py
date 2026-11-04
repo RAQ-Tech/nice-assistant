@@ -110,7 +110,7 @@ class JobQueue:
             for lane, count in worker_counts.items():
                 try:
                     normalized[lane] = max(0, int(count))
-                except (TypeError, ValueError):
+                except TypeError, ValueError:
                     normalized[lane] = 0
         if not any(count > 0 for count in normalized.values()):
             normalized["interactive"] = 1

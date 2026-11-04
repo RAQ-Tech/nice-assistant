@@ -34,3 +34,11 @@ updates:
     directory: "/"
     schedule:
       interval: "monthly"
+
+  # The Python and Node.js base images. CI reads its runtime versions from the
+  # same FROM lines, so one of these pull requests moves the image and CI together.
+  - package-ecosystem: "docker"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 5

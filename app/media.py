@@ -49,7 +49,7 @@ def normalize_local_image_backend(value):
 def _coerce_number(value, default, cast_type=float):
     try:
         return cast_type(value)
-    except (TypeError, ValueError):
+    except TypeError, ValueError:
         return default
 
 

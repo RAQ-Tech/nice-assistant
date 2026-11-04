@@ -86,7 +86,7 @@ def _json_object(value):
         return {}
     try:
         parsed = json.loads(value)
-    except (TypeError, ValueError):
+    except TypeError, ValueError:
         return {}
     return parsed if isinstance(parsed, dict) else {}
 
@@ -100,7 +100,7 @@ def _contained_generated_media_path(data_dir: Path, kind: str, local_path: str |
         candidate.relative_to(root)
         if not candidate.is_file() or candidate.stat().st_size <= 0:
             return None
-    except (OSError, ValueError):
+    except OSError, ValueError:
         return None
     return candidate
 

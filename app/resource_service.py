@@ -77,7 +77,7 @@ def workspace_response(row) -> dict:
 def persona_response(repo, row, budget: CardBudget) -> dict:
     try:
         traits = json.loads(row.traits_json or "{}")
-    except (TypeError, ValueError):
+    except TypeError, ValueError:
         traits = {}
     authored, included, example_tokens = example_dialogue_fit(
         getattr(row, "card_example_dialogue", None), row.name, budget

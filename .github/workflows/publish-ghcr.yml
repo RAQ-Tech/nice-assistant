@@ -39,17 +39,34 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v7
 
+      # The image is what ships, so its FROM lines are the one place these
+      # versions are written: a Dependabot base-image bump moves CI with it.
+      - name: Read runtime versions from the Dockerfile
+        id: runtime
+        shell: bash
+        run: |
+          set -euo pipefail
+          python=$(sed -nE 's/^FROM python:([0-9]+(\.[0-9]+)*).*/\1/p' Dockerfile)
+          node=$(sed -nE 's/^FROM node:([0-9]+(\.[0-9]+)*).*/\1/p' Dockerfile)
+          if [[ ! "$python" =~ ^[0-9]+(\.[0-9]+)+$ || ! "$node" =~ ^[0-9]+(\.[0-9]+)*$ ]]; then
+            echo "::error file=Dockerfile::expected one python and one node FROM line with a numeric tag"
+            exit 1
+          fi
+          echo "Python $python and Node.js $node, from the Dockerfile"
+          echo "python=$python" >> "$GITHUB_OUTPUT"
+          echo "node=$node" >> "$GITHUB_OUTPUT"
+
       - name: Set up Python
         uses: actions/setup-python@v7
         with:
-          python-version: "3.11"
+          python-version: ${{ steps.runtime.outputs.python }}
           cache: pip
           cache-dependency-path: pyproject.toml
 
       - name: Set up Node.js
         uses: actions/setup-node@v7
         with:
-          node-version: "24"
+          node-version: ${{ steps.runtime.outputs.node }}
           cache: npm
 
       - name: Cache Playwright browsers

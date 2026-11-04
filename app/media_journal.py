@@ -151,7 +151,7 @@ def encode_detail(value) -> str:
 def decode_detail(value: str | None) -> dict:
     try:
         parsed = json.loads(value or "{}")
-    except (TypeError, ValueError):
+    except TypeError, ValueError:
         return {}
     return parsed if isinstance(parsed, dict) else {"value": parsed}
 
@@ -159,7 +159,7 @@ def decode_detail(value: str | None) -> dict:
 def _duration(milliseconds) -> str:
     try:
         value = int(milliseconds)
-    except (TypeError, ValueError):
+    except TypeError, ValueError:
         return "unknown"
     if value < 1000:
         return f"{value} ms"

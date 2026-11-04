@@ -1,11 +1,11 @@
-FROM node:24.15-alpine AS browser-build
+FROM node:26.13-alpine AS browser-build
 
 WORKDIR /src
 COPY package.json package-lock.json tsconfig.json vite.config.ts ./
 COPY frontend ./frontend
 RUN npm ci && npm run frontend:build
 
-FROM python:3.11-slim
+FROM python:3.15-slim
 
 RUN apt-get update && apt-get install -y --no-install-recommends ffmpeg && rm -rf /var/lib/apt/lists/*
 

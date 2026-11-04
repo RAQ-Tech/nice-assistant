@@ -70,7 +70,7 @@ def provider_get_json(url, headers=None, timeout=10, max_bytes=None):
             if content_length:
                 try:
                     declared_length = int(content_length)
-                except (TypeError, ValueError):
+                except TypeError, ValueError:
                     declared_length = None
                 if declared_length is not None and declared_length > limit:
                     raise ValueError("Provider response exceeds the configured size limit.")

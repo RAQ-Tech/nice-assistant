@@ -520,7 +520,7 @@ class TaskModelService:
     def _run_response(row) -> dict:
         try:
             attempts = json.loads(row.attempts_json or "[]")
-        except (TypeError, ValueError):
+        except TypeError, ValueError:
             attempts = []
         return {
             "id": row.id,

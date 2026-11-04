@@ -155,7 +155,7 @@ class BackupStore:
                     resolved = path.resolve()
                     resolved.relative_to(root_resolved)
                     rel = path.relative_to(root)
-                except (OSError, ValueError):
+                except OSError, ValueError:
                     continue
                 archive_name = Path("data") / label / rel
                 yield path, archive_name.as_posix()

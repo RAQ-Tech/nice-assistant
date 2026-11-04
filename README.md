@@ -272,7 +272,8 @@ docker run --name nice-assistant -p 3000:3000 \
 
 This project is served by `app.asgi`; Docker is the deployment runtime. Browser
 source lives in `frontend/src` and is built by Vite into packageable files under
-`web`. Node.js 24 and Python 3.11+ are required for development verification.
+`web`. Node.js 26 and Python 3.15 are required for development verification;
+CI reads both versions from the `Dockerfile`, so they match the image.
 
 Install browser and Python verification dependencies:
 

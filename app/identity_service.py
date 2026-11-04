@@ -37,7 +37,7 @@ def _is_masked(value: str | None) -> bool:
 def _json_list(value: str | None) -> list:
     try:
         parsed = json.loads(value or "[]")
-    except (TypeError, ValueError):
+    except TypeError, ValueError:
         return []
     return parsed if isinstance(parsed, list) else []
 
@@ -45,7 +45,7 @@ def _json_list(value: str | None) -> list:
 def _json_object(value: str | None) -> dict:
     try:
         parsed = json.loads(value or "{}")
-    except (TypeError, ValueError):
+    except TypeError, ValueError:
         return {}
     return parsed if isinstance(parsed, dict) else {}
 
@@ -718,7 +718,7 @@ class IdentityService:
                 if plan:
                     try:
                         snapshot = json.loads(plan.identity_conditioning_json or "{}")
-                    except (TypeError, ValueError):
+                    except TypeError, ValueError:
                         snapshot = {}
             validation = uow.repo.latest_media_identity_validation(user_id, media_id)
             if media.generation_plan_id and plan:

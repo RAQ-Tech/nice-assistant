@@ -30,7 +30,7 @@ browser route is not acceptance evidence for those.
 Most items carry their own **Done when** list. Those criteria are in addition to
 the verifier, never instead of it.
 
-Last full verifier run: passed, 2026-10-29.
+Last full verifier run: passed, 2026-11-04 (see 1R for the Windows smoke note).
 
 ## Status vocabulary
 
@@ -547,6 +547,38 @@ Batch 4 of the same review: the first five minutes. See
 What is left is the password manager in a real browser profile, item 20 in
 section 4. The voice choice and the greeting the plan also promised followed as
 1P.
+
+### 1R. Current runtimes - delivered 2026-11-04
+
+The owner's rule of 2026-11-04: use the latest stable release unless a reason
+for holding back is recorded. None was recorded for any of these.
+
+- The image runs Python 3.15 (was 3.11) and builds the browser bundle on
+  Node.js 26.13 (was 24.15). CI reads both versions from the `Dockerfile`
+  instead of naming its own, and Dependabot now watches the base images, so
+  one update moves the image and CI together.
+- The linter and the type checker target 3.15 too. At that target the pinned
+  formatter writes `except A, B:` without parentheses, which Python before 3.14
+  cannot parse, so `requires-python` is `>=3.15`, the only version anything
+  verifies. One `map()` now says `strict=True`; its lengths were already
+  checked equal.
+- SQLAlchemy 2.1.8, coverage 7.17.1 and Vitest 5.1.0 are the latest releases.
+  The `<85` cap on setuptools had no reason and is gone.
+- Nothing was held back. On Python 3.15.2 and Node.js 26.13.0 every verifier
+  stage passed: 446 browser unit tests, 1035 unit/API tests at 85% coverage,
+  the process smoke, 53 browser journeys and the human-experience scenarios.
+  The built bundle is byte-for-byte what Node.js 24 built.
+
+Found on the way, and not caused by the move: on Windows the process smoke
+fails while removing its temporary folder when it is run from a virtual
+environment, on 3.14 as on 3.15. It stops the environment's `python.exe`
+launcher, and the interpreter that launcher started still has `events.log`
+open for a moment. Run with the base interpreter it passes. CI and the image
+run on Linux, where the launcher does not exist.
+
+What is left is the container smoke, `scripts/container_smoke_check.ps1`, on
+the new image. It needs Docker and is not part of CI, which only builds the
+image.
 
 ### 1Q. Settings a first-time user can find their way through - delivered 2026-10-29
 

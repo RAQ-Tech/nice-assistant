@@ -23,7 +23,7 @@ def _json_object(value: str | None) -> dict:
         return {}
     try:
         parsed = json.loads(value)
-    except (TypeError, ValueError):
+    except TypeError, ValueError:
         return {}
     return parsed if isinstance(parsed, dict) else {}
 
@@ -62,7 +62,7 @@ def _media_row(connection, *, media_id: str | None, user_id: str, chat_id: str, 
         candidate.relative_to(root)
         if not candidate.is_file() or candidate.stat().st_size <= 0:
             return None
-    except (OSError, ValueError):
+    except OSError, ValueError:
         return None
     return row
 
@@ -773,7 +773,7 @@ def _repair_generated_media_permissions(connection) -> None:
             if not candidate.is_file() or candidate.stat().st_size <= 0:
                 continue
             os.chmod(candidate, 0o644)
-        except (KeyError, OSError, TypeError, ValueError):
+        except KeyError, OSError, TypeError, ValueError:
             continue
 
 

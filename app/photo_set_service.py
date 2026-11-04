@@ -207,6 +207,6 @@ class PhotoSetService:
 def _json(value, default):
     try:
         parsed = json.loads(value or "")
-    except (TypeError, ValueError):
+    except TypeError, ValueError:
         return default
     return parsed if isinstance(parsed, type(default)) else default

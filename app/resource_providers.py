@@ -54,7 +54,7 @@ def _mb(value) -> int | None:
         return None
     try:
         return max(0, int(value) // (1024 * 1024))
-    except (TypeError, ValueError):
+    except TypeError, ValueError:
         return None
 
 

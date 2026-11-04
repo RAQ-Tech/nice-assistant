@@ -123,7 +123,7 @@ def _prompt_budget_tokens(context_window_tokens: int, policy: ContextPolicy) -> 
 def _integer_setting(value, default: int) -> int:
     try:
         return int(value)
-    except (TypeError, ValueError):
+    except TypeError, ValueError:
         return int(default)
 
 

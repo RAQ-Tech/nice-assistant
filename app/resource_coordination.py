@@ -335,7 +335,7 @@ class ResourceCoordinator:
             for row in rows:
                 try:
                     detail = json.loads(row.detail_json or "{}")
-                except (TypeError, ValueError):
+                except TypeError, ValueError:
                     detail = {}
                 result.append(
                     {

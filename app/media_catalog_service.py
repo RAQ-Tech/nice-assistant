@@ -88,7 +88,7 @@ def needs_binding_review(row) -> bool:
 def _json(value: str | None, fallback):
     try:
         parsed = json.loads(value or "")
-    except (TypeError, ValueError):
+    except TypeError, ValueError:
         return fallback
     return parsed
 

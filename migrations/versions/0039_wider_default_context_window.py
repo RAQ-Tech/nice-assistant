@@ -52,7 +52,7 @@ def upgrade():
             continue
         try:
             current = int(str(stored).strip())
-        except (TypeError, ValueError):
+        except TypeError, ValueError:
             continue
         if current != OLD_DEFAULT:
             # A deliberate choice. Not this migration's business.

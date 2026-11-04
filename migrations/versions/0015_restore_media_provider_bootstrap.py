@@ -21,7 +21,7 @@ def _preferences(connection) -> dict[str, dict]:
     for user_id, raw in connection.execute(sa.text("SELECT user_id,preferences_json FROM app_settings")):
         try:
             value = json.loads(raw or "{}")
-        except (TypeError, ValueError):
+        except TypeError, ValueError:
             value = {}
         result[user_id] = value if isinstance(value, dict) else {}
     typed = {}
@@ -30,7 +30,7 @@ def _preferences(connection) -> dict[str, dict]:
     ):
         try:
             typed.setdefault(user_id, {})[key] = json.loads(raw)
-        except (TypeError, ValueError):
+        except TypeError, ValueError:
             continue
     result.update(typed)
     return result

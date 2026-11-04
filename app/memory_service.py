@@ -494,7 +494,7 @@ class MemoryService:
                     raise ConflictError("There is no memory action to undo.")
                 try:
                     snapshot = json.loads(event.snapshot_json or "{}")
-                except (TypeError, ValueError):
+                except TypeError, ValueError:
                     snapshot = {}
                 stamp = now_ts()
                 if event.action == "edited":
@@ -632,7 +632,7 @@ class MemoryService:
                 scope, scope_id = ("persona", persona_id) if persona_id else ("chat", chat_id)
                 try:
                     scope_id = repo.validate_memory_scope(user_id, scope, scope_id)
-                except (LookupError, ValueError):
+                except LookupError, ValueError:
                     scope, scope_id = "chat", chat_id
                 normalized = normalize_memory_content(candidate["content"])
                 if repo.live_memory_duplicate(user_id, scope, scope_id, normalized):

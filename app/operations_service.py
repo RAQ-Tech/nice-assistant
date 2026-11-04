@@ -168,7 +168,7 @@ class OperationsService:
             database_uri = f"{self.config.database_path.resolve().as_uri()}?mode=ro"
             with closing(sqlite3.connect(database_uri, timeout=2, uri=True)) as connection:
                 database_ok = bool(connection.execute("SELECT version_num FROM alembic_version").fetchone())
-        except (OSError, sqlite3.Error):
+        except OSError, sqlite3.Error:
             database_ok = False
         storage = self.storage_report()
         storage_ok = storage["free_bytes"] >= self.config.minimum_free_storage_bytes

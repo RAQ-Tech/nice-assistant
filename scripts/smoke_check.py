@@ -43,7 +43,7 @@ class _FakeOllamaHandler(BaseHTTPRequestHandler):
         self.end_headers()
         try:
             self.wfile.write(body)
-        except (BrokenPipeError, ConnectionResetError):
+        except BrokenPipeError, ConnectionResetError:
             pass
 
     def do_GET(self):  # noqa: N802 - stdlib handler contract

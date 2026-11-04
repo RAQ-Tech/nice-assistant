@@ -282,7 +282,7 @@ class MediaLibraryService:
     def _public(row) -> dict:
         try:
             scene = json.loads(row.scene_json or "{}")
-        except (TypeError, ValueError):
+        except TypeError, ValueError:
             scene = {}
         return {
             "id": row.id,

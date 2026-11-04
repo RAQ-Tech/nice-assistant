@@ -87,7 +87,7 @@ def similarity(left, right) -> float:
 
     if not left or not right or len(left) != len(right):
         return 0.0
-    return float(sum(map(mul, left, right)))
+    return float(sum(map(mul, left, right, strict=True)))
 
 
 def rank(

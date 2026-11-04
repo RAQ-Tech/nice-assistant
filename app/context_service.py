@@ -980,7 +980,7 @@ class ContextService:
     def _integer_setting(value, default):
         try:
             return int(value)
-        except (TypeError, ValueError):
+        except TypeError, ValueError:
             return int(default)
 
     @staticmethod

@@ -71,7 +71,7 @@ def parse_model_options(payload_settings):
             continue
         try:
             options[key] = caster(val)
-        except (TypeError, ValueError):
+        except TypeError, ValueError:
             continue
     return options
 
@@ -90,7 +90,7 @@ def parse_traits(raw_traits):
         }
     try:
         parsed = json.loads(raw_traits) if isinstance(raw_traits, str) else dict(raw_traits)
-    except (TypeError, ValueError):
+    except TypeError, ValueError:
         parsed = {}
     return {
         "warmth": int(parsed.get("warmth", 50)),

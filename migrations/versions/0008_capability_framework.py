@@ -19,7 +19,7 @@ def upgrade():
     for user_id, raw_preferences in connection.execute(sa.text("SELECT user_id,preferences_json FROM app_settings")):
         try:
             preferences = json.loads(raw_preferences or "{}")
-        except (TypeError, ValueError):
+        except TypeError, ValueError:
             continue
         if not isinstance(preferences, dict) or "image_prompt_generation" not in preferences:
             continue

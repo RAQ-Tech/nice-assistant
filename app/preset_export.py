@@ -153,6 +153,6 @@ def _json_list(value) -> list:
 
     try:
         parsed = json.loads(value or "[]")
-    except (TypeError, ValueError):
+    except TypeError, ValueError:
         return []
     return parsed if isinstance(parsed, list) else []

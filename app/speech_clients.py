@@ -73,7 +73,7 @@ DEFAULT_STT_MODEL = "whisper-1"
 def normalize_tts_speed(speed) -> float:
     try:
         parsed = float(speed)
-    except (TypeError, ValueError):
+    except TypeError, ValueError:
         return 1.0
     return min(4.0, max(0.25, parsed))
 

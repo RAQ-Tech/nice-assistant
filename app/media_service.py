@@ -28,7 +28,7 @@ def _decode(value):
 
     try:
         return json.loads(value or "null")
-    except (TypeError, ValueError):
+    except TypeError, ValueError:
         return None
 
 

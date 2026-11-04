@@ -64,7 +64,7 @@ def _migrate_preferences(bind):
     for user_id, raw in rows:
         try:
             values = json.loads(raw or "{}")
-        except (TypeError, ValueError):
+        except TypeError, ValueError:
             values = {}
         if not isinstance(values, dict):
             continue

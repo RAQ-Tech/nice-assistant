@@ -76,7 +76,7 @@ def job_response(job, queue_position=None) -> dict:
     if job.result_json:
         try:
             result = json.loads(job.result_json)
-        except (TypeError, ValueError):
+        except TypeError, ValueError:
             result = None
     return {
         "id": job.id,

@@ -59,7 +59,7 @@ def normalize_media_preferences(value):
     if "stt_send_pause_ms" in preferences:
         try:
             pause = int(float(preferences.get("stt_send_pause_ms") or 0))
-        except (TypeError, ValueError):
+        except TypeError, ValueError:
             pause = 0
         preferences["stt_send_pause_ms"] = pause if 300 <= pause <= 5000 else 900
     return preferences

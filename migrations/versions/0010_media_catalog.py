@@ -249,7 +249,7 @@ def upgrade():
     for user_id, raw_preferences in rows:
         try:
             preferences = json.loads(raw_preferences or "{}")
-        except (TypeError, ValueError):
+        except TypeError, ValueError:
             preferences = {}
         if not isinstance(preferences, dict):
             preferences = {}

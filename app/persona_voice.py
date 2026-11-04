@@ -48,7 +48,7 @@ def normalize(values) -> dict:
 def parse(raw) -> dict:
     try:
         return normalize(json.loads(raw or "{}"))
-    except (TypeError, ValueError):
+    except TypeError, ValueError:
         return {}
 
 

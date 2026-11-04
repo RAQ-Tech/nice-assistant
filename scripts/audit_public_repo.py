@@ -157,7 +157,7 @@ def audit_image(path: Path, relative_path: str) -> list[Finding]:
                 for key, value in image.getexif().items()
                 if value not in (None, "", b"")
             )
-    except (OSError, UnidentifiedImageError):
+    except OSError, UnidentifiedImageError:
         return []
     if metadata_names & SENSITIVE_IMAGE_METADATA:
         return [Finding(relative_path, 1, "sensitive-image-metadata")]

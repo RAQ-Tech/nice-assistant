@@ -44,7 +44,7 @@ def parse_keys(raw) -> tuple[str, ...]:
     if isinstance(raw, str):
         try:
             raw = json.loads(raw or "[]")
-        except (TypeError, ValueError):
+        except TypeError, ValueError:
             raw = []
     if not isinstance(raw, list):
         return ()

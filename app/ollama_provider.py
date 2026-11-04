@@ -78,7 +78,7 @@ class OllamaChatProvider:
                 if str(key).endswith(".context_length"):
                     try:
                         lengths.append(int(value))
-                    except (TypeError, ValueError):
+                    except TypeError, ValueError:
                         continue
             profile = ModelContextProfile(
                 self.name,

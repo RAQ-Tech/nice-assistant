@@ -43,7 +43,7 @@ def _json_object(value: str | None) -> dict:
         return {}
     try:
         parsed = json.loads(value)
-    except (TypeError, ValueError):
+    except TypeError, ValueError:
         return {}
     return parsed if isinstance(parsed, dict) else {}
 

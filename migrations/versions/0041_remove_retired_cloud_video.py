@@ -47,7 +47,7 @@ def upgrade() -> None:
         for row in bind.execute(sa.text("SELECT id, definition_json, notes FROM media_generation_presets")):
             try:
                 definition = json.loads(row.definition_json or "{}")
-            except (TypeError, ValueError):
+            except TypeError, ValueError:
                 definition = {}
             if not _contains_resource(definition, resource_ids):
                 continue
@@ -71,7 +71,7 @@ def upgrade() -> None:
     for row in bind.execute(sa.text("SELECT user_id, preferences_json FROM app_settings")):
         try:
             preferences = json.loads(row.preferences_json or "{}")
-        except (TypeError, ValueError):
+        except TypeError, ValueError:
             continue
         if not isinstance(preferences, dict):
             continue
