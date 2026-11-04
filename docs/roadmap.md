@@ -363,8 +363,8 @@ additional catalog breadth does not take priority over them.
     window the account has configured, and the rejection names the estimate, cap,
     prompt budget, and window. The editor prices each field as it is typed. It
     deliberately does not add example dialogue or lorebooks: those are separate
-    budgeted sections in `docs/persona-depth-spec.md` and remain gated by the
-    unresolved 8k-context-versus-VRAM question. See ADR 0026.
+    budgeted sections in `docs/persona-depth-spec.md`, delivered in steps 26
+    and 27. See ADR 0026.
 
 26. **Conversation history floor and persona example dialogue — delivered.**
     Conversation history now keeps a reserved share of the prompt budget. When the
@@ -387,6 +387,7 @@ additional catalog breadth does not take priority over them.
     `docs/persona-depth-spec.md`. It deliberately does not add semantic retrieval
     or workspace-shared entries. See ADR 0028.
 
-Steps are delivered and reviewed independently. Step 11 cannot select providers
-until a future listening decision is approved. Any future deployment acceptance
+Steps are delivered and reviewed independently. The provider question that
+step 11 left open was closed by the owner on 2026-09-02: Kokoro is the voice,
+with no fallback chain. Any future deployment acceptance
 must use the intended LAN hardware and service topology.

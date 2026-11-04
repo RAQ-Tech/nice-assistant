@@ -132,8 +132,10 @@ change that alters them.
   Ollama prompt counts are captured when the provider returns them.
 - Provider cancellation is cooperative; providers without interrupt support may
   finish work whose result is then discarded.
-- Memory retrieval is lexical FTS plus recency; semantic retrieval remains an
-  optional future interface rather than implied functionality.
+- Memory retrieval is lexical FTS plus recency, with matching by meaning added
+  behind it once a local embedding model is pulled (ADR 0039). Keyword matches
+  still rank first and weak matches by meaning are dropped. Without the model,
+  retrieval stays lexical.
 - Rejected/forgotten memory retention is durable and unbounded by default. An
   operator may set `MEMORY_DISCARD_RETENTION_DAYS` to expire them automatically;
   it stays off unless configured so an upgrade never deletes content a user only
@@ -204,38 +206,32 @@ change that alters them.
   debuggable behavior with no embedding model or extra service; the preview route
   exists to make the resulting authoring work tractable. Semantic matching remains
   an optional future interface rather than implied functionality.
-- Lore is persona-scoped. Sharing an entry across several personas in a workspace
-  means authoring it more than once until a sharing model is designed.
-- Multi-reference fusion and automatic mask creation. Identity-stage latency and
+- Lore is persona-scoped. An entry can be copied to another persona in the same
+  workspace in one action, but the copy is independent; there is no shared entry
+  that is edited in one place.
+- Automatic mask creation. Several reference photos are now used together
+  (BACKLOG 1F-4), but whether three improve the likeness needs the deployment
+  to show it. Identity-stage latency and
   capacity are unaccepted until the real verifier, consented references, and a
   compatible ComfyUI identity workflow are deployed; the completed Step 20 base
   media checks are not substitute evidence.
 
 ## Misleading or broken foundations
 
-- An operator-imported ComfyUI workflow cannot receive the request prompt. The
-  executor writes the positive prompt into node `"6"` and the negative into node
-  `"7"` of a fixed nine-node graph, then merges the operator's inline graph over
-  it. Bindings exist for identity, source, and mask images but not for prompt,
-  seed, or dimensions, so an imported graph either loses the prompt or renders
-  the text baked in at export. It still returns an image, so the failure is
-  silent. Fixed by the image generation program in `BACKLOG.md`; see ADR 0030.
-- Prompt construction for local backends is hardcoded and global: a fixed
-  quality prefix on every prompt and one negative string that varies only on the
-  NSFW toggle. This is wrong for checkpoint families that expect score or booru
-  tags and for those that support no negative prompt. See ADR 0030.
-- Capability planning sees only the current user message, so a request that
-  refers to something established earlier in the conversation cannot be routed
-  or described correctly. See ADR 0030.
+- Three foundations once listed here were fixed by Phase 1 of the image
+  generation program (BACKLOG 1A, ADR 0030). Imported ComfyUI workflows now
+  receive the prompt, negative prompt, seed and dimensions through declared
+  request bindings. Prompts follow a per-model dialect. Capability planning sees
+  a bounded window of recent messages, not just the current one.
 - Picture-to-words alignment is ranking over shared words, which is as crude as
   the library matching it sits beside. It only reorders candidates the user's
   own request already produced, so being wrong costs a less apt picture rather
   than an unrelated one. See ADR 0033.
-- Identity resemblance currently leans on generate-then-compare correction
-  (ADR 0013). That is a check standing in for a control: it spends latency
-  resampling and can reject every candidate, and it makes an optional service
-  load-bearing. ADR 0031 redirects resemblance to a declared structural
-  mechanism and demotes comparison to advisory measurement.
+- Identity resemblance now comes from a declared structural mechanism (ADR
+  0031), and comparison is advisory measurement. Generate-then-compare
+  resampling (ADR 0013) runs only when an operator switches it on for an
+  identity. Where it is on, it is still a check standing in for a control: it
+  adds resampling latency and can reject every candidate.
 - Login throttling and metrics are in-process because the supported deployment
   is one private-LAN application process. A future multi-replica/public design
   would require shared rate-limit and telemetry infrastructure and a new threat

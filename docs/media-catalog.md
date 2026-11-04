@@ -991,8 +991,8 @@ future identity/consent rules.
   `verified` means.
 - Live admission for catalog-planned local image generation is delivered in
   Step 18A. Direct manual actions and zero estimates bypass it truthfully.
-- Multi-reference fusion, automatic mask creation, and Task Model attachment
-  resolution remain future work. Live 12 GB performance tuning belongs to real
+- Automatic mask creation and Task Model attachment resolution remain future
+  work. Using several reference photos together is delivered (BACKLOG 1F-4). Live 12 GB performance tuning belongs to real
   deployment acceptance.
 - The legacy modeled-residency layer is deleted; coordination uses only real
   provider telemetry/control and explicit catalog estimates.
